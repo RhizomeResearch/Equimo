@@ -2,13 +2,48 @@
 
 from __future__ import annotations
 
+import equinox as eqx
+import jax.numpy as jnp
 import jax.random as jr
 import pytest
 
 import equimo.finetune as eqft
+from equimo.core.layers.dropout import DropPathAdd
 from equimo.finetune.vision import recipes as vision_recipes
 
 from fixtures import assert_tree_allclose
+
+
+class _StochasticBlock(eqx.Module):
+    proj: eqx.nn.Linear
+    drop_path: DropPathAdd
+    dropout: eqx.nn.Dropout
+
+    def __init__(self, *, key):
+        self.proj = eqx.nn.Linear(4, 4, key=key)
+        self.drop_path = DropPathAdd(0.25)
+        self.dropout = eqx.nn.Dropout(0.35)
+
+
+class _StochasticHead(eqx.Module):
+    linear: eqx.nn.Linear
+    drop_path: DropPathAdd
+    dropout: eqx.nn.Dropout
+
+    def __init__(self, *, key):
+        self.linear = eqx.nn.Linear(4, 2, key=key)
+        self.drop_path = DropPathAdd(0.45)
+        self.dropout = eqx.nn.Dropout(0.55)
+
+
+class _StochasticLPFTModel(eqx.Module):
+    block: _StochasticBlock
+    head: _StochasticHead
+
+    def __init__(self, *, key):
+        block_key, head_key = jr.split(key, 2)
+        self.block = _StochasticBlock(key=block_key)
+        self.head = _StochasticHead(key=head_key)
 
 
 def _head_weight_as_position_tagger(path, leaf):
@@ -16,6 +51,71 @@ def _head_weight_as_position_tagger(path, leaf):
     if path == ("head", "weight"):
         tags.add("embedding.position")
     return frozenset(tags)
+
+
+def test_lpft_stage1_plan_disables_non_head_stochastic_regularization():
+    model = _StochasticLPFTModel(key=jr.PRNGKey(0))
+    recipe = eqft.lpft()
+
+    plan = recipe.stage1_plan(model)
+    stage1_model = plan.combine()
+
+    assert stage1_model.block.drop_path.p == pytest.approx(0.0)
+    assert stage1_model.block.dropout.p == pytest.approx(0.0)
+    assert stage1_model.head.drop_path.p == pytest.approx(model.head.drop_path.p)
+    assert stage1_model.head.dropout.p == pytest.approx(model.head.dropout.p)
+    assert plan.trainable.head.linear.weight is not None
+    assert plan.trainable.block.proj.weight is None
+
+
+def test_lpft_stage1_policy_can_leave_stochastic_regularization_unchanged():
+    model = _StochasticLPFTModel(key=jr.PRNGKey(0))
+    recipe = eqft.lpft(
+        stage1_policy=eqft.StagePolicy(deterministic_frozen_backbone=False)
+    )
+
+    stage1_model = recipe.stage1_plan(model).combine()
+
+    assert stage1_model.block.drop_path.p == pytest.approx(model.block.drop_path.p)
+    assert stage1_model.block.dropout.p == pytest.approx(model.block.dropout.p)
+
+
+def test_lpft_stage2_transfers_head_and_restores_base_regularization():
+    model = _StochasticLPFTModel(key=jr.PRNGKey(0))
+    recipe = eqft.lpft(stage2_labels=eqft.LLRDConfig(decay=0.5))
+    stage1 = recipe.prepare_stage1(model)
+    trained_head = eqx.tree_at(
+        lambda head: head.linear.weight,
+        stage1.model.head,
+        stage1.model.head.linear.weight + 1.0,
+    )
+    trained_stage1_model = eqx.tree_at(
+        lambda stage_model: stage_model.head,
+        stage1.model,
+        trained_head,
+    )
+
+    stage2 = recipe.prepare_stage2(model, trained_stage1_model)
+    direct_stage2_plan = recipe.stage2_plan(stage2.model)
+
+    assert stage1.name == "stage1"
+    assert stage2.name == "stage2"
+    assert stage2.model.block.drop_path.p == pytest.approx(model.block.drop_path.p)
+    assert stage2.model.block.dropout.p == pytest.approx(model.block.dropout.p)
+    assert jnp.allclose(
+        stage2.model.head.linear.weight,
+        trained_stage1_model.head.linear.weight,
+    )
+    assert not jnp.allclose(stage2.model.head.linear.weight, model.head.linear.weight)
+    assert stage2.plan.group_specs == direct_stage2_plan.group_specs
+
+
+def test_lpft_stage1_noops_for_model_without_stochastic_regularization(
+    tiny_vision_transformer,
+):
+    stage1 = eqft.lpft().prepare_stage1(tiny_vision_transformer)
+
+    assert_tree_allclose(stage1.model, tiny_vision_transformer)
 
 
 def test_lpft_stage_transition_preserves_head(tiny_vision_transformer):

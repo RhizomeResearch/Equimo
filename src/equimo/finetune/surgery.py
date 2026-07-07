@@ -7,8 +7,11 @@ from typing import Any, Mapping
 import equinox as eqx
 import jax
 import jax.numpy as jnp
+import jax.tree_util as jtu
 
-from ._typing import PyTree
+from equimo.core.layers.dropout import DropPath, DropPathAdd
+
+from ._typing import Path, PyTree
 from .config import (
     AuxLossSpec,
     FeatureSpec,
@@ -23,6 +26,7 @@ from .config import (
 from .inspection import make_trainable_report
 from .labels import make_labeled_param_info_tree
 from .masks import make_trainable_filter, resolve_trainable_paths
+from .paths import is_path_prefix, key_path_to_path
 from .selectors import resolve_target
 from .tags import Tagger, canonical_tags_for_path
 
@@ -122,15 +126,7 @@ def replace_head(
 ) -> PyTree:
     """Return ``model`` with one selected head module replaced."""
 
-    if isinstance(selector, str):
-        if hasattr(model, selector):
-            path = (selector,)
-        else:
-            selector = TargetSpec(tags_any=(selector,))
-            path = _resolve_single_module_path(model, selector, tagger=tagger)
-    else:
-        path = _resolve_single_module_path(model, selector, tagger=tagger)
-
+    path = _resolve_module_selector_path(model, selector, tagger=tagger)
     if not path:
         raise ValueError("replace_head cannot replace the model root.")
     old_head = _get_path(model, path)
@@ -142,6 +138,86 @@ def replace_head(
         else head
     )
     return eqx.tree_at(lambda m: _get_path(m, path), model, replacement)
+
+
+def transfer_head(
+    target_model: PyTree,
+    source_model: PyTree,
+    *,
+    selector: str | TargetSpec = "head",
+    tagger: Tagger = canonical_tags_for_path,
+) -> PyTree:
+    """Return ``target_model`` with the selected head copied from ``source_model``."""
+
+    target_path = _resolve_module_selector_path(target_model, selector, tagger=tagger)
+    source_path = _resolve_module_selector_path(source_model, selector, tagger=tagger)
+    if not target_path or not source_path:
+        raise ValueError("transfer_head cannot replace the model root.")
+    source_head = _get_path(source_model, source_path)
+    _validate_head_replacement(_get_path(target_model, target_path), source_head, None)
+    return eqx.tree_at(
+        lambda model: _get_path(model, target_path),
+        target_model,
+        source_head,
+    )
+
+
+def set_stochastic_depth_rate(
+    model: PyTree,
+    rate: float,
+    *,
+    exclude: str | TargetSpec | Path | None = None,
+    tagger: Tagger = canonical_tags_for_path,
+) -> PyTree:
+    """Return ``model`` with Equimo stochastic-depth module rates set to ``rate``."""
+
+    return _set_module_probability(
+        model,
+        rate,
+        module_types=(DropPath, DropPathAdd),
+        exclude=exclude,
+        tagger=tagger,
+    )
+
+
+def disable_stochastic_depth(
+    model: PyTree,
+    *,
+    exclude: str | TargetSpec | Path | None = None,
+    tagger: Tagger = canonical_tags_for_path,
+) -> PyTree:
+    """Return ``model`` with Equimo stochastic depth disabled."""
+
+    return set_stochastic_depth_rate(model, 0.0, exclude=exclude, tagger=tagger)
+
+
+def set_dropout_rate(
+    model: PyTree,
+    rate: float,
+    *,
+    exclude: str | TargetSpec | Path | None = None,
+    tagger: Tagger = canonical_tags_for_path,
+) -> PyTree:
+    """Return ``model`` with Equinox dropout module rates set to ``rate``."""
+
+    return _set_module_probability(
+        model,
+        rate,
+        module_types=(eqx.nn.Dropout,),
+        exclude=exclude,
+        tagger=tagger,
+    )
+
+
+def disable_dropout(
+    model: PyTree,
+    *,
+    exclude: str | TargetSpec | Path | None = None,
+    tagger: Tagger = canonical_tags_for_path,
+) -> PyTree:
+    """Return ``model`` with Equinox dropout modules disabled."""
+
+    return set_dropout_rate(model, 0.0, exclude=exclude, tagger=tagger)
 
 
 def extract_subtree(
@@ -158,6 +234,68 @@ def extract_subtree(
         tagger=tagger,
     )
     return plan.trainable
+
+
+def _set_module_probability(
+    model: PyTree,
+    rate: float,
+    *,
+    module_types: tuple[type[Any], ...],
+    exclude: str | TargetSpec | Path | None,
+    tagger: Tagger,
+) -> PyTree:
+    exclude_path = _resolve_exclude_path(model, exclude, tagger=tagger)
+    updated = model
+    for path, module in _iter_modules(model, module_types):
+        if exclude_path is not None and is_path_prefix(exclude_path, path):
+            continue
+        replacement = eqx.tree_at(lambda item: item.p, module, float(rate))
+        updated = eqx.tree_at(
+            lambda tree, module_path=path: _get_path(tree, module_path),
+            updated,
+            replacement,
+        )
+    return updated
+
+
+def _iter_modules(
+    tree: PyTree,
+    module_types: tuple[type[Any], ...],
+) -> tuple[tuple[Path, Any], ...]:
+    def is_target(node: Any) -> bool:
+        return isinstance(node, module_types)
+
+    return tuple(
+        (key_path_to_path(key_path), leaf)
+        for key_path, leaf in jtu.tree_leaves_with_path(tree, is_leaf=is_target)
+        if is_target(leaf)
+    )
+
+
+def _resolve_exclude_path(
+    model: PyTree,
+    exclude: str | TargetSpec | Path | None,
+    *,
+    tagger: Tagger,
+) -> Path | None:
+    if exclude is None:
+        return None
+    if isinstance(exclude, tuple):
+        return exclude
+    return _resolve_module_selector_path(model, exclude, tagger=tagger)
+
+
+def _resolve_module_selector_path(
+    model: PyTree,
+    selector: str | TargetSpec,
+    *,
+    tagger: Tagger,
+) -> Path:
+    if isinstance(selector, str):
+        if hasattr(model, selector):
+            return (selector,)
+        selector = TargetSpec(tags_any=(selector,))
+    return _resolve_single_module_path(model, selector, tagger=tagger)
 
 
 def _get_path(tree: PyTree, path: tuple[str | int, ...]):
@@ -344,8 +482,13 @@ def _alias_groups_by_path(
 
 
 __all__ = (
+    "disable_dropout",
+    "disable_stochastic_depth",
     "extract_subtree",
     "partition_for_training",
     "prepare_finetune",
     "replace_head",
+    "set_dropout_rate",
+    "set_stochastic_depth_rate",
+    "transfer_head",
 )
