@@ -23,7 +23,12 @@ from .peft.lora import LoRAConfig, apply_lora
 from .peft.prompts import PromptedModel, VPTDeepConfig, apply_prompts
 from .pooling import PoolName
 from .selectors import is_linear
-from .surgery import prepare_finetune
+from .surgery import (
+    disable_dropout,
+    disable_stochastic_depth,
+    prepare_finetune,
+    transfer_head,
+)
 from .tags import Tagger, canonical_tags_for_path, infer_depth, iter_param_infos
 
 
@@ -129,6 +134,24 @@ class PartialUnfreezeConfig:
 
 
 @dataclass(frozen=True)
+class StagePolicy:
+    """Model policy applied before building a fine-tuning stage plan."""
+
+    deterministic_frozen_backbone: bool = True
+    disable_stochastic_depth: bool = True
+    disable_dropout: bool = True
+
+
+@dataclass(frozen=True)
+class FineTuneStage:
+    """Prepared model and plan for one external training stage."""
+
+    name: str
+    model: PyTree
+    plan: FineTunePlan
+
+
+@dataclass(frozen=True)
 class LPFTRecipe:
     """Linear-probe then fine-tune recipe metadata."""
 
@@ -136,6 +159,8 @@ class LPFTRecipe:
     stage2: TrainableSpec = field(default_factory=lambda: TrainableSpec(mode="full"))
     preserve_trained_head: bool = True
     stage2_labels: LLRDConfig = field(default_factory=LLRDConfig)
+    stage1_policy: StagePolicy = field(default_factory=StagePolicy)
+    head_selector: str | TargetSpec = "head"
     external_ft_lr_scale_hint: tuple[float, float] = (0.2, 0.5)
 
     def stage1_plan(
@@ -146,7 +171,7 @@ class LPFTRecipe:
     ) -> FineTunePlan:
         """Prepare the linear-probe stage."""
 
-        return prepare_finetune(model, trainable=self.stage1, tagger=tagger)
+        return self.prepare_stage1(model, tagger=tagger).plan
 
     def stage2_plan(
         self,
@@ -167,6 +192,98 @@ class LPFTRecipe:
             labels=self.stage2_labels,
             tagger=tagger,
         )
+
+    def prepare_stage1(
+        self,
+        model: PyTree,
+        *,
+        tagger: Tagger = canonical_tags_for_path,
+    ) -> FineTuneStage:
+        """Prepare the LP-FT linear-probe stage model and plan."""
+
+        stage_model = prepare_lpft_stage1_model(
+            model,
+            policy=self.stage1_policy,
+            head_selector=self.head_selector,
+            tagger=tagger,
+        )
+        return FineTuneStage(
+            name="stage1",
+            model=stage_model,
+            plan=prepare_finetune(stage_model, trainable=self.stage1, tagger=tagger),
+        )
+
+    def prepare_stage2(
+        self,
+        base_model: PyTree,
+        stage1_model: PyTree,
+        *,
+        tagger: Tagger = canonical_tags_for_path,
+    ) -> FineTuneStage:
+        """Prepare the LP-FT fine-tuning stage from a trained stage-1 model."""
+
+        if not self.preserve_trained_head:
+            raise ValueError(
+                "LPFTRecipe.prepare_stage2 requires preserve_trained_head=True; "
+                "reset or replace the head explicitly before building the stage-2 plan."
+            )
+        stage_model = prepare_lpft_stage2_model(
+            base_model,
+            stage1_model,
+            head_selector=self.head_selector,
+            tagger=tagger,
+        )
+        return FineTuneStage(
+            name="stage2",
+            model=stage_model,
+            plan=self.stage2_plan(stage_model, tagger=tagger),
+        )
+
+
+def prepare_lpft_stage1_model(
+    model: PyTree,
+    *,
+    policy: StagePolicy | None = None,
+    head_selector: str | TargetSpec = "head",
+    tagger: Tagger = canonical_tags_for_path,
+) -> PyTree:
+    """Return the model used for LP-FT stage 1."""
+
+    policy = StagePolicy() if policy is None else policy
+    if not policy.deterministic_frozen_backbone:
+        return model
+
+    stage_model = model
+    if policy.disable_stochastic_depth:
+        stage_model = disable_stochastic_depth(
+            stage_model,
+            exclude=head_selector,
+            tagger=tagger,
+        )
+    if policy.disable_dropout:
+        stage_model = disable_dropout(
+            stage_model,
+            exclude=head_selector,
+            tagger=tagger,
+        )
+    return stage_model
+
+
+def prepare_lpft_stage2_model(
+    base_model: PyTree,
+    trained_stage1_model: PyTree,
+    *,
+    head_selector: str | TargetSpec = "head",
+    tagger: Tagger = canonical_tags_for_path,
+) -> PyTree:
+    """Return the LP-FT stage-2 model with the trained stage-1 head transferred."""
+
+    return transfer_head(
+        base_model,
+        trained_stage1_model,
+        selector=head_selector,
+        tagger=tagger,
+    )
 
 
 def linear_probe(
@@ -319,6 +436,8 @@ def lpft(
     stage2: TrainableSpec | None = None,
     stage2_labels: LLRDConfig | None = None,
     preserve_trained_head: bool = True,
+    stage1_policy: StagePolicy | None = None,
+    head_selector: str | TargetSpec = "head",
 ) -> LPFTRecipe:
     """Return LP-FT stage metadata."""
 
@@ -327,6 +446,8 @@ def lpft(
         stage2=TrainableSpec(mode="full") if stage2 is None else stage2,
         preserve_trained_head=preserve_trained_head,
         stage2_labels=LLRDConfig() if stage2_labels is None else stage2_labels,
+        stage1_policy=StagePolicy() if stage1_policy is None else stage1_policy,
+        head_selector=head_selector,
     )
 
 
@@ -485,11 +606,13 @@ def _path_depth(path: Path) -> int | None:
 
 
 __all__ = (
+    "FineTuneStage",
     "LPFTRecipe",
     "HeadPlusNormConfig",
     "LinearProbeConfig",
     "LinearProbeRecipe",
     "PartialUnfreezeConfig",
+    "StagePolicy",
     "adapter_transformer",
     "adapter_transformer_strong",
     "adaptformer_transformer",
@@ -501,6 +624,8 @@ __all__ = (
     "lpft",
     "partial_ft_last_k_blocks",
     "partial_unfreeze",
+    "prepare_lpft_stage1_model",
+    "prepare_lpft_stage2_model",
     "task_adapter_bank",
     "vpt_deep",
 )
