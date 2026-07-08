@@ -11,7 +11,12 @@ import jax
 
 from ._typing import Path, PyTree
 from .config import FineTunePlan, LLRDConfig, TargetSpec, TrainableSpec
-from .feature_extraction import LinearProbe, make_linear_probe
+from .feature_extraction import (
+    AttentionPoolingProbe,
+    LinearProbe,
+    make_attention_pool_probe,
+    make_linear_probe,
+)
 from .peft.adapters import (
     AdaptFormerConfig,
     AdapterConfig,
@@ -302,6 +307,35 @@ def linear_probe(
         out_features=out_features,
         key=key,
         pool=pool,
+    )
+
+
+def attention_pool_probe(
+    backbone: PyTree,
+    *,
+    in_features: int,
+    out_features: int,
+    key: jax.Array,
+    n_last_blocks: int | None = None,
+    embed_dim: int = 512,
+    num_heads: int = 8,
+    dropout: float = 0.0,
+    prepend_cls_token: bool = False,
+    l2_normalize_cls: bool = False,
+) -> AttentionPoolingProbe:
+    """Create a FINO-style attention-pooling probe wrapper."""
+
+    return make_attention_pool_probe(
+        backbone,
+        in_features=in_features,
+        out_features=out_features,
+        key=key,
+        n_last_blocks=n_last_blocks,
+        embed_dim=embed_dim,
+        num_heads=num_heads,
+        dropout=dropout,
+        prepend_cls_token=prepend_cls_token,
+        l2_normalize_cls=l2_normalize_cls,
     )
 
 
@@ -616,6 +650,7 @@ __all__ = (
     "adapter_transformer",
     "adapter_transformer_strong",
     "adaptformer_transformer",
+    "attention_pool_probe",
     "full_ft_llrd",
     "head_plus_norm",
     "linear_probe",

@@ -6,10 +6,12 @@ from typing import Any
 
 import equinox as eqx
 import jax
+import jax.numpy as jnp
+import jax.random as jr
 
 from ._typing import PyTree
 from .config import FeatureSpec
-from .heads import IdentityHead, LinearHead
+from .heads import AttentionPoolingClassifierHead, IdentityHead, LinearHead
 from .pooling import (
     CLSPatchMeanPool,
     GlobalAveragePool,
@@ -95,6 +97,80 @@ class LinearProbe(eqx.Module):
         return _call_head(self.head, features, key=key, inference=inference)
 
 
+class AttentionPoolingProbe(eqx.Module):
+    """Backbone plus a FINO-style attention-pooling classifier head."""
+
+    backbone: PyTree
+    head: AttentionPoolingClassifierHead
+
+    n_last_blocks: int | None = eqx.field(static=True)
+    prepend_cls_token: bool = eqx.field(static=True)
+    l2_normalize_cls: bool = eqx.field(static=True)
+
+    def __init__(
+        self,
+        backbone: PyTree,
+        head: AttentionPoolingClassifierHead,
+        *,
+        n_last_blocks: int | None = None,
+        prepend_cls_token: bool = False,
+        l2_normalize_cls: bool = False,
+    ):
+        self.backbone = backbone
+        self.head = head
+        self.n_last_blocks = n_last_blocks
+        self.prepend_cls_token = prepend_cls_token
+        self.l2_normalize_cls = l2_normalize_cls
+
+    def __call__(
+        self,
+        *args,
+        key: jax.Array | None = None,
+        inference: bool | None = True,
+        mask: jax.Array | None = None,
+        **kwargs,
+    ) -> jax.Array:
+        key_backbone, key_head = _split_optional_key(key)
+        if self.n_last_blocks is None:
+            features = _call_forward_features(
+                self.backbone,
+                *args,
+                key=key_backbone,
+                inference=inference,
+                **kwargs,
+            )
+            tokens = make_attention_pool_input_from_forward_features(
+                features,
+                prepend_cls_token=self.prepend_cls_token,
+                l2_normalize_cls=self.l2_normalize_cls,
+            )
+        else:
+            if not hasattr(self.backbone, "intermediate_features"):
+                raise ValueError(
+                    "AttentionPoolingProbe with n_last_blocks requires a backbone "
+                    "with intermediate_features(...)."
+                )
+            intermediates = _call_with_optional_key(
+                self.backbone.intermediate_features,
+                *args,
+                key=key_backbone,
+                inference=inference,
+                n_last_blocks=self.n_last_blocks,
+                **kwargs,
+            )
+            tokens = make_attention_pool_input_from_intermediates(
+                intermediates,
+                self.n_last_blocks,
+                norm=getattr(self.backbone, "norm", None),
+                num_prefix_tokens=_model_prefix_count(self.backbone),
+                has_cls_token=_has_cls_token(self.backbone),
+                prepend_cls_token=self.prepend_cls_token,
+                l2_normalize_cls=self.l2_normalize_cls,
+            )
+
+        return self.head(tokens, mask=mask, key=key_head, inference=inference)
+
+
 def extract_features(
     model: PyTree,
     *args,
@@ -134,6 +210,81 @@ def extract_features(
     return pool_features(features, pool, key=key, **kwargs)
 
 
+def make_attention_pool_input_from_forward_features(
+    features: dict[str, jax.Array | None],
+    *,
+    prepend_cls_token: bool = False,
+    l2_normalize_cls: bool = False,
+    eps: float = 1e-12,
+) -> jax.Array:
+    """Build attention-pool tokens from a normalized feature dictionary."""
+
+    if not isinstance(features, dict):
+        raise ValueError(
+            "make_attention_pool_input_from_forward_features expects a feature dict."
+        )
+    patch_tokens = features.get("x_norm_patchtokens")
+    if patch_tokens is None:
+        raise ValueError("feature dict must contain x_norm_patchtokens.")
+    if not prepend_cls_token:
+        return patch_tokens.astype(jnp.float32)
+
+    cls_token = features.get("x_norm_cls_token")
+    if cls_token is None:
+        raise ValueError("prepend_cls_token=True requires x_norm_cls_token.")
+    cls_token = _maybe_l2_normalize(cls_token, l2_normalize_cls, eps)
+    return jnp.concatenate([cls_token[None, :], patch_tokens], axis=0).astype(
+        jnp.float32
+    )
+
+
+def make_attention_pool_input_from_intermediates(
+    intermediates,
+    n_last_blocks: int,
+    *,
+    norm: eqx.Module | None = None,
+    num_prefix_tokens: int = 0,
+    has_cls_token: bool = False,
+    prepend_cls_token: bool = False,
+    l2_normalize_cls: bool = False,
+    eps: float = 1e-12,
+) -> jax.Array:
+    """Concatenate final intermediate token features along the feature axis."""
+
+    intermediates = tuple(intermediates)
+    if n_last_blocks < 1:
+        raise ValueError("n_last_blocks must be >= 1.")
+    if n_last_blocks > len(intermediates):
+        raise ValueError(
+            f"n_last_blocks={n_last_blocks} exceeds available "
+            f"intermediates={len(intermediates)}."
+        )
+
+    selected = intermediates[-n_last_blocks:]
+    pairs = tuple(
+        _as_patch_cls_tokens(
+            item,
+            norm=norm,
+            num_prefix_tokens=num_prefix_tokens,
+            has_cls_token=has_cls_token,
+        )
+        for item in selected
+    )
+    patch_tokens = jnp.concatenate([patch for patch, _ in pairs], axis=-1)
+
+    if not prepend_cls_token:
+        return patch_tokens.astype(jnp.float32)
+
+    cls_tokens = [cls for _, cls in pairs]
+    if any(cls is None for cls in cls_tokens):
+        raise ValueError("prepend_cls_token=True requires class tokens.")
+    cls_token = jnp.concatenate(cls_tokens, axis=-1)
+    cls_token = _maybe_l2_normalize(cls_token, l2_normalize_cls, eps)
+    return jnp.concatenate([cls_token[None, :], patch_tokens], axis=0).astype(
+        jnp.float32
+    )
+
+
 def make_linear_probe(
     backbone: PyTree,
     *,
@@ -155,6 +306,44 @@ def make_linear_probe(
     return LinearProbe(backbone, probe_head, pool=pool)
 
 
+def make_attention_pool_probe(
+    backbone: PyTree,
+    *,
+    in_features: int,
+    out_features: int,
+    key: jax.Array,
+    n_last_blocks: int | None = None,
+    embed_dim: int = 512,
+    num_heads: int = 8,
+    dropout: float = 0.0,
+    bias: bool = True,
+    prepend_cls_token: bool = False,
+    l2_normalize_cls: bool = False,
+) -> AttentionPoolingProbe:
+    """Build an attention-pooling probe with an identity backbone head."""
+
+    head = AttentionPoolingClassifierHead(
+        in_features,
+        out_features,
+        key=key,
+        embed_dim=embed_dim,
+        num_heads=num_heads,
+        dropout=dropout,
+        bias=bias,
+    )
+    try:
+        backbone = replace_head(backbone, IdentityHead())
+    except ValueError:
+        pass
+    return AttentionPoolingProbe(
+        backbone,
+        head,
+        n_last_blocks=n_last_blocks,
+        prepend_cls_token=prepend_cls_token,
+        l2_normalize_cls=l2_normalize_cls,
+    )
+
+
 def _call_with_optional_key(fn, *args, key, inference, **kwargs):
     call_kwargs = dict(kwargs)
     if key is not None:
@@ -174,6 +363,93 @@ def _call_with_optional_key(fn, *args, key, inference, **kwargs):
                 raise
             call_kwargs.pop("key", None)
             return fn(*args, **call_kwargs)
+
+
+def _call_forward_features(model: PyTree, *args, key, inference, **kwargs):
+    if hasattr(model, "forward_features"):
+        return _call_with_optional_key(
+            model.forward_features,
+            *args,
+            key=key,
+            inference=inference,
+            **kwargs,
+        )
+    if hasattr(model, "features"):
+        return _call_with_optional_key(
+            model.features,
+            *args,
+            key=key,
+            inference=inference,
+            **kwargs,
+        )
+    return _call_with_optional_key(
+        model,
+        *args,
+        key=key,
+        inference=inference,
+        **kwargs,
+    )
+
+
+def _split_optional_key(
+    key: jax.Array | None,
+) -> tuple[jax.Array | None, jax.Array | None]:
+    if key is None:
+        return None, None
+    key_backbone, key_head = jr.split(key, 2)
+    return key_backbone, key_head
+
+
+def _as_patch_cls_tokens(
+    item,
+    *,
+    norm: eqx.Module | None,
+    num_prefix_tokens: int,
+    has_cls_token: bool,
+) -> tuple[jax.Array, jax.Array | None]:
+    if isinstance(item, dict):
+        patch_tokens = item.get("x_norm_patchtokens")
+        if patch_tokens is None:
+            raise ValueError("intermediate feature dict must contain x_norm_patchtokens.")
+        return patch_tokens, item.get("x_norm_cls_token")
+
+    if (
+        isinstance(item, tuple)
+        and len(item) == 2
+        and eqx.is_array(item[0])
+        and eqx.is_array(item[1])
+        and item[0].ndim == 2
+        and item[1].ndim == 1
+    ):
+        return item
+
+    if not eqx.is_array(item) or item.ndim != 2:
+        raise ValueError(
+            "Attention-pool intermediate inputs must be token arrays shaped "
+            "[tokens, features] or (patch_tokens, cls_token) pairs."
+        )
+
+    tokens = _apply_norm_to_tokens(norm, item)
+    cls_token = tokens[0] if has_cls_token else None
+    patch_tokens = tokens[num_prefix_tokens:]
+    return patch_tokens, cls_token
+
+
+def _apply_norm_to_tokens(norm: eqx.Module | None, tokens: jax.Array) -> jax.Array:
+    if norm is None:
+        return tokens
+    return jax.vmap(norm)(tokens)
+
+
+def _maybe_l2_normalize(x: jax.Array, enabled: bool, eps: float) -> jax.Array:
+    if not enabled:
+        return x
+    norm = jnp.linalg.norm(x, axis=-1, keepdims=True)
+    return x / jnp.maximum(norm, eps)
+
+
+def _has_cls_token(model: PyTree) -> bool:
+    return getattr(model, "cls_token", None) is not None
 
 
 def _prompt_aware_pool(model: PyTree, pool: PoolName | eqx.Module | None):
@@ -319,8 +595,12 @@ def _call_head(
 
 
 __all__ = (
+    "AttentionPoolingProbe",
     "FeatureExtractor",
     "LinearProbe",
     "extract_features",
+    "make_attention_pool_input_from_forward_features",
+    "make_attention_pool_input_from_intermediates",
+    "make_attention_pool_probe",
     "make_linear_probe",
 )

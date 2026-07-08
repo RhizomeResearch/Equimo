@@ -5,6 +5,7 @@ from __future__ import annotations
 import equinox as eqx
 import jax.numpy as jnp
 import jax.random as jr
+import pytest
 
 import equimo.finetune as eqft
 
@@ -80,3 +81,54 @@ def test_layer_norm_readout_head_forwards_key_and_inference():
 
     assert y.shape == (3,)
     assert y[1] == jnp.array(1.0)
+
+
+def test_attention_pooling_classifier_head_shapes_and_mask():
+    key = jr.PRNGKey(6)
+    head = eqft.AttentionPoolingClassifierHead(
+        4,
+        3,
+        key=key,
+        embed_dim=8,
+        num_heads=2,
+    )
+    tokens = jnp.arange(20, dtype=jnp.float32).reshape(5, 4)
+
+    logits = head(tokens, mask=jnp.asarray([1, 1, 0, 1, 0]), inference=True)
+    all_masked = head(tokens, mask=jnp.zeros((5,), dtype=bool), inference=True)
+
+    assert logits.shape == (3,)
+    assert jnp.all(jnp.isfinite(logits))
+    assert jnp.all(jnp.isfinite(all_masked))
+
+
+def test_attention_pooling_classifier_head_validates_inputs():
+    key = jr.PRNGKey(7)
+    with pytest.raises(ValueError, match="divisible"):
+        eqft.AttentionPoolingClassifierHead(4, 3, key=key, embed_dim=10, num_heads=3)
+
+    head = eqft.AttentionPoolingClassifierHead(
+        4,
+        3,
+        key=key,
+        embed_dim=8,
+        num_heads=2,
+    )
+    with pytest.raises(ValueError, match="tokens shaped"):
+        head(jnp.ones((4,)))
+    with pytest.raises(ValueError, match="mask must have shape"):
+        head(jnp.ones((5, 4)), mask=jnp.ones((4,)))
+
+
+def test_attention_pooling_classifier_head_requires_dropout_key():
+    head = eqft.AttentionPoolingClassifierHead(
+        4,
+        3,
+        key=jr.PRNGKey(8),
+        embed_dim=8,
+        num_heads=2,
+        dropout=0.1,
+    )
+
+    with pytest.raises(ValueError, match="dropout"):
+        head(jnp.ones((5, 4)), inference=False)

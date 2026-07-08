@@ -171,6 +171,56 @@ def test_vit_rope():
     assert jnp.all(jnp.isfinite(y_infer))
 
 
+def test_vit_intermediate_features_last_block_matches_features():
+    key = jr.PRNGKey(2)
+    model = em.VisionTransformer(
+        img_size=64,
+        in_channels=3,
+        dim=32,
+        patch_size=8,
+        num_heads=[2],
+        depths=[2],
+        num_classes=0,
+        key=key,
+    )
+
+    intermediates = model.intermediate_features(
+        IMG_64,
+        key=key,
+        inference=True,
+        n_last_blocks=2,
+    )
+    features = model.features(IMG_64, key=key, inference=True)
+
+    assert len(intermediates) == 2
+    assert intermediates[-1].shape == features.shape
+    assert jnp.allclose(intermediates[-1], features)
+
+
+def test_vit_forward_features_without_class_token_has_no_cls_token():
+    key = jr.PRNGKey(3)
+    model = em.VisionTransformer(
+        img_size=32,
+        in_channels=3,
+        dim=16,
+        patch_size=8,
+        num_heads=[2],
+        depths=[1],
+        num_classes=0,
+        class_token=False,
+        reg_tokens=0,
+        global_pos_embed_cls=False,
+        key=key,
+    )
+    x = jr.normal(key, (3, 32, 32))
+
+    fwd = model.forward_features(x, key=key, inference=True)
+
+    assert fwd["x_norm_cls_token"] is None
+    assert fwd["x_norm_reg_tokens"].shape == (0, 16)
+    assert fwd["x_norm_patchtokens"].shape == (16, 16)
+
+
 # VisionParcae
 
 
@@ -587,6 +637,28 @@ def test_convnext_features():
     feats = model.features(x, key=KEY, inference=True)
     assert feats.ndim == 3  # (c, h, w)
     assert jnp.all(jnp.isfinite(feats))
+
+
+def test_convnext_intermediate_features_returns_native_stage_outputs():
+    model = em.ConvNeXt(
+        in_channels=3,
+        depths=[1, 1],
+        dims=[32, 64],
+        num_classes=0,
+        key=KEY,
+    )
+    x = jr.normal(KEY, (3, 64, 64))
+
+    intermediates = model.intermediate_features(
+        x,
+        key=KEY,
+        inference=True,
+        n_last_blocks=1,
+    )
+
+    assert len(intermediates) == 1
+    assert intermediates[0].ndim == 3
+    assert jnp.all(jnp.isfinite(intermediates[0]))
 
 
 def test_convnext_drop_path():

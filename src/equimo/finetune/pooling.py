@@ -214,7 +214,7 @@ def _pool_feature_dict(
     pool: PoolName | eqx.Module,
     **kwargs,
 ) -> jax.Array | dict:
-    if pool in {"auto", "cls"} and "x_norm_cls_token" in features:
+    if pool in {"auto", "cls"} and features.get("x_norm_cls_token") is not None:
         return features["x_norm_cls_token"]
     if pool == "cls_patch_mean" and (
         "x_norm_cls_token" in features or "x_norm_patchtokens" in features

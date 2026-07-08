@@ -29,6 +29,33 @@ class ConvFeatureModel(eqx.Module):
         return x
 
 
+class IntermediateTokenModel(eqx.Module):
+    cls_token: jnp.ndarray
+    norm: eqx.nn.LayerNorm
+    num_prefix_tokens: int = eqx.field(static=True)
+
+    def __init__(self):
+        self.cls_token = jnp.zeros((1, 4), dtype=jnp.float32)
+        self.norm = eqx.nn.LayerNorm(4)
+        self.num_prefix_tokens = 1
+
+    def intermediate_features(
+        self,
+        x,
+        *,
+        key=None,
+        inference: bool | None = True,
+        n_last_blocks: int | None = None,
+        **kwargs,
+    ):
+        del key, inference, kwargs
+        outputs = (
+            jnp.concatenate([self.cls_token, x], axis=0),
+            jnp.concatenate([self.cls_token + 1.0, x + 1.0], axis=0),
+        )
+        return outputs if n_last_blocks is None else outputs[-n_last_blocks:]
+
+
 def test_replace_head_preserves_backbone(tiny_vision_transformer):
     key = jr.PRNGKey(0)
     new_head = eqft.LinearHead(4, 5, key=key)
@@ -199,3 +226,59 @@ def test_feature_extractor_filter_jit(tiny_vision_transformer):
     features = eqx.filter_jit(extractor)(x)
 
     assert features.shape == (4,)
+
+
+def test_attention_pool_input_from_forward_features():
+    features = {
+        "x_norm_cls_token": jnp.ones((4,), dtype=jnp.float32),
+        "x_norm_patchtokens": jnp.ones((3, 4), dtype=jnp.float32) * 2.0,
+    }
+
+    tokens = eqft.make_attention_pool_input_from_forward_features(
+        features,
+        prepend_cls_token=True,
+        l2_normalize_cls=True,
+    )
+
+    assert tokens.shape == (4, 4)
+    assert jnp.allclose(jnp.linalg.norm(tokens[0]), 1.0)
+    assert jnp.allclose(tokens[1:], 2.0)
+
+
+def test_attention_pool_input_from_intermediates_concatenates_layers():
+    patch0 = jnp.ones((2, 4), dtype=jnp.float32)
+    patch1 = patch0 * 2.0
+    cls0 = jnp.ones((4,), dtype=jnp.float32)
+    cls1 = cls0 * 3.0
+
+    tokens = eqft.make_attention_pool_input_from_intermediates(
+        ((patch0, cls0), (patch1, cls1)),
+        2,
+        prepend_cls_token=True,
+    )
+
+    assert tokens.shape == (3, 8)
+    assert jnp.allclose(tokens[0], jnp.concatenate([cls0, cls1]))
+    assert jnp.allclose(tokens[1:], jnp.concatenate([patch0, patch1], axis=-1))
+
+
+def test_attention_pool_probe_uses_intermediate_features_and_trains_head_only():
+    key = jr.PRNGKey(6)
+    probe = eqft.make_attention_pool_probe(
+        IntermediateTokenModel(),
+        in_features=8,
+        out_features=3,
+        key=key,
+        n_last_blocks=2,
+        embed_dim=8,
+        num_heads=2,
+        prepend_cls_token=False,
+    )
+    x = jnp.ones((2, 4), dtype=jnp.float32)
+
+    y = probe(x, key=jr.PRNGKey(7), inference=True)
+    plan = eqft.prepare_finetune(probe, trainable=eqft.TrainableSpec(mode="head"))
+
+    assert y.shape == (3,)
+    assert plan.trainable.head.input_proj.weight is not None
+    assert plan.trainable.backbone.cls_token is None

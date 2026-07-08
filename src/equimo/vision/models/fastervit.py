@@ -4,7 +4,7 @@
 # ty: ignore[too-many-positional-arguments]
 __all__ = ["FasterViT"]
 
-from typing import Callable, List, Literal, Optional, Tuple
+from typing import Callable, List, Literal, Optional, Sequence, Tuple
 
 import equinox as eqx
 import jax
@@ -13,6 +13,7 @@ import numpy as np
 from einops import rearrange
 from jaxtyping import Array, Float, PRNGKeyArray
 
+from equimo.core.intermediates import intermediate_indices
 from equimo.core.layers.activation import get_act
 from equimo.vision.layers.attention import HATBlock
 from equimo.vision.layers.convolution import DoubleConvBlock
@@ -421,6 +422,31 @@ class FasterViT(eqx.Module):
         x = rearrange(x, "c h w -> (h w) c")
 
         return x
+
+    def intermediate_features(
+        self,
+        x: Float[Array, "channels height width"],
+        key: PRNGKeyArray = jr.PRNGKey(42),
+        inference: Optional[bool] = None,
+        indices: Sequence[int] | None = None,
+        n_last_blocks: int | None = None,
+    ) -> tuple[Float[Array, "..."], ...]:
+        """Return selected native patch/stage feature maps."""
+
+        total = len(self.blocks) + 1
+        wanted = intermediate_indices(total, indices=indices, n_last_blocks=n_last_blocks)
+        _, *block_subkeys = jr.split(key, len(self.blocks) + 1)
+        outputs = []
+
+        x = self.patch_embed(x)
+        if 0 in wanted:
+            outputs.append(x)
+        for i, (blk, key_block) in enumerate(zip(self.blocks, block_subkeys), start=1):
+            x = blk(x, inference=inference, key=key_block)
+            if i in wanted:
+                outputs.append(x)
+
+        return tuple(outputs)
 
     def __call__(
         self,

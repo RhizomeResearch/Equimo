@@ -69,7 +69,7 @@ __all__ = [
     "vit5_xlarge",
 ]
 
-from typing import Callable, Literal, Optional, Tuple
+from typing import Callable, Literal, Optional, Sequence, Tuple
 
 import equinox as eqx
 import jax
@@ -79,6 +79,7 @@ import numpy as np
 from einops import rearrange
 from jaxtyping import Array, Float, Int, PRNGKeyArray
 
+from equimo.core.intermediates import intermediate_indices
 from equimo.core.layers.activation import get_act
 from equimo.vision.layers.attention import (
     get_attn,
@@ -380,6 +381,89 @@ class VisionTransformer(eqx.Module):
             Processed feature tensor
         """
         key_pos, *block_subkeys = jr.split(key, len(self.blocks) + 1)
+        x, H, W, rope_sincos = self._prepare_tokens(
+            x,
+            key=key_pos,
+            mask=mask,
+            inference=inference,
+        )
+
+        for blk, key_block in zip(self.blocks, block_subkeys):
+            if self.local_pos_embed is not None and not inference:
+                key_pos, key_rope = jr.split(key_pos, 2)
+                rope_sincos = self.local_pos_embed.get_sincos(
+                    H=H, W=W, inference=inference, key=key_rope
+                )
+            x = blk(
+                x, rope_sincos=rope_sincos, inference=inference, key=key_block, **kwargs
+            )
+
+        return x
+
+    def intermediate_features(
+        self,
+        x: Float[Array, "channels height width"],
+        key: PRNGKeyArray,
+        mask: Optional[Int[Array, "embed_h embed_w"]] = None,
+        inference: Optional[bool] = None,
+        indices: Sequence[int] | None = None,
+        n_last_blocks: int | None = None,
+        **kwargs,
+    ) -> tuple[Float[Array, "seqlen dim"], ...]:
+        """Return selected native token outputs after transformer blocks."""
+
+        total = _count_chunk_blocks(self.blocks)
+        wanted = intermediate_indices(total, indices=indices, n_last_blocks=n_last_blocks)
+        key_pos, *block_subkeys = jr.split(key, len(self.blocks) + 1)
+        x, H, W, rope_sincos = self._prepare_tokens(
+            x,
+            key=key_pos,
+            mask=mask,
+            inference=inference,
+        )
+
+        outputs = []
+        offset = 0
+        for blk, key_block in zip(self.blocks, block_subkeys):
+            if self.local_pos_embed is not None and not inference:
+                key_pos, key_rope = jr.split(key_pos, 2)
+                rope_sincos = self.local_pos_embed.get_sincos(
+                    H=H, W=W, inference=inference, key=key_rope
+                )
+            n_blocks = len(blk.blocks) if getattr(blk, "blocks", None) is not None else 0
+            local_indices = tuple(
+                i - offset for i in sorted(wanted) if offset <= i < offset + n_blocks
+            )
+            if local_indices:
+                x, chunk_outputs = blk.intermediate_features(
+                    x,
+                    rope_sincos=rope_sincos,
+                    inference=inference,
+                    key=key_block,
+                    indices=local_indices,
+                    **kwargs,
+                )
+                outputs.extend(chunk_outputs)
+            else:
+                x = blk(
+                    x,
+                    rope_sincos=rope_sincos,
+                    inference=inference,
+                    key=key_block,
+                    **kwargs,
+                )
+            offset += n_blocks
+
+        return tuple(outputs)
+
+    def _prepare_tokens(
+        self,
+        x: Float[Array, "channels height width"],
+        *,
+        key: PRNGKeyArray,
+        mask: Optional[Int[Array, "embed_h embed_w"]],
+        inference: Optional[bool],
+    ):
         x = self.patch_embed(x)
 
         if mask is not None:
@@ -394,14 +478,10 @@ class VisionTransformer(eqx.Module):
                 value = self.mask_token
             x = jnp.where(mask, x, value.astype(x.dtype))
 
-        # Resolve spatial dims for local pos embed before flattening
-        if self.local_pos_embed is not None:
-            if self.dynamic_img_size:
-                _, H, W = x.shape
-            else:
-                H = W = self.embed_size
+        H = W = self.embed_size
+        if self.local_pos_embed is not None and self.dynamic_img_size:
+            _, H, W = x.shape
 
-        # Apply global (model-level) positional embedding (e.g. APE)
         if self.global_pos_embed is not None:
             x = self.global_pos_embed(
                 x,
@@ -410,30 +490,17 @@ class VisionTransformer(eqx.Module):
                 dynamic_img_size=self.dynamic_img_size,
             )
         else:
-            # No global pos embed: manually cat prefix tokens and flatten
             prefix = [t for t in (self.cls_token, self.reg_tokens) if t is not None]
             if self.dynamic_img_size:
                 x = rearrange(x, "c h w -> (h w) c")
             x = jnp.concatenate([*prefix, x], axis=0) if prefix else x
 
-        # Compute local (block-level) positional embedding (e.g. RoPE)
         rope_sincos = None
         if self.local_pos_embed is not None and inference:
             rope_sincos = self.local_pos_embed.get_sincos(
-                H=H, W=W, inference=inference, key=key_pos
+                H=H, W=W, inference=inference, key=key
             )
-
-        for blk, key_block in zip(self.blocks, block_subkeys):
-            if self.local_pos_embed is not None and not inference:
-                key_pos, key_rope = jr.split(key_pos, 2)
-                rope_sincos = self.local_pos_embed.get_sincos(
-                    H=H, W=W, inference=inference, key=key_rope
-                )
-            x = blk(
-                x, rope_sincos=rope_sincos, inference=inference, key=key_block, **kwargs
-            )
-
-        return x
+        return x, H, W, rope_sincos
 
     def forward_features(
         self,
@@ -458,11 +525,14 @@ class VisionTransformer(eqx.Module):
         """
         x = self.features(x, inference=inference, key=key, **kwargs)
         x_norm = jax.vmap(self.norm)(x)
+        cls_offset = 1 if self.cls_token is not None else 0
+        reg_start = cls_offset
+        reg_end = reg_start + self.num_reg_tokens
 
         return {
-            "x_norm_cls_token": x_norm[0],
-            "x_norm_reg_tokens": x_norm[1 : self.num_reg_tokens + 1],
-            "x_norm_patchtokens": x_norm[self.num_reg_tokens + 1 :],
+            "x_norm_cls_token": x_norm[0] if self.cls_token is not None else None,
+            "x_norm_reg_tokens": x_norm[reg_start:reg_end],
+            "x_norm_patchtokens": x_norm[reg_end:],
             "x_prenorm": x,
         }
 
@@ -495,6 +565,13 @@ class VisionTransformer(eqx.Module):
         x = self.head(x)
 
         return x
+
+
+def _count_chunk_blocks(blocks: Tuple[eqx.Module, ...]) -> int:
+    return sum(
+        len(chunk.blocks) if getattr(chunk, "blocks", None) is not None else 0
+        for chunk in blocks
+    )
 
 
 _VIT_BASE_CFG: dict = {

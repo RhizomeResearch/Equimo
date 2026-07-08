@@ -33,6 +33,7 @@ import jax
 import jax.random as jr
 from jaxtyping import Array, Float, PRNGKeyArray
 
+from equimo.core.intermediates import intermediate_indices
 from equimo.core.implicit import (
     DEQBlock,
     DEQCell,
@@ -367,6 +368,30 @@ class DEQ(eqx.Module):
                 auxs.extend(aux)
         x = self.dropout(x, inference=inference, key=key_drop)
         return x, auxs
+
+    def intermediate_features(
+        self,
+        x: Float[Array, "channels height width"],
+        key: PRNGKeyArray = jr.PRNGKey(42),
+        inference: Optional[bool] = None,
+        indices: Sequence[int] | None = None,
+        n_last_blocks: int | None = None,
+        **kwargs,
+    ) -> tuple[Float[Array, "channels height width"], ...]:
+        """Return selected native stage outputs."""
+
+        wanted = intermediate_indices(
+            len(self.blocks),
+            indices=indices,
+            n_last_blocks=n_last_blocks,
+        )
+        _, *key_blocks = jr.split(key, len(self.blocks) + 1)
+        outputs = []
+        for i, (blk, key_blk) in enumerate(zip(self.blocks, key_blocks)):
+            x, _ = blk(x, inference=inference, key=key_blk)
+            if i in wanted:
+                outputs.append(x)
+        return tuple(outputs)
 
     def readout(
         self,

@@ -14,7 +14,7 @@ __all__ = [
     "attnet_t4",
 ]
 
-from typing import Callable, Optional, Tuple
+from typing import Callable, Optional, Sequence, Tuple
 
 import equinox as eqx
 import jax
@@ -22,6 +22,7 @@ import jax.random as jr
 import numpy as np
 from jaxtyping import Array, Float, PRNGKeyArray
 
+from equimo.core.intermediates import intermediate_indices
 from equimo.core.layers.activation import get_act
 from equimo.core.layers.generic import BlockChunk
 from equimo.core.layers.norm import get_norm
@@ -116,6 +117,30 @@ class AttNet(eqx.Module):
         for blk, key_blk in zip(self.blocks, key_blocks):
             x = blk(x, inference=inference, key=key_blk)
         return x
+
+    def intermediate_features(
+        self,
+        x: Float[Array, "channels height width"],
+        key: PRNGKeyArray = jr.PRNGKey(42),
+        inference: Optional[bool] = None,
+        indices: Sequence[int] | None = None,
+        n_last_blocks: int | None = None,
+        **kwargs,
+    ) -> tuple[Float[Array, "channels height width"], ...]:
+        """Return selected native stage outputs."""
+
+        wanted = intermediate_indices(
+            len(self.blocks),
+            indices=indices,
+            n_last_blocks=n_last_blocks,
+        )
+        key_blocks = jr.split(key, len(self.blocks))
+        outputs = []
+        for i, (blk, key_blk) in enumerate(zip(self.blocks, key_blocks)):
+            x = blk(x, inference=inference, key=key_blk)
+            if i in wanted:
+                outputs.append(x)
+        return tuple(outputs)
 
     def __call__(
         self,

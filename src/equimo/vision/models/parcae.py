@@ -34,7 +34,7 @@ __all__ = [
 ]
 
 import math
-from typing import Callable, Literal, Optional
+from typing import Callable, Literal, Optional, Sequence
 
 import equinox as eqx
 import jax
@@ -44,6 +44,7 @@ import numpy as np
 from einops import rearrange
 from jaxtyping import Array, Float, Int, PRNGKeyArray
 
+from equimo.core.intermediates import intermediate_indices
 from equimo.core.layers.activation import get_act
 from equimo.vision.layers.attention import get_attn, get_attn_block
 from equimo.core.layers.ffn import get_ffn
@@ -1656,6 +1657,30 @@ class VisionParcae(eqx.Module):
             "x_prenorm": x,
             **aux,
         }
+
+    def intermediate_features(
+        self,
+        x: Float[Array, "channels height width"],
+        key: PRNGKeyArray,
+        inference: Optional[bool] = None,
+        indices: Sequence[int] | None = None,
+        n_last_blocks: int | None = None,
+        **kwargs,
+    ) -> tuple[Float[Array, "..."], ...]:
+        """Return selected native recurrent/coda outputs."""
+
+        x, aux = self._features_with_aux(x, key=key, inference=inference, **kwargs)
+        outputs = (
+            aux["x_recurrent_state"],
+            aux["x_projected_recurrent"],
+            x,
+        )
+        wanted = intermediate_indices(
+            len(outputs),
+            indices=indices,
+            n_last_blocks=n_last_blocks,
+        )
+        return tuple(output for i, output in enumerate(outputs) if i in wanted)
 
     def recurrent_spectral_norm(self) -> Array:
         """Return a spectral-norm diagnostic for the recurrent injection."""

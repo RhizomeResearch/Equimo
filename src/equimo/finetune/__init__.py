@@ -35,6 +35,7 @@ from .continued_ssl import (
     supervised_after_ssl_trainable_spec,
 )
 from .heads import (
+    AttentionPoolingClassifierHead,
     CTCHead,
     ContrastiveProjectionHead,
     DenseFeatureAdapter,
@@ -253,6 +254,7 @@ from .recipes import (
     adapter_transformer,
     adapter_transformer_strong,
     adaptformer_transformer,
+    attention_pool_probe,
     full_ft_llrd,
     head_plus_norm,
     linear_probe,
@@ -311,9 +313,13 @@ from .surgery import (
     transfer_head,
 )
 from .feature_extraction import (
+    AttentionPoolingProbe,
     FeatureExtractor,
     LinearProbe,
     extract_features,
+    make_attention_pool_input_from_forward_features,
+    make_attention_pool_input_from_intermediates,
+    make_attention_pool_probe,
     make_linear_probe,
 )
 from .tags import (
@@ -337,6 +343,8 @@ __all__ = (
     "AdaLoRAConfig",
     "AdaLoRAMetadata",
     "AdaLoRAModule",
+    "AttentionPoolingClassifierHead",
+    "AttentionPoolingProbe",
     "AttentionPool",
     "AuxLossSpec",
     "BitFitConfig",
@@ -493,6 +501,7 @@ __all__ = (
     "adapter_transformer_strong",
     "adaptformer_transformer",
     "adapter_norm_loss",
+    "attention_pool_probe",
     "audio",
     "available_profile_ids",
     "bitfit_trainable_spec",
@@ -558,6 +567,9 @@ __all__ = (
     "lpft",
     "l2_sp_loss",
     "make_linear_probe",
+    "make_attention_pool_input_from_forward_features",
+    "make_attention_pool_input_from_intermediates",
+    "make_attention_pool_probe",
     "make_param_labels",
     "make_param_info_tree",
     "make_path_tree",

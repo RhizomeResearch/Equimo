@@ -165,6 +165,133 @@ class MLPHead(eqx.Module):
         return x
 
 
+class AttentionPoolingClassifierHead(eqx.Module):
+    """FINO/DINOv3-style attention-pooling classifier head.
+
+    The head consumes one example's token matrix ``[tokens, in_features]`` and
+    returns raw logits ``[out_features]``. It projects tokens to ``embed_dim``,
+    layer-normalizes them, pools them with one learned multi-head query over
+    K/V-projected tokens, and applies a final linear classifier.
+    """
+
+    input_proj: eqx.nn.Linear
+    norm: eqx.nn.LayerNorm
+    query_token: jax.Array
+    kv: eqx.nn.Linear
+    classifier: eqx.nn.Linear
+
+    embed_dim: int = eqx.field(static=True)
+    num_heads: int = eqx.field(static=True)
+    head_dim: int = eqx.field(static=True)
+    dropout: float = eqx.field(static=True)
+
+    def __init__(
+        self,
+        in_features: int,
+        out_features: int,
+        *,
+        key: jax.Array,
+        embed_dim: int = 512,
+        num_heads: int = 8,
+        dropout: float = 0.0,
+        bias: bool = True,
+    ):
+        if embed_dim % num_heads != 0:
+            raise ValueError(
+                f"embed_dim={embed_dim} must be divisible by num_heads={num_heads}."
+            )
+
+        key_proj, key_query, key_kv, key_classifier = jr.split(key, 4)
+        self.input_proj = _init_linear(
+            eqx.nn.Linear(in_features, embed_dim, use_bias=bias, key=key_proj),
+            key_proj,
+            weight_init="trunc_normal_0.02",
+            bias_init=0.0,
+        )
+        self.norm = eqx.nn.LayerNorm(embed_dim)
+        self.query_token = (
+            jr.truncated_normal(
+                key_query,
+                lower=-2.0,
+                upper=2.0,
+                shape=(embed_dim,),
+                dtype=jnp.float32,
+            )
+            * jnp.asarray(0.02, dtype=jnp.float32)
+        )
+        self.kv = _init_linear(
+            eqx.nn.Linear(embed_dim, 2 * embed_dim, use_bias=bias, key=key_kv),
+            key_kv,
+            weight_init="trunc_normal_0.02",
+            bias_init=0.0,
+        )
+        self.classifier = _init_linear(
+            eqx.nn.Linear(
+                embed_dim,
+                out_features,
+                use_bias=bias,
+                key=key_classifier,
+            ),
+            key_classifier,
+            weight_init="trunc_normal_0.02",
+            bias_init=0.0,
+        )
+
+        self.embed_dim = embed_dim
+        self.num_heads = num_heads
+        self.head_dim = embed_dim // num_heads
+        self.dropout = float(dropout)
+
+    def __call__(
+        self,
+        tokens: jax.Array,
+        *,
+        mask: jax.Array | None = None,
+        key: jax.Array | None = None,
+        inference: bool | None = True,
+    ) -> jax.Array:
+        if tokens.ndim != 2:
+            raise ValueError(
+                "AttentionPoolingClassifierHead expects tokens shaped "
+                f"[tokens, features], got {tokens.shape}."
+            )
+
+        n_tokens = tokens.shape[0]
+        z = _apply_last_axis(self.input_proj, tokens)
+        z = _apply_last_axis(self.norm, z)
+
+        q = self.query_token.reshape(self.num_heads, self.head_dim).astype(z.dtype)
+        kv = _apply_last_axis(self.kv, z)
+        kv = kv.reshape(n_tokens, 2, self.num_heads, self.head_dim)
+        k = jnp.transpose(kv[:, 0, :, :], (1, 0, 2))
+        v = jnp.transpose(kv[:, 1, :, :], (1, 0, 2))
+
+        scale = jnp.sqrt(jnp.asarray(self.head_dim, dtype=z.dtype))
+        attn_logits = jnp.einsum("hd,hnd->hn", q, k) / scale
+        if mask is not None:
+            if mask.shape != (n_tokens,):
+                raise ValueError(f"mask must have shape {(n_tokens,)}, got {mask.shape}.")
+            attn_logits = jnp.where(
+                mask.astype(bool)[None, :],
+                attn_logits,
+                -jnp.inf,
+            )
+
+        attn = jax.nn.softmax(attn_logits, axis=-1)
+        attn = jnp.nan_to_num(attn)
+        pooled = jnp.einsum("hn,hnd->hd", attn, v).reshape(self.embed_dim)
+
+        if self.dropout > 0.0 and not inference:
+            if key is None:
+                raise ValueError(
+                    "A PRNG key is required when AttentionPoolingClassifierHead "
+                    "dropout is active."
+                )
+            pooled = _dropout(pooled, self.dropout, key)
+
+        return self.classifier(pooled)
+
+
 class ProjectionHead(eqx.Module):
     """Projection MLP used by contrastive or embedding tasks."""
 
@@ -417,6 +544,7 @@ def _logit(p: float) -> float:
 
 
 __all__ = (
+    "AttentionPoolingClassifierHead",
     "CTCHead",
     "ContrastiveProjectionHead",
     "DenseFeatureAdapter",

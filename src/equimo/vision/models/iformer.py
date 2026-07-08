@@ -12,7 +12,7 @@ __all__ = [
     "iformer_l_faster",
 ]
 
-from typing import Callable, Optional, Tuple
+from typing import Callable, Optional, Sequence, Tuple
 
 import equinox as eqx
 import jax
@@ -21,6 +21,7 @@ import numpy as np
 from jaxtyping import Array, Float, PRNGKeyArray
 
 from equimo.vision.layers import get_layer
+from equimo.core.intermediates import intermediate_indices
 from equimo.core.layers.activation import get_act
 from equimo.core.layers.generic import BlockChunk
 from equimo.core.layers.norm import get_norm
@@ -131,6 +132,30 @@ class IFormer(eqx.Module):
         x = self.dropout(x, inference=inference, key=key_drop)
 
         return x
+
+    def intermediate_features(
+        self,
+        x: Float[Array, "channels height width"],
+        key: PRNGKeyArray = jr.PRNGKey(42),
+        inference: Optional[bool] = None,
+        indices: Sequence[int] | None = None,
+        n_last_blocks: int | None = None,
+        **kwargs,
+    ) -> tuple[Float[Array, "channels height width"], ...]:
+        """Return selected native stage outputs."""
+
+        wanted = intermediate_indices(
+            len(self.blocks),
+            indices=indices,
+            n_last_blocks=n_last_blocks,
+        )
+        _, *key_blocks = jr.split(key, len(self.blocks) + 1)
+        outputs = []
+        for i, (blk, key_blk) in enumerate(zip(self.blocks, key_blocks)):
+            x = blk(x, inference=inference, key=key_blk)
+            if i in wanted:
+                outputs.append(x)
+        return tuple(outputs)
 
     def __call__(
         self,

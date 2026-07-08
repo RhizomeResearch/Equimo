@@ -51,3 +51,67 @@ probe = eqft.make_linear_probe(
     head=head,
 )
 ```
+
+## Attention-Pooling Probe
+
+`AttentionPoolingClassifierHead` is a FINO/DINOv3-style classifier for token
+features. It is different from `AttentionPool`: `AttentionPool` is a lightweight
+pooling policy, while `AttentionPoolingClassifierHead` is a trainable head with
+an input projection, `LayerNorm`, learned multi-head query, K/V projection,
+dropout, and final classifier.
+
+The head consumes one example at a time:
+
+```python
+head = eqft.AttentionPoolingClassifierHead(
+    in_features=4 * model.dim,
+    out_features=10,
+    key=key,
+    embed_dim=512,
+    num_heads=8,
+)
+
+# tokens: [num_tokens, 4 * model.dim]
+logits = head(tokens, key=key, inference=True)
+```
+
+For DINOv3/FINO-style probing over the last `n` transformer blocks, use the
+probe wrapper. It calls `intermediate_features(...)`, builds the FINO token
+matrix by concatenating patch tokens along the feature axis, and trains only
+the probe head under `TrainableSpec(mode="head")`:
+
+```python
+probe = eqft.make_attention_pool_probe(
+    model,
+    in_features=4 * model.dim,
+    out_features=10,
+    key=key,
+    n_last_blocks=4,
+    embed_dim=512,
+    num_heads=8,
+    prepend_cls_token=False,
+)
+
+plan = eqft.prepare_finetune(
+    probe,
+    trainable=eqft.TrainableSpec(mode="head"),
+)
+```
+
+For a final-layer baseline, omit `n_last_blocks`. The probe then consumes the
+model's `forward_features()` dictionary and uses `x_norm_patchtokens`, with an
+optional prepended `x_norm_cls_token`:
+
+```python
+probe = eqft.make_attention_pool_probe(
+    model,
+    in_features=model.dim,
+    out_features=10,
+    key=key,
+    prepend_cls_token=False,
+)
+```
+
+Set `prepend_cls_token=True` to prepend the concatenated CLS token before patch
+tokens. Set `l2_normalize_cls=True` to L2-normalize that CLS token before
+prepending, matching FINO's optional CLS normalization behavior.

@@ -65,6 +65,21 @@ def test_ast_features_and_aux_shapes():
     assert jnp.all(jnp.isfinite(features))
 
 
+def test_ast_intermediate_features():
+    model = _small_ast(depths=[2])
+
+    intermediates = model.intermediate_features(
+        SPEC,
+        key=KEY,
+        inference=True,
+        n_last_blocks=2,
+    )
+
+    assert len(intermediates) == 2
+    assert intermediates[-1].shape == (10, 32)
+    assert jnp.all(jnp.isfinite(intermediates[-1]))
+
+
 def test_ast_batching_with_vmap():
     model = _small_ast()
     batch = jr.normal(KEY, (3, 64, 32))

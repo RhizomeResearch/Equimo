@@ -3,7 +3,7 @@
 __all__ = ["MobileNetv3", "mobilenetv3_small", "mobilenetv3_large"]
 
 
-from typing import Optional
+from typing import Optional, Sequence
 
 import equinox as eqx
 import jax
@@ -11,6 +11,7 @@ import jax.random as jr
 from einops import reduce
 from jaxtyping import Array, Float, PRNGKeyArray
 
+from equimo.core.intermediates import intermediate_indices
 from equimo.core.layers.activation import get_act
 from equimo.vision.layers.convolution import MBConv, SingleConvBlock
 from equimo.registry import register_model
@@ -85,6 +86,31 @@ class MobileNetv3(eqx.Module):
             x = layer(x, inference=inference, key=jr.fold_in(key_layers, i))
 
         return x
+
+    def intermediate_features(
+        self,
+        x: Float[Array, "..."],
+        key: PRNGKeyArray,
+        inference: Optional[bool] = None,
+        indices: Sequence[int] | None = None,
+        n_last_blocks: int | None = None,
+    ) -> tuple[Float[Array, "..."], ...]:
+        """Return selected native stem/layer outputs."""
+
+        total = len(self.layers) + 1
+        wanted = intermediate_indices(total, indices=indices, n_last_blocks=n_last_blocks)
+        key_conv1, key_layers = jr.split(key, 2)
+        outputs = []
+
+        x = self.conv1(x, inference=inference, key=key_conv1)
+        if 0 in wanted:
+            outputs.append(x)
+        for i, layer in enumerate(self.layers, start=1):
+            x = layer(x, inference=inference, key=jr.fold_in(key_layers, i - 1))
+            if i in wanted:
+                outputs.append(x)
+
+        return tuple(outputs)
 
     def __call__(
         self,

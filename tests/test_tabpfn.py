@@ -97,6 +97,24 @@ def test_features_and_forward_features_shapes():
     assert bool(jnp.all(jnp.isfinite(forward["x_norm_test"])))
 
 
+def test_intermediate_features_shapes():
+    model = _tiny()
+    x, y, n_train = _inputs()
+
+    intermediates = model.intermediate_features(
+        x,
+        y,
+        n_train,
+        key=KEY,
+        inference=True,
+        n_last_blocks=2,
+    )
+
+    assert len(intermediates) == 2
+    assert intermediates[-1].shape == (x.shape[0], model.context_dim)
+    assert bool(jnp.all(jnp.isfinite(intermediates[-1])))
+
+
 def test_forward_handles_nan_and_inf():
     model = _tiny()
     x, y, n_train = _inputs()

@@ -25,6 +25,7 @@ import jax
 import jax.random as jr
 from jaxtyping import Array, Float, PRNGKeyArray
 
+from equimo.core.intermediates import intermediate_indices
 from equimo.core.layers.activation import get_act
 from equimo.core.layers.generic import BlockChunk
 from equimo.core.layers.norm import get_norm
@@ -251,6 +252,69 @@ class TabPFN(eqx.Module):
             )
         return x_context
 
+    def intermediate_features(
+        self,
+        x: Float[Array, "rows columns"],
+        y: Array,
+        n_train: int,
+        key: PRNGKeyArray,
+        inference: Optional[bool] = None,
+        indices: Sequence[int] | None = None,
+        n_last_blocks: int | None = None,
+        **kwargs,
+    ) -> tuple[Float[Array, "rows dim"], ...]:
+        """Return selected native context block outputs."""
+
+        total = _count_chunk_blocks(self.blocks)
+        wanted = intermediate_indices(total, indices=indices, n_last_blocks=n_last_blocks)
+        key_feature, key_column, *block_keys = jr.split(key, len(self.blocks) + 2)
+
+        x = self.preprocessor(x, n_train)
+        x = jax.vmap(jax.vmap(self.x_embed))(x)
+
+        x = x.at[:n_train].add(self.column_label_embedding(y[:n_train])[:, None, :])
+        x = self.feature_encoder(
+            x,
+            n_train,
+            key=key_feature,
+            inference=inference,
+        )
+
+        cls = self.column_aggregator(x, key=key_column, inference=inference)
+        x_context = cls.reshape(cls.shape[0], -1)
+        x_context = x_context.at[:n_train].add(
+            self.context_label_embedding(y[:n_train])
+        )
+
+        outputs = []
+        offset = 0
+        for block, block_key in zip(self.blocks, block_keys):
+            n_blocks = (
+                len(block.blocks) if getattr(block, "blocks", None) is not None else 0
+            )
+            local_indices = tuple(
+                i - offset for i in sorted(wanted) if offset <= i < offset + n_blocks
+            )
+            if local_indices:
+                x_context, block_outputs = block.intermediate_features(
+                    x_context,
+                    n_train=n_train,
+                    key=block_key,
+                    inference=inference,
+                    indices=local_indices,
+                )
+                outputs.extend(block_outputs)
+            else:
+                x_context = block(
+                    x_context,
+                    n_train=n_train,
+                    key=block_key,
+                    inference=inference,
+                )
+            offset += n_blocks
+
+        return tuple(outputs)
+
     def forward_features(
         self,
         x: Float[Array, "rows columns"],
@@ -280,6 +344,13 @@ class TabPFN(eqx.Module):
         x = self.features(x, y, n_train, key=key, inference=inference, **kwargs)
         x = jax.vmap(self.norm)(x)
         return self.head(x[:n_train], x[n_train:], y[:n_train], n_train)
+
+
+def _count_chunk_blocks(blocks: Tuple[BlockChunk, ...]) -> int:
+    return sum(
+        len(chunk.blocks) if getattr(chunk, "blocks", None) is not None else 0
+        for chunk in blocks
+    )
 
 
 _TABPFN_BASE_CFG: dict = {

@@ -4,7 +4,7 @@
 # ty: ignore[unresolved-attribute]
 __all__ = ["Mlla"]
 
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, List, Optional, Sequence, Tuple
 
 import equinox as eqx
 import jax
@@ -12,6 +12,7 @@ import jax.random as jr
 from einops import reduce
 from jaxtyping import Array, Float, PRNGKeyArray
 
+from equimo.core.intermediates import intermediate_indices
 from equimo.core.layers.activation import get_act
 from equimo.vision.layers.convolution import Stem
 from equimo.core.layers.ffn import get_ffn
@@ -168,6 +169,31 @@ class Mlla(eqx.Module):
             x = blk(x, inference=inference, key=keys[i])
 
         return x
+
+    def intermediate_features(
+        self,
+        x: Float[Array, "..."],
+        key: PRNGKeyArray = jr.PRNGKey(42),
+        inference: Optional[bool] = None,
+        indices: Sequence[int] | None = None,
+        n_last_blocks: int | None = None,
+    ) -> tuple[Float[Array, "..."], ...]:
+        """Return selected native stage outputs."""
+
+        wanted = intermediate_indices(
+            len(self.blocks),
+            indices=indices,
+            n_last_blocks=n_last_blocks,
+        )
+        key_pd, *keys = jr.split(key, 1 + len(self.blocks))
+        x = self.patch_embed(x)
+        x = self.pos_drop(x, inference=inference, key=key_pd)
+        outputs = []
+        for i, blk in enumerate(self.blocks):
+            x = blk(x, inference=inference, key=keys[i])
+            if i in wanted:
+                outputs.append(x)
+        return tuple(outputs)
 
     def __call__(
         self,

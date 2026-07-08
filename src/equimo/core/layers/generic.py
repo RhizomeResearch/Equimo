@@ -10,6 +10,7 @@ import jax.random as jr
 from einops import rearrange
 from jaxtyping import Array, Float, PRNGKeyArray
 
+from equimo.core.intermediates import intermediate_indices
 from equimo.core.layers.dropout import DropPathAdd
 from equimo.core.layers.norm import LayerScale
 
@@ -432,3 +433,46 @@ class BlockChunk(eqx.Module):
                 x = self.downsample(x)
 
         return x
+
+    def intermediate_features(
+        self,
+        x: Float[Array, "..."],
+        *,
+        key: PRNGKeyArray,
+        inference: Optional[bool] = None,
+        indices: Sequence[int] | None = None,
+        n_last_blocks: int | None = None,
+        **kwargs,
+    ) -> tuple[Float[Array, "..."], tuple[Float[Array, "..."], ...]]:
+        """Run the chunk and return selected outputs after internal blocks."""
+
+        n_blocks = len(self.blocks) if self.blocks is not None else 0
+        wanted = intermediate_indices(
+            n_blocks,
+            indices=indices,
+            n_last_blocks=n_last_blocks,
+        )
+        key_down, *keys = jr.split(key, n_blocks + 2)
+        outputs = []
+
+        x = self.posemb(x)
+
+        if not self.downsample_last and self.downsample is not None:
+            if self.downsampler_needs_key:
+                x = self.downsample(x, inference=inference, key=key_down)
+            else:
+                x = self.downsample(x)
+
+        if self.blocks is not None:
+            for i, (blk, key_block) in enumerate(zip(self.blocks, keys)):
+                x = blk(x, inference=inference, key=key_block, **kwargs)
+                if i in wanted:
+                    outputs.append(x)
+
+        if self.downsample_last and self.downsample is not None:
+            if self.downsampler_needs_key:
+                x = self.downsample(x, inference=inference, key=key_down)
+            else:
+                x = self.downsample(x)
+
+        return x, tuple(outputs)

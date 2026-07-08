@@ -6,7 +6,7 @@
 # ty: ignore[invalid-return-type]
 __all__ = ["PartialFormer"]
 
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, List, Optional, Sequence, Tuple
 
 import equinox as eqx
 import jax
@@ -16,6 +16,7 @@ import numpy as np
 from einops import reduce
 from jaxtyping import Array, Float, PRNGKeyArray
 
+from equimo.core.intermediates import intermediate_indices
 from equimo.core.layers.activation import get_act
 from equimo.vision.layers.attention import get_attn_block
 from equimo.vision.layers.convolution import Stem
@@ -338,6 +339,39 @@ class PartialFormer(eqx.Module):
         if return_qa:
             return x, qa
         return x
+
+    def intermediate_features(
+        self,
+        x: Float[Array, "channels height width"],
+        key: PRNGKeyArray = jr.PRNGKey(42),
+        inference: Optional[bool] = None,
+        indices: Sequence[int] | None = None,
+        n_last_blocks: int | None = None,
+    ) -> tuple[Float[Array, "seqlen dim"], ...]:
+        """Return selected native patch/stage outputs."""
+
+        total = len(self.blocks) + 1
+        wanted = intermediate_indices(total, indices=indices, n_last_blocks=n_last_blocks)
+        key_posdrop, *block_subkeys = jr.split(key, len(self.blocks) + 1)
+        outputs = []
+
+        x = self.patch_embed(x)
+        x = self.pos_drop(x, inference=inference, key=key_posdrop)
+        if 0 in wanted:
+            outputs.append(x)
+
+        qa = self.qa_token
+        for i, blk in enumerate(self.blocks, start=1):
+            x, qa = blk(
+                x,
+                qa=qa,
+                inference=inference,
+                key=block_subkeys[i - 1],
+            )
+            if i in wanted:
+                outputs.append(x)
+
+        return tuple(outputs)
 
     def __call__(
         self,

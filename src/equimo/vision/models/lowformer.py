@@ -10,7 +10,7 @@ __all__ = [
 ]
 
 import copy
-from typing import Callable, Literal, Optional, Tuple
+from typing import Callable, Literal, Optional, Sequence, Tuple
 
 import equinox as eqx
 import jax
@@ -19,6 +19,7 @@ import numpy as np
 from einops import reduce
 from jaxtyping import Array, Float, PRNGKeyArray
 
+from equimo.core.intermediates import intermediate_indices
 from equimo.core.layers.activation import get_act
 from equimo.vision.layers.attention import LowFormerBlock
 from equimo.vision.layers.convolution import DSConv, MBConv, SingleConvBlock
@@ -238,6 +239,33 @@ class LowFormer(eqx.Module):
             x = blk(x, inference=inference, key=key_blocks[i])
 
         return x
+
+    def intermediate_features(
+        self,
+        x: Float[Array, "channels height width"],
+        key: PRNGKeyArray = jr.PRNGKey(42),
+        inference: Optional[bool] = None,
+        indices: Sequence[int] | None = None,
+        n_last_blocks: int | None = None,
+        **kwargs,
+    ) -> tuple[Float[Array, "channels height width"], ...]:
+        """Return selected native stem/stage outputs."""
+
+        total = len(self.blocks) + 1
+        wanted = intermediate_indices(total, indices=indices, n_last_blocks=n_last_blocks)
+        key_stem, *key_blocks = jr.split(key, len(self.blocks) + 1)
+        outputs = []
+
+        x = self.input_stem(x, key=key_stem)
+        if 0 in wanted:
+            outputs.append(x)
+
+        for i, blk in enumerate(self.blocks, start=1):
+            x = blk(x, inference=inference, key=key_blocks[i - 1])
+            if i in wanted:
+                outputs.append(x)
+
+        return tuple(outputs)
 
     def __call__(
         self,

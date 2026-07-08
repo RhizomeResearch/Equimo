@@ -4,7 +4,7 @@
 __all__ = ["SHViT"]
 
 
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, List, Optional, Sequence, Tuple
 
 import equinox as eqx
 import jax
@@ -13,6 +13,7 @@ import numpy as np
 from einops import reduce
 from jaxtyping import Array, Float, PRNGKeyArray
 
+from equimo.core.intermediates import intermediate_indices
 from equimo.core.layers.activation import get_act
 from equimo.vision.layers.attention import SHSA
 from equimo.vision.layers.convolution import DoubleConvBlock, SingleConvBlock
@@ -259,6 +260,31 @@ class SHViT(eqx.Module):
             x = blk(x, inference=inference, key=keys[i])
 
         return x
+
+    def intermediate_features(
+        self,
+        x: Float[Array, "..."],
+        key: PRNGKeyArray = jr.PRNGKey(42),
+        inference: Optional[bool] = None,
+        indices: Sequence[int] | None = None,
+        n_last_blocks: int | None = None,
+    ) -> tuple[Float[Array, "..."], ...]:
+        """Return selected native stem/stage outputs."""
+
+        total = len(self.blocks) + 1
+        wanted = intermediate_indices(total, indices=indices, n_last_blocks=n_last_blocks)
+        keys = jr.split(key, len(self.blocks))
+        outputs = []
+
+        x = self.patch_embed(x)
+        if 0 in wanted:
+            outputs.append(x)
+        for i, blk in enumerate(self.blocks, start=1):
+            x = blk(x, inference=inference, key=keys[i - 1])
+            if i in wanted:
+                outputs.append(x)
+
+        return tuple(outputs)
 
     def __call__(
         self,

@@ -12,7 +12,7 @@ __all__ = [
     "ast_base_patch16_speechcommands_v2_10_10_0_9812",
 ]
 
-from typing import Callable, Literal, Optional, Tuple, cast
+from typing import Callable, Literal, Optional, Sequence, Tuple, cast
 
 import equinox as eqx
 import jax
@@ -22,6 +22,7 @@ import numpy as np
 from jaxtyping import Array, Float, PRNGKeyArray
 
 from equimo.audio.layers.patch import SpectrogramPatchEmbedding
+from equimo.core.intermediates import intermediate_indices
 from equimo.core.layers.activation import get_act
 from equimo.core.layers.attention import get_attn, get_attn_block
 from equimo.core.layers.ffn import get_ffn
@@ -192,7 +193,58 @@ class AudioSpectrogramTransformer(eqx.Module):
         **kwargs,
     ) -> Float[Array, "seqlen dim"]:
         key_pos, *block_subkeys = jr.split(key, len(self.blocks) + 1)
+        x = self._prepare_tokens(x, key=key_pos, inference=inference)
 
+        for blk, key_block in zip(self.blocks, block_subkeys):
+            x = blk(x, inference=inference, key=key_block, **kwargs)
+
+        return x
+
+    def intermediate_features(
+        self,
+        x: Float[Array, "time frequency"],
+        key: PRNGKeyArray,
+        inference: Optional[bool] = None,
+        indices: Sequence[int] | None = None,
+        n_last_blocks: int | None = None,
+        **kwargs,
+    ) -> tuple[Float[Array, "seqlen dim"], ...]:
+        """Return selected native token outputs after transformer blocks."""
+
+        total = _count_chunk_blocks(self.blocks)
+        wanted = intermediate_indices(total, indices=indices, n_last_blocks=n_last_blocks)
+        key_pos, *block_subkeys = jr.split(key, len(self.blocks) + 1)
+        x = self._prepare_tokens(x, key=key_pos, inference=inference)
+
+        outputs = []
+        offset = 0
+        for blk, key_block in zip(self.blocks, block_subkeys):
+            n_blocks = len(blk.blocks) if getattr(blk, "blocks", None) is not None else 0
+            local_indices = tuple(
+                i - offset for i in sorted(wanted) if offset <= i < offset + n_blocks
+            )
+            if local_indices:
+                x, chunk_outputs = blk.intermediate_features(
+                    x,
+                    inference=inference,
+                    key=key_block,
+                    indices=local_indices,
+                    **kwargs,
+                )
+                outputs.extend(chunk_outputs)
+            else:
+                x = blk(x, inference=inference, key=key_block, **kwargs)
+            offset += n_blocks
+
+        return tuple(outputs)
+
+    def _prepare_tokens(
+        self,
+        x: Float[Array, "time frequency"],
+        *,
+        key: PRNGKeyArray,
+        inference: Optional[bool],
+    ) -> Float[Array, "seqlen dim"]:
         x = self.patch_embed(x)
         prefix = [
             self.cls_token.astype(x.dtype),
@@ -200,12 +252,7 @@ class AudioSpectrogramTransformer(eqx.Module):
         ]
         x = jnp.concatenate(prefix + [x], axis=0)
         x = x + self.pos_embed.astype(x.dtype)
-        x = self.pos_drop(x, inference=inference, key=key_pos)
-
-        for blk, key_block in zip(self.blocks, block_subkeys):
-            x = blk(x, inference=inference, key=key_block, **kwargs)
-
-        return x
+        return self.pos_drop(x, inference=inference, key=key)
 
     def forward_features(
         self,
@@ -246,6 +293,13 @@ class AudioSpectrogramTransformer(eqx.Module):
 
         x = self.head_norm(x)
         return self.head(x)
+
+
+def _count_chunk_blocks(blocks: Tuple[eqx.Module, ...]) -> int:
+    return sum(
+        len(chunk.blocks) if getattr(chunk, "blocks", None) is not None else 0
+        for chunk in blocks
+    )
 
 
 _AST_BASE_CFG: dict = {
