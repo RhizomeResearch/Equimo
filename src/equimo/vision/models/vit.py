@@ -517,6 +517,14 @@ _DINOV2_BASE_CFG: dict = {
     "dynamic_img_size": False,
     "act_layer": "exactgelu",
 }
+_DINOV3_LOCAL_ROPE_CFG: dict = {
+    "strategy": "period",
+    "base": 100.0,
+    "normalize_coords": "separate",
+    "rescale_coords": 2.0,
+    "dtype": jnp.float32,
+    "periods_dtype": jnp.float32,
+}
 _DINOV3_BASE_CFG: dict = {
     "img_size": 224,
     "in_channels": 3,
@@ -525,6 +533,7 @@ _DINOV3_BASE_CFG: dict = {
     "use_mask_token": True,
     "use_global_pos_embed": False,
     "use_local_pos_embed": True,
+    "local_pos_embed_config_patch": _DINOV3_LOCAL_ROPE_CFG,
     "reg_tokens": 4,
     "init_values": 1e-5,
     "eps": 1e-5,
@@ -741,6 +750,7 @@ _VIT_REGISTRY: dict[str, tuple[dict, dict]] = {
             "untie_global_and_local_cls_norm": True,
             "ffn_layer": "swiglu",
             "ffn_kwargs": {"align_to": 64},
+            "qkv_bias": False,
         },
     ),
     # DINOv3 (SAT-493M)
@@ -763,6 +773,7 @@ _VIT_REGISTRY: dict[str, tuple[dict, dict]] = {
             "untie_global_and_local_cls_norm": True,
             "ffn_layer": "swiglu",
             "ffn_kwargs": {"align_to": 64},
+            "qkv_bias": False,
         },
     ),
     # EUPE

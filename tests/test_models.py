@@ -735,6 +735,23 @@ def test_dinov2_vits14_reg_matches_timm():
     assert mae < 1e-5, f"DINOv2 cls token MAE vs timm: {mae:.2e}"
 
 
+def test_dinov3_local_rope_config_matches_official():
+    model = dinov3_vits16_pretrain_lvd1689m(pretrained=False)
+    rope = model.local_pos_embed.patch_rope
+
+    D_head = model.dim // 6
+    expected = 100.0 ** (
+        2.0 * jnp.arange(D_head // 4, dtype=jnp.float32) / float(D_head // 2)
+    )
+
+    assert rope.freqs.dtype == jnp.float32
+    assert rope.normalize_coords == "separate"
+    assert rope.rescale_coords == 2.0
+    np.testing.assert_allclose(
+        np.asarray(rope.freqs), np.asarray(expected), rtol=0, atol=0
+    )
+
+
 def test_dinov3_vits16_matches_hf():
     """DINOv3 ViT-S/16 (LVD-1689M) cls token must match HuggingFace output.
 
@@ -757,7 +774,7 @@ def test_dinov3_vits16_matches_hf():
     eq_cls = np.array(fwd["x_norm_cls_token"])  # (384,)
 
     mae = float(np.mean(np.abs(eq_cls - ref["cls_token"])))
-    assert mae < 3e-4, f"DINOv3 cls token MAE vs HuggingFace: {mae:.2e}"
+    assert mae < 1e-4, f"DINOv3 cls token MAE vs HuggingFace: {mae:.2e}"
 
 
 def test_siglip2_vitb16_256_matches_hf():

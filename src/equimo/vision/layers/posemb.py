@@ -557,9 +557,9 @@ class DinoRoPE(eqx.Module):
     -----
     - The `periods` buffer is persistent (part of the tree) and not trainable; we
       stop gradients on it inside `__call__`.
-    - I had to separate `dtype` and `periods_dtype`. For some obscure reasons, I faced cases
-      with the reference PyTorch impl. where `periods` were computed in bfloat16 (wanted behavior),
-      but subsequent computations (coords, angles, cos, sin) were at a float32 precision.
+    - `periods_dtype` controls the precision used to construct the deterministic
+      periods buffer before casting it to `dtype`. It can be set lower to match
+      checkpoints with quantized RoPE periods, but defaults to float32.
     """
 
     D_head: int = eqx.field(static=True)
@@ -584,7 +584,7 @@ class DinoRoPE(eqx.Module):
         shift_coords: Optional[float] = None,
         jitter_coords: Optional[float] = None,
         rescale_coords: Optional[float] = None,
-        periods_dtype: jnp.dtype = jnp.bfloat16,
+        periods_dtype: jnp.dtype = jnp.float32,
         dtype: jnp.dtype = jnp.float32,
     ):
         if dim % (4 * num_heads) != 0:
@@ -734,9 +734,14 @@ class VisionRoPE(eqx.Module):
     In both cases ``get_sincos(H=..., W=...)`` returns ``(sin, cos)`` with
     shape ``(H*W, D_out)`` so downstream code doesn't need to know which
     strategy was used.
+
+    ``freqs`` is a deterministic RoPE buffer, not a learnable parameter. For
+    period-based RoPE it stores periods despite the generic name; keep it
+    serialized for checkpoint parity, but freeze/no-decay it in optimizer masks.
     """
 
     # common
+    # Stop-gradient is applied at use sites; optimizer masks must still exclude it.
     freqs: Float[Array, "F"]  # noqa: F821
     dtype: jnp.dtype = eqx.field(static=True)
 
@@ -769,7 +774,7 @@ class VisionRoPE(eqx.Module):
         shift_coords: Optional[float] = None,
         jitter_coords: Optional[float] = None,
         rescale_coords: Optional[float] = None,
-        periods_dtype: jnp.dtype = jnp.bfloat16,
+        periods_dtype: jnp.dtype = jnp.float32,
         # mode-based params
         pt_seq_len: int = 14,
         freqs_for: str = "lang",
@@ -781,7 +786,8 @@ class VisionRoPE(eqx.Module):
         dtype: jnp.dtype = jnp.float32,
     ):
         self.strategy = strategy
-        self.dtype = dtype
+        self.dtype = jnp.dtype(dtype)
+        periods_dtype = jnp.dtype(periods_dtype)
 
         if strategy == "period":
             if dim is None or num_heads is None:
