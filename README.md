@@ -805,7 +805,10 @@ Isolated `float32` upcasts are mandatory for numerically sensitive operations
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request. For major changes, please open an issue first to discuss what you would like to change.
+Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for the
+development setup, verification workflow, and contributor conventions. For
+major changes, please open an issue first to discuss what you would like to
+change.
 
 ## License
 
