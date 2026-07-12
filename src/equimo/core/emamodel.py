@@ -14,7 +14,7 @@ def update_ema_model(
 
     Args:
         ema_model: The EMA model to update
-        current_params: Current parameters from the training model
+        current_params: Filtered parameter PyTree from the training model
         decay: EMA decay rate
 
     Returns:
@@ -28,4 +28,4 @@ def update_ema_model(
         lambda ema, new: decay * ema + (1.0 - decay) * new, ema_params, current_params
     )
 
-    return eqx.apply_updates(ema_model, new_ema_params)
+    return eqx.combine(new_ema_params, ema_model)
