@@ -12,6 +12,8 @@ import jax.numpy as jnp
 import jax.random as jr
 import jax.tree_util as jtu
 
+from equimo.core.layers.attention import rope_apply_qk_last_hw
+
 from .._typing import Path, PyTree
 from ..paths import key_path_to_path
 from .base import get_path
@@ -501,10 +503,6 @@ def _apply_nested_norm(norm, x: jax.Array) -> jax.Array:
 
 
 def _apply_rope(q: jax.Array, k: jax.Array, rope_sincos):
-    try:
-        from equimo.vision.layers.attention import rope_apply_qk_last_hw
-    except Exception:
-        return q, k
     sin, cos = rope_sincos
     return rope_apply_qk_last_hw(q, k, sin, cos)
 

@@ -119,6 +119,11 @@ def rope_apply_qk_last_hw(
     prefix: int | None = None,
 ) -> Tuple[jax.Array, jax.Array]:
     """Apply RoPE to the tail tokens while preserving optional prefix tokens."""
+    if sin.shape[-1] != q.shape[-1] or cos.shape[-1] != q.shape[-1]:
+        raise ValueError(
+            "sin/cos last dim must equal head_dim; got "
+            f"{sin.shape[-1]} and {cos.shape[-1]} vs {q.shape[-1]}"
+        )
     hw = sin.shape[-2]
     n = q.shape[-2]
     if prefix is None:
