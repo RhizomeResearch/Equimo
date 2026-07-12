@@ -1,11 +1,12 @@
 {
   "format_version": 1,
   "locked_environment": {
-    "command": "uv sync --locked --group dev --group reference",
+    "command": "uv sync --locked --group dev --group reference --extra audio",
     "numpy": "2.4.4",
     "tabpfn": "8.1.0",
     "timm": "1.0.26",
     "torch": "2.11.0",
+    "torchaudio": "2.11.0",
     "transformers": "5.13.1"
   },
   "fixtures": {
@@ -38,6 +39,46 @@
       "input_shape": [128, 128],
       "tolerance": 0.0005,
       "sha256": "7c6749f529e99a271ba57b04af160566bb11e9df1d9602f50d5753ef5fed679c",
+      "arrays": {
+        "input_values": {"dtype": "float32", "shape": [128, 128]},
+        "cls_token": {"dtype": "float32", "shape": [768]},
+        "dist_token": {"dtype": "float32", "shape": [768]},
+        "logits": {"dtype": "float32", "shape": [35]}
+      }
+    },
+    "ast_base_patch16_audioset_10_10_0_4593_raw_audio_reference.npz": {
+      "generator": "uv run --group reference --extra audio python models/audio_preprocessing.py ast_base_patch16_audioset_10_10_0_4593 --output-dir /tmp/equimo-audio-references",
+      "upstream": {
+        "repository": "MIT/ast-finetuned-audioset-10-10-0.4593",
+        "revision": "f826b80d28226b62986cc218e5cec390b1096902",
+        "checkpoint": "model.safetensors"
+      },
+      "seed": 0,
+      "input_shape": [16000],
+      "signal": "one-second 440 Hz and 997 Hz deterministic sine mixture",
+      "intermediate_tolerance": 0.0,
+      "tolerance": 0.0005,
+      "sha256": "bad1f4f797d44671d49d02252d12660e6733732f2e382f84307b28255ad9279a",
+      "arrays": {
+        "input_values": {"dtype": "float32", "shape": [1024, 128]},
+        "cls_token": {"dtype": "float32", "shape": [768]},
+        "dist_token": {"dtype": "float32", "shape": [768]},
+        "logits": {"dtype": "float32", "shape": [527]}
+      }
+    },
+    "ast_base_patch16_speechcommands_v2_10_10_0_9812_raw_audio_reference.npz": {
+      "generator": "uv run --group reference --extra audio python models/audio_preprocessing.py ast_base_patch16_speechcommands_v2_10_10_0_9812 --output-dir /tmp/equimo-audio-references",
+      "upstream": {
+        "repository": "MIT/ast-finetuned-speech-commands-v2",
+        "revision": "315b0b847a3ca207e68b718503ad72066612eacd",
+        "checkpoint": "model.safetensors"
+      },
+      "seed": 0,
+      "input_shape": [16000],
+      "signal": "one-second 440 Hz and 997 Hz deterministic sine mixture",
+      "intermediate_tolerance": 0.0,
+      "tolerance": 0.0005,
+      "sha256": "ff5431452ab0b520fcbaccc3aca4f60eecb0bd3d8a9481d10b240abdbb727083",
       "arrays": {
         "input_values": {"dtype": "float32", "shape": [128, 128]},
         "cls_token": {"dtype": "float32", "shape": [768]},

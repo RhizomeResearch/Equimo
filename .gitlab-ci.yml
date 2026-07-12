@@ -80,6 +80,15 @@ test:extra:extras:
   script:
     - uv run --python "$PYTHON_VERSION" pytest -q -p no:cacheprovider tests/test_io.py::test_optional_extras_smoke
 
+test:extra:audio:
+  stage: test
+  variables:
+    EQUIMO_TEST_OPTIONAL_EXTRA: audio
+  before_script:
+    - uv sync --locked --python "$PYTHON_VERSION" --group dev --extra audio
+  script:
+    - uv run --python "$PYTHON_VERSION" pytest -q -p no:cacheprovider tests/audio/test_io.py tests/audio/test_preprocessing_parity.py
+
 test:extra:language:
   stage: test
   variables:
@@ -118,6 +127,7 @@ publish:
     - "test:core"
     - "test:python"
     - "test:extra:extras"
+    - "test:extra:audio"
     - "test:extra:language"
     - "test:extra:torch"
     - "build:distribution"

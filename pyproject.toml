@@ -29,6 +29,11 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
+# Required for checkpoint-faithful AST waveform preprocessing
+audio = [
+  "torch>=2.11,<2.12",
+  "torchaudio>=2.11,<2.12",
+]
 # Useful to convert models from PyTorch
 torch = [
   "torch>=2.6.0",

@@ -53,7 +53,7 @@ modality-specific code:
 | `equimo.core` | Shared layers, scan ops, implicit/DEQ utilities, EMA helpers |
 | `equimo.vision` | Vision models, vision layers, and image IO |
 | `equimo.language` | Text encoders and tokenizers |
-| `equimo.audio` | Audio models, audio layers, and audio IO scaffolding |
+| `equimo.audio` | Audio models, layers, and checkpoint-linked AST waveform preprocessing |
 | `equimo.tabular` | Tabular models and tabular layers |
 | `equimo.finetune` | Trainability plans, heads, PEFT modules, deltas, model merging, and fine-tuning recipes |
 | `equimo.serialization` | Checkpoint save/load, weight loading, archive download/decompression |
@@ -761,6 +761,32 @@ catalog prototype:
 inputs are single log-mel spectrograms shaped `(time, frequency)`, and batch
 inference can be done with `jax.vmap`.
 
+For the two pretrained variants below, install the checkpoint-faithful
+waveform path with `pip install "equimo[audio]"`. It accepts normalized
+float32 mono or channel-first waveform arrays, resamples them to 16 kHz, and
+returns the exact `(time, frequency)` input expected by the checkpoint:
+
+```python
+import jax
+import numpy as np
+import equimo.audio.models as am
+from equimo.audio import get_ast_preprocessing_spec, preprocess_ast_waveform
+
+variant = "ast_base_patch16_audioset_10_10_0_4593"
+spec = get_ast_preprocessing_spec(variant)
+waveform = np.zeros(48_000, dtype=np.float32)  # normalized mono at 48 kHz
+x = preprocess_ast_waveform(waveform, 48_000, spec=spec)
+
+model = am.ast_base_patch16_audioset_10_10_0_4593(pretrained=True)
+logits = model(x, key=jax.random.PRNGKey(0), inference=True)
+```
+
+`load_ast_wav(path, spec=spec)` is a thin adapter for local, uncompressed
+16-bit PCM WAV files. Multi-channel arrays and files are averaged to mono.
+Decoding and preprocessing run on CPU through TorchAudio and are not JAX
+jittable; model inference remains JAX-native. Precomputed log-mel inputs remain
+fully supported without the optional dependency:
+
 ```python
 import jax
 import jax.numpy as jnp
@@ -778,6 +804,11 @@ Pretrained AST checkpoints currently available:
 
 - `ast_base_patch16_audioset_10_10_0_4593`: Full AudioSet, 10x10 strides, weight-averaged checkpoint.
 - `ast_base_patch16_speechcommands_v2_10_10_0_9812`: SpeechCommands V2-35, 10x10 strides, non-averaged checkpoint.
+
+The preprocessing contracts, upstream revisions, dependency comparison, and
+measured parity tolerances are recorded in
+[`docs/audio_preprocessing.md`](./docs/audio_preprocessing.md). Other AST
+variants intentionally have no raw-waveform helper until independently pinned.
 
 ## Tabular
 

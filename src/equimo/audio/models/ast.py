@@ -388,8 +388,8 @@ def _catalog_model_variants():
                     axes=("time", "frequency"),
                     dtype="float32",
                     description=(
-                        "One precomputed log-mel spectrogram; waveform "
-                        "preprocessing is caller-managed."
+                        "One log-mel spectrogram, precomputed by the caller or "
+                        "by equimo.audio.preprocess_ast_waveform."
                     ),
                 ),
             ),
@@ -404,7 +404,7 @@ def _catalog_model_variants():
                     "ast_base_patch16_audioset_10_10_0_4593_reference.npz"
                 ),
             ),
-            notes=("The catalog describes spectrogram input, not raw waveform IO.",),
+            notes=("The model consumes spectrograms; waveform IO is a CPU adapter.",),
             field_status=(
                 ("inputs", "complete"),
                 ("pretrained", "complete"),

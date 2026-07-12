@@ -8,6 +8,7 @@ import pytest
 ROOT = Path(__file__).parents[1]
 SCRIPTS = ("tips.py", "tips_text.py", "eupe.py")
 HELP_SCRIPTS = (
+    "audio_preprocessing.py",
     "ast.py",
     "dinov2.py",
     "dinov3.py",
