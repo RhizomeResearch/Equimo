@@ -70,6 +70,7 @@ __all__ = [
     "get_patch",
     "register_patch",
     # Positional Embeddings
+    "CompositeVisionRoPE",
     "DinoRoPE",
     "LearnedPosEmbed",
     "PosCNN",
@@ -77,6 +78,7 @@ __all__ = [
     "PosEmbMLPSwinv1D",
     "PosEmbMLPSwinv2D",
     "RoPE",
+    "VisionRoPE",
     "get_posemb",
     "register_posemb",
     # Squeeze-and-Excitation
@@ -163,6 +165,7 @@ from .patch import (
     register_patch,
 )
 from .posemb import (
+    CompositeVisionRoPE,
     DinoRoPE,
     LearnedPosEmbed,
     PosCNN,
@@ -170,6 +173,7 @@ from .posemb import (
     PosEmbMLPSwinv1D,
     PosEmbMLPSwinv2D,
     RoPE,
+    VisionRoPE,
     get_posemb,
     register_posemb,
 )
