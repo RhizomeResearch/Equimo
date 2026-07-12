@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Literal
+from typing import Literal, cast
 
 import equinox as eqx
 import jax
@@ -37,11 +37,14 @@ class LinearHead(eqx.Module):
         weight_init: str = "trunc_normal_0.02",
         bias_init: float = 0.0,
     ):
-        self.linear = eqx.nn.Linear(
-            in_features,
-            out_features,
-            use_bias=bias,
-            key=key,
+        self.linear = cast(
+            eqx.nn.Linear,
+            eqx.nn.Linear(
+                in_features,
+                out_features,
+                use_bias=bias,
+                key=key,
+            ),
         )
         self.linear = _init_linear(
             self.linear,
@@ -61,7 +64,7 @@ class LayerNormReadoutHead(eqx.Module):
     head: eqx.Module
 
     def __init__(self, in_features: int, head: eqx.Module):
-        self.norm = eqx.nn.LayerNorm(in_features)
+        self.norm = cast(eqx.nn.LayerNorm, eqx.nn.LayerNorm(in_features))
         self.head = head
 
     def __call__(
@@ -90,12 +93,15 @@ class MultiLabelHead(eqx.Module):
         bias_prior: float | None = None,
     ):
         bias_init = 0.0 if bias_prior is None else _logit(bias_prior)
-        self.head = LinearHead(
-            in_features,
-            out_features,
-            key=key,
-            bias=bias,
-            bias_init=bias_init,
+        self.head = cast(
+            LinearHead,
+            LinearHead(
+                in_features,
+                out_features,
+                key=key,
+                bias=bias,
+                bias_init=bias_init,
+            ),
         )
 
     def __call__(self, x: jax.Array) -> jax.Array:
@@ -133,7 +139,10 @@ class MLPHead(eqx.Module):
 
         self.layers = tuple(
             _init_linear(
-                eqx.nn.Linear(dims[i], dims[i + 1], use_bias=bias, key=keys[i]),
+                cast(
+                    eqx.nn.Linear,
+                    eqx.nn.Linear(dims[i], dims[i + 1], use_bias=bias, key=keys[i]),
+                ),
                 keys[i],
             )
             for i in range(num_layers)
@@ -203,34 +212,40 @@ class AttentionPoolingClassifierHead(eqx.Module):
 
         key_proj, key_query, key_kv, key_classifier = jr.split(key, 4)
         self.input_proj = _init_linear(
-            eqx.nn.Linear(in_features, embed_dim, use_bias=bias, key=key_proj),
+            cast(
+                eqx.nn.Linear,
+                eqx.nn.Linear(in_features, embed_dim, use_bias=bias, key=key_proj),
+            ),
             key_proj,
             weight_init="trunc_normal_0.02",
             bias_init=0.0,
         )
-        self.norm = eqx.nn.LayerNorm(embed_dim)
-        self.query_token = (
-            jr.truncated_normal(
-                key_query,
-                lower=-2.0,
-                upper=2.0,
-                shape=(embed_dim,),
-                dtype=jnp.float32,
-            )
-            * jnp.asarray(0.02, dtype=jnp.float32)
-        )
+        self.norm = cast(eqx.nn.LayerNorm, eqx.nn.LayerNorm(embed_dim))
+        self.query_token = jr.truncated_normal(
+            key_query,
+            lower=-2.0,
+            upper=2.0,
+            shape=(embed_dim,),
+            dtype=jnp.float32,
+        ) * jnp.asarray(0.02, dtype=jnp.float32)
         self.kv = _init_linear(
-            eqx.nn.Linear(embed_dim, 2 * embed_dim, use_bias=bias, key=key_kv),
+            cast(
+                eqx.nn.Linear,
+                eqx.nn.Linear(embed_dim, 2 * embed_dim, use_bias=bias, key=key_kv),
+            ),
             key_kv,
             weight_init="trunc_normal_0.02",
             bias_init=0.0,
         )
         self.classifier = _init_linear(
-            eqx.nn.Linear(
-                embed_dim,
-                out_features,
-                use_bias=bias,
-                key=key_classifier,
+            cast(
+                eqx.nn.Linear,
+                eqx.nn.Linear(
+                    embed_dim,
+                    out_features,
+                    use_bias=bias,
+                    key=key_classifier,
+                ),
             ),
             key_classifier,
             weight_init="trunc_normal_0.02",
@@ -270,7 +285,9 @@ class AttentionPoolingClassifierHead(eqx.Module):
         attn_logits = jnp.einsum("hd,hnd->hn", q, k) / scale
         if mask is not None:
             if mask.shape != (n_tokens,):
-                raise ValueError(f"mask must have shape {(n_tokens,)}, got {mask.shape}.")
+                raise ValueError(
+                    f"mask must have shape {(n_tokens,)}, got {mask.shape}."
+                )
             attn_logits = jnp.where(
                 mask.astype(bool)[None, :],
                 attn_logits,
@@ -308,14 +325,17 @@ class ProjectionHead(eqx.Module):
         activation: ActivationName = "gelu",
         dropout: float = 0.0,
     ):
-        self.head = MLPHead(
-            in_features,
-            out_dim,
-            key=key,
-            hidden_dim=hidden_dim,
-            num_layers=num_layers,
-            activation=activation,
-            dropout=dropout,
+        self.head = cast(
+            MLPHead,
+            MLPHead(
+                in_features,
+                out_dim,
+                key=key,
+                hidden_dim=hidden_dim,
+                num_layers=num_layers,
+                activation=activation,
+                dropout=dropout,
+            ),
         )
 
     def __call__(
@@ -348,14 +368,17 @@ class ContrastiveProjectionHead(eqx.Module):
         l2_normalize: bool = True,
         eps: float = 1e-12,
     ):
-        self.projection = ProjectionHead(
-            in_features,
-            out_dim,
-            key=key,
-            hidden_dim=hidden_dim,
-            num_layers=num_layers,
-            activation=activation,
-            dropout=dropout,
+        self.projection = cast(
+            ProjectionHead,
+            ProjectionHead(
+                in_features,
+                out_dim,
+                key=key,
+                hidden_dim=hidden_dim,
+                num_layers=num_layers,
+                activation=activation,
+                dropout=dropout,
+            ),
         )
         self.l2_normalize = l2_normalize
         self.eps = eps
@@ -389,7 +412,10 @@ class CTCHead(eqx.Module):
         blank_id: int = 0,
         bias: bool = True,
     ):
-        self.head = LinearHead(in_features, vocab_size, key=key, bias=bias)
+        self.head = cast(
+            LinearHead,
+            LinearHead(in_features, vocab_size, key=key, bias=bias),
+        )
         self.blank_id = blank_id
 
     def __call__(self, x: jax.Array) -> jax.Array:
@@ -409,7 +435,10 @@ class TokenClassificationHead(eqx.Module):
         key: jax.Array,
         bias: bool = True,
     ):
-        self.head = LinearHead(in_features, out_features, key=key, bias=bias)
+        self.head = cast(
+            LinearHead,
+            LinearHead(in_features, out_features, key=key, bias=bias),
+        )
 
     def __call__(self, x: jax.Array) -> jax.Array:
         return self.head(x)
@@ -435,11 +464,14 @@ class DenseFeatureAdapter(eqx.Module):
         bias_init: float = 0.0,
     ):
         self.projection = _init_linear(
-            eqx.nn.Linear(
-                in_features,
-                out_features,
-                use_bias=bias,
-                key=key,
+            cast(
+                eqx.nn.Linear,
+                eqx.nn.Linear(
+                    in_features,
+                    out_features,
+                    use_bias=bias,
+                    key=key,
+                ),
             ),
             key,
             weight_init=weight_init,
@@ -509,12 +541,15 @@ def _apply_last_axis(
 def _call_head(
     head: eqx.Module, x: jax.Array, *, key: jax.Array | None, inference: bool | None
 ) -> jax.Array:
+    if not callable(head):
+        raise TypeError(f"{type(head).__name__} is not callable.")
+    callable_head = cast(Callable[..., jax.Array], head)
     try:
-        return head(x, key=key, inference=inference)
+        return callable_head(x, key=key, inference=inference)
     except TypeError as error:
         if "unexpected keyword argument" not in str(error):
             raise
-        return head(x)
+        return callable_head(x)
 
 
 def _activation(name: ActivationName) -> Callable[[jax.Array], jax.Array]:

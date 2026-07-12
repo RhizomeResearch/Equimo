@@ -86,8 +86,12 @@ def _ia3_dim(
     base: eqx.nn.Linear,
     projection_segments: tuple[ProjectionSegment, ...],
 ) -> int:
+    weight = base.weight
+    if weight.ndim != 2:
+        raise ValueError("IA3 linear weight must be rank 2.")
+    out_features = weight.shape[0]
     if not projection_segments:
-        return int(base.out_features)
+        return out_features
     dim = 0
     for segment in projection_segments:
         if segment.axis != 0:
@@ -96,13 +100,13 @@ def _ia3_dim(
             )
         if (
             segment.start < 0
-            or segment.stop > base.out_features
+            or segment.stop > out_features
             or segment.start >= segment.stop
         ):
             raise ValueError(
                 "IA3 projection segment "
                 f"{segment.name!r} has invalid bounds {segment.start}:{segment.stop} "
-                f"for output dimension {base.out_features}."
+                f"for output dimension {out_features}."
             )
         dim += segment.stop - segment.start
     return dim
@@ -243,11 +247,15 @@ def _projection_segments_for_target(
     selected = _selected_qkv_segment_names(target)
     if not selected:
         return ()
-    if module.out_features % 3 != 0:
+    weight = module.weight
+    if weight.ndim != 2:
+        raise ValueError("IA3 linear weight must be rank 2.")
+    out_features = weight.shape[0]
+    if out_features % 3 != 0:
         raise ValueError(
             "QKV projection segments require an output dimension divisible by 3."
         )
-    width = module.out_features // 3
+    width = out_features // 3
     starts = {"q": 0, "k": width, "v": 2 * width}
     return tuple(
         ProjectionSegment(

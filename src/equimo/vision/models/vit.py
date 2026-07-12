@@ -132,7 +132,7 @@ class VisionTransformer(eqx.Module):
     cls_token: jax.Array | None
     reg_tokens: jax.Array | None
     mask_token: jax.Array | None
-    blocks: Tuple[eqx.Module, ...]
+    blocks: Tuple[BlockChunk, ...]
     pos_drop: eqx.nn.Dropout
     norm: eqx.Module
     local_cls_norm: eqx.Module | None
@@ -413,7 +413,9 @@ class VisionTransformer(eqx.Module):
         """Return selected native token outputs after transformer blocks."""
 
         total = _count_chunk_blocks(self.blocks)
-        wanted = intermediate_indices(total, indices=indices, n_last_blocks=n_last_blocks)
+        wanted = intermediate_indices(
+            total, indices=indices, n_last_blocks=n_last_blocks
+        )
         key_pos, *block_subkeys = jr.split(key, len(self.blocks) + 1)
         x, H, W, rope_sincos = self._prepare_tokens(
             x,
@@ -430,7 +432,8 @@ class VisionTransformer(eqx.Module):
                 rope_sincos = self.local_pos_embed.get_sincos(
                     H=H, W=W, inference=inference, key=key_rope
                 )
-            n_blocks = len(blk.blocks) if getattr(blk, "blocks", None) is not None else 0
+            blocks = blk.blocks
+            n_blocks = 0 if blocks is None else len(blocks)
             local_indices = tuple(
                 i - offset for i in sorted(wanted) if offset <= i < offset + n_blocks
             )
@@ -567,11 +570,8 @@ class VisionTransformer(eqx.Module):
         return x
 
 
-def _count_chunk_blocks(blocks: Tuple[eqx.Module, ...]) -> int:
-    return sum(
-        len(chunk.blocks) if getattr(chunk, "blocks", None) is not None else 0
-        for chunk in blocks
-    )
+def _count_chunk_blocks(blocks: Tuple[BlockChunk, ...]) -> int:
+    return sum(0 if chunk.blocks is None else len(chunk.blocks) for chunk in blocks)
 
 
 _VIT_BASE_CFG: dict = {

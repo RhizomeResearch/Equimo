@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from collections.abc import Callable
+from typing import Literal, cast
 
 import equinox as eqx
 import jax
@@ -198,15 +199,24 @@ def pool_features(
     if isinstance(features, dict):
         return _pool_feature_dict(features, pool, key=pool_key, **pool_kwargs)
     if isinstance(pool, eqx.Module):
-        return pool(features, **pool_kwargs)
+        return _call_pool(pool, features, **pool_kwargs)
     if pool == "attention":
         if pool_key is None:
             raise ValueError("pool='attention' requires a PRNG key.")
-        return AttentionPool(features.shape[-1], key=pool_key)(
+        attention_pool = cast(
+            AttentionPool, AttentionPool(features.shape[-1], key=pool_key)
+        )
+        return attention_pool(
             features,
             **pool_kwargs,
         )
-    return _pool_module(pool, features)(features, **pool_kwargs)
+    return _call_pool(_pool_module(pool, features), features, **pool_kwargs)
+
+
+def _call_pool(pool: eqx.Module, features: jax.Array, **kwargs: object) -> jax.Array:
+    if not callable(pool):
+        raise TypeError(f"{type(pool).__name__} is not callable.")
+    return cast(Callable[..., jax.Array], pool)(features, **kwargs)
 
 
 def _pool_feature_dict(

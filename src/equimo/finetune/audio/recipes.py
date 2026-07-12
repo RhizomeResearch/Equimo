@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 import jax
 
 from .._typing import PyTree
@@ -9,8 +11,8 @@ from ..feature_extraction import LinearProbe
 from ..heads import CTCHead, MultiLabelHead
 from ..config import TargetSpec
 from ..peft.lora import LoRAConfig, apply_lora
-from ..peft.adapters import AdapterConfig, apply_adapters
-from ..pooling import MeanFramePool
+from ..peft.adapters import AdapterConfig, AdapterPlacement, apply_adapters
+from ..pooling import MeanFramePool, PoolName
 from ..recipes import linear_probe
 
 
@@ -20,7 +22,7 @@ def linear_probe_ast(
     in_features: int,
     out_features: int,
     key: jax.Array,
-    pool: str = "mean_frame",
+    pool: PoolName = "mean_frame",
 ) -> LinearProbe:
     """Build an AST-style linear-probe wrapper."""
 
@@ -41,13 +43,13 @@ def multilabel_tagging_head(
 ) -> MultiLabelHead:
     """Create a raw-logit audio tagging head."""
 
-    return MultiLabelHead(in_features, out_features, key=key)
+    return cast(MultiLabelHead, MultiLabelHead(in_features, out_features, key=key))
 
 
 def mean_frame_pool() -> MeanFramePool:
     """Create a frame-mean pooling module."""
 
-    return MeanFramePool()
+    return cast(MeanFramePool, MeanFramePool())
 
 
 def ctc_head(
@@ -59,7 +61,10 @@ def ctc_head(
 ) -> CTCHead:
     """Create a raw-logit CTC head."""
 
-    return CTCHead(in_features, vocab_size, key=key, blank_id=blank_id)
+    return cast(
+        CTCHead,
+        CTCHead(in_features, vocab_size, key=key, blank_id=blank_id),
+    )
 
 
 def adapter_ast(
@@ -67,7 +72,7 @@ def adapter_ast(
     *,
     key: jax.Array,
     bottleneck: int = 64,
-    placement: str = "after_mlp",
+    placement: AdapterPlacement = "after_mlp",
 ) -> PyTree:
     """Apply transformer adapters to an AST-like model."""
 

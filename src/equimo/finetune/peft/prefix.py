@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import cast
 
 import equinox as eqx
 import jax
@@ -169,7 +171,10 @@ class PrefixAttention(eqx.Module):
 
         y = jnp.einsum("hqk,hkd->hqd", attn, v)
         y = jnp.transpose(y, (1, 0, 2)).reshape((x.shape[0], -1))
-        y = jax.vmap(self.base.proj)(y)
+        projection = getattr(self.base, "proj", None)
+        if not callable(projection):
+            raise TypeError("Prefix attention requires a callable proj module.")
+        y = jax.vmap(cast(Callable[[jax.Array], jax.Array], projection))(y)
         return _call_dropout(getattr(self.base, "proj_drop", None), y, inference, key2)
 
 
@@ -196,7 +201,10 @@ class PrefixProjection(eqx.Module):
         down_key, up_key = jr.split(key, 2)
         self.down = (
             _init_projection_linear(
-                eqx.nn.Linear(dim, hidden_dim, key=down_key),
+                cast(
+                    eqx.nn.Linear,
+                    eqx.nn.Linear(dim, hidden_dim, key=down_key),
+                ),
                 down_key,
                 init_std,
             )
@@ -205,10 +213,9 @@ class PrefixProjection(eqx.Module):
         )
         self.up = (
             _init_projection_linear(
-                eqx.nn.Linear(
-                    hidden_dim,
-                    2 * num_heads * head_dim,
-                    key=up_key,
+                cast(
+                    eqx.nn.Linear,
+                    eqx.nn.Linear(hidden_dim, 2 * num_heads * head_dim, key=up_key),
                 ),
                 up_key,
                 init_std,
@@ -261,7 +268,10 @@ def apply_prefixes(
         for path, subkey in zip(paths, projection_keys, strict=True)
     )
     updated = _wrap_prefix_attentions(model, paths, prefixes, projections, config)
-    return PrefixTunedModel(updated, prefixes, config, projections)
+    return cast(
+        PrefixTunedModel,
+        PrefixTunedModel(updated, prefixes, config, projections),
+    )
 
 
 def strip_prefixes(model: PyTree) -> PyTree:
@@ -414,13 +424,16 @@ def _init_prefix_projection(
         if config.projection_hidden_dim == "model_dim"
         else int(config.projection_hidden_dim)
     )
-    return PrefixProjection(
-        module.qkv.in_features,
-        hidden_dim,
-        num_heads,
-        head_dim,
-        key=key,
-        init_std=config.init_std,
+    return cast(
+        PrefixProjection,
+        PrefixProjection(
+            module.qkv.in_features,
+            hidden_dim,
+            num_heads,
+            head_dim,
+            key=key,
+            init_std=config.init_std,
+        ),
     )
 
 

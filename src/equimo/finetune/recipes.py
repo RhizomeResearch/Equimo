@@ -20,6 +20,7 @@ from .feature_extraction import (
 from .peft.adapters import (
     AdaptFormerConfig,
     AdapterConfig,
+    AdapterPlacement,
     add_adapter,
     apply_adapters,
     apply_adaptformer,
@@ -490,7 +491,7 @@ def adapter_transformer(
     *,
     key: jax.Array,
     bottleneck: int | None = None,
-    placement: str = "after_mlp",
+    placement: AdapterPlacement = "after_mlp",
 ) -> PyTree:
     """Apply a baseline transformer adapter configuration."""
 
@@ -585,7 +586,7 @@ def task_adapter_bank(
     key: jax.Array,
     names: tuple[str, ...] = ("default",),
     bottleneck: int = 64,
-    placement: str = "after_mlp",
+    placement: AdapterPlacement = "after_mlp",
 ) -> PyTree:
     """Add a named adapter bank for one or more tasks."""
 

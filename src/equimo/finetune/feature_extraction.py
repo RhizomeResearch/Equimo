@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Callable
+from typing import Any, cast
 
 import equinox as eqx
 import jax
@@ -278,7 +279,8 @@ def make_attention_pool_input_from_intermediates(
     cls_tokens = [cls for _, cls in pairs]
     if any(cls is None for cls in cls_tokens):
         raise ValueError("prepend_cls_token=True requires class tokens.")
-    cls_token = jnp.concatenate(cls_tokens, axis=-1)
+    present_cls_tokens = [cls for cls in cls_tokens if cls is not None]
+    cls_token = jnp.concatenate(present_cls_tokens, axis=-1)
     cls_token = _maybe_l2_normalize(cls_token, l2_normalize_cls, eps)
     return jnp.concatenate([cls_token[None, :], patch_tokens], axis=0).astype(
         jnp.float32
@@ -303,7 +305,7 @@ def make_linear_probe(
         backbone = replace_head(backbone, IdentityHead())
     except ValueError:
         pass
-    return LinearProbe(backbone, probe_head, pool=pool)
+    return cast(LinearProbe, LinearProbe(backbone, probe_head, pool=pool))
 
 
 def make_attention_pool_probe(
@@ -322,25 +324,31 @@ def make_attention_pool_probe(
 ) -> AttentionPoolingProbe:
     """Build an attention-pooling probe with an identity backbone head."""
 
-    head = AttentionPoolingClassifierHead(
-        in_features,
-        out_features,
-        key=key,
-        embed_dim=embed_dim,
-        num_heads=num_heads,
-        dropout=dropout,
-        bias=bias,
+    head = cast(
+        AttentionPoolingClassifierHead,
+        AttentionPoolingClassifierHead(
+            in_features,
+            out_features,
+            key=key,
+            embed_dim=embed_dim,
+            num_heads=num_heads,
+            dropout=dropout,
+            bias=bias,
+        ),
     )
     try:
         backbone = replace_head(backbone, IdentityHead())
     except ValueError:
         pass
-    return AttentionPoolingProbe(
-        backbone,
-        head,
-        n_last_blocks=n_last_blocks,
-        prepend_cls_token=prepend_cls_token,
-        l2_normalize_cls=l2_normalize_cls,
+    return cast(
+        AttentionPoolingProbe,
+        AttentionPoolingProbe(
+            backbone,
+            head,
+            n_last_blocks=n_last_blocks,
+            prepend_cls_token=prepend_cls_token,
+            l2_normalize_cls=l2_normalize_cls,
+        ),
     )
 
 
@@ -410,7 +418,9 @@ def _as_patch_cls_tokens(
     if isinstance(item, dict):
         patch_tokens = item.get("x_norm_patchtokens")
         if patch_tokens is None:
-            raise ValueError("intermediate feature dict must contain x_norm_patchtokens.")
+            raise ValueError(
+                "intermediate feature dict must contain x_norm_patchtokens."
+            )
         return patch_tokens, item.get("x_norm_cls_token")
 
     if (
@@ -535,16 +545,22 @@ def _is_convnet_model(model: PyTree) -> bool:
 
 
 def _mean_patch_pool_for_model(model: PyTree) -> MeanPatchPool:
-    return MeanPatchPool(
-        num_prefix_tokens=_model_prefix_count(model),
-        num_prompt_tokens=int(getattr(model, "num_prompt_tokens", 0)),
+    return cast(
+        MeanPatchPool,
+        MeanPatchPool(
+            num_prefix_tokens=_model_prefix_count(model),
+            num_prompt_tokens=int(getattr(model, "num_prompt_tokens", 0)),
+        ),
     )
 
 
 def _cls_patch_mean_pool_for_model(model: PyTree) -> CLSPatchMeanPool:
-    return CLSPatchMeanPool(
-        num_prefix_tokens=_model_prefix_count(model),
-        num_prompt_tokens=int(getattr(model, "num_prompt_tokens", 0)),
+    return cast(
+        CLSPatchMeanPool,
+        CLSPatchMeanPool(
+            num_prefix_tokens=_model_prefix_count(model),
+            num_prompt_tokens=int(getattr(model, "num_prompt_tokens", 0)),
+        ),
     )
 
 
@@ -586,12 +602,15 @@ def _base_prefix_count(model: PyTree) -> int:
 def _call_head(
     head: eqx.Module, x: Any, *, key: jax.Array | None, inference: bool | None
 ):
+    if not callable(head):
+        raise TypeError(f"{type(head).__name__} is not callable.")
+    callable_head = cast(Callable[..., object], head)
     try:
-        return head(x, key=key, inference=inference)
+        return callable_head(x, key=key, inference=inference)
     except TypeError as error:
         if "unexpected keyword argument" not in str(error):
             raise
-        return head(x)
+        return callable_head(x)
 
 
 __all__ = (

@@ -296,12 +296,15 @@ def _merge_scale_shift_linear(
     base: eqx.nn.Linear,
     wrapper: ScaleShiftWrapper,
 ) -> eqx.nn.Linear:
-    scale = wrapper.scale_shift.scale.astype(base.weight.dtype)
-    shift = wrapper.scale_shift.shift.astype(base.weight.dtype)
+    weight = base.weight
+    if weight is None:
+        raise ValueError("Cannot merge scale/shift into a weightless linear module.")
+    scale = wrapper.scale_shift.scale.astype(weight.dtype)
+    shift = wrapper.scale_shift.shift.astype(weight.dtype)
     merged = eqx.tree_at(
         lambda linear: linear.weight,
         base,
-        base.weight * scale[:, None],
+        weight * scale[:, None],
     )
     if merged.bias is not None:
         bias = merged.bias * scale + shift
@@ -316,12 +319,15 @@ def _merge_scale_shift_layer_norm(
     wrapper: ScaleShiftWrapper,
     path: Path,
 ) -> eqx.nn.LayerNorm:
-    scale = wrapper.scale_shift.scale.astype(base.weight.dtype)
-    shift = wrapper.scale_shift.shift.astype(base.weight.dtype)
+    weight = base.weight
+    if weight is None:
+        raise ValueError("Cannot merge scale/shift into a weightless LayerNorm module.")
+    scale = wrapper.scale_shift.scale.astype(weight.dtype)
+    shift = wrapper.scale_shift.shift.astype(weight.dtype)
     merged = eqx.tree_at(
         lambda layer_norm: layer_norm.weight,
         base,
-        base.weight * scale,
+        weight * scale,
     )
     if merged.bias is not None:
         bias = merged.bias * scale + shift
@@ -363,11 +369,14 @@ def _target_module_paths(
 def _infer_output_dim(module: eqx.Module) -> int:
     if isinstance(module, eqx.nn.Linear):
         return int(module.out_features)
-    if hasattr(module, "shape"):
-        shape = module.shape
-        return int(shape[0] if isinstance(shape, tuple) else shape)
-    if hasattr(module, "weight"):
-        return int(module.weight.shape[0])
+    shape = getattr(module, "shape", None)
+    if isinstance(shape, int):
+        return shape
+    if isinstance(shape, tuple) and shape and isinstance(shape[0], int):
+        return shape[0]
+    weight = getattr(module, "weight", None)
+    if weight is not None and eqx.is_array(weight) and weight.ndim > 0:
+        return weight.shape[0]
     raise ValueError(
         f"Could not infer scale/shift dimension for {type(module).__name__}."
     )

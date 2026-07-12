@@ -28,7 +28,7 @@ def load_image(
 ) -> Float[Array, "channels height width"]:
     """Load an RGB image as a channel-first float32 JAX array."""
     try:
-        from PIL import Image  # ty: ignore[unresolved-import]
+        from PIL import Image
     except ImportError:
         raise ImportError("PIL is needed to be able to load images.")
 

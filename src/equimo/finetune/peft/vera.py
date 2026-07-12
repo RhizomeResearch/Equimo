@@ -74,6 +74,10 @@ class VeRALinear(eqx.Module):
         share_scope: str = "shape_compatible",
     ):
         key_a, key_b = jr.split(key, 2)
+        weight = base.weight
+        if weight.ndim != 2:
+            raise ValueError("VeRA linear weight must be rank 2.")
+        out_features, in_features = weight.shape
         self.base = base
         self.shared = shared
         self.frozen_A_init = frozen_A_init
@@ -86,10 +90,10 @@ class VeRALinear(eqx.Module):
         self.vera_A = (
             _init_frozen_matrix(
                 key_a,
-                (rank, base.in_features),
+                (rank, in_features),
                 frozen_A_init,
-                fan_in=base.in_features,
-                dtype=base.weight.dtype,
+                fan_in=in_features,
+                dtype=weight.dtype,
             )
             if vera_A is None
             else vera_A
@@ -97,21 +101,21 @@ class VeRALinear(eqx.Module):
         self.vera_B = (
             _init_frozen_matrix(
                 key_b,
-                (base.out_features, rank),
+                (out_features, rank),
                 frozen_B_init,
                 fan_in=rank,
-                dtype=base.weight.dtype,
+                dtype=weight.dtype,
             )
             if vera_B is None
             else vera_B
         )
         self.vera_input_scale = (
-            jnp.full((rank,), input_scale_init, dtype=base.weight.dtype)
+            jnp.full((rank,), input_scale_init, dtype=weight.dtype)
             if vera_input_scale is None
             else vera_input_scale
         )
         self.vera_output_scale = (
-            jnp.full((base.out_features,), output_scale_init, dtype=base.weight.dtype)
+            jnp.full((out_features,), output_scale_init, dtype=weight.dtype)
             if vera_output_scale is None
             else vera_output_scale
         )
@@ -256,21 +260,25 @@ def _shared_vera_bases(
 ) -> tuple[jax.Array, jax.Array, tuple[int, ...]]:
     cache_key = _vera_pool_key(module, config)
     if cache_key not in cache:
+        weight = module.weight
+        if weight.ndim != 2:
+            raise ValueError("VeRA linear weight must be rank 2.")
+        out_features, in_features = weight.shape
         key_a, key_b = jr.split(key, 2)
         cache[cache_key] = (
             _init_frozen_matrix(
                 key_a,
-                (config.rank, module.in_features),
+                (config.rank, in_features),
                 config.frozen_A_init,
-                fan_in=module.in_features,
-                dtype=module.weight.dtype,
+                fan_in=in_features,
+                dtype=weight.dtype,
             ),
             _init_frozen_matrix(
                 key_b,
-                (module.out_features, config.rank),
+                (out_features, config.rank),
                 config.frozen_B_init,
                 fan_in=config.rank,
-                dtype=module.weight.dtype,
+                dtype=weight.dtype,
             ),
             _key_data_tuple(key),
         )

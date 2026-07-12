@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import cast
 
 import jax
 
@@ -32,13 +33,16 @@ def dense_feature_adapter(
     """Create a dense feature adapter for spatial or token features."""
 
     config = DenseVisionConfig() if config is None else config
-    return DenseFeatureAdapter(
-        in_features,
-        out_features,
-        key=key,
-        activation=config.activation,
-        dropout=config.dropout,
-        bias=config.bias,
+    return cast(
+        DenseFeatureAdapter,
+        DenseFeatureAdapter(
+            in_features,
+            out_features,
+            key=key,
+            activation=config.activation,
+            dropout=config.dropout,
+            bias=config.bias,
+        ),
     )
 
 

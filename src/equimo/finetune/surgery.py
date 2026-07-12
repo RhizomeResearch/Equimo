@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any, Mapping
+from collections.abc import Callable
+from typing import Any, Mapping, cast
 
 import equinox as eqx
 import jax
@@ -36,7 +37,9 @@ class _HeadWithMetadata(eqx.Module):
     old_head_metadata: Mapping[str, Any] = eqx.field(static=True)
 
     def __call__(self, *args, **kwargs):
-        return self.head(*args, **kwargs)
+        if not callable(self.head):
+            raise TypeError(f"{type(self.head).__name__} is not callable.")
+        return cast(Callable[..., object], self.head)(*args, **kwargs)
 
 
 def prepare_finetune(
@@ -280,6 +283,8 @@ def _resolve_exclude_path(
 ) -> Path | None:
     if exclude is None:
         return None
+    if isinstance(exclude, TargetSpec):
+        return _resolve_module_selector_path(model, exclude, tagger=tagger)
     if isinstance(exclude, tuple):
         return exclude
     return _resolve_module_selector_path(model, exclude, tagger=tagger)

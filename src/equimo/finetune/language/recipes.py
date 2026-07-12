@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 import jax
 
 from .._typing import PyTree
@@ -55,7 +57,7 @@ def projection_head(
 ) -> ProjectionHead:
     """Create a projection head for language embeddings."""
 
-    return ProjectionHead(in_features, out_dim, key=key)
+    return cast(ProjectionHead, ProjectionHead(in_features, out_dim, key=key))
 
 
 def locked_tower(model: PyTree) -> FineTunePlan:

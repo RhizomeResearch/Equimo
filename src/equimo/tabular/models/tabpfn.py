@@ -266,7 +266,9 @@ class TabPFN(eqx.Module):
         """Return selected native context block outputs."""
 
         total = _count_chunk_blocks(self.blocks)
-        wanted = intermediate_indices(total, indices=indices, n_last_blocks=n_last_blocks)
+        wanted = intermediate_indices(
+            total, indices=indices, n_last_blocks=n_last_blocks
+        )
         key_feature, key_column, *block_keys = jr.split(key, len(self.blocks) + 2)
 
         x = self.preprocessor(x, n_train)
@@ -289,9 +291,8 @@ class TabPFN(eqx.Module):
         outputs = []
         offset = 0
         for block, block_key in zip(self.blocks, block_keys):
-            n_blocks = (
-                len(block.blocks) if getattr(block, "blocks", None) is not None else 0
-            )
+            blocks = block.blocks
+            n_blocks = 0 if blocks is None else len(blocks)
             local_indices = tuple(
                 i - offset for i in sorted(wanted) if offset <= i < offset + n_blocks
             )
@@ -347,10 +348,7 @@ class TabPFN(eqx.Module):
 
 
 def _count_chunk_blocks(blocks: Tuple[BlockChunk, ...]) -> int:
-    return sum(
-        len(chunk.blocks) if getattr(chunk, "blocks", None) is not None else 0
-        for chunk in blocks
-    )
+    return sum(0 if chunk.blocks is None else len(chunk.blocks) for chunk in blocks)
 
 
 _TABPFN_BASE_CFG: dict = {

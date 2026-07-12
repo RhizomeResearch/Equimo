@@ -2,7 +2,6 @@
 # ty: ignore[call-non-callable]
 # ty: ignore[invalid-argument-type]
 # ty: ignore[too-many-positional-arguments]
-# ty: ignore[unsupported-operator]
 # ty: ignore[unknown-argument]
 # ty: ignore[unresolved-attribute]
 import math

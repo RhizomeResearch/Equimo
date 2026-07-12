@@ -294,16 +294,20 @@ def _init_lora(
     rank: int,
     key: jax.Array,
 ) -> tuple[jax.Array, jax.Array]:
+    weight = base.weight
+    if weight.ndim != 2:
+        raise ValueError("DoRA linear weight must be rank 2.")
+    out_features, in_features = weight.shape
     key_a, _ = jr.split(key, 2)
-    bound = jnp.sqrt(6.0 / base.in_features)
+    bound = jnp.sqrt(6.0 / in_features)
     lora_A = jr.uniform(
         key_a,
-        (rank, base.in_features),
+        (rank, in_features),
         minval=-bound,
         maxval=bound,
-        dtype=base.weight.dtype,
+        dtype=weight.dtype,
     )
-    lora_B = jnp.zeros((base.out_features, rank), dtype=base.weight.dtype)
+    lora_B = jnp.zeros((out_features, rank), dtype=weight.dtype)
     return lora_A, lora_B
 
 

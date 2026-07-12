@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import fields, is_dataclass
 from typing import Any
 
-from .config import MethodProfile, TargetSpec
+from .config import MethodProfile, ProfileFidelity, TargetSpec
 from .peft.adapters import (
     AdapterConfig,
     AdapterFusionConfig,
@@ -665,7 +665,7 @@ def _profile(
     *,
     profile_id: str,
     method: str,
-    fidelity: str,
+    fidelity: ProfileFidelity,
     reference_ids: tuple[str, ...],
     config: Any,
     target_spec: dict[str, Any] | None = None,

@@ -7,8 +7,10 @@ import jax
 from .._typing import PyTree
 from ..config import FineTunePlan, TargetSpec
 from ..feature_extraction import LinearProbe
+from ..peft.adapters import AdapterPlacement
 from ..peft.lora import LoRAConfig, apply_lora
 from ..peft.prompts import PromptedModel, VPTDeepConfig, VPTShallowConfig, apply_prompts
+from ..pooling import PoolName
 from ..recipes import (
     adapter_transformer,
     adaptformer_transformer,
@@ -25,7 +27,7 @@ def linear_probe_vit(
     in_features: int,
     out_features: int,
     key: jax.Array,
-    pool: str = "cls",
+    pool: PoolName = "cls",
 ) -> LinearProbe:
     """Build a ViT linear-probe wrapper."""
 
@@ -96,7 +98,7 @@ def adapter_vit(
     *,
     key: jax.Array,
     bottleneck: int = 64,
-    placement: str = "after_mlp",
+    placement: AdapterPlacement = "after_mlp",
 ) -> PyTree:
     """Apply bottleneck adapters to a ViT-like model."""
 

@@ -45,7 +45,7 @@ class AudioSpectrogramTransformer(eqx.Module):
     pos_embed: jax.Array
     cls_token: jax.Array
     dist_token: jax.Array
-    blocks: Tuple[eqx.Module, ...]
+    blocks: Tuple[BlockChunk, ...]
     pos_drop: eqx.nn.Dropout
     norm: eqx.Module
     head_norm: eqx.Module
@@ -212,14 +212,17 @@ class AudioSpectrogramTransformer(eqx.Module):
         """Return selected native token outputs after transformer blocks."""
 
         total = _count_chunk_blocks(self.blocks)
-        wanted = intermediate_indices(total, indices=indices, n_last_blocks=n_last_blocks)
+        wanted = intermediate_indices(
+            total, indices=indices, n_last_blocks=n_last_blocks
+        )
         key_pos, *block_subkeys = jr.split(key, len(self.blocks) + 1)
         x = self._prepare_tokens(x, key=key_pos, inference=inference)
 
         outputs = []
         offset = 0
         for blk, key_block in zip(self.blocks, block_subkeys):
-            n_blocks = len(blk.blocks) if getattr(blk, "blocks", None) is not None else 0
+            blocks = blk.blocks
+            n_blocks = 0 if blocks is None else len(blocks)
             local_indices = tuple(
                 i - offset for i in sorted(wanted) if offset <= i < offset + n_blocks
             )
@@ -295,11 +298,8 @@ class AudioSpectrogramTransformer(eqx.Module):
         return self.head(x)
 
 
-def _count_chunk_blocks(blocks: Tuple[eqx.Module, ...]) -> int:
-    return sum(
-        len(chunk.blocks) if getattr(chunk, "blocks", None) is not None else 0
-        for chunk in blocks
-    )
+def _count_chunk_blocks(blocks: Tuple[BlockChunk, ...]) -> int:
+    return sum(0 if chunk.blocks is None else len(chunk.blocks) for chunk in blocks)
 
 
 _AST_BASE_CFG: dict = {

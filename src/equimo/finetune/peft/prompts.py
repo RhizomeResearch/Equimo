@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, cast
 
 import equinox as eqx
 import jax
@@ -176,7 +176,7 @@ def apply_prompts(
     dim = _infer_dim(model)
     prompt_count = _prompt_count(model, config)
     prompts = _init_prompts(model, config, dim, prompt_count, key)
-    return PromptedModel(model, prompts, config)
+    return cast(PromptedModel, PromptedModel(model, prompts, config))
 
 
 def _prompt_count(model: PyTree, config: PromptConfig) -> int:

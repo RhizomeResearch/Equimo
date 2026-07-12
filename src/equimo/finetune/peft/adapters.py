@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 import equinox as eqx
 import jax
@@ -209,17 +210,19 @@ class AdapterFusion(eqx.Module):
             raise ValueError("AdapterFusion requires at least one adapter.")
         key_query, key_key, key_value = jr.split(key, 3)
         self.query = (
-            _zero_linear(eqx.nn.Linear(dim, dim, key=key_query))
+            _zero_linear(cast(eqx.nn.Linear, eqx.nn.Linear(dim, dim, key=key_query)))
             if query is None
             else query
         )
         self.key = (
-            _zero_linear(eqx.nn.Linear(dim, dim, key=key_key))
+            _zero_linear(cast(eqx.nn.Linear, eqx.nn.Linear(dim, dim, key=key_key)))
             if key_proj is None
             else key_proj
         )
         self.value = (
-            _identity_linear(eqx.nn.Linear(dim, dim, key=key_value))
+            _identity_linear(
+                cast(eqx.nn.Linear, eqx.nn.Linear(dim, dim, key=key_value))
+            )
             if value is None
             else value
         )
@@ -298,10 +301,17 @@ class BottleneckAdapter(eqx.Module):
         residual_scale: jax.Array | None = None,
     ):
         key_down, key_up = jr.split(key, 2)
-        self.norm = eqx.nn.LayerNorm(dim) if norm is None and pre_norm else norm
+        self.norm = (
+            cast(eqx.nn.LayerNorm, eqx.nn.LayerNorm(dim))
+            if norm is None and pre_norm
+            else norm
+        )
         self.down = (
             _init_linear(
-                eqx.nn.Linear(dim, bottleneck, key=key_down),
+                cast(
+                    eqx.nn.Linear,
+                    eqx.nn.Linear(dim, bottleneck, key=key_down),
+                ),
                 key_down,
                 down_init,
             )
@@ -310,7 +320,10 @@ class BottleneckAdapter(eqx.Module):
         )
         self.up = (
             _init_linear(
-                eqx.nn.Linear(bottleneck, dim, key=key_up),
+                cast(
+                    eqx.nn.Linear,
+                    eqx.nn.Linear(bottleneck, dim, key=key_up),
+                ),
                 key_up,
                 up_init,
             )
@@ -366,13 +379,16 @@ class AdaptFormerAdapter(eqx.Module):
         scale: jax.Array | None = None,
     ):
         self.adapter = (
-            BottleneckAdapter(
-                dim,
-                bottleneck,
-                key=key,
-                activation=activation,
-                dropout=dropout,
-                up_init=up_init,
+            cast(
+                BottleneckAdapter,
+                BottleneckAdapter(
+                    dim,
+                    bottleneck,
+                    key=key,
+                    activation=activation,
+                    dropout=dropout,
+                    up_init=up_init,
+                ),
             )
             if adapter is None
             else adapter
@@ -569,10 +585,13 @@ class OrthogonalLinear(eqx.Module):
 
     def __call__(self, x: jax.Array) -> jax.Array:
         if self.merged:
-            return self.base(x)
+            return _call_module(self.base, x)
         if self.parameterization == "butterfly_cayley":
             if self.side == "input":
-                return self.base(_apply_boft_to_last_axis(x, self.skew, eps=self.eps))
+                return _call_module(
+                    self.base,
+                    _apply_boft_to_last_axis(x, self.skew, eps=self.eps),
+                )
             y = _linear_call(_linear_weight(self.base), None, x)
             y = _apply_boft_to_last_axis(y, self.skew, eps=self.eps)
             bias = _linear_bias(self.base)
@@ -1259,72 +1278,95 @@ def _adapter_fusion_state(fusion: AdapterFusion) -> dict[str, Any]:
 
 
 def _bottleneck_from_state(state: dict[str, Any]) -> BottleneckAdapter:
-    return BottleneckAdapter(
-        int(state["dim"]),
-        int(state["bottleneck"]),
-        key=jr.PRNGKey(0),
-        activation=state["activation"],
-        dropout=float(state["dropout"]),
-        norm=(
-            None if state.get("norm") is None else _layer_norm_from_state(state["norm"])
+    return cast(
+        BottleneckAdapter,
+        BottleneckAdapter(
+            int(state["dim"]),
+            int(state["bottleneck"]),
+            key=jr.PRNGKey(0),
+            activation=state["activation"],
+            dropout=float(state["dropout"]),
+            norm=(
+                None
+                if state.get("norm") is None
+                else _layer_norm_from_state(state["norm"])
+            ),
+            down=_linear_from_state(state["down"]),
+            up=_linear_from_state(state["up"]),
+            residual_scale=state.get("residual_scale"),
         ),
-        down=_linear_from_state(state["down"]),
-        up=_linear_from_state(state["up"]),
-        residual_scale=state.get("residual_scale"),
     )
 
 
 def _adaptformer_from_state(state: dict[str, Any]) -> AdaptFormerAdapter:
     adapter = _bottleneck_from_state(state)
-    return AdaptFormerAdapter(
-        int(state["dim"]),
-        int(state["bottleneck"]),
-        key=jr.PRNGKey(0),
-        activation=state["activation"],
-        dropout=float(state["dropout"]),
-        adapter=adapter,
-        scale=state["scale"],
-        scale_trainable=bool(state.get("scale_trainable", True)),
+    return cast(
+        AdaptFormerAdapter,
+        AdaptFormerAdapter(
+            int(state["dim"]),
+            int(state["bottleneck"]),
+            key=jr.PRNGKey(0),
+            activation=state["activation"],
+            dropout=float(state["dropout"]),
+            adapter=adapter,
+            scale=state["scale"],
+            scale_trainable=bool(state.get("scale_trainable", True)),
+        ),
     )
 
 
 def _orthogonal_from_state(base: eqx.Module, state: dict[str, Any]) -> OrthogonalLinear:
-    return OrthogonalLinear(
-        base,
-        side=state.get("side", "input"),
-        parameterization=state.get("parameterization", "cayley"),
-        block_size=state.get("block_size"),
-        num_factors=int(state.get("num_factors", 1)),
-        eps=float(state.get("eps", 1e-6)),
-        train_base=bool(state.get("train_base", False)),
-        mergeable=bool(state.get("mergeable", True)),
-        skew=state["skew"],
-        merged=bool(state.get("merged", False)),
+    return cast(
+        OrthogonalLinear,
+        OrthogonalLinear(
+            base,
+            side=state.get("side", "input"),
+            parameterization=state.get("parameterization", "cayley"),
+            block_size=state.get("block_size"),
+            num_factors=int(state.get("num_factors", 1)),
+            eps=float(state.get("eps", 1e-6)),
+            train_base=bool(state.get("train_base", False)),
+            mergeable=bool(state.get("mergeable", True)),
+            skew=state["skew"],
+            merged=bool(state.get("merged", False)),
+        ),
     )
 
 
 def _adapter_fusion_from_state(state: dict[str, Any]) -> AdapterFusion:
     if "query" not in state:
         dim = int(state["dim"])
-        return AdapterFusion(
-            dim,
+        return cast(
+            AdapterFusion,
+            AdapterFusion(
+                dim,
+                int(state["num_adapters"]),
+                key=jr.PRNGKey(0),
+                fusion=state["fusion"],
+                dropout=float(state["dropout"]),
+                query=_zero_linear(
+                    cast(eqx.nn.Linear, eqx.nn.Linear(dim, dim, key=jr.PRNGKey(0)))
+                ),
+                key_proj=_zero_linear(
+                    cast(eqx.nn.Linear, eqx.nn.Linear(dim, dim, key=jr.PRNGKey(1)))
+                ),
+                value=_identity_linear(
+                    cast(eqx.nn.Linear, eqx.nn.Linear(dim, dim, key=jr.PRNGKey(2)))
+                ),
+            ),
+        )
+    return cast(
+        AdapterFusion,
+        AdapterFusion(
+            int(state["dim"]),
             int(state["num_adapters"]),
             key=jr.PRNGKey(0),
             fusion=state["fusion"],
             dropout=float(state["dropout"]),
-            query=_zero_linear(eqx.nn.Linear(dim, dim, key=jr.PRNGKey(0))),
-            key_proj=_zero_linear(eqx.nn.Linear(dim, dim, key=jr.PRNGKey(1))),
-            value=_identity_linear(eqx.nn.Linear(dim, dim, key=jr.PRNGKey(2))),
-        )
-    return AdapterFusion(
-        int(state["dim"]),
-        int(state["num_adapters"]),
-        key=jr.PRNGKey(0),
-        fusion=state["fusion"],
-        dropout=float(state["dropout"]),
-        query=_linear_from_state(state["query"]),
-        key_proj=_linear_from_state(state["key"]),
-        value=_linear_from_state(state["value"]),
+            query=_linear_from_state(state["query"]),
+            key_proj=_linear_from_state(state["key"]),
+            value=_linear_from_state(state["value"]),
+        ),
     )
 
 
@@ -1365,12 +1407,17 @@ def _linear_module_path(path: Path) -> Path:
 
 def _is_linear_like(module: Any) -> bool:
     weight = getattr(module, "weight", None)
-    return callable(module) and eqx.is_inexact_array(weight) and weight.ndim == 2
+    return (
+        callable(module)
+        and weight is not None
+        and eqx.is_inexact_array(weight)
+        and weight.ndim == 2
+    )
 
 
 def _linear_weight(module: Any) -> jax.Array:
     weight = getattr(module, "weight", None)
-    if not eqx.is_inexact_array(weight) or weight.ndim != 2:
+    if weight is None or not eqx.is_inexact_array(weight) or weight.ndim != 2:
         raise TypeError(f"{type(module).__name__} is not a linear-like module.")
     return weight
 
@@ -1538,11 +1585,14 @@ def _layer_norm_state(norm: eqx.nn.LayerNorm) -> dict[str, Any]:
 
 
 def _layer_norm_from_state(state: dict[str, Any]) -> eqx.nn.LayerNorm:
-    norm = eqx.nn.LayerNorm(
-        tuple(state["shape"]),
-        eps=float(state["eps"]),
-        use_weight=bool(state["use_weight"]),
-        use_bias=bool(state["use_bias"]),
+    norm = cast(
+        eqx.nn.LayerNorm,
+        eqx.nn.LayerNorm(
+            tuple(state["shape"]),
+            eps=float(state["eps"]),
+            use_weight=bool(state["use_weight"]),
+            use_bias=bool(state["use_bias"]),
+        ),
     )
     if state.get("weight") is not None:
         norm = eqx.tree_at(lambda layer: layer.weight, norm, state["weight"])
@@ -1562,11 +1612,14 @@ def _linear_state(linear: eqx.nn.Linear) -> dict[str, Any]:
 
 
 def _linear_from_state(state: dict[str, Any]) -> eqx.nn.Linear:
-    linear = eqx.nn.Linear(
-        int(state["in_features"]),
-        int(state["out_features"]),
-        use_bias=bool(state["use_bias"]),
-        key=jr.PRNGKey(0),
+    linear = cast(
+        eqx.nn.Linear,
+        eqx.nn.Linear(
+            int(state["in_features"]),
+            int(state["out_features"]),
+            use_bias=bool(state["use_bias"]),
+            key=jr.PRNGKey(0),
+        ),
     )
     linear = eqx.tree_at(lambda layer: layer.weight, linear, state["weight"])
     if state["bias"] is not None:
@@ -1772,20 +1825,24 @@ def _entry_active_adapter(active: Any) -> ActiveAdapter | None:
 
 
 def _init_linear(linear: eqx.nn.Linear, key: jax.Array, init: str) -> eqx.nn.Linear:
+    weight = linear.weight
+    if weight.ndim != 2:
+        raise ValueError("Adapter linear weight must be rank 2.")
     if init == "zeros":
-        weight = jnp.zeros_like(linear.weight)
+        initialized_weight = jnp.zeros_like(weight)
     elif init == "kaiming_uniform":
-        bound = jnp.sqrt(6.0 / linear.in_features)
-        weight = jr.uniform(
+        in_features = weight.shape[1]
+        bound = jnp.sqrt(6.0 / in_features)
+        initialized_weight = jr.uniform(
             key,
-            linear.weight.shape,
+            weight.shape,
             minval=-bound,
             maxval=bound,
-            dtype=linear.weight.dtype,
+            dtype=weight.dtype,
         )
     else:
         raise ValueError(f"Unsupported adapter init {init!r}.")
-    linear = eqx.tree_at(lambda m: m.weight, linear, weight)
+    linear = eqx.tree_at(lambda m: m.weight, linear, initialized_weight)
     if linear.bias is not None:
         linear = eqx.tree_at(lambda m: m.bias, linear, jnp.zeros_like(linear.bias))
     return linear
@@ -1810,13 +1867,21 @@ def _identity_linear(linear: eqx.nn.Linear) -> eqx.nn.Linear:
     return linear
 
 
-def _apply_last_axis(module: eqx.nn.Linear, x: jax.Array) -> jax.Array:
+def _apply_last_axis(
+    module: Callable[[jax.Array], jax.Array], x: jax.Array
+) -> jax.Array:
     if x.ndim == 1:
         return module(x)
     leading_shape = x.shape[:-1]
     x_flat = x.reshape((-1, x.shape[-1]))
     y_flat = jax.vmap(module)(x_flat)
     return y_flat.reshape((*leading_shape, y_flat.shape[-1]))
+
+
+def _call_module(module: eqx.Module, x: jax.Array) -> jax.Array:
+    if not callable(module):
+        raise TypeError(f"{type(module).__name__} is not callable.")
+    return cast(Callable[[jax.Array], jax.Array], module)(x)
 
 
 def _activation(name: ActivationName):

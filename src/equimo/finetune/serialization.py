@@ -10,7 +10,7 @@ from importlib import metadata as package_metadata
 from pathlib import Path
 import tarfile
 import tempfile
-from typing import Any
+from typing import Any, cast
 
 import equinox as eqx
 import jax
@@ -497,14 +497,17 @@ def _prefix_projection_state(projection: PrefixProjection) -> dict[str, Any]:
 def _prefix_projection_from_state(state: dict[str, Any]) -> PrefixProjection:
     down = _linear_from_state(state["down"])
     up = _linear_from_state(state["up"])
-    return PrefixProjection(
-        int(down.in_features),
-        int(down.out_features),
-        int(state["num_heads"]),
-        int(state["head_dim"]),
-        key=jr.PRNGKey(0),
-        down=down,
-        up=up,
+    return cast(
+        PrefixProjection,
+        PrefixProjection(
+            int(down.in_features),
+            int(down.out_features),
+            int(state["num_heads"]),
+            int(state["head_dim"]),
+            key=jr.PRNGKey(0),
+            down=down,
+            up=up,
+        ),
     )
 
 
@@ -837,11 +840,14 @@ def _bundle_get_path(model: PyTree, path: tuple[str | int, ...], *, method_name:
 def _scale_shift_dim(module: eqx.Module) -> int:
     if isinstance(module, eqx.nn.Linear):
         return int(module.out_features)
-    if hasattr(module, "shape"):
-        shape = module.shape
-        return int(shape[0] if isinstance(shape, tuple) else shape)
-    if hasattr(module, "weight"):
-        return int(module.weight.shape[0])
+    shape = getattr(module, "shape", None)
+    if isinstance(shape, int):
+        return shape
+    if isinstance(shape, tuple) and shape and isinstance(shape[0], int):
+        return shape[0]
+    weight = getattr(module, "weight", None)
+    if weight is not None and eqx.is_array(weight) and weight.ndim > 0:
+        return weight.shape[0]
     raise FineTuneBundleError(
         f"Scale/shift delta cannot infer target dimension for {type(module).__name__}."
     )

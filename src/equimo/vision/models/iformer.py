@@ -65,7 +65,9 @@ class IFormer(eqx.Module):
 
         act_layer = get_act(act_layer)
         norm_layer = get_norm(norm_layer)
-        modules = [get_layer(b) if b is not None else None for b in modules]
+        resolved_modules: list[type[eqx.Module] | None] = [
+            get_layer(module) if module is not None else None for module in modules
+        ]
         downsamplers = [get_layer(b) if b is not None else None for b in downsamplers]
 
         universal_kwargs = {"act_layer": act_layer}
@@ -84,11 +86,10 @@ class IFormer(eqx.Module):
             has_ds = downsamplers[i] is not None
             block_dim = _bc_dim[i] if (has_ds and downsample_last) else dims[i]
             mod_kw = universal_kwargs | module_kwargs[i]
-            if modules[i] is not None:
+            module = resolved_modules[i]
+            if module is not None:
                 axis_key = (
-                    "channels"
-                    if modules[i].__name__.lower() == "iformerblock"
-                    else "dim"
+                    "channels" if module.__name__.lower() == "iformerblock" else "dim"
                 )
                 mod_kw = mod_kw | {axis_key: block_dim}
             ds_kw = universal_kwargs | downsampler_kwargs[i]
@@ -97,7 +98,7 @@ class IFormer(eqx.Module):
                     depth=depths[i],
                     in_channels=_bc_dim[i],
                     out_channels=dims[i],
-                    module=modules[i],
+                    module=module,
                     module_kwargs=mod_kw,
                     downsampler=downsamplers[i],
                     downsampler_kwargs=ds_kw,
