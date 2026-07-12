@@ -225,7 +225,8 @@ class LastTokenPool(eqx.Module):
     def __call__(self, x: jax.Array, *, mask: jax.Array | None = None) -> jax.Array:
         if mask is None:
             return x[-1]
-        index = jnp.maximum(jnp.sum(mask.astype(jnp.int32)) - 1, 0)
+        positions = jnp.arange(mask.shape[0], dtype=jnp.int32)
+        index = jnp.max(jnp.where(mask.astype(bool), positions, 0))
         return x[index]
 
 

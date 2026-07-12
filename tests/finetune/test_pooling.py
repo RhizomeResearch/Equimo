@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import equinox as eqx
 import jax.numpy as jnp
 import jax.random as jr
 import pytest
@@ -49,6 +50,34 @@ def test_pool_mean_token_mask():
     pooled = eqft.MeanTokenPool()(tokens, mask=mask)
 
     assert jnp.array_equal(pooled, jnp.mean(tokens[:2], axis=0))
+
+
+@pytest.mark.parametrize(
+    ("mask", "expected_index"),
+    [
+        (jnp.array([True, True, True, True]), 3),
+        (jnp.array([1, 1, 0, 0]), 1),
+        (jnp.array([0, 0, 1, 1]), 3),
+        (jnp.array([1, 0, 1, 0]), 2),
+        (jnp.array([0, 1, 0, 0]), 1),
+        (jnp.array([False, False, False, False]), 0),
+    ],
+)
+def test_pool_last_token_mask_layouts(mask, expected_index):
+    tokens = jnp.arange(12, dtype=jnp.float32).reshape(4, 3)
+
+    pooled = eqft.LastTokenPool()(tokens, mask=mask)
+
+    assert jnp.array_equal(pooled, tokens[expected_index])
+
+
+def test_pool_last_token_mask_jit():
+    tokens = jnp.arange(12, dtype=jnp.float32).reshape(4, 3)
+    mask = jnp.array([0, 1, 0, 1])
+
+    pooled = eqx.filter_jit(eqft.LastTokenPool())(tokens, mask=mask)
+
+    assert jnp.array_equal(pooled, tokens[3])
 
 
 def test_pool_auto_feature_dict_uses_cls_distillation_mean():
