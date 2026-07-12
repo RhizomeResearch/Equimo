@@ -232,7 +232,7 @@ class Mlp(eqx.Module):
 
     def __init__(
         self,
-        dim: int,
+        in_dim: int,
         *,
         key: PRNGKeyArray,
         out_dim: int | None = None,
@@ -247,10 +247,10 @@ class Mlp(eqx.Module):
         """Initialize the MLP.
 
         Args:
-            dim: Token embedding dimension (input and default output)
+            in_dim: Input token embedding dimension
             key: PRNG key for initialization
-            out_dim: Output dimension (default: same as dim)
-            hidden_dim: Expanded hidden dimension (default: same as dim)
+            out_dim: Output dimension (default: same as in_dim)
+            hidden_dim: Expanded hidden dimension (default: same as in_dim)
             act_layer: Activation function or registry name (default: "gelu")
             norm_layer: Optional norm layer or registry name applied post-activation after fc1 (default: None)
             dropout_rate: Dropout probability (default: 0.0)
@@ -264,10 +264,10 @@ class Mlp(eqx.Module):
         if norm_layer is not None:
             norm_layer = get_norm(norm_layer)
 
-        hidden_dim = hidden_dim or dim
-        out_dim = out_dim or dim
+        hidden_dim = hidden_dim or in_dim
+        out_dim = out_dim or in_dim
 
-        self.fc1 = eqx.nn.Linear(dim, hidden_dim, use_bias=bias, key=key_fc1)
+        self.fc1 = eqx.nn.Linear(in_dim, hidden_dim, use_bias=bias, key=key_fc1)
         self.norm = norm_layer(hidden_dim, eps=eps) if norm_layer else eqx.nn.Identity()
         self.fc2 = eqx.nn.Linear(hidden_dim, out_dim, use_bias=bias, key=key_fc2)
 
@@ -276,11 +276,11 @@ class Mlp(eqx.Module):
 
     def __call__(
         self,
-        x: Float[Array, "seqlen dim"],
+        x: Float[Array, "seqlen in_dim"],
         key: PRNGKeyArray,
         mask: Optional[Float[Array, "seqlen 1"]] = None,
         inference: Optional[bool] = None,
-    ) -> Float[Array, "seqlen dim"]:
+    ) -> Float[Array, "seqlen out_dim"]:
         key_dr1, key_dr2 = jr.split(key, 2)
 
         x = self.drop1(
@@ -331,7 +331,7 @@ class SwiGlu(eqx.Module):
 
     def __init__(
         self,
-        dim: int,
+        in_dim: int,
         *,
         key: PRNGKeyArray,
         out_dim: int | None = None,
@@ -344,10 +344,10 @@ class SwiGlu(eqx.Module):
         """Initialize the SwiGLU module.
 
         Args:
-            dim: Token embedding dimension (input and default output)
+            in_dim: Input token embedding dimension
             key: PRNG key for initialization
-            out_dim: Output dimension (default: same as dim)
-            hidden_dim: Size of hidden dimension before alignment (default: same as dim)
+            out_dim: Output dimension (default: same as in_dim)
+            hidden_dim: Size of hidden dimension before alignment (default: same as in_dim)
             dropout_rate: Dropout probability (default: 0.0)
             align_to: Constrains hidden_dim to be a multiple of this value (default: 8)
             bias: Whether to include bias in linear layers (default: True)
@@ -355,13 +355,13 @@ class SwiGlu(eqx.Module):
         """
         key_fc1, key_fc2, key_fc3 = jr.split(key, 3)
 
-        out_dim = out_dim or dim
-        hidden_dim = hidden_dim or dim
+        out_dim = out_dim or in_dim
+        hidden_dim = hidden_dim or in_dim
         d = int(hidden_dim * 2 / 3)
         hidden_dim = d + (-d % align_to)
 
-        self.w1 = eqx.nn.Linear(dim, hidden_dim, use_bias=bias, key=key_fc1)
-        self.w2 = eqx.nn.Linear(dim, hidden_dim, use_bias=bias, key=key_fc2)
+        self.w1 = eqx.nn.Linear(in_dim, hidden_dim, use_bias=bias, key=key_fc1)
+        self.w2 = eqx.nn.Linear(in_dim, hidden_dim, use_bias=bias, key=key_fc2)
         self.w3 = eqx.nn.Linear(hidden_dim, out_dim, use_bias=bias, key=key_fc3)
 
         self.drop1 = eqx.nn.Dropout(dropout_rate)
@@ -369,10 +369,10 @@ class SwiGlu(eqx.Module):
 
     def __call__(
         self,
-        x: Float[Array, "seqlen dim"],
+        x: Float[Array, "seqlen in_dim"],
         key: PRNGKeyArray,
         inference: Optional[bool] = None,
-    ) -> Float[Array, "seqlen dim"]:
+    ) -> Float[Array, "seqlen out_dim"]:
         key_dr1, key_dr2 = jr.split(key, 2)
 
         x1 = jax.vmap(self.w1)(x)
@@ -428,7 +428,7 @@ class SwiGluFused(eqx.Module):
 
     def __init__(
         self,
-        dim: int,
+        in_dim: int,
         *,
         key: PRNGKeyArray,
         out_dim: int | None = None,
@@ -441,10 +441,10 @@ class SwiGluFused(eqx.Module):
         """Initialize the fused SwiGLU module.
 
         Args:
-            dim: Token embedding dimension (input and default output)
+            in_dim: Input token embedding dimension
             key: PRNG key for initialization
-            out_dim: Output dimension (default: same as dim)
-            hidden_dim: Size of hidden dimension before alignment (default: same as dim)
+            out_dim: Output dimension (default: same as in_dim)
+            hidden_dim: Size of hidden dimension before alignment (default: same as in_dim)
             dropout_rate: Dropout probability (default: 0.0)
             align_to: Constrains hidden_dim to be a multiple of this value (default: 8)
             bias: Whether to include bias in linear layers (default: True)
@@ -452,12 +452,12 @@ class SwiGluFused(eqx.Module):
         """
         key_fc1, key_fc2 = jr.split(key, 2)
 
-        out_dim = out_dim or dim
-        hidden_dim = hidden_dim or dim
+        out_dim = out_dim or in_dim
+        hidden_dim = hidden_dim or in_dim
         d = int(hidden_dim * 2 / 3)
         hidden_dim = d + (-d % align_to)
 
-        self.w12 = eqx.nn.Linear(dim, 2 * hidden_dim, use_bias=bias, key=key_fc1)
+        self.w12 = eqx.nn.Linear(in_dim, 2 * hidden_dim, use_bias=bias, key=key_fc1)
         self.w3 = eqx.nn.Linear(hidden_dim, out_dim, use_bias=bias, key=key_fc2)
 
         self.drop1 = eqx.nn.Dropout(dropout_rate)
@@ -465,10 +465,10 @@ class SwiGluFused(eqx.Module):
 
     def __call__(
         self,
-        x: Float[Array, "seqlen dim"],
+        x: Float[Array, "seqlen in_dim"],
         key: PRNGKeyArray,
         inference: Optional[bool] = None,
-    ) -> Float[Array, "seqlen dim"]:
+    ) -> Float[Array, "seqlen out_dim"]:
         key_dr1, key_dr2 = jr.split(key, 2)
 
         x12 = jax.vmap(self.w12)(x)

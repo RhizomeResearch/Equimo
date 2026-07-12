@@ -51,13 +51,16 @@ def prefix_encoder(
 
 def projection_head(
     in_features: int,
-    out_dim: int,
+    out_features: int,
     *,
     key: jax.Array,
 ) -> ProjectionHead:
     """Create a projection head for language embeddings."""
 
-    return cast(ProjectionHead, ProjectionHead(in_features, out_dim, key=key))
+    return cast(
+        ProjectionHead,
+        ProjectionHead(in_features, out_features, key=key),
+    )
 
 
 def locked_tower(model: PyTree) -> FineTunePlan:

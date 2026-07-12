@@ -317,7 +317,7 @@ class AttentionBlock(eqx.Module):
             key=key_attn,
         )
         self.mlp = ffn_layer(
-            dim=dim,
+            in_dim=dim,
             hidden_dim=int(dim * mlp_ratio),
             act_layer=act_layer,
             norm_layer=norm_layer if ffn_norm else None,

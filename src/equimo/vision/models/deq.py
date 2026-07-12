@@ -41,6 +41,7 @@ from equimo.core.implicit import (
     get_stabilizer,
     get_strategy,
 )
+from equimo.core.implicit.injectors import FiLM, PreNormAdd, ProjAdd
 from equimo.vision.layers import get_layer
 from equimo.core.layers.activation import get_act
 from equimo.core.layers.norm import get_norm
@@ -169,7 +170,14 @@ class BlockChunk(eqx.Module):
                 stabilizer_cls = get_stabilizer(stabilizer)
                 strategy_cls = get_strategy(strategy)
 
-                injector_obj = injector_cls(dim=block_in, key=key_inj)
+                if injector_cls in (ProjAdd, PreNormAdd, FiLM):
+                    injector_obj = injector_cls(
+                        in_channels=block_in,
+                        out_channels=block_in,
+                        key=key_inj,
+                    )
+                else:
+                    injector_obj = injector_cls(channels=block_in, key=key_inj)
                 stabilizer_obj = stabilizer_cls(dim=block_in, key=key_stab)
                 strategy_obj = strategy_cls(dim=block_in, key=key_strat)
 

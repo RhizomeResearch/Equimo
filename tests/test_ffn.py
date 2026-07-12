@@ -1,5 +1,7 @@
 """Tests for equimo.core.layers.ffn."""
 
+import inspect
+
 import jax
 import jax.numpy as jnp
 import jax.random as jr
@@ -19,6 +21,15 @@ from equimo.core.layers.ffn import (
 KEY = jr.PRNGKey(0)
 SEQLEN = 16
 DIM = 64
+
+
+@pytest.mark.parametrize("ffn_cls", [Mlp, SwiGlu, SwiGluFused])
+def test_ffn_signature_uses_dimension_vocabulary(ffn_cls):
+    parameters = inspect.signature(ffn_cls).parameters
+
+    assert "in_dim" in parameters
+    assert "out_dim" in parameters
+    assert "dim" not in parameters
 
 
 # WeightNormLinear
@@ -136,7 +147,7 @@ class TestMlp:
         assert mlp(x, KEY).shape == (SEQLEN, DIM)
 
     def test_output_shape_custom_out(self):
-        mlp = Mlp(DIM, out_dim=32, key=KEY)
+        mlp = Mlp(in_dim=DIM, out_dim=32, key=KEY)
         x = jr.normal(KEY, (SEQLEN, DIM))
         assert mlp(x, KEY).shape == (SEQLEN, 32)
 
@@ -217,7 +228,7 @@ class TestSwiGlu:
         assert sg(x, KEY).shape == (SEQLEN, DIM)
 
     def test_output_shape_custom_out(self):
-        sg = SwiGlu(DIM, out_dim=32, key=KEY)
+        sg = SwiGlu(in_dim=DIM, out_dim=32, key=KEY)
         x = jr.normal(KEY, (SEQLEN, DIM))
         assert sg(x, KEY).shape == (SEQLEN, 32)
 
@@ -271,7 +282,7 @@ class TestSwiGluFused:
         assert sgf(x, KEY).shape == (SEQLEN, DIM)
 
     def test_output_shape_custom_out(self):
-        sgf = SwiGluFused(DIM, out_dim=32, key=KEY)
+        sgf = SwiGluFused(in_dim=DIM, out_dim=32, key=KEY)
         x = jr.normal(KEY, (SEQLEN, DIM))
         assert sgf(x, KEY).shape == (SEQLEN, 32)
 

@@ -14,6 +14,8 @@ Structured by concern:
 * ``_init_z0``: all modes plus shape-mismatch and broadcasting edge cases.
 """
 
+import inspect
+
 import equinox as eqx
 import jax
 import jax.numpy as jnp
@@ -99,6 +101,19 @@ def _zx(dim=DIM, h=H, w=W, key=KEY):
 def test_injector_registry_resolves(name, cls):
     assert get_injector(name) is cls
     assert get_injector(cls) is cls  # class pass-through
+
+
+def test_injector_signatures_use_channel_vocabulary():
+    for injector_cls in (ProjAdd, PreNormAdd, FiLM):
+        parameters = inspect.signature(injector_cls).parameters
+
+        assert "in_channels" in parameters
+        assert "out_channels" in parameters
+        assert "dim" not in parameters
+
+    gated_parameters = inspect.signature(Gated).parameters
+    assert "channels" in gated_parameters
+    assert "dim" not in gated_parameters
 
 
 @pytest.mark.parametrize(
@@ -203,7 +218,7 @@ def test_injector_add_is_exact_sum():
 
 
 def test_injector_proj_add_shape_and_caches_projection():
-    inj = ProjAdd(dim=DIM, key=KEY)
+    inj = ProjAdd(in_channels=DIM, out_channels=DIM, key=KEY)
     z, x = _zx()
     x_ctx = inj.prepare(x, KEY)
     assert x_ctx.shape == x.shape
@@ -214,8 +229,21 @@ def test_injector_proj_add_shape_and_caches_projection():
     assert o1.shape == z.shape
 
 
+@pytest.mark.parametrize("injector_cls", [ProjAdd, PreNormAdd, FiLM])
+def test_projection_injector_changes_channel_count(injector_cls):
+    in_channels = 4
+    inj = injector_cls(in_channels=in_channels, out_channels=DIM, key=KEY)
+    z = jr.normal(jr.PRNGKey(1), (DIM, H, W))
+    x = jr.normal(jr.PRNGKey(2), (in_channels, H, W))
+
+    out = inj(z, inj.prepare(x, KEY), key=KEY)
+
+    assert out.shape == z.shape
+    assert jnp.all(jnp.isfinite(out))
+
+
 def test_injector_prenorm_add_shape_and_finite():
-    inj = PreNormAdd(dim=DIM, key=KEY)
+    inj = PreNormAdd(in_channels=DIM, out_channels=DIM, key=KEY)
     z, x = _zx()
     x_ctx = inj.prepare(x, KEY)
     out = inj(z, x_ctx, key=KEY)
@@ -225,7 +253,7 @@ def test_injector_prenorm_add_shape_and_finite():
 
 def test_injector_gated_init_gate_half_gives_balanced_mix():
     """``init_gate=0.5`` → cell behaves as ``0.5 z + 0.5 x`` at init (damped Picard)."""
-    inj = Gated(dim=DIM, init_gate=0.5, key=KEY)
+    inj = Gated(channels=DIM, init_gate=0.5, key=KEY)
     z, x = _zx()
     out = inj(z, x, key=KEY)
     assert jnp.allclose(out, 0.5 * z + 0.5 * x, atol=1e-5)
@@ -233,14 +261,14 @@ def test_injector_gated_init_gate_half_gives_balanced_mix():
 
 def test_injector_gated_init_gate_high_approaches_pure_injection():
     """With ``init_gate ≈ 1``, the forcing term dominates (classical entry injection)."""
-    inj = Gated(dim=DIM, init_gate=0.99, key=KEY)
+    inj = Gated(channels=DIM, init_gate=0.99, key=KEY)
     _, x = _zx()
     out = inj(jnp.zeros_like(x), x, key=KEY)
     assert jnp.allclose(out, 0.99 * x, atol=1e-4)
 
 
 def test_injector_film_prepare_returns_pair():
-    inj = FiLM(dim=DIM, key=KEY)
+    inj = FiLM(in_channels=DIM, out_channels=DIM, key=KEY)
     _, x = _zx()
     ctx = inj.prepare(x, KEY)
     assert isinstance(ctx, tuple) and len(ctx) == 2
@@ -248,7 +276,7 @@ def test_injector_film_prepare_returns_pair():
 
 def test_injector_film_gamma_zero_init():
     """FiLM zero-inits the γ-projection so modulation is trivial at init."""
-    inj = FiLM(dim=DIM, key=KEY)
+    inj = FiLM(in_channels=DIM, out_channels=DIM, key=KEY)
     _, x = _zx()
     gamma, _ = inj.prepare(x, KEY)
     assert jnp.allclose(gamma, 0.0, atol=1e-6)
@@ -461,12 +489,17 @@ def _make_block(
     sc = get_stabilizer(stabilizer)
     tc = get_strategy(strategy)
     k_i, k_s, k_t, k_c = jr.split(key, 4)
+    injector_kwargs = (
+        {"in_channels": DIM, "out_channels": DIM}
+        if ic in (ProjAdd, PreNormAdd, FiLM)
+        else {"channels": DIM}
+    )
     return DEQBlock(
         channels=DIM,
         depth=depth,
         module=TinyBlock,
         module_kwargs={"dim": DIM},
-        injector=ic(dim=DIM, key=k_i),
+        injector=ic(**injector_kwargs, key=k_i),
         stabilizer=sc(dim=DIM, key=k_s),
         strategy=tc(dim=DIM, key=k_t),
         tol=tol,

@@ -2,12 +2,23 @@
 
 from __future__ import annotations
 
+import inspect
+
 import equinox as eqx
 import jax.numpy as jnp
 import jax.random as jr
 import pytest
 
 import equimo.finetune as eqft
+
+
+def test_projection_head_signatures_use_feature_vocabulary():
+    for head_cls in (eqft.ProjectionHead, eqft.ContrastiveProjectionHead):
+        parameters = inspect.signature(head_cls).parameters
+
+        assert "in_features" in parameters
+        assert "out_features" in parameters
+        assert "out_dim" not in parameters
 
 
 class KeyInferenceHead(eqx.Module):
@@ -40,7 +51,11 @@ def test_ctc_head_frame_logits():
 
 def test_contrastive_projection_head_normalizes():
     key = jr.PRNGKey(2)
-    head = eqft.ContrastiveProjectionHead(4, 3, key=key)
+    head = eqft.ContrastiveProjectionHead(
+        in_features=4,
+        out_features=3,
+        key=key,
+    )
     x = jnp.ones((4,))
 
     y = head(x)

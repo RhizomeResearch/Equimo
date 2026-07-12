@@ -317,7 +317,7 @@ class ProjectionHead(eqx.Module):
     def __init__(
         self,
         in_features: int,
-        out_dim: int,
+        out_features: int,
         *,
         key: jax.Array,
         hidden_dim: int | None = None,
@@ -329,7 +329,7 @@ class ProjectionHead(eqx.Module):
             MLPHead,
             MLPHead(
                 in_features,
-                out_dim,
+                out_features,
                 key=key,
                 hidden_dim=hidden_dim,
                 num_layers=num_layers,
@@ -358,7 +358,7 @@ class ContrastiveProjectionHead(eqx.Module):
     def __init__(
         self,
         in_features: int,
-        out_dim: int,
+        out_features: int,
         *,
         key: jax.Array,
         hidden_dim: int | None = None,
@@ -372,7 +372,7 @@ class ContrastiveProjectionHead(eqx.Module):
             ProjectionHead,
             ProjectionHead(
                 in_features,
-                out_dim,
+                out_features,
                 key=key,
                 hidden_dim=hidden_dim,
                 num_layers=num_layers,

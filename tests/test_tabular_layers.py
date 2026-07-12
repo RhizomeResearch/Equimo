@@ -141,7 +141,7 @@ def test_preprocessor_multirow_uses_sample_standard_deviation():
 
 def test_tabular_mlp_helper_preserves_leading_dimensions():
     mlp = layers.Mlp(
-        4,
+        in_dim=4,
         hidden_dim=8,
         out_dim=6,
         act_layer="exactgelu",

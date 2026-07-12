@@ -87,7 +87,7 @@ class SoftmaxScaling(eqx.Module):
     ) -> None:
         key_base, key_query = jr.split(key, 2)
         self.base_mlp = Mlp(
-            1,
+            in_dim=1,
             hidden_dim=hidden_dim,
             out_dim=num_heads * head_dim,
             act_layer=act_layer,
@@ -96,7 +96,7 @@ class SoftmaxScaling(eqx.Module):
             key=key_base,
         )
         self.query_mlp = Mlp(
-            head_dim,
+            in_dim=head_dim,
             hidden_dim=hidden_dim,
             out_dim=head_dim,
             act_layer=act_layer,

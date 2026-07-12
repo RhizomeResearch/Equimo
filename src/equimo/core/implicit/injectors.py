@@ -88,7 +88,7 @@ class Add(AbstractInjector):
     """``z' = z + x``. No learnable parameters. Requires matching shapes."""
 
     def __init__(self, **kwargs):
-        # Accept and discard dim/key for uniform construction.
+        # Accept and discard channels/key for uniform construction.
         pass
 
     def __call__(
@@ -116,16 +116,16 @@ class ProjAdd(AbstractInjector):
 
     def __init__(
         self,
-        dim: int,
+        in_channels: int,
+        out_channels: int,
         *,
-        in_channels: int | None = None,
         use_bias: bool = True,
         key: PRNGKeyArray,
         **kwargs,
     ):
         self.proj = eqx.nn.Conv2d(
-            in_channels=in_channels if in_channels is not None else dim,
-            out_channels=dim,
+            in_channels=in_channels,
+            out_channels=out_channels,
             kernel_size=1,
             use_bias=use_bias,
             key=key,
@@ -163,18 +163,18 @@ class PreNormAdd(AbstractInjector):
 
     def __init__(
         self,
-        dim: int,
+        in_channels: int,
+        out_channels: int,
         *,
-        in_channels: int | None = None,
         use_bias: bool = True,
         norm_factory: Callable[[int], eqx.Module] = lambda d: LayerNorm2d(d, eps=1e-6),
         key: PRNGKeyArray,
         **kwargs,
     ):
-        self.norm = norm_factory(dim)
+        self.norm = norm_factory(out_channels)
         self.proj = eqx.nn.Conv2d(
-            in_channels=in_channels if in_channels is not None else dim,
-            out_channels=dim,
+            in_channels=in_channels,
+            out_channels=out_channels,
             kernel_size=1,
             use_bias=use_bias,
             key=key,
@@ -215,18 +215,18 @@ class Gated(AbstractInjector):
     Requires ``x`` and ``z`` to share a shape.
     """
 
-    gamma: jax.Array  # logit-space gate of shape (dim, 1, 1)
+    gamma: jax.Array  # logit-space gate of shape (channels, 1, 1)
 
     def __init__(
         self,
-        dim: int,
+        channels: int,
         *,
         init_gate: float = 0.5,
         key: PRNGKeyArray | None = None,
         **kwargs,
     ):
         logit = _logit(init_gate)
-        self.gamma = jnp.full((dim, 1, 1), logit, dtype=jnp.float32)
+        self.gamma = jnp.full((channels, 1, 1), logit, dtype=jnp.float32)
 
     def __call__(
         self,
@@ -257,18 +257,21 @@ class FiLM(AbstractInjector):
 
     def __init__(
         self,
-        dim: int,
+        in_channels: int,
+        out_channels: int,
         *,
-        in_channels: int | None = None,
         norm_factory: Callable[[int], eqx.Module] = lambda d: LayerNorm2d(d, eps=1e-6),
         key: PRNGKeyArray,
         **kwargs,
     ):
         k_g, k_b = jr.split(key)
-        self.norm = norm_factory(dim)
-        ic = in_channels if in_channels is not None else dim
-        self.gamma_proj = eqx.nn.Conv2d(ic, dim, kernel_size=1, key=k_g)
-        self.beta_proj = eqx.nn.Conv2d(ic, dim, kernel_size=1, key=k_b)
+        self.norm = norm_factory(out_channels)
+        self.gamma_proj = eqx.nn.Conv2d(
+            in_channels, out_channels, kernel_size=1, key=k_g
+        )
+        self.beta_proj = eqx.nn.Conv2d(
+            in_channels, out_channels, kernel_size=1, key=k_b
+        )
         # Zero-init gamma so (1 + gamma) ≈ 1 at init and the modulation is
         # effectively (Norm(z) + beta(x)) — same starting behavior as PreNormAdd.
         zero_w = self.gamma_proj.weight * 0

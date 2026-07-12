@@ -122,7 +122,7 @@ class CrossAttentionBlock(eqx.Module):
             dim, num_heads, softmax_scaling=scaling, key=key_attn
         )
         self.mlp = Mlp(
-            dim,
+            in_dim=dim,
             hidden_dim=int(dim * mlp_ratio),
             bias=False,
             act_layer=act_layer,
@@ -195,7 +195,7 @@ class AttentionBlock(eqx.Module):
         norm_layer = get_norm(norm_layer)
         self.attn = Attention(dim, num_heads, key=key_attn)
         self.mlp = Mlp(
-            dim,
+            in_dim=dim,
             hidden_dim=int(dim * mlp_ratio),
             bias=False,
             act_layer=act_layer,
@@ -318,7 +318,7 @@ class InContextAttentionBlock(eqx.Module):
             key=key_attn,
         )
         self.mlp = Mlp(
-            dim,
+            in_dim=dim,
             hidden_dim=int(dim * mlp_ratio),
             bias=False,
             act_layer=act_layer,
