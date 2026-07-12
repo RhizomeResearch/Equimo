@@ -1,4 +1,11 @@
+import argparse
+import sys
 from pathlib import Path
+
+if __name__ == "__main__":
+    script_dir = Path(__file__).resolve().parent
+    if sys.path and Path(sys.path[0]).resolve() == script_dir:
+        sys.path.pop(0)
 
 import jax
 import jax.numpy as jnp
@@ -7,15 +14,14 @@ import numpy as np
 from equimo.language.models import TextTransformerEncoder
 from equimo.conversion.utils import convert_torch_to_equinox
 from equimo.serialization import save_model
-from tips import text_encoder
 
-CKPT_PATHS = {
-    "tips_vits14_hr_text": "/mnt/hdd/torch/tips/tips_oss_s14_highres_distilled_text.npz",
-    "tips_vitb14_hr_text": "/mnt/hdd/torch/tips/tips_oss_b14_highres_distilled_text.npz",
-    "tips_vitl14_hr_text": "/mnt/hdd/torch/tips/tips_oss_l14_highres_distilled_text.npz",
-    "tips_vitso400m14_hr_text": "/mnt/hdd/torch/tips/tips_oss_so400m14_highres_largetext_distilled_text.npz",
-    "tips_vitg14_hr_text": "/mnt/hdd/torch/tips/tips_oss_g14_highres_text.npz",
-    "tips_vitg14_lr_text": "/mnt/hdd/torch/tips/tips_oss_g14_lowres_text.npz",
+CHECKPOINT_FILENAMES = {
+    "tips_vits14_hr_text": "tips_oss_s14_highres_distilled_text.npz",
+    "tips_vitb14_hr_text": "tips_oss_b14_highres_distilled_text.npz",
+    "tips_vitl14_hr_text": "tips_oss_l14_highres_distilled_text.npz",
+    "tips_vitso400m14_hr_text": "tips_oss_so400m14_highres_largetext_distilled_text.npz",
+    "tips_vitg14_hr_text": "tips_oss_g14_highres_text.npz",
+    "tips_vitg14_lr_text": "tips_oss_g14_lowres_text.npz",
 }
 
 
@@ -104,15 +110,90 @@ def get_text_config(v):
     }
 
 
-# citr = iter(configs.items())
-# name, config = next(citr)
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Convert TIPS text checkpoints to Equimo."
+    )
+    parser.add_argument("variants", nargs="*", choices=sorted(configs))
+    parser.add_argument(
+        "--source-dir",
+        type=Path,
+        required=True,
+        help="Directory containing the upstream `tips` Python package.",
+    )
+    checkpoints = parser.add_mutually_exclusive_group(required=True)
+    checkpoints.add_argument(
+        "--checkpoint-root",
+        type=Path,
+        help="Directory containing checkpoints with their upstream filenames.",
+    )
+    checkpoints.add_argument(
+        "--checkpoint",
+        type=Path,
+        help="Checkpoint path when converting exactly one variant.",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=Path("~/.cache/equimo/tips").expanduser(),
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Validate inputs and print the resolved conversion work.",
+    )
+    args = parser.parse_args()
+
+    variants = args.variants or sorted(configs)
+    if args.checkpoint is not None and len(variants) != 1:
+        parser.error("--checkpoint requires exactly one variant")
+
+    source_dir = args.source_dir.expanduser().resolve()
+    if not source_dir.is_dir():
+        parser.error(f"source directory does not exist: {source_dir}")
+
+    if args.checkpoint is not None:
+        checkpoint_paths = {variants[0]: args.checkpoint.expanduser().resolve()}
+    else:
+        checkpoint_root = args.checkpoint_root.expanduser().resolve()
+        if not checkpoint_root.is_dir():
+            parser.error(f"checkpoint root does not exist: {checkpoint_root}")
+        checkpoint_paths = {
+            variant: checkpoint_root / CHECKPOINT_FILENAMES[variant]
+            for variant in variants
+        }
+
+    for checkpoint_path in checkpoint_paths.values():
+        if not checkpoint_path.is_file():
+            parser.error(f"checkpoint does not exist: {checkpoint_path}")
+
+    args.variants = variants
+    args.source_dir = source_dir
+    args.checkpoint_paths = checkpoint_paths
+    args.output_dir = args.output_dir.expanduser().resolve()
+    return args
 
 
 def main():
+    args = parse_args()
+    for variant in args.variants:
+        print(
+            f"{variant}: source={args.source_dir} "
+            f"checkpoint={args.checkpoint_paths[variant]} "
+            f"output={args.output_dir / variant}"
+        )
+    if args.dry_run:
+        return
+
     try:
         import torch
+
+        sys.path.insert(0, str(args.source_dir))
+        from tips import text_encoder
     except ImportError as exc:
-        raise ImportError("`torch` not available") from exc
+        raise ImportError(
+            "`torch` and the upstream `tips` package are required"
+        ) from exc
 
     key = jax.random.PRNGKey(42)
     base_config = {
@@ -121,7 +202,8 @@ def main():
         "act_layer": "relu",
     }
 
-    for name, config in configs.items():
+    for name in args.variants:
+        config = configs[name]
         print(f"Converting {name}...")
 
         cfg = base_config | config
@@ -131,7 +213,7 @@ def main():
             key=key,
         )
 
-        weights_text = dict(np.load(CKPT_PATHS[name], allow_pickle=False))
+        weights_text = dict(np.load(args.checkpoint_paths[name], allow_pickle=False))
         for k in weights_text:
             weights_text[k] = torch.tensor(weights_text[k])
 
@@ -196,8 +278,12 @@ def main():
         )
 
         save_model(
-            Path(f"~/.cache/equimo/tips/{name}").expanduser(),
+            args.output_dir / name,
             tips_text,
             cfg,
             compression=True,
         )
+
+
+if __name__ == "__main__":
+    main()
