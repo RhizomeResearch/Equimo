@@ -528,6 +528,7 @@ class OrthogonalLinear(eqx.Module):
 
     base: eqx.Module
     skew: jax.Array
+    unmerged_weight: jax.Array | None
     side: Literal["input", "output"] = eqx.field(static=True)
     parameterization: Literal["cayley", "butterfly_cayley"] = eqx.field(static=True)
     block_size: int | None = eqx.field(static=True)
@@ -549,6 +550,7 @@ class OrthogonalLinear(eqx.Module):
         train_base: bool,
         mergeable: bool,
         skew: jax.Array | None = None,
+        unmerged_weight: jax.Array | None = None,
         merged: bool = False,
     ):
         weight = _linear_weight(base)
@@ -581,6 +583,7 @@ class OrthogonalLinear(eqx.Module):
         self.eps = eps
         self.train_base = train_base
         self.mergeable = mergeable
+        self.unmerged_weight = unmerged_weight
         self.merged = merged
 
     def __call__(self, x: jax.Array) -> jax.Array:
@@ -638,27 +641,40 @@ class OrthogonalLinear(eqx.Module):
             self.base,
             self.effective_weight().astype(_linear_weight(self.base).dtype),
         )
-        return self._replace(base=base, merged=True)
+        return self._replace(
+            base=base,
+            merged=True,
+            unmerged_weight=_linear_weight(self.base),
+        )
 
     def unmerge(self):
         """Return a module with the orthogonal transform removed from weight."""
 
         if not self.merged:
             return self
-        R = self.orthogonal_matrix().astype(_linear_weight(self.base).dtype)
-        unmerged_weight = (
-            _linear_weight(self.base) @ R.T
-            if self.side == "input"
-            else R.T @ _linear_weight(self.base)
-        )
+        if self.unmerged_weight is None:
+            R = self.orthogonal_matrix().astype(_linear_weight(self.base).dtype)
+            unmerged_weight = (
+                _linear_weight(self.base) @ R.T
+                if self.side == "input"
+                else R.T @ _linear_weight(self.base)
+            )
+        else:
+            unmerged_weight = self.unmerged_weight
         base = eqx.tree_at(
             lambda linear: linear.weight,
             self.base,
             unmerged_weight,
         )
-        return self._replace(base=base, merged=False)
+        return self._replace(base=base, merged=False, unmerged_weight=None)
 
-    def _replace(self, *, base: eqx.Module, merged: bool):
+    def _replace(
+        self,
+        *,
+        base: eqx.Module,
+        merged: bool,
+        unmerged_weight: jax.Array | None,
+    ):
         return OrthogonalLinear(
             base,
             side=self.side,
@@ -669,6 +685,7 @@ class OrthogonalLinear(eqx.Module):
             train_base=self.train_base,
             mergeable=self.mergeable,
             skew=self.skew,
+            unmerged_weight=unmerged_weight,
             merged=merged,
         )
 
@@ -1063,9 +1080,8 @@ def strip_adapters(model: PyTree) -> PyTree:
             lambda tree, p=path: get_path(tree, p), stripped, wrapper.base
         )
     for path, wrapper in iter_orthogonal_adapters(stripped):
-        stripped = eqx.tree_at(
-            lambda tree, p=path: get_path(tree, p), stripped, wrapper.base
-        )
+        base = wrapper.unmerge().base
+        stripped = eqx.tree_at(lambda tree, p=path: get_path(tree, p), stripped, base)
     return stripped
 
 
@@ -1223,6 +1239,7 @@ def _adaptformer_state(adapter: AdaptFormerAdapter) -> dict[str, Any]:
 
 
 def _orthogonal_state(adapter: OrthogonalLinear) -> dict[str, Any]:
+    adapter = adapter.unmerge()
     return {
         "side": adapter.side,
         "parameterization": adapter.parameterization,
@@ -1231,7 +1248,7 @@ def _orthogonal_state(adapter: OrthogonalLinear) -> dict[str, Any]:
         "eps": adapter.eps,
         "train_base": adapter.train_base,
         "mergeable": adapter.mergeable,
-        "merged": adapter.merged,
+        "merged": False,
         "skew": adapter.skew,
         "serialization": _orthogonal_serialization_metadata(adapter),
     }
@@ -1316,6 +1333,11 @@ def _adaptformer_from_state(state: dict[str, Any]) -> AdaptFormerAdapter:
 
 
 def _orthogonal_from_state(base: eqx.Module, state: dict[str, Any]) -> OrthogonalLinear:
+    if state.get("merged", False):
+        raise FineTuneBundleError(
+            "Legacy orthogonal adapter state with merged=True cannot be loaded "
+            "safely because it does not contain the folded base weight."
+        )
     return cast(
         OrthogonalLinear,
         OrthogonalLinear(
@@ -1328,7 +1350,7 @@ def _orthogonal_from_state(base: eqx.Module, state: dict[str, Any]) -> Orthogona
             train_base=bool(state.get("train_base", False)),
             mergeable=bool(state.get("mergeable", True)),
             skew=state["skew"],
-            merged=bool(state.get("merged", False)),
+            merged=False,
         ),
     )
 

@@ -114,6 +114,33 @@ def test_scale_shift_delta_incompatible_shape_raises_bundle_error(
         eqft.load_delta(tiny_vision_transformer, bad_bundle)
 
 
+def test_legacy_merged_orthogonal_delta_raises_targeted_error(
+    tiny_vision_transformer,
+):
+    model = eqft.apply_orthogonal_adapters(
+        tiny_vision_transformer,
+        eqft.OrthogonalAdapterConfig(
+            target=eqft.TargetSpec(tags_any=("attention.proj",), max_depth=0),
+        ),
+    )
+    module = model.blocks[0].attn.proj
+    trained_module = eqx.tree_at(
+        lambda m: m.skew,
+        module,
+        module.skew.at[0, 1].set(0.05),
+    )
+    trained = eqx.tree_at(lambda m: m.blocks[0].attn.proj, model, trained_module)
+    bundle = eqft.extract_adapter_delta(trained)
+    entries = [dict(entry) for entry in bundle.adapter_config["entries"]]
+    orthogonal = dict(entries[0]["orthogonal"])
+    orthogonal["merged"] = True
+    entries[0]["orthogonal"] = orthogonal
+    legacy_bundle = replace(bundle, adapter_config={"entries": entries})
+
+    with pytest.raises(eqft.FineTuneBundleError, match="merged=True"):
+        eqft.load_adapter_delta(tiny_vision_transformer, legacy_bundle)
+
+
 def test_ia3_delta_roundtrip(tmp_path, tiny_vision_transformer):
     model = eqft.apply_ia3(
         tiny_vision_transformer,

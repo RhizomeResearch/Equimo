@@ -484,6 +484,70 @@ def test_boft_adapter_delta_round_trips_with_ordering_metadata(tiny_vision_trans
     assert jnp.allclose(trained(x), merged(x), atol=1e-6)
 
 
+@pytest.mark.parametrize(
+    ("parameterization", "block_size", "num_factors", "skew_index"),
+    (
+        ("cayley", None, 1, (0, 1)),
+        ("butterfly_cayley", 2, 2, (0, 0, 0, 1)),
+    ),
+)
+def test_orthogonal_adapter_delta_round_trips_from_merged_model(
+    tmp_path,
+    tiny_vision_transformer,
+    parameterization,
+    block_size,
+    num_factors,
+    skew_index,
+):
+    x = jnp.ones((2, 3))
+    model = eqft.apply_orthogonal_adapters(
+        tiny_vision_transformer,
+        eqft.OrthogonalAdapterConfig(
+            parameterization=parameterization,
+            block_size=block_size,
+            num_factors=num_factors,
+            target=eqft.TargetSpec(tags_any=("attention.proj",), max_depth=0),
+        ),
+    )
+    module = model.blocks[0].attn.proj
+    trained_module = eqx.tree_at(
+        lambda m: m.skew,
+        module,
+        module.skew.at[skew_index].set(0.05),
+    )
+    trained = eqx.tree_at(lambda m: m.blocks[0].attn.proj, model, trained_module)
+    merged = eqft.merge_orthogonal_adapters(trained)
+
+    unmerged_bundle = eqft.save_delta(
+        trained,
+        tmp_path / "unmerged.eqft",
+        method="adapter",
+    )
+    merged_bundle = eqft.save_delta(
+        merged,
+        tmp_path / "merged.eqft",
+        method="adapter",
+    )
+    loaded = eqft.load_delta(tiny_vision_transformer, tmp_path / "merged.eqft")
+    merged_entry = next(
+        entry
+        for entry in merged_bundle.adapter_config["entries"]
+        if entry["class"] == "OrthogonalLinear"
+    )
+
+    assert merged_entry["orthogonal"]["merged"] is False
+    assert jnp.allclose(loaded(x), merged(x), atol=1e-6)
+    assert not jnp.allclose(loaded(x), tiny_vision_transformer(x), atol=1e-6)
+    assert merged_bundle.base_checkpoint_id == unmerged_bundle.base_checkpoint_id
+    assert (
+        merged_bundle.lineage.base_checkpoint_hash
+        == unmerged_bundle.lineage.base_checkpoint_hash
+    )
+    assert (
+        merged_bundle.lineage.base_value_hash == unmerged_bundle.lineage.base_value_hash
+    )
+
+
 def test_boft_requires_explicit_block_size(tiny_vision_transformer):
     with pytest.raises(ValueError, match="block_size"):
         eqft.apply_orthogonal_adapters(
