@@ -68,8 +68,8 @@ def convert_params_from_torch(
         return_torch (bool): Return both jax and torch models.
     """
     try:
-        import timm
-        import torch
+        import timm  # ty: ignore[unresolved-import]
+        import torch  # ty: ignore[unresolved-import]
     except ImportError as exc:
         raise ImportError("`torch` not available") from exc
 
