@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import equinox as eqx
+import jax
 import jax.numpy as jnp
 import jax.random as jr
 import pytest
 
 import equimo.finetune as eqft
+from equimo.audio.models import AudioSpectrogramTransformer
+from equimo.language.models import TextTransformerEncoder
+from equimo.vision.models import VisionTransformer
 
 from fixtures import TinyVisionTransformer, assert_tree_allclose
 
@@ -105,6 +109,34 @@ def test_extract_features_pool_cls_and_mean_patch(tiny_vision_transformer):
     assert cls_patch_mean.shape == (8,)
 
 
+def test_extract_features_real_vit_uses_normalized_readouts():
+    key = jr.PRNGKey(10)
+    model = VisionTransformer(
+        img_size=16,
+        in_channels=3,
+        dim=8,
+        patch_size=8,
+        num_heads=2,
+        depths=[1],
+        reg_tokens=1,
+        num_classes=0,
+        key=key,
+    )
+    x = jr.normal(jr.PRNGKey(11), (3, 16, 16))
+
+    raw = model.features(x, key=key, inference=True)
+    normalized = jax.vmap(model.norm)(raw)
+    cls = eqft.extract_features(model, x, pool="cls", key=key, inference=True)
+    mean_patch = eqft.extract_features(
+        model, x, pool="mean_patch", key=key, inference=True
+    )
+    unpooled = eqft.extract_features(model, x, pool="none", key=key, inference=True)
+
+    assert jnp.allclose(cls, normalized[0])
+    assert jnp.allclose(mean_patch, jnp.mean(normalized[2:], axis=0))
+    assert jnp.array_equal(unpooled, raw)
+
+
 def test_extract_features_cls_patch_mean_excludes_register_tokens():
     model = TinyVisionTransformer(num_reg_tokens=2, key=jr.PRNGKey(0))
     x = jnp.ones((2, 3))
@@ -117,13 +149,78 @@ def test_extract_features_cls_patch_mean_excludes_register_tokens():
     assert jnp.allclose(pooled, expected)
 
 
-def test_extract_features_auto_pool_audio_uses_mean_frame(tiny_ast_like_encoder):
+def test_extract_features_auto_pool_audio_uses_native_token_readout(
+    tiny_ast_like_encoder,
+):
     x = jnp.ones((2, 6))
 
     auto = eqft.extract_features(tiny_ast_like_encoder, x, pool="auto")
-    mean_frame = eqft.extract_features(tiny_ast_like_encoder, x, pool="mean_frame")
+    features = tiny_ast_like_encoder.features(x)
 
-    assert jnp.allclose(auto, mean_frame)
+    assert jnp.allclose(auto, 0.5 * (features[0] + features[1]))
+
+
+@pytest.mark.parametrize("global_pool", ["avg", "avgmax", "max", "cls_patch_mean"])
+def test_extract_features_real_ast_auto_excludes_prefix_tokens(global_pool):
+    key = jr.PRNGKey(12)
+    model = AudioSpectrogramTransformer(
+        input_fdim=16,
+        input_tdim=16,
+        dim=8,
+        patch_size=8,
+        fstride=8,
+        tstride=8,
+        num_heads=2,
+        depths=[1],
+        global_pool=global_pool,
+        num_classes=0,
+        key=key,
+    )
+    x = jr.normal(jr.PRNGKey(13), (16, 16))
+    native = model.forward_features(x, key=key, inference=True)
+    patches = native["x_norm_patchtokens"]
+
+    pooled = eqft.extract_features(model, x, pool="auto", key=key, inference=True)
+
+    if global_pool == "avg":
+        expected = jnp.mean(patches, axis=0)
+    elif global_pool == "avgmax":
+        expected = 0.5 * (jnp.mean(patches, axis=0) + jnp.max(patches, axis=0))
+    elif global_pool == "max":
+        expected = jnp.max(patches, axis=0)
+    else:
+        expected = jnp.concatenate(
+            [native["x_norm_cls_token"], jnp.mean(patches, axis=0)], axis=0
+        )
+
+    assert jnp.allclose(pooled, expected)
+
+
+def test_extract_features_real_ast_auto_uses_normalized_cls_dist_readout():
+    key = jr.PRNGKey(14)
+    model = AudioSpectrogramTransformer(
+        input_fdim=16,
+        input_tdim=16,
+        dim=8,
+        patch_size=8,
+        fstride=8,
+        tstride=8,
+        num_heads=2,
+        depths=[1],
+        global_pool="token",
+        num_classes=0,
+        key=key,
+    )
+    x = jr.normal(jr.PRNGKey(15), (16, 16))
+    native = model.forward_features(x, key=key, inference=True)
+    raw = model.features(x, key=key, inference=True)
+
+    pooled = eqft.extract_features(model, x, pool="auto", key=key, inference=True)
+    unpooled = eqft.extract_features(model, x, pool=None, key=key, inference=True)
+
+    expected = 0.5 * (native["x_norm_cls_token"] + native["x_norm_dist_token"])
+    assert jnp.allclose(pooled, expected)
+    assert jnp.array_equal(unpooled, raw)
 
 
 def test_extract_features_auto_pool_text_uses_mean_token(tiny_text_encoder):
@@ -133,6 +230,67 @@ def test_extract_features_auto_pool_text_uses_mean_token(tiny_text_encoder):
     mean_token = eqft.extract_features(tiny_text_encoder, token_ids, pool="mean_token")
 
     assert jnp.allclose(auto, mean_token)
+
+
+@pytest.mark.parametrize(
+    ("ids", "changed_ids", "padding_mask", "mask_as_keyword"),
+    [
+        (
+            jnp.array([1, 2, 3, 4, 5]),
+            jnp.array([1, 2, 3, 17, 18]),
+            jnp.array([0, 0, 0, 1, 1]),
+            False,
+        ),
+        (
+            jnp.array([4, 5, 1, 2, 3]),
+            jnp.array([17, 18, 1, 2, 3]),
+            jnp.array([1, 1, 0, 0, 0]),
+            True,
+        ),
+    ],
+)
+def test_extract_features_real_text_masks_padding(
+    ids, changed_ids, padding_mask, mask_as_keyword
+):
+    key = jr.PRNGKey(16)
+    model = TextTransformerEncoder(
+        dim=8,
+        mlp_ratio=2.0,
+        depth=1,
+        num_heads=2,
+        vocab_size=32,
+        key=key,
+    )
+
+    if mask_as_keyword:
+        pooled = eqft.extract_features(
+            model,
+            ids,
+            padding_mask=padding_mask,
+            pool="auto",
+            key=key,
+            inference=True,
+        )
+        changed = eqft.extract_features(
+            model,
+            changed_ids,
+            padding_mask=padding_mask,
+            pool="auto",
+            key=key,
+            inference=True,
+        )
+    else:
+        pooled = eqft.extract_features(
+            model, ids, padding_mask, pool="auto", key=key, inference=True
+        )
+        changed = eqft.extract_features(
+            model, changed_ids, padding_mask, pool="auto", key=key, inference=True
+        )
+    features = model.features(ids, padding_mask, key=key, inference=True)
+    expected = jnp.mean(features[padding_mask == 0], axis=0)
+
+    assert jnp.allclose(pooled, expected, rtol=1e-6, atol=1e-6)
+    assert jnp.allclose(changed, pooled, rtol=1e-6, atol=1e-6)
 
 
 def test_extract_features_auto_pool_conv_features_uses_global_average():

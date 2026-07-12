@@ -19,6 +19,7 @@ from .pooling import (
     MeanPatchPool,
     MeanTokenPool,
     PoolName,
+    _NativeReadoutPool,
     pool_features,
 )
 from .surgery import replace_head
@@ -182,7 +183,16 @@ def extract_features(
 ) -> Any:
     """Call a model feature path and apply an optional pooling policy."""
 
-    if hasattr(model, "features"):
+    unpooled = pool is None or (isinstance(pool, str) and pool == "none")
+    if not unpooled and hasattr(model, "forward_features"):
+        features = _call_with_optional_key(
+            model.forward_features,
+            *args,
+            key=key,
+            inference=inference,
+            **kwargs,
+        )
+    elif hasattr(model, "features"):
         features = _call_with_optional_key(
             model.features,
             *args,
@@ -208,7 +218,8 @@ def extract_features(
         )
 
     pool = _resolve_pool(model, features, _prompt_aware_pool(model, pool))
-    return pool_features(features, pool, key=key, **kwargs)
+    pool_kwargs = _pool_kwargs(model, args, kwargs)
+    return pool_features(features, pool, key=key, **pool_kwargs)
 
 
 def make_attention_pool_input_from_forward_features(
@@ -486,14 +497,32 @@ def _resolve_pool(
 ) -> PoolName | eqx.Module | None:
     if pool != "auto":
         return pool
+
+    model_name = model.__class__.__name__.lower()
+    if _is_audio_model(model, model_name):
+        global_pool = getattr(model, "global_pool", None)
+        has_dist_token = getattr(model, "dist_token", None) is not None
+        if global_pool is None:
+            global_pool = "token" if has_dist_token else "avg"
+        return _NativeReadoutPool(
+            _normalize_native_pool_type(global_pool),
+            num_prefix_tokens=_model_prefix_count(model),
+            average_distillation_tokens=has_dist_token,
+        )
+    if _is_vit_like(model):
+        global_pool = _normalize_native_pool_type(
+            getattr(model, "global_pool", "token")
+        )
+        if global_pool in {"token", "cls_patch_mean", "avg", "avgmax", "max"}:
+            return _NativeReadoutPool(
+                global_pool,
+                num_prefix_tokens=_model_prefix_count(model),
+            )
     if isinstance(features, dict):
         return "auto"
     if not eqx.is_array(features):
         return pool
 
-    model_name = model.__class__.__name__.lower()
-    if _is_audio_model(model, model_name):
-        return "mean_frame"
     if _is_text_model(model):
         if hasattr(model, "pooler") or hasattr(model, "cls_token"):
             return "cls"
@@ -502,13 +531,28 @@ def _resolve_pool(
         return GlobalAveragePool()
     if _is_mae_like(model, model_name):
         return _mean_patch_pool_for_model(model)
-    if _is_vit_like(model):
-        if getattr(model, "global_pool", None) in {"avg", "mean", "mean_patch"}:
-            return _mean_patch_pool_for_model(model)
-        return "cls"
     if features.ndim <= 1:
         return "none"
     return "cls"
+
+
+def _normalize_native_pool_type(pool_type: str) -> str:
+    if pool_type in {"mean", "mean_patch"}:
+        return "avg"
+    return pool_type
+
+
+def _pool_kwargs(model: PyTree, args: tuple, kwargs: dict) -> dict:
+    pool_kwargs = dict(kwargs)
+    if not _is_text_model(model):
+        return pool_kwargs
+
+    padding_mask = pool_kwargs.pop("padding_mask", None)
+    if padding_mask is None and len(args) > 1:
+        padding_mask = args[1]
+    if padding_mask is not None:
+        pool_kwargs["mask"] = padding_mask == 0
+    return pool_kwargs
 
 
 def _is_vit_like(model: PyTree) -> bool:

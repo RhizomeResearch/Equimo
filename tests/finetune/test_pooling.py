@@ -51,6 +51,18 @@ def test_pool_mean_token_mask():
     assert jnp.array_equal(pooled, jnp.mean(tokens[:2], axis=0))
 
 
+def test_pool_auto_feature_dict_uses_cls_distillation_mean():
+    features = {
+        "x_norm_cls_token": jnp.array([1.0, 3.0]),
+        "x_norm_dist_token": jnp.array([3.0, 7.0]),
+        "x_norm_patchtokens": jnp.array([[20.0, 30.0], [40.0, 50.0]]),
+    }
+
+    pooled = eqft.pool_features(features, pool="auto")
+
+    assert jnp.array_equal(pooled, jnp.array([2.0, 5.0]))
+
+
 def test_pool_attention_policy_uses_key():
     tokens = jnp.arange(20, dtype=jnp.float32).reshape(5, 4)
 

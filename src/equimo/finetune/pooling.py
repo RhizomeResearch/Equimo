@@ -112,6 +112,75 @@ class MeanFramePool(MeanTokenPool):
     """Alias module for audio/frame feature pooling."""
 
 
+class _NativeReadoutPool(eqx.Module):
+    """Apply a transformer's configured readout to normalized token features."""
+
+    pool_type: str = eqx.field(static=True)
+    num_prefix_tokens: int = eqx.field(static=True)
+    average_distillation_tokens: bool = eqx.field(static=True)
+
+    def __init__(
+        self,
+        pool_type: str,
+        *,
+        num_prefix_tokens: int,
+        average_distillation_tokens: bool = False,
+    ):
+        self.pool_type = pool_type
+        self.num_prefix_tokens = num_prefix_tokens
+        self.average_distillation_tokens = average_distillation_tokens
+
+    def __call__(self, features: jax.Array | dict, **kwargs) -> jax.Array:
+        del kwargs
+        if isinstance(features, dict):
+            return self._pool_dict(features)
+        if self.pool_type == "token" and self.average_distillation_tokens:
+            return 0.5 * (features[0] + features[1])
+        return pool_sd(
+            features,
+            pool_type=self.pool_type,
+            num_prefix_tokens=self.num_prefix_tokens,
+            reduce_include_prefix=False,
+        )
+
+    def _pool_dict(self, features: dict) -> jax.Array:
+        cls_token = features.get("x_norm_cls_token")
+        dist_token = features.get("x_norm_dist_token")
+        patch_tokens = features.get("x_norm_patchtokens")
+
+        if self.pool_type == "token":
+            if cls_token is None:
+                raise ValueError(
+                    "Native token pooling requires normalized CLS features."
+                )
+            if self.average_distillation_tokens:
+                if dist_token is None:
+                    raise ValueError(
+                        "Native distillation-token pooling requires normalized "
+                        "distillation features."
+                    )
+                return 0.5 * (cls_token + dist_token)
+            return cls_token
+
+        if patch_tokens is None:
+            raise ValueError(
+                "Native aggregate pooling requires normalized patch features."
+            )
+        if self.pool_type == "cls_patch_mean":
+            if cls_token is None:
+                raise ValueError("CLS-patch pooling requires normalized CLS features.")
+            return jnp.concatenate([cls_token, jnp.mean(patch_tokens, axis=0)], axis=0)
+        if self.pool_type == "avg":
+            return jnp.mean(patch_tokens, axis=0)
+        if self.pool_type == "avgmax":
+            return 0.5 * (
+                jnp.mean(patch_tokens, axis=0) + jnp.max(patch_tokens, axis=0)
+            )
+        if self.pool_type == "max":
+            return jnp.max(patch_tokens, axis=0)
+        raise ValueError(f"Unknown native pool type {self.pool_type!r}.")
+
+
 class AttentionPool(eqx.Module):
     """Single-query attention pooling over token features."""
 
@@ -197,6 +266,8 @@ def pool_features(
     if pool is None or pool == "none":
         return features
     if isinstance(features, dict):
+        if isinstance(pool, _NativeReadoutPool):
+            return pool(features)
         return _pool_feature_dict(features, pool, key=pool_key, **pool_kwargs)
     if isinstance(pool, eqx.Module):
         return _call_pool(pool, features, **pool_kwargs)
@@ -224,6 +295,12 @@ def _pool_feature_dict(
     pool: PoolName | eqx.Module,
     **kwargs,
 ) -> jax.Array | dict:
+    if (
+        pool == "auto"
+        and features.get("x_norm_cls_token") is not None
+        and features.get("x_norm_dist_token") is not None
+    ):
+        return 0.5 * (features["x_norm_cls_token"] + features["x_norm_dist_token"])
     if pool in {"auto", "cls"} and features.get("x_norm_cls_token") is not None:
         return features["x_norm_cls_token"]
     if pool == "cls_patch_mean" and (
