@@ -643,6 +643,8 @@ save_model(
 ### Loading Weights
 
 ```python
+from pathlib import Path
+
 from equimo.serialization import load_weights
 from equimo.vision.models import dinov2_vits14_reg, siglip2_vitb16_256
 
