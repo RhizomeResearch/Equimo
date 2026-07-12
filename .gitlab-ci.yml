@@ -7,16 +7,17 @@ variables:
   UV_CACHE_DIR: .cache/uv
 
 default:
-  image: ghcr.io/astral-sh/uv:python3.12-bookworm-slim  # uv pre-installed
+  image: ghcr.io/astral-sh/uv:0.9.30-python3.12-bookworm-slim@sha256:e5b65587bce7de595f299855d7385fe7fca39b8a74baa261ba1b7147afa78e58
   cache:
     key:
       files:
         - pyproject.toml
-      prefix: uv
+        - uv.lock
+      prefix: uv-0.9.30-python3.12-bookworm-slim-$CI_RUNNER_ID
     paths:
       - .cache/uv
   before_script:
-    - uv sync --group dev
+    - uv sync --locked --group dev
 
 lint:
   stage: lint
