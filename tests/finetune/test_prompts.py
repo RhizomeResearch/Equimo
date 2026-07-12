@@ -19,6 +19,116 @@ class MixingBlock(eqx.Module):
         return x + jnp.mean(x, axis=0)
 
 
+@pytest.mark.parametrize(
+    "config",
+    [
+        eqft.PromptConfig(num_tokens=2, prompt_dropout=0.5),
+        eqft.VPTDeepConfig(num_tokens=2, prompt_dropout=0.5),
+    ],
+    ids=["shallow", "deep"],
+)
+def test_prompt_dropout_changes_training_outputs_across_keys(config):
+    prompted = eqft.apply_prompts(
+        TinyVisionTransformer(depth=2),
+        config,
+        key=jr.PRNGKey(0),
+    )
+    prompted = eqx.tree_at(
+        lambda model: model.prompts,
+        prompted,
+        tuple(jnp.ones_like(prompt) for prompt in prompted.prompts),
+    )
+    x = jnp.ones((2, 3))
+
+    first = prompted.features(x, key=jr.PRNGKey(1), inference=False)
+    second = prompted.features(x, key=jr.PRNGKey(2), inference=False)
+
+    assert not jnp.array_equal(first, second)
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        eqft.PromptConfig(num_tokens=2, prompt_dropout=0.5),
+        eqft.VPTDeepConfig(num_tokens=2, prompt_dropout=0.5),
+    ],
+    ids=["shallow", "deep"],
+)
+def test_prompt_dropout_is_disabled_during_inference(config):
+    prompted = eqft.apply_prompts(
+        TinyVisionTransformer(depth=2),
+        config,
+        key=jr.PRNGKey(0),
+    )
+    x = jnp.ones((2, 3))
+
+    first = prompted.features(x, key=jr.PRNGKey(1), inference=True)
+    second = prompted.features(x, key=jr.PRNGKey(2), inference=True)
+
+    assert jnp.array_equal(first, second)
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        eqft.PromptConfig(num_tokens=2, prompt_dropout=0.5),
+        eqft.VPTDeepConfig(num_tokens=2, prompt_dropout=0.5),
+    ],
+    ids=["shallow", "deep"],
+)
+def test_prompt_dropout_requires_key_during_training(config):
+    prompted = eqft.apply_prompts(
+        TinyVisionTransformer(depth=2),
+        config,
+        key=jr.PRNGKey(0),
+    )
+
+    with pytest.raises(ValueError, match="prompt dropout"):
+        prompted.features(jnp.ones((2, 3)), inference=False)
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        eqft.PromptConfig(num_tokens=2, prompt_dropout=0.5),
+        eqft.VPTDeepConfig(num_tokens=2, prompt_dropout=0.5),
+    ],
+    ids=["shallow", "deep"],
+)
+def test_prompt_dropout_replays_training_output_with_same_key(config):
+    prompted = eqft.apply_prompts(
+        TinyVisionTransformer(depth=2),
+        config,
+        key=jr.PRNGKey(0),
+    )
+    x = jnp.ones((2, 3))
+    key = jr.PRNGKey(1)
+
+    first = prompted.features(x, key=key, inference=False)
+    second = prompted.features(x, key=key, inference=False)
+
+    assert jnp.array_equal(first, second)
+
+
+def test_prompt_dropout_works_without_blocks():
+    prompted = eqft.apply_prompts(
+        TinyVisionTransformer(depth=0),
+        eqft.VPTDeepConfig(num_tokens=2, prompt_dropout=0.5),
+        key=jr.PRNGKey(0),
+    )
+    prompted = eqx.tree_at(
+        lambda model: model.prompts,
+        prompted,
+        tuple(jnp.ones_like(prompt) for prompt in prompted.prompts),
+    )
+    x = jnp.ones((2, 3))
+
+    first = prompted.features(x, key=jr.PRNGKey(1), inference=False)
+    second = prompted.features(x, key=jr.PRNGKey(2), inference=False)
+
+    assert not jnp.array_equal(first, second)
+
+
 def test_vpt_deep_shapes(tiny_vision_transformer):
     prompted = eqft.apply_prompts(
         tiny_vision_transformer,

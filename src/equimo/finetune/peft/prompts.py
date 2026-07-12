@@ -247,8 +247,16 @@ def _equimo_vit_features(
     inference: bool | None,
     **kwargs,
 ) -> jax.Array:
-    key = jr.PRNGKey(0) if key is None else key
-    key_pos, *block_subkeys = jr.split(key, len(model.blocks) + 1)
+    num_blocks = len(model.blocks)
+    num_prompt_keys = max(num_blocks, 1)
+    if key is None:
+        key_pos, *block_subkeys = jr.split(jr.PRNGKey(0), num_blocks + 1)
+        prompt_subkeys = (None,) * num_prompt_keys
+    else:
+        subkeys = jr.split(key, 1 + num_prompt_keys + num_blocks)
+        key_pos = subkeys[0]
+        prompt_subkeys = subkeys[1 : 1 + num_prompt_keys]
+        block_subkeys = subkeys[1 + num_prompt_keys :]
     mask = kwargs.pop("mask", None)
     x = model.patch_embed(x)
 
@@ -301,6 +309,7 @@ def _equimo_vit_features(
         prompts,
         config,
         block_subkeys,
+        prompt_keys=prompt_subkeys,
         inference=inference,
         rope_sincos=rope_sincos,
         key_pos=key_pos,
@@ -326,17 +335,22 @@ def _simple_token_features(
     x = jnp.concatenate([*prefix, x], axis=0) if prefix else x
     if hasattr(model, "pos_embed"):
         x = x + model.pos_embed[: x.shape[0]]
-    block_keys = (
-        jr.split(key, len(model.blocks))
-        if key is not None
-        else (None,) * len(model.blocks)
-    )
+    num_blocks = len(model.blocks)
+    num_prompt_keys = max(num_blocks, 1)
+    if key is None:
+        prompt_keys = (None,) * num_prompt_keys
+        block_keys = (None,) * num_blocks
+    else:
+        subkeys = jr.split(key, num_prompt_keys + num_blocks)
+        prompt_keys = subkeys[:num_prompt_keys]
+        block_keys = subkeys[num_prompt_keys:]
     x = _run_prompted_blocks(
         model.blocks,
         x,
         prompts,
         config,
         block_keys,
+        prompt_keys=prompt_keys,
         inference=inference,
     )
     return _map_tokens(model.norm, x) if hasattr(model, "norm") else x
@@ -349,6 +363,7 @@ def _run_prompted_blocks(
     config: PromptConfig,
     block_keys,
     *,
+    prompt_keys,
     inference: bool | None,
     rope_sincos=None,
     key_pos: jax.Array | None = None,
@@ -356,17 +371,39 @@ def _run_prompted_blocks(
     **kwargs,
 ) -> jax.Array:
     if not blocks:
-        return _insert_prompt(x, _prompt_for_layer(prompts, config, 0, x, None), config)
+        prompt = _prompt_for_layer(
+            prompts,
+            config,
+            0,
+            x,
+            prompt_keys[0],
+            inference=inference,
+        )
+        return _insert_prompt(x, prompt, config)
 
     if config.depth == "shallow":
-        prompt = _prompt_for_layer(prompts, config, 0, x, None)
+        prompt = _prompt_for_layer(
+            prompts,
+            config,
+            0,
+            x,
+            prompt_keys[0],
+            inference=inference,
+        )
         x = _insert_prompt(x, prompt, config)
         rope_sincos = _insert_prompt_rope(rope_sincos, prompt, config)
 
     for index, (block, block_key) in enumerate(zip(blocks, block_keys, strict=True)):
         prompt = None
         if _uses_deep_prompts(config):
-            prompt = _prompt_for_layer(prompts, config, index, x, block_key)
+            prompt = _prompt_for_layer(
+                prompts,
+                config,
+                index,
+                x,
+                prompt_keys[index],
+                inference=inference,
+            )
             if index == 0:
                 x = _insert_prompt(x, prompt, config)
                 rope_sincos = _insert_prompt_rope(rope_sincos, prompt, config)
@@ -386,7 +423,14 @@ def _run_prompted_blocks(
                 key=key_rope,
             )
             if config.depth == "shallow":
-                prompt = _prompt_for_layer(prompts, config, 0, x, None)
+                prompt = _prompt_for_layer(
+                    prompts,
+                    config,
+                    0,
+                    x,
+                    prompt_keys[0],
+                    inference=inference,
+                )
             if prompt is not None:
                 rope_sincos = _insert_prompt_rope(rope_sincos, prompt, config)
         block_kwargs = dict(kwargs)
@@ -407,16 +451,14 @@ def _prompt_for_layer(
     config: PromptConfig,
     index: int,
     x: jax.Array,
-    key: jax.Array | None,
+    prompt_key: jax.Array | None,
+    *,
+    inference: bool | None,
 ) -> jax.Array:
     prompt = prompts[0 if config.depth == "shallow" else min(index, len(prompts) - 1)]
     prompt = prompt.astype(x.dtype)
-    if config.prompt_dropout > 0.0 and key is not None:
-        prompt_key = key
-    else:
-        prompt_key = None
-    if config.prompt_dropout > 0.0 and prompt_key is not None:
-        if key is None:
+    if config.prompt_dropout > 0.0 and not inference:
+        if prompt_key is None:
             raise ValueError("A PRNG key is required when prompt dropout is active.")
         prompt = _dropout(prompt, config.prompt_dropout, prompt_key)
     return prompt
