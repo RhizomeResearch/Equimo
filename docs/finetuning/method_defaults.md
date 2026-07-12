@@ -18,14 +18,14 @@
 | AdaptFormer | bottleneck 64, parallel branch, zero-up init |
 | Parallel adapters | residual-sum side branch |
 | AdapterFusion | attention fusion over named adapter banks |
-| Prompt tuning | 10 tokens, deep, std 0.02 |
+| Prompt tuning (`PromptConfig`) | 10 tokens, shallow, std 0.02 |
 | Soft prompts | 20 text prompt tokens, shallow |
 | Deep prompts | 10 prompt tokens per layer |
 | Prefix tuning | 16 prefix tokens, deep, projected K/V prefix state |
 | Scale/shift | scale 1, shift 0 |
 | IA3 | scaling vector 1 |
 | Continued SSL | LoRA r8/a16 plus last-block unfreeze metadata |
-| L2-SP | unscaled mean penalty by default |
+| L2-SP (`L2SPConfig`) | alpha 1e-3, beta 0, sum reduction, half-scaled paper objective |
 | Feature distillation | MSE over 50/100 percent layers |
 | Mixout | p 0.1 anchored to pretrained weights |
 | EWC | diagonal Fisher penalty from supplied statistics |
