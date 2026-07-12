@@ -60,10 +60,12 @@ class PCAVisualizer:
         """Creates a PCA object for visualizing features of shape [..., F]."""
         try:
             from sklearn import decomposition  # ty: ignore[unresolved-import]
-        except ImportError:
+        except ImportError as exc:
             raise ImportError(
-                "You need sklearn to use the PCAVisualizer, install it using `uv add equimo[viz]`"
-            )
+                "scikit-learn is required to use PCAVisualizer. Install Equimo "
+                "with the 'extras' extra (for example, pip install "
+                '"equimo[extras]").'
+            ) from exc
 
         features = np.array(features)
         pca_object = decomposition.PCA(n_components=n_components)
@@ -95,8 +97,11 @@ def plot_image_and_feature_map(
     """
     try:
         import matplotlib.pyplot as plt  # ty: ignore[unresolved-import]
-    except ImportError:
-        raise ImportError("Matplotlib is required to plot an image")
+    except ImportError as exc:
+        raise ImportError(
+            "Matplotlib is required to plot an image. Install Equimo with the "
+            "'extras' extra (for example, pip install \"equimo[extras]\")."
+        ) from exc
 
     feature_map_normalized = (feature_map - feature_map.min()) / (
         feature_map.max() - feature_map.min()

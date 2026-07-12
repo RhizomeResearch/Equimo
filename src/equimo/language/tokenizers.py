@@ -16,7 +16,8 @@ def _require_tensorflow_text():
     except ImportError as exc:
         raise ImportError(
             "`tensorflow` and `tensorflow_text` are required for language "
-            "tokenizers. Install Equimo with the `language` extra."
+            "tokenizers. Install Equimo with the 'language' extra (for example, "
+            'pip install "equimo[language]").'
         ) from exc
     return tf, tensorflow_text
 

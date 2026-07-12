@@ -71,7 +71,10 @@ def convert_params_from_torch(
         import timm  # ty: ignore[unresolved-import]
         import torch  # ty: ignore[unresolved-import]
     except ImportError as exc:
-        raise ImportError("`torch` not available") from exc
+        raise ImportError(
+            "PyTorch and timm are required for model conversion. Install Equimo "
+            "with the 'torch' extra (for example, pip install \"equimo[torch]\")."
+        ) from exc
 
     # Load the pytorch model
     match source:

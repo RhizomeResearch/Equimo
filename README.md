@@ -537,7 +537,7 @@ blocks (e.g. per-block attention types).
 `tensorflow_text`; install Equimo with the `language` extra:
 
 ```bash
-pip install equimo[language]
+pip install "equimo[language,extras]"
 ```
 
 Zero-shot classification example using TIPS:
