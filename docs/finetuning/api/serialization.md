@@ -8,11 +8,25 @@ Fine-tuning bundle and delta persistence helpers.
 
 ## Symbols
 
+- [`load_calibration_artifacts`](#equimo-finetune-load-calibration-artifacts)
 - [`load_delta`](#equimo-finetune-load-delta)
 - [`load_finetune_bundle`](#equimo-finetune-load-finetune-bundle)
 - [`merge_and_save`](#equimo-finetune-merge-and-save)
+- [`save_calibration_artifacts`](#equimo-finetune-save-calibration-artifacts)
 - [`save_delta`](#equimo-finetune-save-delta)
 - [`save_finetune_bundle`](#equimo-finetune-save-finetune-bundle)
+
+<!-- equimo.finetune:load_calibration_artifacts -->
+<a id="equimo-finetune-load-calibration-artifacts"></a>
+## `load_calibration_artifacts`
+
+```python
+equimo.finetune.load_calibration_artifacts(path: 'str | Path') -> 'dict[str, CalibrationArtifact]'
+```
+
+Defined in `equimo.finetune.serialization`.
+
+> Load and validate calibration artifacts saved by Equimo.
 
 <!-- equimo.finetune:load_delta -->
 <a id="equimo-finetune-load-delta"></a>
@@ -52,6 +66,18 @@ equimo.finetune.merge_and_save(path: 'str | Path', model: 'PyTree', *, method: '
 Defined in `equimo.finetune.serialization`.
 
 > Merge mergeable method weights where safe, then save a delta bundle.
+
+<!-- equimo.finetune:save_calibration_artifacts -->
+<a id="equimo-finetune-save-calibration-artifacts"></a>
+## `save_calibration_artifacts`
+
+```python
+equimo.finetune.save_calibration_artifacts(path: 'str | Path', artifacts: 'Mapping[str, CalibrationArtifact]') -> 'dict[str, CalibrationArtifact]'
+```
+
+Defined in `equimo.finetune.serialization`.
+
+> Write a validated set of calibration artifacts using the safe array codec.
 
 <!-- equimo.finetune:save_delta -->
 <a id="equimo-finetune-save-delta"></a>

@@ -10,15 +10,20 @@ Configuration records, plan metadata, and the core public typing aliases.
 
 - [`AuxLossSpec`](#equimo-finetune-auxlossspec)
 - [`CalibrationArtifact`](#equimo-finetune-calibrationartifact)
+- [`CalibrationCollectorState`](#equimo-finetune-calibrationcollectorstate)
+- [`combine_calibration_collectors`](#equimo-finetune-combine-calibration-collectors)
 - [`CompactLeafMap`](#equimo-finetune-compactleafmap)
 - [`FeatureSpec`](#equimo-finetune-featurespec)
 - [`FilterSpec`](#equimo-finetune-filterspec)
+- [`finalize_calibration_collector`](#equimo-finetune-finalize-calibration-collector)
 - [`FineTuneBundle`](#equimo-finetune-finetunebundle)
 - [`FineTuneBundleError`](#equimo-finetune-finetunebundleerror)
 - [`FineTunePlan`](#equimo-finetune-finetuneplan)
 - [`FineTuneRecipe`](#equimo-finetune-finetunerecipe)
 - [`GroupSpec`](#equimo-finetune-groupspec)
 - [`HeadSpec`](#equimo-finetune-headspec)
+- [`initialize_calibration_collector`](#equimo-finetune-initialize-calibration-collector)
+- [`input_covariance_from_artifact`](#equimo-finetune-input-covariance-from-artifact)
 - [`LeafPredicate`](#equimo-finetune-leafpredicate)
 - [`LLRDConfig`](#equimo-finetune-llrdconfig)
 - [`MethodProfile`](#equimo-finetune-methodprofile)
@@ -33,6 +38,8 @@ Configuration records, plan metadata, and the core public typing aliases.
 - [`TargetSpec`](#equimo-finetune-targetspec)
 - [`TrainableReport`](#equimo-finetune-trainablereport)
 - [`TrainableSpec`](#equimo-finetune-trainablespec)
+- [`update_calibration_collector`](#equimo-finetune-update-calibration-collector)
+- [`validate_calibration_artifacts`](#equimo-finetune-validate-calibration-artifacts)
 - [`WeightLayout`](#equimo-finetune-weightlayout)
 
 <!-- equimo.finetune:AuxLossSpec -->
@@ -58,6 +65,30 @@ class equimo.finetune.CalibrationArtifact(kind: "Literal['activation_covariance'
 Defined in `equimo.finetune.config`.
 
 > Immutable statistics consumed by data-aware fine-tuning methods.
+
+<!-- equimo.finetune:CalibrationCollectorState -->
+<a id="equimo-finetune-calibrationcollectorstate"></a>
+## `CalibrationCollectorState`
+
+```python
+class equimo.finetune.CalibrationCollectorState(counts: 'tuple[jax.Array, ...]', means: 'tuple[jax.Array, ...]', centered_sums: 'tuple[jax.Array, ...]', kind: 'CalibrationCollectorKind', logical_parameter_ids: 'tuple[str, ...]', feature_dims: 'tuple[int, ...]', base_checkpoint_hash: 'str', data_fingerprint: 'str', centered: 'bool', normalization: 'CovarianceNormalization', accumulation_dtype: 'str', rank: 'int | None', distributed_reduction: 'str') -> None
+```
+
+Defined in `equimo.finetune.calibration`.
+
+> Bounded-memory, PyTree-compatible state for named covariance streams.
+
+<!-- equimo.finetune:combine_calibration_collectors -->
+<a id="equimo-finetune-combine-calibration-collectors"></a>
+## `combine_calibration_collectors`
+
+```python
+equimo.finetune.combine_calibration_collectors(left: 'CalibrationCollectorState', right: 'CalibrationCollectorState') -> 'CalibrationCollectorState'
+```
+
+Defined in `equimo.finetune.calibration`.
+
+> Associatively combine compatible streaming states using Chan's update.
 
 <!-- equimo.finetune:CompactLeafMap -->
 <a id="equimo-finetune-compactleafmap"></a>
@@ -92,6 +123,18 @@ type equimo.finetune.FilterSpec = Any
 ```
 
 Defined in `typing`.
+
+<!-- equimo.finetune:finalize_calibration_collector -->
+<a id="equimo-finetune-finalize-calibration-collector"></a>
+## `finalize_calibration_collector`
+
+```python
+equimo.finetune.finalize_calibration_collector(state: 'CalibrationCollectorState') -> 'dict[str, CalibrationArtifact]'
+```
+
+Defined in `equimo.finetune.calibration`.
+
+> Finalize each logical ID into a validated immutable artifact.
 
 <!-- equimo.finetune:FineTuneBundle -->
 <a id="equimo-finetune-finetunebundle"></a>
@@ -167,6 +210,34 @@ class equimo.finetune.HeadSpec(kind: 'str' = 'linear', in_features: 'int | None'
 Defined in `equimo.finetune.config`.
 
 > Declarative task-head metadata for recipe presets.
+
+<!-- equimo.finetune:initialize_calibration_collector -->
+<a id="equimo-finetune-initialize-calibration-collector"></a>
+## `initialize_calibration_collector`
+
+```python
+equimo.finetune.initialize_calibration_collector(*, kind: 'CalibrationCollectorKind', logical_parameter_dims: 'Mapping[str, int] | Iterable[tuple[str, int]]', base_checkpoint_hash: 'str', data_fingerprint: 'str', centered: 'bool' = False, normalization: 'CovarianceNormalization | None' = None, accumulation_dtype: 'str | jnp.dtype' = <class 'jax.numpy.float32'>, rank: 'int | None' = None, distributed_reduction: 'str' = 'none') -> 'CalibrationCollectorState'
+```
+
+Defined in `equimo.finetune.calibration`.
+
+> Initialize named streaming statistics without retaining samples.
+>
+> Logical IDs are EVA module paths for activation statistics and matrix-weight
+> logical IDs for RegMean input statistics. Each observation is one row after
+> flattening all leading dimensions of an update value.
+
+<!-- equimo.finetune:input_covariance_from_artifact -->
+<a id="equimo-finetune-input-covariance-from-artifact"></a>
+## `input_covariance_from_artifact`
+
+```python
+equimo.finetune.input_covariance_from_artifact(artifact: 'CalibrationArtifact') -> 'jax.Array'
+```
+
+Defined in `equimo.finetune.calibration`.
+
+> Return a RegMean-compatible ``(input_dim, input_dim)`` Gram matrix.
 
 <!-- equimo.finetune:LeafPredicate -->
 <a id="equimo-finetune-leafpredicate"></a>
@@ -329,6 +400,30 @@ class equimo.finetune.TrainableSpec(mode: 'TrainableMode', target: 'TargetSpec |
 Defined in `equimo.finetune.config`.
 
 > Describe the intended trainability policy for a model.
+
+<!-- equimo.finetune:update_calibration_collector -->
+<a id="equimo-finetune-update-calibration-collector"></a>
+## `update_calibration_collector`
+
+```python
+equimo.finetune.update_calibration_collector(state: 'CalibrationCollectorState', values: 'Mapping[str, jax.Array]', *, sample_mask: 'jax.Array | Mapping[str, jax.Array] | None' = None, sample_count: 'int | Mapping[str, int] | None' = None) -> 'CalibrationCollectorState'
+```
+
+Defined in `equimo.finetune.calibration`.
+
+> Update a state from caller-supplied rows and an explicit mask or count.
+
+<!-- equimo.finetune:validate_calibration_artifacts -->
+<a id="equimo-finetune-validate-calibration-artifacts"></a>
+## `validate_calibration_artifacts`
+
+```python
+equimo.finetune.validate_calibration_artifacts(artifacts: 'Mapping[str, CalibrationArtifact]') -> 'None'
+```
+
+Defined in `equimo.finetune.calibration`.
+
+> Validate the identity, provenance, and statistic schema of an artifact set.
 
 <!-- equimo.finetune:WeightLayout -->
 <a id="equimo-finetune-weightlayout"></a>

@@ -33,6 +33,7 @@ Start with these pages:
 - [Prompts](prompts.md)
 - [Full and partial fine-tuning](partial_full.md)
 - [Model merging](model_merging.md)
+- [Calibration collectors](calibration_collectors.md)
 - [Serialization](serialization.md)
 - [Optax integration](with_optax.md)
 - [Rollfast integration](with_rollfast.md)

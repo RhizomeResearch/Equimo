@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Iterable, Mapping
 from typing import Any, cast
 
 import equinox as eqx
@@ -126,6 +127,36 @@ def is_head_path(path: Path) -> bool:
     return any(str(part) in {"head", "classifier"} for part in path)
 
 
+def validate_logical_parameter_schema(
+    schema: Mapping[str, int] | Iterable[tuple[str, int]],
+) -> tuple[tuple[str, ...], tuple[int, ...]]:
+    """Validate and canonicalize a logical-ID to feature-width schema."""
+
+    entries = tuple(schema.items()) if isinstance(schema, Mapping) else tuple(schema)
+    if not entries:
+        raise ValueError("Logical parameter schema must be non-empty.")
+    logical_ids: list[str] = []
+    feature_dims: list[int] = []
+    seen: set[str] = set()
+    for logical_id, feature_dim in entries:
+        if not isinstance(logical_id, str) or not logical_id:
+            raise ValueError("Logical parameter IDs must be non-empty strings.")
+        if logical_id in seen:
+            raise ValueError(f"Found duplicate logical parameter ID {logical_id!r}.")
+        if not isinstance(feature_dim, int) or isinstance(feature_dim, bool):
+            raise TypeError(
+                f"Feature width for logical parameter ID {logical_id!r} must be an integer."
+            )
+        if feature_dim < 1:
+            raise ValueError(
+                f"Feature width for logical parameter ID {logical_id!r} must be positive."
+            )
+        seen.add(logical_id)
+        logical_ids.append(logical_id)
+        feature_dims.append(feature_dim)
+    return tuple(logical_ids), tuple(feature_dims)
+
+
 __all__ = (
     "bundle_get_path",
     "hash_inexact_pytree",
@@ -135,4 +166,5 @@ __all__ = (
     "linear_from_state",
     "linear_state",
     "linear_weight",
+    "validate_logical_parameter_schema",
 )

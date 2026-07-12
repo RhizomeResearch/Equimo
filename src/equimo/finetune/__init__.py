@@ -25,6 +25,15 @@ from .config import (
     TrainableSpec,
     WeightLayout,
 )
+from .calibration import (
+    CalibrationCollectorState,
+    combine_calibration_collectors,
+    finalize_calibration_collector,
+    initialize_calibration_collector,
+    input_covariance_from_artifact,
+    update_calibration_collector,
+    validate_calibration_artifacts,
+)
 from .continued_ssl import (
     ContinuedSSLAdaptationConfig,
     ContinuedSSLPlan,
@@ -295,9 +304,11 @@ from .selectors import (
     resolve_target_paths,
 )
 from .serialization import (
+    load_calibration_artifacts,
     load_delta,
     load_finetune_bundle,
     merge_and_save,
+    save_calibration_artifacts,
     save_delta,
     save_finetune_bundle,
 )
@@ -352,6 +363,7 @@ __all__ = (
     "BreadcrumbsConfig",
     "CANONICAL_TAGS",
     "CalibrationArtifact",
+    "CalibrationCollectorState",
     "CalibrationSpec",
     "CLSPatchMeanPool",
     "CLSPool",
@@ -551,9 +563,14 @@ __all__ = (
     "iter_orthogonal_adapters",
     "iter_vera_modules",
     "knots_task_vector",
+    "combine_calibration_collectors",
+    "finalize_calibration_collector",
+    "initialize_calibration_collector",
+    "input_covariance_from_artifact",
     "language",
     "linear_probe",
     "load_adapter_delta",
+    "load_calibration_artifacts",
     "load_lora_delta",
     "load_delta",
     "load_finetune_bundle",
@@ -599,6 +616,7 @@ __all__ = (
     "resolve_target_paths",
     "recipes",
     "save_delta",
+    "save_calibration_artifacts",
     "select_feature_taps",
     "str_to_path",
     "tabular",
@@ -619,6 +637,8 @@ __all__ = (
     "task_vector_bundle",
     "task_vector",
     "task_vector_norm_loss",
+    "update_calibration_collector",
+    "validate_calibration_artifacts",
     "transfer_head",
     "ties_merge",
     "uniform_soup",

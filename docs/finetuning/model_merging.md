@@ -10,8 +10,9 @@ reconstructed = eqft.apply_task_vector(base, vector)
 ```
 
 Advanced primitives include TIES, DARE, Model Breadcrumbs, Fisher merge, and
-RegMean. Fisher and RegMean require external statistics and fail clearly without
-them.
+RegMean. Fisher merging requires external statistics. RegMean accepts external
+covariance PyTrees or validated `input_covariance` artifacts produced by the
+[caller-driven calibration collectors](calibration_collectors.md).
 
 PEFT wrappers that are algebraically mergeable also expose dedicated helpers:
 

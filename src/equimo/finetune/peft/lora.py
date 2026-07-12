@@ -2181,11 +2181,24 @@ def _eva_statistics_payload_array(logical_id: str, statistics: PyTree) -> jax.Ar
             vh = jnp.asarray(statistics["vh"])
             singular_values = statistics.get("singular_values")
             return _svd_statistics_matrix(vh, singular_values)
+        if "covariance" in statistics:
+            return _covariance_statistics_factor(statistics["covariance"])
         raise ValueError(
             f"EVA calibration statistics for {logical_id!r} must include "
             "'activations', 'input_activations', 'right_singular_vectors', or 'vh'."
         )
     return jnp.asarray(statistics)
+
+
+def _covariance_statistics_factor(covariance: Any) -> jax.Array:
+    matrix = jnp.asarray(covariance, dtype=jnp.float32)
+    if matrix.ndim != 2 or matrix.shape[0] != matrix.shape[1]:
+        raise ValueError("EVA activation covariance must be a square matrix.")
+    eigenvalues, eigenvectors = jnp.linalg.eigh(matrix)
+    order = jnp.argsort(eigenvalues)[::-1]
+    return (
+        jnp.sqrt(jnp.maximum(eigenvalues[order], 0))[:, None] * eigenvectors[:, order].T
+    )
 
 
 def _svd_statistics_matrix(

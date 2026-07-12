@@ -10,7 +10,7 @@ from importlib import metadata as package_metadata
 from pathlib import Path
 import tarfile
 import tempfile
-from typing import Any, cast, get_args
+from typing import Any, Mapping, cast, get_args
 
 import equinox as eqx
 import jax
@@ -27,6 +27,7 @@ from ._serialization_codecs import (
     supported_methods_text,
 )
 from .config import (
+    CalibrationArtifact,
     FeatureSpec,
     FineTuneBundle,
     FineTuneBundleError,
@@ -85,6 +86,8 @@ _ARRAY_MARKER = "__equimo_finetune_array__"
 _TUPLE_MARKER = "__equimo_finetune_tuple__"
 _FEATURE_SPEC_CODEC = "equimo.finetune.FeatureSpec"
 _FEATURE_SPEC_CODEC_VERSION = 1
+_CALIBRATION_FORMAT = "equimo.finetune.calibration"
+_CALIBRATION_FORMAT_VERSION = 1
 
 
 def save_delta(
@@ -175,6 +178,98 @@ def save_finetune_bundle(path: str | Path, bundle: FineTuneBundle) -> FineTuneBu
                 tar.add(manifest_path, arcname="manifest.json")
                 tar.add(arrays_path, arcname="arrays.eqx")
     return bundle
+
+
+def save_calibration_artifacts(
+    path: str | Path,
+    artifacts: Mapping[str, CalibrationArtifact],
+) -> dict[str, CalibrationArtifact]:
+    """Write a validated set of calibration artifacts using the safe array codec."""
+
+    from .calibration import validate_calibration_artifacts
+
+    validate_calibration_artifacts(artifacts)
+    resolved = dict(artifacts)
+    arrays: dict[str, Any] = {}
+    payload = {
+        logical_id: {
+            "kind": artifact.kind,
+            "base_checkpoint_hash": artifact.base_checkpoint_hash,
+            "logical_parameter_ids": artifact.logical_parameter_ids,
+            "statistics": artifact.statistics,
+            "sample_count": artifact.sample_count,
+            "data_fingerprint": artifact.data_fingerprint,
+            "accumulation_dtype": artifact.accumulation_dtype,
+            "distributed_reduction": artifact.distributed_reduction,
+        }
+        for logical_id, artifact in resolved.items()
+    }
+    manifest = {
+        "format": _CALIBRATION_FORMAT,
+        "format_version": _CALIBRATION_FORMAT_VERSION,
+        "artifacts": _encode_value(payload, arrays),
+    }
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_path = Path(tmp_dir)
+        manifest_path = tmp_path / "manifest.json"
+        arrays_path = tmp_path / "arrays.eqx"
+        with manifest_path.open("w") as handle:
+            json.dump(manifest, handle)
+        eqx.tree_serialise_leaves(arrays_path, arrays)
+        with lz4.frame.open(path, "wb") as archive:
+            with tarfile.open(fileobj=archive, mode="w") as tar:
+                tar.add(manifest_path, arcname="manifest.json")
+                tar.add(arrays_path, arcname="arrays.eqx")
+    return resolved
+
+
+def load_calibration_artifacts(
+    path: str | Path,
+) -> dict[str, CalibrationArtifact]:
+    """Load and validate calibration artifacts saved by Equimo."""
+
+    from .calibration import validate_calibration_artifacts
+
+    path = Path(path)
+    with lz4.frame.open(path, "rb") as archive:
+        with tarfile.open(fileobj=archive, mode="r") as tar:
+            manifest_file = tar.extractfile("manifest.json")
+            arrays_file = tar.extractfile("arrays.eqx")
+            if manifest_file is None or arrays_file is None:
+                raise FineTuneBundleError(
+                    f"Calibration file {path!s} is missing manifest.json or arrays.eqx."
+                )
+            manifest = json.loads(manifest_file.read().decode())
+            arrays_data = io.BytesIO(arrays_file.read())
+    if manifest.get("format") != _CALIBRATION_FORMAT:
+        raise FineTuneBundleError(
+            f"Unsupported calibration format {manifest.get('format')!r}."
+        )
+    if manifest.get("format_version") != _CALIBRATION_FORMAT_VERSION:
+        raise FineTuneBundleError(
+            "Unsupported calibration format_version="
+            f"{manifest.get('format_version')!r}; expected {_CALIBRATION_FORMAT_VERSION}."
+        )
+    encoded = manifest.get("artifacts")
+    templates: dict[str, Any] = {}
+    _collect_array_templates(encoded, templates)
+    arrays = eqx.tree_deserialise_leaves(arrays_data, templates)
+    payload = _decode_value(encoded, arrays)
+    if not isinstance(payload, dict):
+        raise FineTuneBundleError("Calibration artifact payload must be a dictionary.")
+    try:
+        artifacts = {
+            logical_id: CalibrationArtifact(**artifact)
+            for logical_id, artifact in payload.items()
+        }
+    except (TypeError, ValueError) as error:
+        raise FineTuneBundleError(
+            f"Invalid calibration artifact payload: {error}"
+        ) from error
+    validate_calibration_artifacts(artifacts)
+    return artifacts
 
 
 def load_finetune_bundle(
@@ -1651,9 +1746,11 @@ def _equimo_version() -> str:
 
 
 __all__ = (
+    "load_calibration_artifacts",
     "load_delta",
     "load_finetune_bundle",
     "merge_and_save",
     "save_delta",
+    "save_calibration_artifacts",
     "save_finetune_bundle",
 )

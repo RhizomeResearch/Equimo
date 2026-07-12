@@ -79,6 +79,7 @@ GROUPS = (
 
 MODULE_GROUPS = {
     "equimo.finetune.config": "configs-plans",
+    "equimo.finetune.calibration": "configs-plans",
     "equimo.finetune.paths": "selectors-tags",
     "equimo.finetune.selectors": "selectors-tags",
     "equimo.finetune.labels": "selectors-tags",

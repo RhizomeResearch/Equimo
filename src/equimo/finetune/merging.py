@@ -11,7 +11,8 @@ import jax.numpy as jnp
 import jax.tree_util as jtu
 
 from ._typing import PyTree
-from .config import FineTuneBundle, ModelLineage
+from .calibration import input_covariance_from_artifact
+from .config import CalibrationArtifact, FineTuneBundle, ModelLineage
 from .paths import key_path_to_path
 from .peft._compat import hash_inexact_pytree, is_head_path as _is_head_path
 
@@ -583,6 +584,7 @@ def regmean_merge(
         raise ValueError("regmean_merge requires external covariance statistics.")
     if len(models) != len(covariances):
         raise ValueError("models and covariances must have the same length.")
+    covariances = tuple(_resolve_regmean_covariance_tree(item) for item in covariances)
     first_model, *other_models = models
     first_covariance, *other_covariances = covariances
     return jtu.tree_map(
@@ -597,6 +599,18 @@ def regmean_merge(
         *other_models,
         first_covariance,
         *other_covariances,
+    )
+
+
+def _resolve_regmean_covariance_tree(tree: PyTree) -> PyTree:
+    return jtu.tree_map(
+        lambda leaf: (
+            input_covariance_from_artifact(leaf)
+            if isinstance(leaf, CalibrationArtifact)
+            else leaf
+        ),
+        tree,
+        is_leaf=lambda leaf: isinstance(leaf, CalibrationArtifact),
     )
 
 

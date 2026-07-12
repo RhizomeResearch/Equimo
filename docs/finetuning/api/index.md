@@ -2,13 +2,13 @@
 
 # `equimo.finetune` API reference
 
-This reference covers all 308 names exported by `equimo.finetune.__all__`.
+This reference covers all 317 names exported by `equimo.finetune.__all__`.
 Signatures and defaults are generated from the installed source objects.
 See the [fine-tuning overview](../index.md) for task-oriented guides.
 
 ## [Configs and plans](configs-plans.md)
 
-Configuration records, plan metadata, and the core public typing aliases. (26 symbols)
+Configuration records, plan metadata, and the core public typing aliases. (33 symbols)
 
 ## [Selectors, paths, labels, and tags](selectors-tags.md)
 
@@ -36,7 +36,7 @@ Model soups, task vectors, and modern model-merging methods. (26 symbols)
 
 ## [Serialization](serialization.md)
 
-Fine-tuning bundle and delta persistence helpers. (5 symbols)
+Fine-tuning bundle and delta persistence helpers. (7 symbols)
 
 ## [Modality and integration namespaces](integrations.md)
 
