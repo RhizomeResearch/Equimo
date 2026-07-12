@@ -1,4 +1,5 @@
 # ruff: noqa: E402
+import argparse
 import gc
 import os
 import re
@@ -23,7 +24,6 @@ from equimo.conversion.utils import (
 )
 from equimo.serialization import load_weights, save_model
 
-DIR = Path("~/.cache/torch/hub/dinov3").expanduser()
 DINOV3_LOCAL_ROPE_CFG = {
     "strategy": "period",
     "base": 100.0,
@@ -321,17 +321,83 @@ configs = {
     },
 }
 
-citr = iter(configs.items())
-name, config = next(citr)
+
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(description="Convert DINOv3 checkpoints.")
+    parser.add_argument("variants", nargs="*", choices=sorted(configs))
+    parser.add_argument(
+        "--source-dir",
+        type=Path,
+        required=True,
+        help="Pinned facebookresearch/dinov3 checkout used by torch.hub.",
+    )
+    checkpoints = parser.add_mutually_exclusive_group(required=True)
+    checkpoints.add_argument("--checkpoint-root", type=Path)
+    checkpoints.add_argument(
+        "--checkpoint",
+        type=Path,
+        help="Checkpoint path when converting exactly one variant.",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=Path("~/.cache/equimo/dinov3").expanduser(),
+    )
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument(
+        "--upstream-revision",
+        required=True,
+        help="Commit of the supplied DINOv3 source checkout.",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Validate inputs and print resolved work without importing Torch.",
+    )
+    args = parser.parse_args(argv)
+
+    args.variants = args.variants or sorted(configs)
+    if args.checkpoint is not None and len(args.variants) != 1:
+        parser.error("--checkpoint requires exactly one variant")
+    args.source_dir = args.source_dir.expanduser().resolve()
+    args.output_dir = args.output_dir.expanduser().resolve()
+    if not args.source_dir.is_dir():
+        parser.error(f"source directory does not exist: {args.source_dir}")
+    if args.checkpoint is not None:
+        checkpoint_paths = {args.variants[0]: args.checkpoint.expanduser().resolve()}
+    else:
+        checkpoint_root = args.checkpoint_root.expanduser().resolve()
+        if not checkpoint_root.is_dir():
+            parser.error(f"checkpoint root does not exist: {checkpoint_root}")
+        checkpoint_paths = {
+            variant: checkpoint_root / Path(weights[variant]).name
+            for variant in args.variants
+        }
+    for checkpoint in checkpoint_paths.values():
+        if not checkpoint.is_file():
+            parser.error(f"checkpoint does not exist: {checkpoint}")
+    args.checkpoint_paths = checkpoint_paths
+    return args
 
 
-def main():
+def main(argv=None):
+    args = parse_args(argv)
+    for variant in args.variants:
+        print(
+            f"{variant}: source={args.source_dir} "
+            f"upstream_revision={args.upstream_revision} "
+            f"checkpoint={args.checkpoint_paths[variant]} seed={args.seed} "
+            f"output={args.output_dir / variant}"
+        )
+    if args.dry_run:
+        return
+
     try:
         import torch
     except ImportError as exc:
         raise ImportError("`torch` not available") from exc
 
-    key = jax.random.PRNGKey(42)
+    key = jax.random.PRNGKey(args.seed)
     dinov3_config = {
         "img_size": 224,
         "in_channels": 3,
@@ -347,21 +413,16 @@ def main():
         "act_layer": "exactgelu",
         "local_pos_embed_config_patch": DINOV3_LOCAL_ROPE_CFG,
     }
-    rng = np.random.default_rng(42)
-    missing_weights = [
-        name for name, path in weights.items() if not Path(path).exists()
-    ]
-    if missing_weights:
-        missing = ", ".join(missing_weights)
-        raise FileNotFoundError(f"Missing DINOv3 Torch checkpoints: {missing}")
+    rng = np.random.default_rng(args.seed)
 
     resume = os.environ.get("EQUIMO_DINOV3_RESUME") == "1"
 
-    for name, config in configs.items():
+    for name in args.variants:
+        config = configs[name]
         print(f"Converting {name}...")
 
         cfg = dinov3_config | config
-        save_path = Path(f"~/.cache/equimo/dinov3/{name}").expanduser()
+        save_path = args.output_dir / name
         archive_path = save_path.with_name(f"{save_path.name}.tar.lz4")
         if resume and archive_path.exists():
             print(f"{name}: archive exists, skipping because EQUIMO_DINOV3_RESUME=1")
@@ -369,10 +430,10 @@ def main():
 
         torch_name = "_".join(name.split("_")[:-2])
         torch_hub_cfg = {
-            "repo_or_dir": str(DIR / "dinov3"),
+            "repo_or_dir": str(args.source_dir),
             "model": torch_name,
             "source": "local",
-            "weights": weights[name],
+            "weights": str(args.checkpoint_paths[name]),
         }
         # model = torch.hub.load(**torch_hub_cfg)
 
@@ -410,7 +471,7 @@ def main():
             )
             dinov3 = _stream_torch_state_into_equinox(
                 dinov3,
-                weights[name],
+                str(args.checkpoint_paths[name]),
                 replace_cfg=replace_cfg,
                 expand_cfg=expand_cfg,
                 squeeze_cfg=squeeze_cfg,
@@ -456,7 +517,7 @@ def main():
             save_path,
             dinov3,
             cfg,
-            torch_hub_cfg,
+            torch_hub_cfg | {"upstream_revision": args.upstream_revision},
             compression=True,
         )
         del dinov3

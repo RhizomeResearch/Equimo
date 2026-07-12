@@ -1,4 +1,5 @@
 import argparse
+import hashlib
 import importlib
 import re
 import sys
@@ -67,6 +68,10 @@ CHECKPOINTS = {
 
 REFERENCE_IDENTIFIER = "tabpfn_v3_classifier_default"
 REFERENCE_PATH = OUTPUT_DIR / "tabpfn_v3_classifier_default_reference.npz"
+UPSTREAM_REVISION = "e923ba9be85784206c9e2f43b0035c84d5fd5747"
+REFERENCE_CHECKPOINT_SHA256 = (
+    "d0d865d54dfbc524f5703104be90620182dca7e5fb2c16de72e9959ea18f3988"
+)
 IGNORED_TORCH_KEYS = {"regression_borders", "column_aggregator.rope.freqs"}
 TOLERANCES = {"classification": 1e-4, "regression": 2e-3}
 
@@ -247,8 +252,8 @@ def convert_torch_to_equimo(model, torch_model, *, task_type: str):
     return eqx.nn.inference_mode(eqx.combine(converted_tree, static), value=True)
 
 
-def make_fixture(task_type: str):
-    rng = np.random.default_rng(42)
+def make_fixture(task_type: str, seed: int = 42):
+    rng = np.random.default_rng(seed)
     rows, columns, n_train = 12, 5, 8
     x = rng.standard_normal((rows, columns)).astype(np.float32)
     if task_type == "classification":
@@ -272,17 +277,17 @@ def torch_forward(torch_model, x, y, n_train: int, task_type: str):
     return _to_numpy(out.squeeze(1))
 
 
-def generate_reference(torch_model, path: Path) -> None:
-    x, y, n_train = make_fixture("classification")
+def generate_reference(torch_model, path: Path, *, seed: int = 42) -> None:
+    x, y, n_train = make_fixture("classification", seed)
     logits = torch_forward(torch_model, x, y, n_train, "classification")
     path.parent.mkdir(parents=True, exist_ok=True)
     np.savez(path, x=x, y=y, n_train=np.asarray(n_train), logits=logits)
     print(f"Saved TabPFN reference to {path}")
 
 
-def compare(model, torch_model, *, task_type: str) -> float:
-    key = jax.random.PRNGKey(42)
-    x, y, n_train = make_fixture(task_type)
+def compare(model, torch_model, *, task_type: str, seed: int = 42) -> float:
+    key = jax.random.PRNGKey(seed)
+    x, y, n_train = make_fixture(task_type, seed)
     torch_out = torch_forward(torch_model, x, y, n_train, task_type)
     jax_out = model(
         jnp.asarray(x),
@@ -299,13 +304,10 @@ def _model_config(identifier: str) -> dict:
     return base_cfg | variant_cfg
 
 
-def main():
-    try:
-        from tabpfn.model_loading import load_model as load_tabpfn_model
-    except ImportError as exc:
-        raise ImportError("`torch` and `tabpfn` are required") from exc
-
-    parser = argparse.ArgumentParser()
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(
+        description="Generate TabPFN references and convert TabPFN checkpoints."
+    )
     parser.add_argument("identifiers", nargs="*", choices=sorted(CHECKPOINTS))
     parser.add_argument("--references-only", action="store_true")
     parser.add_argument(
@@ -313,17 +315,94 @@ def main():
         type=Path,
         default=Path("~/.cache/equimo/tabpfn").expanduser(),
     )
-    args = parser.parse_args()
+    checkpoints = parser.add_mutually_exclusive_group()
+    checkpoints.add_argument("--checkpoint-root", type=Path)
+    checkpoints.add_argument(
+        "--checkpoint",
+        type=Path,
+        help="Checkpoint path when processing exactly one identifier.",
+    )
+    parser.add_argument("--output-dir", type=Path, default=OUTPUT_DIR)
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--upstream-revision", default=UPSTREAM_REVISION)
+    parser.add_argument(
+        "--checkpoint-sha256",
+        default=REFERENCE_CHECKPOINT_SHA256,
+        help="Expected checksum for the committed reference checkpoint.",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print resolved work without importing TabPFN.",
+    )
+    args = parser.parse_args(argv)
 
-    identifiers = args.identifiers or sorted(CHECKPOINTS)
-    for identifier in identifiers:
+    args.identifiers = args.identifiers or sorted(CHECKPOINTS)
+    if args.checkpoint is not None and len(args.identifiers) != 1:
+        parser.error("--checkpoint requires exactly one identifier")
+    if args.checkpoint is not None:
+        paths = {args.identifiers[0]: args.checkpoint.expanduser().resolve()}
+    elif args.checkpoint_root is not None:
+        root = args.checkpoint_root.expanduser().resolve()
+        paths = {
+            identifier: root / CHECKPOINTS[identifier]["path"].name
+            for identifier in args.identifiers
+        }
+    else:
+        paths = {
+            identifier: CHECKPOINTS[identifier]["path"].resolve()
+            for identifier in args.identifiers
+        }
+    args.checkpoint_paths = paths
+    args.output_dir = args.output_dir.expanduser().resolve()
+    args.save_dir = args.save_dir.expanduser().resolve()
+    return args
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def main(argv=None):
+    args = parse_args(argv)
+    for identifier in args.identifiers:
+        print(
+            f"{identifier}: checkpoint={args.checkpoint_paths[identifier]} "
+            f"upstream_revision={args.upstream_revision} seed={args.seed} "
+            f"output={args.output_dir / REFERENCE_PATH.name}"
+        )
+    if args.dry_run:
+        return
+
+    try:
+        from tabpfn.model_loading import load_model as load_tabpfn_model
+    except ImportError as exc:
+        raise ImportError("`torch` and `tabpfn` are required") from exc
+
+    for identifier in args.identifiers:
         info = CHECKPOINTS[identifier]
-        print(f"Loading {info['path']}...")
-        torch_model, _, _, _ = load_tabpfn_model(path=info["path"])
+        checkpoint = args.checkpoint_paths[identifier]
+        print(f"Loading {checkpoint}...")
+        if identifier == REFERENCE_IDENTIFIER:
+            actual_sha256 = _sha256(checkpoint)
+            if actual_sha256 != args.checkpoint_sha256:
+                raise ValueError(
+                    f"{checkpoint} SHA-256 is {actual_sha256}, expected "
+                    f"{args.checkpoint_sha256}"
+                )
+        torch_model, _, _, _ = load_tabpfn_model(path=checkpoint)
         torch_model.eval()
 
         if identifier == REFERENCE_IDENTIFIER:
-            generate_reference(torch_model, REFERENCE_PATH)
+            generate_reference(
+                torch_model,
+                args.output_dir / REFERENCE_PATH.name,
+                seed=args.seed,
+            )
         if args.references_only:
             continue
 
@@ -335,7 +414,7 @@ def main():
             task_type=info["task_type"],
         )
 
-        error = compare(model, torch_model, task_type=info["task_type"])
+        error = compare(model, torch_model, task_type=info["task_type"], seed=args.seed)
         tolerance = TOLERANCES[info["task_type"]]
         assert error < tolerance, f"{identifier} conversion MAE: {error:.2e}"
         print(f"{identifier} conversion MAE: {error:.2e}")
@@ -344,7 +423,10 @@ def main():
             args.save_dir / identifier,
             model,
             _model_config(identifier),
-            torch_hub_cfg={"checkpoint": str(info["path"])},
+            torch_hub_cfg={
+                "checkpoint": str(checkpoint),
+                "upstream_revision": args.upstream_revision,
+            },
             compression=True,
         )
 

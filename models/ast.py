@@ -24,16 +24,16 @@ AST_MODULE = importlib.import_module("equimo.audio.models.ast")
 CHECKPOINTS = {
     "ast_base_patch16_audioset_10_10_0_4593": {
         "hf_id": "MIT/ast-finetuned-audioset-10-10-0.4593",
+        "revision": "f826b80d28226b62986cc218e5cec390b1096902",
         "factory": am.ast_base_patch16_audioset_10_10_0_4593,
-        "reference": OUTPUT_DIR
-        / "ast_base_patch16_audioset_10_10_0_4593_reference.npz",
+        "reference": "ast_base_patch16_audioset_10_10_0_4593_reference.npz",
         "input_shape": (1024, 128),
     },
     "ast_base_patch16_speechcommands_v2_10_10_0_9812": {
         "hf_id": "MIT/ast-finetuned-speech-commands-v2",
+        "revision": "315b0b847a3ca207e68b718503ad72066612eacd",
         "factory": am.ast_base_patch16_speechcommands_v2_10_10_0_9812,
-        "reference": OUTPUT_DIR
-        / "ast_base_patch16_speechcommands_v2_10_10_0_9812_reference.npz",
+        "reference": "ast_base_patch16_speechcommands_v2_10_10_0_9812_reference.npz",
         "input_shape": (128, 128),
     },
 }
@@ -164,28 +164,67 @@ def generate_reference(hf_model, input_values, path: Path) -> None:
     print(f"Saved AST reference to {path}")
 
 
-def main():
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(
+        description="Generate AST references and convert AST checkpoints."
+    )
+    parser.add_argument("identifiers", nargs="*", choices=sorted(CHECKPOINTS))
+    parser.add_argument("--references-only", action="store_true")
+    parser.add_argument("--output-dir", type=Path, default=OUTPUT_DIR)
+    parser.add_argument(
+        "--save-dir",
+        type=Path,
+        default=Path("~/.cache/equimo/ast").expanduser(),
+    )
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument(
+        "--revision",
+        help="Override the pinned Hugging Face revision (requires one identifier).",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print resolved work without importing Torch or Transformers.",
+    )
+    args = parser.parse_args(argv)
+    args.identifiers = args.identifiers or sorted(CHECKPOINTS)
+    if args.revision is not None and len(args.identifiers) != 1:
+        parser.error("--revision requires exactly one identifier")
+    args.output_dir = args.output_dir.expanduser().resolve()
+    args.save_dir = args.save_dir.expanduser().resolve()
+    return args
+
+
+def main(argv=None):
+    args = parse_args(argv)
+    for identifier in args.identifiers:
+        info = CHECKPOINTS[identifier]
+        revision = args.revision or info["revision"]
+        print(
+            f"{identifier}: model={info['hf_id']} revision={revision} "
+            f"seed={args.seed} output={args.output_dir / info['reference']}"
+        )
+    if args.dry_run:
+        return
+
     try:
         import torch
         from transformers import ASTForAudioClassification
     except ImportError as exc:
         raise ImportError("`torch` and `transformers` are required") from exc
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument("identifiers", nargs="*", choices=sorted(CHECKPOINTS))
-    parser.add_argument("--references-only", action="store_true")
-    args = parser.parse_args()
+    key = jax.random.PRNGKey(args.seed)
 
-    key = jax.random.PRNGKey(42)
-    identifiers = args.identifiers or sorted(CHECKPOINTS)
-
-    for identifier in identifiers:
-        rng = np.random.default_rng(42)
+    for identifier in args.identifiers:
+        rng = np.random.default_rng(args.seed)
         info = CHECKPOINTS[identifier]
-        print(f"Loading {info['hf_id']}...")
-        hf_model = ASTForAudioClassification.from_pretrained(info["hf_id"]).eval()
+        revision = args.revision or info["revision"]
+        print(f"Loading {info['hf_id']} at {revision}...")
+        hf_model = ASTForAudioClassification.from_pretrained(
+            info["hf_id"], revision=revision
+        ).eval()
         input_values = rng.standard_normal(info["input_shape"]).astype(np.float32)
-        generate_reference(hf_model, input_values, info["reference"])
+        generate_reference(hf_model, input_values, args.output_dir / info["reference"])
 
         if args.references_only:
             continue
@@ -213,10 +252,10 @@ def main():
         base_cfg, variant_cfg = AST_MODULE._AST_REGISTRY[identifier]
         cfg = base_cfg | variant_cfg
         save_model(
-            Path(f"~/.cache/equimo/ast/{identifier}").expanduser(),
+            args.save_dir / identifier,
             model,
             cfg,
-            torch_hub_cfg={"hf_model": info["hf_id"]},
+            torch_hub_cfg={"hf_model": info["hf_id"], "revision": revision},
             compression=True,
         )
 

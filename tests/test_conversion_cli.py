@@ -7,6 +7,18 @@ import pytest
 
 ROOT = Path(__file__).parents[1]
 SCRIPTS = ("tips.py", "tips_text.py", "eupe.py")
+HELP_SCRIPTS = (
+    "ast.py",
+    "dinov2.py",
+    "dinov3.py",
+    "eupe.py",
+    "siglip2.py",
+    "tabpfn3.py",
+    "tips.py",
+    "tips_text.py",
+    "torch_models.py",
+    "validate_references.py",
+)
 
 
 def run_script(script: str, *args: str) -> subprocess.CompletedProcess[str]:
@@ -19,7 +31,7 @@ def run_script(script: str, *args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-@pytest.mark.parametrize("script", SCRIPTS)
+@pytest.mark.parametrize("script", HELP_SCRIPTS)
 def test_conversion_help_is_offline(script):
     result = run_script(script, "--help")
 
@@ -184,3 +196,54 @@ def test_conversion_scripts_have_no_machine_specific_paths():
 
     assert "/mnt/hdd" not in contents
     assert "/home/" not in contents
+
+
+def test_torch_reference_dry_run_uses_pinned_revision(tmp_path):
+    result = run_script(
+        "torch_models.py",
+        "dinov3_vits16",
+        "--output-dir",
+        str(tmp_path),
+        "--dry-run",
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "revision=114c1379950215c8b35dfcd4e90a5c251dde0d32" in result.stdout
+    assert "seed=42" in result.stdout
+    assert str(tmp_path / "dinov3_vits16_reference.npz") in result.stdout
+
+
+def test_ast_dry_run_uses_output_dir_and_revision(tmp_path):
+    result = run_script(
+        "ast.py",
+        "ast_base_patch16_speechcommands_v2_10_10_0_9812",
+        "--references-only",
+        "--output-dir",
+        str(tmp_path),
+        "--dry-run",
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "revision=315b0b847a3ca207e68b718503ad72066612eacd" in result.stdout
+    assert (
+        str(tmp_path / "ast_base_patch16_speechcommands_v2_10_10_0_9812_reference.npz")
+        in result.stdout
+    )
+
+
+def test_tabpfn_dry_run_resolves_checkpoint(tmp_path):
+    checkpoint = tmp_path / "tabpfn-v3-classifier-v3_default.ckpt"
+    checkpoint.touch()
+    result = run_script(
+        "tabpfn3.py",
+        "tabpfn_v3_classifier_default",
+        "--checkpoint",
+        str(checkpoint),
+        "--output-dir",
+        str(tmp_path),
+        "--dry-run",
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert f"checkpoint={checkpoint.resolve()}" in result.stdout
+    assert "upstream_revision=e923ba9be85784206c9e2f43b0035c84d5fd5747" in result.stdout

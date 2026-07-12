@@ -57,6 +57,12 @@ dev = [
     "ruff>=0.15.7",
     "ty>=0.0.24",
 ]
+reference = [
+    "tabpfn>=8.1.0",
+    "timm>=1.0.15",
+    "torch>=2.6.0",
+    "transformers>=5.13.1",
+]
 
 [tool.ruff.lint]
 ignore = ["E731", "E741", "F722"]

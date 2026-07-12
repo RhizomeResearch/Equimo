@@ -19,6 +19,7 @@ VARIANTS = {
     "eupe_convnext_base": {"family": "convnext", "depths": [3, 3, 27, 3]},
 }
 IMG_SIZE = 224
+DEFAULT_UPSTREAM_REVISION = "7319b8be9be7f38e6c8dff822695cd62f8e4cada"
 
 
 def parse_args():
@@ -37,6 +38,12 @@ def parse_args():
         "--output-dir",
         type=Path,
         default=Path("~/.cache/equimo/eupe").expanduser(),
+    )
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument(
+        "--upstream-revision",
+        default=DEFAULT_UPSTREAM_REVISION,
+        help="Commit of the supplied EUPE source checkout for provenance.",
     )
     parser.add_argument(
         "--diagnose",
@@ -257,7 +264,7 @@ def convert(args):
     from equimo.serialization import save_model
 
     info = VARIANTS[args.variant]
-    key = jax.random.PRNGKey(42)
+    key = jax.random.PRNGKey(args.seed)
     print(f"Converting {args.variant}...")
     eupe = getattr(em, args.variant)()
     torch_hub_cfg = {
@@ -283,7 +290,7 @@ def convert(args):
     )
     eupe = eqx.nn.inference_mode(eupe, True)
 
-    arr = np.random.default_rng(42).standard_normal((3, IMG_SIZE, IMG_SIZE))
+    arr = np.random.default_rng(args.seed).standard_normal((3, IMG_SIZE, IMG_SIZE))
     jax_arr = jnp.array(arr)
     torch_arr = torch.tensor(arr).unsqueeze(0).float()
     if args.diagnose:
@@ -308,7 +315,7 @@ def convert(args):
         args.output_dir / args.variant,
         eupe,
         {},
-        torch_hub_cfg,
+        torch_hub_cfg | {"upstream_revision": args.upstream_revision},
         compression=True,
     )
 
@@ -318,6 +325,7 @@ def main():
     print(
         f"{args.variant}: source={args.source_dir} "
         f"checkpoint={args.checkpoint} "
+        f"upstream_revision={args.upstream_revision} seed={args.seed} "
         f"output={args.output_dir / args.variant}"
     )
     if not args.dry_run:

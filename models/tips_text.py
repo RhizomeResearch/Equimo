@@ -137,6 +137,11 @@ def parse_args():
         type=Path,
         default=Path("~/.cache/equimo/tips").expanduser(),
     )
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument(
+        "--upstream-revision",
+        help="Commit of the supplied TIPS source checkout for provenance.",
+    )
     parser.add_argument(
         "--dry-run",
         action="store_true",
@@ -180,6 +185,7 @@ def main():
         print(
             f"{variant}: source={args.source_dir} "
             f"checkpoint={args.checkpoint_paths[variant]} "
+            f"upstream_revision={args.upstream_revision} seed={args.seed} "
             f"output={args.output_dir / variant}"
         )
     if args.dry_run:
@@ -195,7 +201,7 @@ def main():
             "`torch` and the upstream `tips` package are required"
         ) from exc
 
-    key = jax.random.PRNGKey(42)
+    key = jax.random.PRNGKey(args.seed)
     base_config = {
         "vocab_size": 32000,
         "scale_sqrt_depth": True,
@@ -281,6 +287,11 @@ def main():
             args.output_dir / name,
             tips_text,
             cfg,
+            torch_hub_cfg={
+                "source_dir": str(args.source_dir),
+                "checkpoint": str(args.checkpoint_paths[name]),
+                "upstream_revision": args.upstream_revision,
+            },
             compression=True,
         )
 
