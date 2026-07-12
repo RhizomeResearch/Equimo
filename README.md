@@ -107,11 +107,12 @@ prediction tasks in a single forward pass. The upstream model card describes it
 as intended for structured classification and regression tasks up to 1M samples
 and 2000 features, trained purely on synthetic tabular tasks.
 
-Equimo exposes the model core directly: inputs are unbatched `x`, `y`, and
-`n_train` arrays, not the upstream `TabPFNClassifier`/`TabPFNRegressor`
-sklearn-style preprocessing and ensembling API. Classification variants return
-test-row log probabilities over the class vocabulary; regression variants return
-raw 5000-bucket logits.
+Equimo exposes the model core directly: `x` and `y` are unbatched arrays, while
+`n_train` is a Python integer that determines the context/test slice boundary.
+When JIT-compiling a call, `n_train` must be static. This is not the upstream
+`TabPFNClassifier`/`TabPFNRegressor` sklearn-style preprocessing and ensembling
+API. Classification variants return test-row log probabilities over the class
+vocabulary; regression variants return raw 5000-bucket logits.
 
 Available constructors:
 
@@ -758,9 +759,13 @@ model = tm.tabpfn_v3_classifier_default(pretrained=True)
 
 x = jnp.ones((12, 5))  # (rows, columns)
 y = jnp.array([0, 1, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0])
-n_train = 8
+n_train = 8  # Python integer; static context/test slice boundary
 
-log_probs = model(x, y, n_train, key=key, inference=True)
+predict = jax.jit(
+    lambda x, y, n_train: model(x, y, n_train, key=key, inference=True),
+    static_argnums=2,
+)
+log_probs = predict(x, y, n_train)
 features = model.forward_features(x, y, n_train, key=key, inference=True)
 ```
 

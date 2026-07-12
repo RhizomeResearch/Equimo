@@ -75,6 +75,20 @@ def test_forward_shape_and_finite():
     assert bool(jnp.all(jnp.isfinite(out)))
 
 
+def test_jit_forward_with_static_n_train():
+    model = _tiny()
+    x, y, n_train = _inputs()
+    predict = jax.jit(
+        lambda x, y, n_train: model(x, y, n_train, key=KEY, inference=True),
+        static_argnums=2,
+    )
+
+    out = predict(x, y, n_train)
+
+    assert out.shape == (x.shape[0] - n_train, 4)
+    assert bool(jnp.all(jnp.isfinite(out)))
+
+
 def test_singleton_forward_and_input_gradients_are_finite():
     model = _tiny(
         dim=8,

@@ -78,14 +78,28 @@ embedding = model(token_ids, padding, key=key, inference=True)
 ## TabPFN Core Models
 
 TabPFN constructors expose the model core, not a scikit-learn style estimator.
-Inputs are unbatched JAX arrays for context rows, labels, and `n_train`.
-Classifier variants return log probabilities for test rows; regressor variants
-return bucket logits.
+`n_train` is a Python integer that determines the context/test slice boundary
+and must be static when JIT-compiling a call. `x` and `y` are unbatched JAX
+arrays. Classifier variants return log probabilities for test rows; regressor
+variants return bucket logits.
 
 ```python
+import jax
+import jax.numpy as jnp
 import equimo.tabular.models as tm
 
+key = jax.random.PRNGKey(42)
 model = tm.tabpfn_v3_classifier_default(pretrained=False)
+
+x = jnp.ones((12, 5))
+y = jnp.array([0, 1, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0])
+n_train = 8
+
+predict = jax.jit(
+    lambda x, y, n_train: model(x, y, n_train, key=key, inference=True),
+    static_argnums=2,
+)
+log_probs = predict(x, y, n_train)
 ```
 
 Use pretrained TabPFN weights only after reviewing the upstream TabPFN-3 license.
