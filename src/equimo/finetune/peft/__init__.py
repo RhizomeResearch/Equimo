@@ -128,7 +128,7 @@ PEFTConfig = (
     | DoRAConfig
     | AdapterConfig
     | OrthogonalAdapterConfig
-    | RandLoRAConfig
+    | FourierFTConfig
     | PromptConfig
     | PrefixConfig
     | ScaleShiftConfig

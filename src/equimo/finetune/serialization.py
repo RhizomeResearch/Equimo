@@ -10,7 +10,7 @@ from importlib import metadata as package_metadata
 from pathlib import Path
 import tarfile
 import tempfile
-from typing import Any, cast
+from typing import Any, cast, get_args
 
 import equinox as eqx
 import jax
@@ -21,6 +21,11 @@ import lz4.frame
 import numpy as np
 
 from ._typing import PyTree
+from ._serialization_codecs import (
+    DeltaCodec,
+    build_codec_registry,
+    supported_methods_text,
+)
 from .config import (
     FineTuneBundle,
     FineTuneBundleError,
@@ -29,7 +34,14 @@ from .config import (
     TargetSpec,
 )
 from .paths import key_path_to_path, path_to_str, str_to_path
-from .peft.adapters import extract_adapter_delta, load_adapter_delta, strip_adapters
+from .peft import PEFTConfig
+from .peft.adapters import (
+    AdapterConfig,
+    OrthogonalAdapterConfig,
+    extract_adapter_delta,
+    load_adapter_delta,
+    strip_adapters,
+)
 from .peft._compat import (
     bundle_get_path as _bundle_get_path,
     hash_inexact_pytree,
@@ -37,9 +49,11 @@ from .peft._compat import (
     linear_state as _linear_state,
 )
 from .peft.base import get_path
-from .peft.dora import DoRALinear, DoRAMergedLinear
-from .peft.ia3 import IA3Linear
+from .peft.dora import DoRAConfig, DoRALinear, DoRAMergedLinear
+from .peft.ia3 import IA3Config, IA3Linear
 from .peft.lora import (
+    FourierFTConfig,
+    LoRAConfig,
     extract_lora_delta,
     iter_lora_modules,
     load_lora_delta,
@@ -61,7 +75,8 @@ from .peft.prompts import (
     VPTShallowConfig,
 )
 from .peft.scale_shift import ScaleShift, ScaleShiftWrapper
-from .peft.vera import VeRALinear, strip_vera
+from .peft.scale_shift import ScaleShiftConfig
+from .peft.vera import VeRAConfig, VeRALinear, strip_vera
 
 _FORMAT = "equimo.finetune.bundle"
 _FORMAT_VERSION = 1
@@ -98,28 +113,7 @@ def save_delta(
         spec=spec,
     )
 
-    if method == "lora":
-        bundle = extract_lora_delta(model)
-    elif method == "dora":
-        bundle = _extract_dora_delta(model)
-    elif method == "adapter":
-        bundle = extract_adapter_delta(model)
-    elif method == "prompt":
-        bundle = _extract_prompt_delta(model)
-    elif method == "prefix":
-        bundle = _extract_prefix_delta(model)
-    elif method == "scale_shift":
-        bundle = _extract_scale_shift_delta(model)
-    elif method == "ia3":
-        bundle = _extract_ia3_delta(model)
-    elif method == "vera":
-        bundle = _extract_vera_delta(model)
-    else:
-        raise ValueError(
-            "Unsupported delta method "
-            f"{method!r}; currently 'lora', 'dora', 'adapter', 'prompt', "
-            "'prefix', 'scale_shift', 'ia3', or 'vera'."
-        )
+    bundle = _codec_for_save(method).extract(model)
 
     bundle = _enrich_bundle(
         bundle,
@@ -152,23 +146,7 @@ def load_delta(
     _check_schema(bundle)
     _check_base_checkpoint(base_model, bundle)
     _check_bundle_lineage_consistency(bundle)
-    if bundle.method == "lora":
-        return load_lora_delta(base_model, bundle)
-    if bundle.method == "adapter":
-        return load_adapter_delta(base_model, bundle)
-    if bundle.method == "dora":
-        return _load_dora_delta(base_model, bundle)
-    if bundle.method == "prompt":
-        return _load_prompt_delta(base_model, bundle)
-    if bundle.method == "prefix":
-        return _load_prefix_delta(base_model, bundle)
-    if bundle.method == "scale_shift":
-        return _load_scale_shift_delta(base_model, bundle)
-    if bundle.method == "ia3":
-        return _load_ia3_delta(base_model, bundle)
-    if bundle.method == "vera":
-        return _load_vera_delta(base_model, bundle)
-    raise FineTuneBundleError(f"Unsupported delta method {bundle.method!r}.")
+    return _codec_for_load(bundle.method).load(base_model, bundle)
 
 
 def save_finetune_bundle(path: str | Path, bundle: FineTuneBundle) -> FineTuneBundle:
@@ -217,26 +195,7 @@ def merge_and_save(
 ) -> FineTuneBundle:
     """Merge mergeable method weights where safe, then save a delta bundle."""
 
-    if method == "lora":
-        return save_delta(
-            merge_lora(model),
-            path,
-            method=method,
-            metadata=metadata,
-            model_state=model_state,
-            recalibration_required=recalibration_required,
-        )
-    if method == "dora":
-        # A merged DoRA model no longer contains DoRA state to serialize as a delta.
-        # Save the reversible delta and leave dense export to model serialization.
-        return save_delta(
-            model,
-            path,
-            method=method,
-            metadata=metadata,
-            model_state=model_state,
-            recalibration_required=recalibration_required,
-        )
+    model = _codec_for_save(method).merge_for_save(model)
     return save_delta(
         model,
         path,
@@ -1211,31 +1170,11 @@ def _check_bundle_lineage_consistency(bundle: FineTuneBundle) -> None:
 
 
 def _metadata_base_model(model: PyTree, method: str) -> PyTree:
-    if method == "lora":
-        return strip_lora(model)
-    if method == "adapter":
-        return strip_adapters(model)
-    if method == "prompt" and isinstance(model, PromptedModel):
-        return model.base
-    if method == "prefix" and isinstance(model, PrefixTunedModel):
-        return strip_prefixes(model.base)
-    if method == "scale_shift":
-        return _strip_wrappers(model, ScaleShiftWrapper)
-    if method == "ia3":
-        return _strip_wrappers(model, IA3Linear)
-    if method == "vera":
-        return strip_vera(model)
-    if method == "dora":
-        return _strip_wrappers(model, DoRALinear)
-    return model
+    return _codec_for_save(method).strip_to_base(model)
 
 
 def _can_infer_exact_base_checkpoint(model: PyTree, method: str) -> bool:
-    if method != "lora":
-        return True
-    return all(
-        module.base_weight_delta is None for _, module in iter_lora_modules(model)
-    )
+    return _codec_for_save(method).can_infer_exact_base_checkpoint(model)
 
 
 def _strip_wrappers(model: PyTree, wrapper_type: type) -> PyTree:
@@ -1396,18 +1335,193 @@ def _metadata_scalar(value: Any) -> Any:
 
 
 def _is_mergeable(bundle: FineTuneBundle) -> bool:
-    if bundle.method in {"ia3", "lora", "scale_shift"}:
-        entries = bundle.adapter_config.get("entries", ())
-        return all(bool(entry.get("mergeable", True)) for entry in entries)
-    if bundle.method == "vera":
-        entries = bundle.adapter_config.get("entries", ())
-        return all(bool(entry.get("mergeable", True)) for entry in entries)
-    return bundle.method == "dora"
+    return _codec_for_load(bundle.method).is_mergeable(bundle)
 
 
 def _is_merged(bundle: FineTuneBundle) -> bool:
+    return _codec_for_load(bundle.method).is_merged(bundle)
+
+
+def _identity_model(model: PyTree) -> PyTree:
+    return model
+
+
+def _always_exact_base_checkpoint(model: PyTree) -> bool:
+    del model
+    return True
+
+
+def _lora_exact_base_checkpoint(model: PyTree) -> bool:
+    return all(
+        module.base_weight_delta is None for _, module in iter_lora_modules(model)
+    )
+
+
+def _strip_prompt_model(model: PyTree) -> PyTree:
+    return model.base if isinstance(model, PromptedModel) else model
+
+
+def _strip_prefix_model(model: PyTree) -> PyTree:
+    return strip_prefixes(model.base) if isinstance(model, PrefixTunedModel) else model
+
+
+def _strip_dora(model: PyTree) -> PyTree:
+    return _strip_wrappers(model, DoRALinear)
+
+
+def _strip_scale_shift(model: PyTree) -> PyTree:
+    return _strip_wrappers(model, ScaleShiftWrapper)
+
+
+def _strip_ia3(model: PyTree) -> PyTree:
+    return _strip_wrappers(model, IA3Linear)
+
+
+def _entries_are_mergeable(bundle: FineTuneBundle) -> bool:
+    entries = bundle.adapter_config.get("entries", ())
+    return all(bool(entry.get("mergeable", True)) for entry in entries)
+
+
+def _always_mergeable(bundle: FineTuneBundle) -> bool:
+    del bundle
+    return True
+
+
+def _never_mergeable(bundle: FineTuneBundle) -> bool:
+    del bundle
+    return False
+
+
+def _entries_are_merged(bundle: FineTuneBundle) -> bool:
     entries = bundle.adapter_config.get("entries", ())
     return any(bool(entry.get("merged", False)) for entry in entries)
+
+
+_CODECS = build_codec_registry(
+    (
+        DeltaCodec(
+            method="lora",
+            config_types=(LoRAConfig, FourierFTConfig),
+            extract=extract_lora_delta,
+            load=load_lora_delta,
+            strip_to_base=strip_lora,
+            can_infer_exact_base_checkpoint=_lora_exact_base_checkpoint,
+            merge_for_save=merge_lora,
+            is_mergeable=_entries_are_mergeable,
+            is_merged=_entries_are_merged,
+        ),
+        DeltaCodec(
+            method="dora",
+            config_types=(DoRAConfig,),
+            extract=_extract_dora_delta,
+            load=_load_dora_delta,
+            strip_to_base=_strip_dora,
+            can_infer_exact_base_checkpoint=_always_exact_base_checkpoint,
+            merge_for_save=_identity_model,
+            is_mergeable=_always_mergeable,
+            is_merged=_entries_are_merged,
+        ),
+        DeltaCodec(
+            method="adapter",
+            config_types=(AdapterConfig, OrthogonalAdapterConfig),
+            extract=extract_adapter_delta,
+            load=load_adapter_delta,
+            strip_to_base=strip_adapters,
+            can_infer_exact_base_checkpoint=_always_exact_base_checkpoint,
+            merge_for_save=_identity_model,
+            is_mergeable=_never_mergeable,
+            is_merged=_entries_are_merged,
+        ),
+        DeltaCodec(
+            method="prompt",
+            config_types=(PromptConfig,),
+            extract=_extract_prompt_delta,
+            load=_load_prompt_delta,
+            strip_to_base=_strip_prompt_model,
+            can_infer_exact_base_checkpoint=_always_exact_base_checkpoint,
+            merge_for_save=_identity_model,
+            is_mergeable=_never_mergeable,
+            is_merged=_entries_are_merged,
+        ),
+        DeltaCodec(
+            method="prefix",
+            config_types=(PrefixConfig,),
+            extract=_extract_prefix_delta,
+            load=_load_prefix_delta,
+            strip_to_base=_strip_prefix_model,
+            can_infer_exact_base_checkpoint=_always_exact_base_checkpoint,
+            merge_for_save=_identity_model,
+            is_mergeable=_never_mergeable,
+            is_merged=_entries_are_merged,
+        ),
+        DeltaCodec(
+            method="scale_shift",
+            config_types=(ScaleShiftConfig,),
+            extract=_extract_scale_shift_delta,
+            load=_load_scale_shift_delta,
+            strip_to_base=_strip_scale_shift,
+            can_infer_exact_base_checkpoint=_always_exact_base_checkpoint,
+            merge_for_save=_identity_model,
+            is_mergeable=_entries_are_mergeable,
+            is_merged=_entries_are_merged,
+        ),
+        DeltaCodec(
+            method="ia3",
+            config_types=(IA3Config,),
+            extract=_extract_ia3_delta,
+            load=_load_ia3_delta,
+            strip_to_base=_strip_ia3,
+            can_infer_exact_base_checkpoint=_always_exact_base_checkpoint,
+            merge_for_save=_identity_model,
+            is_mergeable=_entries_are_mergeable,
+            is_merged=_entries_are_merged,
+        ),
+        DeltaCodec(
+            method="vera",
+            config_types=(VeRAConfig,),
+            extract=_extract_vera_delta,
+            load=_load_vera_delta,
+            strip_to_base=strip_vera,
+            can_infer_exact_base_checkpoint=_always_exact_base_checkpoint,
+            merge_for_save=_identity_model,
+            is_mergeable=_entries_are_mergeable,
+            is_merged=_entries_are_merged,
+        ),
+    )
+)
+
+
+def _codec_for_save(method: str) -> DeltaCodec:
+    try:
+        return _CODECS[method]
+    except KeyError:
+        supported = supported_methods_text(tuple(_CODECS))
+        raise ValueError(
+            f"Unsupported delta method {method!r}; currently {supported}."
+        ) from None
+
+
+def _codec_for_load(method: str) -> DeltaCodec:
+    try:
+        return _CODECS[method]
+    except KeyError:
+        raise FineTuneBundleError(f"Unsupported delta method {method!r}.") from None
+
+
+def _validate_codec_config_families() -> None:
+    codec_types = tuple(
+        config_type for codec in _CODECS.values() for config_type in codec.config_types
+    )
+    declared_types = get_args(PEFTConfig)
+    if len(codec_types) != len(set(codec_types)):
+        raise RuntimeError("Delta codec config families contain duplicates.")
+    if set(codec_types) != set(declared_types):
+        raise RuntimeError(
+            "Delta codec config families and PEFTConfig are out of synchronization."
+        )
+
+
+_validate_codec_config_families()
 
 
 def _metadata_repr(value: Any) -> Any:
