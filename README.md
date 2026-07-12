@@ -33,6 +33,16 @@ cd equimo
 pip install -e .
 ```
 
+### Development
+
+To contribute, sync the locked development dependencies and install the
+repository hooks:
+
+```bash
+uv sync --locked --group dev
+uv run pre-commit install
+```
+
 ## Package Layout
 
 Equimo is organized by modality, with reusable building blocks separated from
