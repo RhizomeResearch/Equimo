@@ -28,14 +28,34 @@ lint:
     - uv run ruff check src tests examples models
     - uv run ruff format --check src tests examples models
     - uv run ty check src
+    - uv run python tests/ci_shards.py validate
 
-test:
+test:finetune:
   stage: test
   script:
-    - uv run --python "$PYTHON_VERSION" pytest --junitxml=report.xml
+    - uv run --python "$PYTHON_VERSION" python tests/ci_shards.py finetune --junitxml=report-finetune.xml
   artifacts:
+    when: always
     reports:
-      junit: report.xml
+      junit: report-finetune.xml
+
+test:models:
+  stage: test
+  script:
+    - uv run --python "$PYTHON_VERSION" python tests/ci_shards.py models --junitxml=report-models.xml
+  artifacts:
+    when: always
+    reports:
+      junit: report-models.xml
+
+test:core:
+  stage: test
+  script:
+    - uv run --python "$PYTHON_VERSION" python tests/ci_shards.py core --junitxml=report-core.xml
+  artifacts:
+    when: always
+    reports:
+      junit: report-core.xml
 
 test:python:
   stage: test
@@ -86,7 +106,9 @@ build:distribution:
 publish:
   stage: publish
   needs:
-    - test
+    - "test:finetune"
+    - "test:models"
+    - "test:core"
     - "test:python"
     - "test:extra:extras"
     - "test:extra:language"
