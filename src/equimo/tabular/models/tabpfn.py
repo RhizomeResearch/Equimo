@@ -406,6 +406,73 @@ _TABPFN_PRETRAINED_IDENTIFIERS = {
 }
 
 
+def _catalog_model_variants():
+    """Derive the representative catalog entry from the TabPFN authority."""
+    from equimo.catalog import (
+        ModelInput,
+        ModelProvenance,
+        ModelVariant,
+        PretrainedWeights,
+    )
+
+    variant = "tabpfn_v3_classifier_default"
+    base_cfg, variant_cfg = _TABPFN_REGISTRY[variant]
+    cfg = base_cfg | variant_cfg
+    identifier = _TABPFN_PRETRAINED_IDENTIFIERS.get(variant, variant)
+    return (
+        ModelVariant(
+            key=f"tabular/{variant}",
+            modality="tabular",
+            family="tabpfn3",
+            variant=variant,
+            model_registry_key="tabpfn",
+            constructor=f"{__name__}.{variant}",
+            inputs=(
+                ModelInput(
+                    name="x",
+                    shape=("rows", "columns"),
+                    axes=("rows", "columns"),
+                    dtype="float32",
+                    description="One unbatched feature matrix.",
+                ),
+                ModelInput(
+                    name="y",
+                    shape=("rows",),
+                    axes=("rows",),
+                    dtype="int32",
+                    description=(
+                        f"Classification labels with up to {cfg['num_classes']} classes."
+                    ),
+                ),
+                ModelInput(
+                    name="n_train",
+                    shape=(),
+                    axes=(),
+                    dtype="int32",
+                    description="Number of leading rows used as in-context training data.",
+                ),
+            ),
+            pretrained=PretrainedWeights(available=True, identifier=identifier),
+            provenance=ModelProvenance(
+                conversion="models/tabpfn3.py",
+                reference=(
+                    "tests/data/reference_provenance.json#"
+                    "tabpfn_v3_classifier_default_reference.npz"
+                ),
+            ),
+            notes=(
+                "Pretrained TabPFN-3 weights use the tabpfn-3-license-v1.0 license.",
+            ),
+            field_status=(
+                ("inputs", "complete"),
+                ("pretrained", "complete"),
+                ("provenance", "complete"),
+                ("notes", "complete"),
+            ),
+        ),
+    )
+
+
 def _build_tabpfn(
     variant: str,
     pretrained: bool = False,

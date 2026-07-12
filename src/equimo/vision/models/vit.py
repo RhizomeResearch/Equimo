@@ -1118,6 +1118,57 @@ _VIT_REGISTRY: dict[str, tuple[dict, dict]] = {
 }
 
 
+def _catalog_model_variants():
+    """Derive the representative catalog entry from the ViT authority."""
+    from equimo.catalog import (
+        ModelInput,
+        ModelProvenance,
+        ModelVariant,
+        PretrainedWeights,
+    )
+
+    variant = "dinov2_vits14_reg"
+    base_cfg, variant_cfg = _VIT_REGISTRY[variant]
+    cfg = base_cfg | variant_cfg
+    return (
+        ModelVariant(
+            key=f"vision/{variant}",
+            modality="vision",
+            family="dinov2",
+            variant=variant,
+            model_registry_key="vit",
+            constructor=f"{__name__}.{variant}",
+            inputs=(
+                ModelInput(
+                    name="x",
+                    shape=(cfg["in_channels"], cfg["img_size"], cfg["img_size"]),
+                    axes=("channels", "height", "width"),
+                    dtype="float32",
+                    description=(
+                        "One image; checkpoint-specific normalization is "
+                        "caller-managed."
+                    ),
+                ),
+            ),
+            pretrained=PretrainedWeights(available=True, identifier=variant),
+            provenance=ModelProvenance(
+                conversion="models/torch_models.py",
+                reference=(
+                    "tests/data/reference_provenance.json#"
+                    "dinov2_vits14_reg_reference.npz"
+                ),
+            ),
+            notes=("Checkpoint availability does not trigger automatic downloading.",),
+            field_status=(
+                ("inputs", "complete"),
+                ("pretrained", "complete"),
+                ("provenance", "complete"),
+                ("notes", "complete"),
+            ),
+        ),
+    )
+
+
 def _build_vit(
     variant: str,
     pretrained: bool = False,

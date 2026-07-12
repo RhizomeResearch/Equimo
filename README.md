@@ -708,10 +708,33 @@ The following models have pretrained weights available in Equimo:
 
 Model identifiers map to filenames in Equimo's [HuggingFace repository](https://huggingface.co/poiretclement/equimo/tree/main/models/default).
 
-Examples:
+The experimental catalog currently covers one representative model per
+modality. Catalog keys use an explicit `<modality>/<variant>` namespace:
+
+```python
+from equimo.catalog import create_model, list_models, model_info
+
+vision_models = list_models(modality="vision", pretrained=True)
+info = model_info("vision/dinov2_vits14_reg")
+model = create_model(info.key, pretrained=False)
+```
+
+Discovery only reports checkpoint availability. It does not download weights;
+`create_model` does that only when passed `pretrained=True`. This catalog API
+and its coverage are experimental during the incremental registry migration.
+
+Catalog-covered pretrained identifiers (validated against catalog data):
+
+<!-- model-catalog:begin -->
+- `ast_base_patch16_audioset_10_10_0_4593`
+- `tabpfn_v3_classifier_default`
+- `dinov2_vits14_reg`
+<!-- model-catalog:end -->
+
+The remaining advertised identifiers are legacy entries not yet covered by the
+catalog prototype:
 
 - `dinov2_vitb14`
-- `dinov2_vits14_reg`
 - `dinov3_vits16_pretrain_lvd1689m`
 - `dinov3_vitb16_pretrain_lvd1689m`
 - `dinov3_vitl16_pretrain_lvd1689m`
@@ -723,9 +746,7 @@ Examples:
 - `siglip2_vitl16_512`
 - `siglip2_vitso400m16_384`
 - `tips_vitg14_lr`
-- `ast_base_patch16_audioset_10_10_0_4593`
 - `ast_base_patch16_speechcommands_v2_10_10_0_9812`
-- `tabpfn_v3_classifier_default`
 - `tabpfn_v3_classifier_binary`
 - `tabpfn_v3_classifier_multiclass`
 - `tabpfn_v3_classifier_ood`

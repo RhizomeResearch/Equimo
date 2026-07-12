@@ -361,6 +361,60 @@ _AST_PRETRAINED_VARIANTS = {
 }
 
 
+def _catalog_model_variants():
+    """Derive the representative catalog entry from the AST authority."""
+    from equimo.catalog import (
+        ModelInput,
+        ModelProvenance,
+        ModelVariant,
+        PretrainedWeights,
+    )
+
+    variant = "ast_base_patch16_audioset_10_10_0_4593"
+    base_cfg, variant_cfg = _AST_REGISTRY[variant]
+    cfg = base_cfg | variant_cfg
+    return (
+        ModelVariant(
+            key=f"audio/{variant}",
+            modality="audio",
+            family="ast",
+            variant=variant,
+            model_registry_key="ast",
+            constructor=f"{__name__}.{variant}",
+            inputs=(
+                ModelInput(
+                    name="x",
+                    shape=(cfg["input_tdim"], cfg["input_fdim"]),
+                    axes=("time", "frequency"),
+                    dtype="float32",
+                    description=(
+                        "One precomputed log-mel spectrogram; waveform "
+                        "preprocessing is caller-managed."
+                    ),
+                ),
+            ),
+            pretrained=PretrainedWeights(
+                available=variant in _AST_PRETRAINED_VARIANTS,
+                identifier=variant if variant in _AST_PRETRAINED_VARIANTS else None,
+            ),
+            provenance=ModelProvenance(
+                conversion="models/ast.py",
+                reference=(
+                    "tests/data/reference_provenance.json#"
+                    "ast_base_patch16_audioset_10_10_0_4593_reference.npz"
+                ),
+            ),
+            notes=("The catalog describes spectrogram input, not raw waveform IO.",),
+            field_status=(
+                ("inputs", "complete"),
+                ("pretrained", "complete"),
+                ("provenance", "complete"),
+                ("notes", "complete"),
+            ),
+        ),
+    )
+
+
 def _build_ast(
     variant: str,
     pretrained: bool = False,
