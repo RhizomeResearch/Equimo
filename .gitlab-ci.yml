@@ -1,6 +1,7 @@
 stages:
   - lint
   - test
+  - build
   - publish
 
 variables:
@@ -71,6 +72,17 @@ test:extra:torch:
   script:
     - uv run --python "$PYTHON_VERSION" pytest -q -p no:cacheprovider tests/test_conversion_optional.py
 
+build:distribution:
+  stage: build
+  script:
+    - uv build
+    - uv run python -m pytest -q -p no:cacheprovider tests/test_distribution.py
+  artifacts:
+    paths:
+      - dist/*.whl
+      - dist/*.tar.gz
+    expire_in: 1 week
+
 publish:
   stage: publish
   needs:
@@ -79,6 +91,7 @@ publish:
     - "test:extra:extras"
     - "test:extra:language"
     - "test:extra:torch"
+    - "build:distribution"
   rules:
     - if: $CI_COMMIT_TAG
   id_tokens:
@@ -100,5 +113,4 @@ publish:
         exit 1
       fi
 
-    - uv build
-    - uv publish
+    - uv publish dist/*
