@@ -1,7 +1,9 @@
 """Tests for serialization and vision IO."""
 
+import importlib
 import json
 import multiprocessing
+import os
 import queue
 import tarfile
 import time
@@ -12,6 +14,7 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import jax.random as jr
+import numpy as np
 import pytest
 
 from equimo.registry import _MODEL_REGISTRY, get_model_cls, register_model
@@ -24,6 +27,12 @@ from equimo.serialization import (
 from equimo.vision.io import _center_crop_square
 
 KEY = jr.PRNGKey(0)
+
+
+def _require_optional_dependency(module, extra):
+    if os.environ.get("EQUIMO_TEST_OPTIONAL_EXTRA") == extra:
+        return importlib.import_module(module)
+    return pytest.importorskip(module)
 
 
 def _decompress_archive_worker(archive_path, start_barrier, result_queue):
@@ -599,3 +608,38 @@ class TestLoadImage:
 
         out = load_image(sample_image_path, center_crop=True, size=32)
         assert out.shape == (3, 32, 32)
+
+
+def test_optional_extras_smoke(tmp_path):
+    pil_image = _require_optional_dependency("PIL.Image", "extras")
+    matplotlib = _require_optional_dependency("matplotlib", "extras")
+    _require_optional_dependency("sklearn", "extras")
+
+    from equimo.utils import PCAVisualizer, plot_image_and_feature_map
+    from equimo.vision.io import load_image
+
+    matplotlib.use("Agg")
+    image_path = tmp_path / "image.png"
+    pil_image.new("RGB", (4, 3), color=(128, 64, 32)).save(image_path)
+
+    image = load_image(str(image_path))
+    assert image.shape == (3, 3, 4)
+    assert np.allclose(np.asarray(image[:, 0, 0]), np.array([128, 64, 32]) / 255.0)
+
+    features = np.array(
+        [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0],
+        ]
+    )
+    projected = PCAVisualizer(features, n_samples=8, n_components=2)(features)
+    assert projected.shape == (4, 2)
+    assert np.isfinite(projected).all()
+
+    plot_path = tmp_path / "feature-map.png"
+    plot_image_and_feature_map(
+        np.asarray(image).transpose(1, 2, 0), projected, plot_path
+    )
+    assert plot_path.stat().st_size > 0

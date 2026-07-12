@@ -44,11 +44,41 @@ test:python:
   script:
     - uv run --python "$PYTHON_VERSION" pytest -q -p no:cacheprovider tests/test_package_metadata.py tests/test_modalities.py tests/test_language.py tests/test_tabpfn.py
 
+test:extra:extras:
+  stage: test
+  variables:
+    EQUIMO_TEST_OPTIONAL_EXTRA: extras
+  before_script:
+    - uv sync --locked --python "$PYTHON_VERSION" --group dev --extra extras
+  script:
+    - uv run --python "$PYTHON_VERSION" pytest -q -p no:cacheprovider tests/test_io.py::test_optional_extras_smoke
+
+test:extra:language:
+  stage: test
+  variables:
+    EQUIMO_TEST_OPTIONAL_EXTRA: language
+  before_script:
+    - uv sync --locked --python "$PYTHON_VERSION" --group dev --extra language
+  script:
+    - uv run --python "$PYTHON_VERSION" pytest -q -p no:cacheprovider tests/test_language_tokenizers.py
+
+test:extra:torch:
+  stage: test
+  variables:
+    EQUIMO_TEST_OPTIONAL_EXTRA: torch
+  before_script:
+    - uv sync --locked --python "$PYTHON_VERSION" --group dev --extra torch
+  script:
+    - uv run --python "$PYTHON_VERSION" pytest -q -p no:cacheprovider tests/test_conversion_optional.py
+
 publish:
   stage: publish
   needs:
     - test
     - "test:python"
+    - "test:extra:extras"
+    - "test:extra:language"
+    - "test:extra:torch"
   rules:
     - if: $CI_COMMIT_TAG
   id_tokens:
