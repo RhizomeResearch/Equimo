@@ -1,4 +1,5 @@
 import equinox as eqx
+import jax
 import jax.numpy as jnp
 import jax.random as jr
 import pytest
@@ -90,6 +91,52 @@ def test_drop_path_zero_block_is_deterministic_without_key():
     out_training = block(x, inference=False)
 
     assert jnp.allclose(out_inference, out_training)
+
+
+def test_preprocessor_singleton_forward_and_gradients_are_finite():
+    preprocessor = layers.Preprocessor()
+    x = jnp.array(
+        [
+            [1.0, 2.0, 3.0, 4.0],
+            [2.0, 2.0, jnp.nan, 5.0],
+            [3.0, 2.0, jnp.inf, -jnp.inf],
+        ]
+    )
+
+    out = preprocessor(x, n_train=1)
+    gradients = jax.grad(lambda inputs: preprocessor(inputs, n_train=1).sum())(x)
+
+    assert bool(jnp.all(jnp.isfinite(out)))
+    assert bool(jnp.all(jnp.isfinite(gradients)))
+
+
+def test_preprocessor_multirow_uses_sample_standard_deviation():
+    preprocessor = layers.Preprocessor(
+        feature_group_size=2,
+        use_nan_indicators=False,
+    )
+    x = jnp.array(
+        [
+            [1.0, 2.0, 3.0],
+            [3.0, 2.0, 7.0],
+            [5.0, 2.0, 11.0],
+        ]
+    )
+    train = x[:2]
+    mean = train.mean(axis=0, keepdims=True)
+    std = train.std(axis=0, ddof=1, keepdims=True)
+    std = jnp.where(std == 0, jnp.ones_like(std), std)
+    normalized = jnp.clip(
+        (x - mean) / (std + jnp.finfo(std.dtype).eps),
+        min=-100,
+        max=100,
+    )
+    expected = jnp.stack(
+        [jnp.roll(normalized, -(2**i), axis=1) for i in range(2)],
+        axis=-1,
+    )
+
+    assert jnp.allclose(preprocessor(x, n_train=2), expected)
 
 
 def test_tabular_mlp_helper_preserves_leading_dimensions():
