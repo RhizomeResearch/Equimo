@@ -230,3 +230,131 @@ def test_lora_codec_preserves_inexact_base_checkpoint_rule(
     assert codec.can_infer_exact_base_checkpoint(model) is False
     bundle = eqft.save_delta(model, tmp_path / "pissa.eqft")
     assert bundle.base_checkpoint_id is None
+
+
+FEATURE_SPECS = (
+    eqft.FeatureSpec("features", "BNC", "all", None, normalize="none"),
+    eqft.FeatureSpec("forward_features", "BNC", "all", "native", normalize="l2"),
+    eqft.FeatureSpec("features", "BNC", "all", "cls", normalize="standardize"),
+    eqft.FeatureSpec("features", "BNC", "all", "cls_patch_mean"),
+    eqft.FeatureSpec("features", "BCHW", "all", "global_avg"),
+    eqft.FeatureSpec(
+        "features",
+        "BTC",
+        "all",
+        "mean_token",
+        mask_field="padding_mask",
+        preprocessing_fingerprint="sha256:preprocessing",
+    ),
+    eqft.FeatureSpec(
+        "features", "BNC", "patches", "mean_patch", exclude_prompt_tokens=False
+    ),
+    eqft.FeatureSpec("features", "BCT", "frames", "mean_frame"),
+    eqft.FeatureSpec("features", "BTC", "all", "attention"),
+    eqft.FeatureSpec("features", "BCHW", "all", "gem"),
+    eqft.FeatureSpec("features", "BTC", "all", "last_token", mask_field="padding_mask"),
+    eqft.FeatureSpec("features", "BTC", "cls", None),
+    eqft.FeatureSpec(
+        "features",
+        "BTC",
+        "last_valid",
+        None,
+        mask_field="padding_mask",
+        layer_aggregation={"method": "last"},
+    ),
+    eqft.FeatureSpec(
+        "intermediate_features",
+        "BTC",
+        "all",
+        "mean_token",
+        layer_aggregation={"method": "mean"},
+    ),
+    eqft.FeatureSpec(
+        "intermediate_features",
+        "BC",
+        "all",
+        None,
+        layer_aggregation={"method": "concat"},
+    ),
+)
+
+
+@pytest.mark.parametrize("feature_spec", FEATURE_SPECS)
+def test_feature_spec_codec_roundtrips_supported_contract(feature_spec, tmp_path):
+    path = tmp_path / "feature-spec.eqft"
+    bundle = eqft.FineTuneBundle(method="lora", feature_spec=feature_spec)
+
+    eqft.save_finetune_bundle(path, bundle)
+    loaded = eqft.load_finetune_bundle(path)
+
+    assert loaded.feature_spec == feature_spec
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    (
+        (lambda payload: payload.update(version=999), "codec version"),
+        (lambda payload: payload["value"].update(unknown=True), "unknown"),
+        (
+            lambda payload: payload["value"].update(output_layout="BXYZ"),
+            "output_layout",
+        ),
+    ),
+)
+def test_feature_spec_codec_rejects_unknown_versions_fields_and_values(
+    mutation, message
+):
+    payload = serialization._feature_spec_to_payload(FEATURE_SPECS[0])
+    mutation(payload)
+
+    with pytest.raises(eqft.FineTuneBundleError, match=message):
+        serialization._feature_spec_from_payload(payload)
+
+
+def test_save_delta_carries_feature_spec_and_preprocessing_lineage(
+    tmp_path, tiny_vision_transformer
+):
+    model = eqft.apply_lora(
+        tiny_vision_transformer,
+        eqft.LoRAConfig(
+            rank=2,
+            target=eqft.TargetSpec(tags_any=("attention.proj",)),
+        ),
+        key=jr.PRNGKey(0),
+    )
+    feature_spec = eqft.FeatureSpec(
+        "features",
+        "BNC",
+        "all",
+        "cls",
+        preprocessing_fingerprint="sha256:preprocessing",
+    )
+
+    saved = eqft.save_delta(
+        model,
+        tmp_path / "with-feature-spec.eqft",
+        feature_spec=feature_spec,
+    )
+    loaded = eqft.load_finetune_bundle(tmp_path / "with-feature-spec.eqft")
+
+    assert saved.feature_spec == feature_spec
+    assert loaded.feature_spec == feature_spec
+    assert loaded.lineage.preprocessing_fingerprint == "sha256:preprocessing"
+
+
+def test_feature_spec_codec_rejects_lineage_fingerprint_mismatch(tmp_path):
+    feature_spec = eqft.FeatureSpec(
+        "features",
+        "BC",
+        "all",
+        None,
+        preprocessing_fingerprint="sha256:features",
+    )
+    bundle = eqft.FineTuneBundle(
+        method="lora",
+        feature_spec=feature_spec,
+        lineage=eqft.ModelLineage(preprocessing_fingerprint="sha256:lineage"),
+    )
+
+    with pytest.raises(eqft.FineTuneBundleError, match="bundle lineage"):
+        eqft.save_finetune_bundle(tmp_path / "mismatch.eqft", bundle)

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
+import inspect
 from typing import Any, cast
 
 import equinox as eqx
@@ -23,6 +25,27 @@ from .pooling import (
     pool_features,
 )
 from .surgery import replace_head
+
+
+@dataclass(frozen=True)
+class _FeaturePolicy:
+    """Validated, layout-resolved operations compiled from ``FeatureSpec``."""
+
+    spec: FeatureSpec
+    declared_rank: int
+    feature_axis: int
+    sequence_axes: tuple[int, ...]
+
+    def axes_for(self, ndim: int) -> tuple[int, tuple[int, ...]]:
+        if ndim == self.declared_rank:
+            return self.feature_axis, self.sequence_axes
+        if ndim == self.declared_rank - 1:
+            return self.feature_axis - 1, tuple(axis - 1 for axis in self.sequence_axes)
+        expected = (self.declared_rank - 1, self.declared_rank)
+        raise ValueError(
+            f"FeatureSpec output_layout={self.spec.output_layout!r} expects an "
+            f"unbatched/batched rank in {expected}, got rank {ndim}."
+        )
 
 
 class FeatureExtractor(eqx.Module):
@@ -54,6 +77,7 @@ class FeatureExtractor(eqx.Module):
             self.model,
             *args,
             pool=self.pool,
+            feature_spec=self.feature_spec,
             key=key,
             inference=inference,
             **kwargs,
@@ -92,6 +116,7 @@ class LinearProbe(eqx.Module):
             self.backbone,
             *args,
             pool=self.pool,
+            feature_spec=self.feature_spec,
             key=key,
             inference=inference,
             **kwargs,
@@ -177,11 +202,30 @@ def extract_features(
     model: PyTree,
     *args,
     pool: PoolName | eqx.Module | None = "auto",
+    feature_spec: FeatureSpec | None = None,
+    observed_preprocessing_fingerprint: str | None = None,
     key: jax.Array | None = None,
     inference: bool | None = True,
     **kwargs,
 ) -> Any:
-    """Call a model feature path and apply an optional pooling policy."""
+    """Extract features through an explicit spec or the compatibility fallback.
+
+    A supplied ``feature_spec`` controls endpoint traversal and tensor
+    post-processing. Without one, the native/heuristic behavior is unchanged.
+    """
+
+    if feature_spec is not None:
+        _validate_explicit_pool(pool, feature_spec)
+        policy = _compile_feature_spec(feature_spec)
+        return _extract_with_policy(
+            model,
+            policy,
+            args,
+            kwargs,
+            key=key,
+            inference=inference,
+            observed_preprocessing_fingerprint=observed_preprocessing_fingerprint,
+        )
 
     unpooled = pool is None or (isinstance(pool, str) and pool == "none")
     if not unpooled and hasattr(model, "forward_features"):
@@ -220,6 +264,637 @@ def extract_features(
     pool = _resolve_pool(model, features, _prompt_aware_pool(model, pool))
     pool_kwargs = _pool_kwargs(model, args, kwargs)
     return pool_features(features, pool, key=key, **pool_kwargs)
+
+
+def _compile_feature_spec(spec: FeatureSpec) -> _FeaturePolicy:
+    layouts = {
+        "BNC": (3, 2, (1,)),
+        "BCHW": (4, 1, (2, 3)),
+        "BTC": (3, 2, (1,)),
+        "BCT": (3, 1, (2,)),
+        "BC": (2, 1, ()),
+    }
+    declared_rank, feature_axis, sequence_axes = layouts[spec.output_layout]
+    return _FeaturePolicy(spec, declared_rank, feature_axis, sequence_axes)
+
+
+def _validate_explicit_pool(
+    pool: PoolName | eqx.Module | None,
+    spec: FeatureSpec,
+) -> None:
+    if pool == "auto":
+        return
+    if isinstance(pool, eqx.Module):
+        raise ValueError(
+            "An explicit FeatureSpec cannot be combined with a pool module; "
+            "declare FeatureSpec.pooling instead."
+        )
+    supplied = "none" if pool is None else pool
+    declared = "none" if spec.pooling is None else spec.pooling
+    if supplied != declared:
+        raise ValueError(
+            f"Explicit pool={pool!r} contradicts FeatureSpec.pooling={spec.pooling!r}."
+        )
+
+
+def _extract_with_policy(
+    model: PyTree,
+    policy: _FeaturePolicy,
+    args: tuple,
+    kwargs: dict,
+    *,
+    key: jax.Array | None,
+    inference: bool | None,
+    observed_preprocessing_fingerprint: str | None,
+) -> jax.Array:
+    _check_preprocessing_fingerprint(
+        model,
+        policy.spec.preprocessing_fingerprint,
+        observed_preprocessing_fingerprint,
+    )
+    endpoint = _resolve_feature_endpoint(model, policy.spec.endpoint)
+    mask = _resolve_spec_mask(endpoint, args, kwargs, policy.spec.mask_field)
+    features = _call_with_optional_key(
+        endpoint,
+        *args,
+        key=key,
+        inference=inference,
+        **kwargs,
+    )
+    features = _aggregate_feature_layers(features, policy)
+    return _apply_feature_policy(model, features, mask, policy, key=key)
+
+
+def _check_preprocessing_fingerprint(
+    model: PyTree,
+    expected: str | None,
+    observed: str | None,
+) -> None:
+    if expected is None:
+        return
+    if observed is None:
+        observed = getattr(model, "preprocessing_fingerprint", None)
+    if observed is None:
+        raise ValueError(
+            "FeatureSpec requires preprocessing_fingerprint "
+            f"{expected!r}, but no observed fingerprint was supplied."
+        )
+    if observed != expected:
+        raise ValueError(
+            "FeatureSpec preprocessing fingerprint mismatch: "
+            f"expected {expected!r}, got {observed!r}."
+        )
+
+
+def _resolve_feature_endpoint(model: PyTree, endpoint: str):
+    if endpoint == "__call__":
+        return model
+    current = model
+    for component in endpoint.split("."):
+        if component.isdigit():
+            try:
+                current = current[int(component)]
+            except (IndexError, KeyError, TypeError) as error:
+                raise ValueError(
+                    f"FeatureSpec endpoint {endpoint!r} cannot resolve index "
+                    f"{component!r}."
+                ) from error
+        else:
+            if not hasattr(current, component):
+                raise ValueError(
+                    f"FeatureSpec endpoint {endpoint!r} is missing component "
+                    f"{component!r} on {type(current).__name__}."
+                )
+            current = getattr(current, component)
+    if not callable(current):
+        raise ValueError(f"FeatureSpec endpoint {endpoint!r} is not callable.")
+    return current
+
+
+def _resolve_spec_mask(endpoint, args: tuple, kwargs: dict, field: str | None):
+    if field is None:
+        return None
+    try:
+        bound = inspect.signature(endpoint).bind_partial(*args, **kwargs)
+    except TypeError as error:
+        raise ValueError(
+            f"FeatureSpec mask_field={field!r} could not be bound to the endpoint."
+        ) from error
+    if field not in bound.arguments:
+        raise ValueError(
+            f"FeatureSpec mask_field={field!r} was not supplied to the endpoint."
+        )
+    mask = bound.arguments[field]
+    if not eqx.is_array(mask):
+        raise ValueError(f"FeatureSpec mask_field={field!r} must be an array.")
+    return mask
+
+
+def _aggregate_feature_layers(features: Any, policy: _FeaturePolicy) -> Any:
+    aggregation = policy.spec.layer_aggregation
+    if aggregation is None:
+        if isinstance(features, (tuple, list)):
+            raise ValueError(
+                "Feature endpoint returned multiple layers but FeatureSpec has no "
+                "layer_aggregation."
+            )
+        return features
+    if not isinstance(features, (tuple, list)) or not features:
+        raise ValueError(
+            "FeatureSpec.layer_aggregation requires a non-empty tuple/list endpoint."
+        )
+    if not all(eqx.is_array(layer) for layer in features):
+        raise ValueError("FeatureSpec layer aggregation only supports array layers.")
+
+    layers = tuple(features)
+    first = layers[0]
+    feature_axis, _ = policy.axes_for(first.ndim)
+    if any(layer.ndim != first.ndim for layer in layers[1:]):
+        raise ValueError("FeatureSpec layer aggregation requires equal layer ranks.")
+    method = aggregation["method"]
+    if method == "last":
+        return layers[-1]
+    if method == "mean":
+        if any(layer.shape != first.shape for layer in layers[1:]):
+            raise ValueError(
+                "FeatureSpec layer_aggregation='mean' requires equal shapes."
+            )
+        return jnp.mean(jnp.stack(layers, axis=0), axis=0)
+    reference = first.shape[:feature_axis] + first.shape[feature_axis + 1 :]
+    for layer in layers[1:]:
+        shape = layer.shape[:feature_axis] + layer.shape[feature_axis + 1 :]
+        if shape != reference:
+            raise ValueError(
+                "FeatureSpec layer_aggregation='concat' requires non-feature "
+                "dimensions to match."
+            )
+    return jnp.concatenate(layers, axis=feature_axis)
+
+
+def _apply_feature_policy(
+    model: PyTree,
+    features: Any,
+    mask: jax.Array | None,
+    policy: _FeaturePolicy,
+    *,
+    key: jax.Array | None,
+) -> jax.Array:
+    pooling = "none" if policy.spec.pooling is None else policy.spec.pooling
+    if pooling == "native":
+        carrier = (
+            _feature_dict_carrier(features) if isinstance(features, dict) else features
+        )
+        if not eqx.is_array(carrier):
+            raise ValueError(
+                "FeatureSpec native endpoint did not return array features."
+            )
+        feature_axis, sequence_axes = policy.axes_for(carrier.ndim)
+        result = _native_readout(
+            model,
+            features,
+            feature_axis,
+            sequence_axes,
+            exclude_prompt_tokens=policy.spec.exclude_prompt_tokens,
+        )
+        return _normalize_features(result, result.ndim - 1, policy.spec.normalize)
+
+    selected_already = False
+    carrier = features
+    if isinstance(features, dict):
+        carrier = _feature_dict_carrier(features)
+        features, selected_already = _select_feature_dict(
+            features, policy.spec.token_selection
+        )
+    if not eqx.is_array(features) or not eqx.is_array(carrier):
+        raise ValueError(
+            "FeatureSpec endpoint must resolve to an array or feature dict."
+        )
+
+    feature_axis, sequence_axes = policy.axes_for(carrier.ndim)
+    if selected_already and features.ndim == carrier.ndim - 1:
+        feature_axis = features.ndim - 1
+        sequence_axes = ()
+    elif features.ndim != carrier.ndim:
+        raise ValueError("Feature dictionary values do not match the declared layout.")
+
+    if mask is not None:
+        _validate_mask_shape(mask, carrier, policy.axes_for(carrier.ndim)[0])
+    if not selected_already:
+        features, feature_axis, sequence_axes = _select_declared_tokens(
+            model,
+            features,
+            mask,
+            policy.spec.token_selection,
+            feature_axis,
+            sequence_axes,
+            exclude_prompt_tokens=policy.spec.exclude_prompt_tokens,
+        )
+    result, feature_axis = _pool_declared_features(
+        model,
+        features,
+        mask,
+        pooling,
+        feature_axis,
+        sequence_axes,
+        tokens_are_patches=policy.spec.token_selection == "patches",
+        exclude_prompt_tokens=policy.spec.exclude_prompt_tokens,
+        key=key,
+    )
+    return _normalize_features(result, feature_axis, policy.spec.normalize)
+
+
+def _feature_dict_carrier(features: dict[str, Any]) -> jax.Array:
+    for name in (
+        "x_norm_patchtokens",
+        "last_hidden_state",
+        "x_prenorm",
+        "x_norm_test",
+        "x_norm_train",
+    ):
+        value = features.get(name)
+        if eqx.is_array(value):
+            return cast(jax.Array, value)
+    raise ValueError(
+        "FeatureSpec endpoint returned a dict without a known feature array."
+    )
+
+
+def _select_feature_dict(
+    features: dict[str, Any],
+    selection: str,
+) -> tuple[jax.Array, bool]:
+    if selection == "cls":
+        value = features.get("x_norm_cls_token")
+        if not eqx.is_array(value):
+            raise ValueError(
+                "FeatureSpec token_selection='cls' requires x_norm_cls_token."
+            )
+        return cast(jax.Array, value), True
+    if selection in {"patches", "frames"}:
+        value = features.get("x_norm_patchtokens")
+        if not eqx.is_array(value):
+            raise ValueError(
+                f"FeatureSpec token_selection={selection!r} requires "
+                "x_norm_patchtokens."
+            )
+        return cast(jax.Array, value), True
+    if selection == "last_valid":
+        for name in ("last_hidden_state", "x_prenorm"):
+            value = features.get(name)
+            if eqx.is_array(value):
+                return cast(jax.Array, value), False
+        raise ValueError(
+            "FeatureSpec token_selection='last_valid' requires token features."
+        )
+    for name in ("last_hidden_state", "x_prenorm", "x_norm_test"):
+        value = features.get(name)
+        if eqx.is_array(value):
+            return cast(jax.Array, value), False
+    return _feature_dict_carrier(features), False
+
+
+def _validate_mask_shape(
+    mask: jax.Array, features: jax.Array, feature_axis: int
+) -> None:
+    expected = tuple(
+        size for axis, size in enumerate(features.shape) if axis != feature_axis
+    )
+    if mask.shape != expected:
+        raise ValueError(
+            "FeatureSpec mask shape must match every non-feature axis; "
+            f"expected {expected}, got {mask.shape}."
+        )
+
+
+def _select_declared_tokens(
+    model: PyTree,
+    features: jax.Array,
+    mask: jax.Array | None,
+    selection: str,
+    feature_axis: int,
+    sequence_axes: tuple[int, ...],
+    *,
+    exclude_prompt_tokens: bool,
+) -> tuple[jax.Array, int, tuple[int, ...]]:
+    if selection in {"all", "frames"}:
+        return features, feature_axis, sequence_axes
+    if len(sequence_axes) != 1:
+        raise ValueError(
+            f"FeatureSpec token_selection={selection!r} requires one sequence axis."
+        )
+    sequence_axis = sequence_axes[0]
+    if selection == "cls":
+        index = _explicit_cls_index(model)
+        result = jnp.take(features, index, axis=sequence_axis)
+        return result, _axis_after_take(feature_axis, sequence_axis), ()
+    if selection == "patches":
+        result = _explicit_patch_tokens(
+            model,
+            features,
+            sequence_axis,
+            exclude_prompt_tokens=exclude_prompt_tokens,
+        )
+        return result, feature_axis, sequence_axes
+    if selection == "last_valid":
+        if mask is None:
+            raise ValueError(
+                "FeatureSpec token_selection='last_valid' requires mask_field."
+            )
+        result = _last_valid_token(features, mask, sequence_axis, feature_axis)
+        return result, result.ndim - 1, ()
+    raise AssertionError(f"Uncompiled FeatureSpec token selection {selection!r}.")
+
+
+def _pool_declared_features(
+    model: PyTree,
+    features: jax.Array,
+    mask: jax.Array | None,
+    pooling: str,
+    feature_axis: int,
+    sequence_axes: tuple[int, ...],
+    *,
+    tokens_are_patches: bool,
+    exclude_prompt_tokens: bool,
+    key: jax.Array | None,
+) -> tuple[jax.Array, int]:
+    if pooling == "none":
+        return features, feature_axis
+    if not sequence_axes:
+        raise ValueError(f"FeatureSpec pooling={pooling!r} requires sequence axes.")
+
+    if pooling == "cls":
+        if len(sequence_axes) != 1:
+            raise ValueError("FeatureSpec pooling='cls' requires one sequence axis.")
+        sequence_axis = sequence_axes[0]
+        result = jnp.take(features, _explicit_cls_index(model), axis=sequence_axis)
+        return result, _axis_after_take(feature_axis, sequence_axis)
+    if pooling == "cls_patch_mean":
+        if len(sequence_axes) != 1:
+            raise ValueError(
+                "FeatureSpec pooling='cls_patch_mean' requires one sequence axis."
+            )
+        sequence_axis = sequence_axes[0]
+        cls = jnp.take(features, _explicit_cls_index(model), axis=sequence_axis)
+        patches = (
+            features
+            if tokens_are_patches
+            else _explicit_patch_tokens(
+                model,
+                features,
+                sequence_axis,
+                exclude_prompt_tokens=exclude_prompt_tokens,
+            )
+        )
+        mean = jnp.mean(patches, axis=sequence_axis)
+        result_feature_axis = _axis_after_take(feature_axis, sequence_axis)
+        return jnp.concatenate(
+            [cls, mean], axis=result_feature_axis
+        ), result_feature_axis
+    if pooling == "mean_patch":
+        if len(sequence_axes) != 1:
+            raise ValueError(
+                "FeatureSpec pooling='mean_patch' requires one sequence axis."
+            )
+        sequence_axis = sequence_axes[0]
+        patches = (
+            features
+            if tokens_are_patches
+            else _explicit_patch_tokens(
+                model,
+                features,
+                sequence_axis,
+                exclude_prompt_tokens=exclude_prompt_tokens,
+            )
+        )
+        return jnp.mean(patches, axis=sequence_axis), _axis_after_reduction(
+            feature_axis, sequence_axes
+        )
+    if pooling in {"mean_token", "mean_frame"}:
+        if mask is not None:
+            if len(sequence_axes) != 1:
+                raise ValueError("Masked mean pooling requires one sequence axis.")
+            result = _masked_mean(features, mask, sequence_axes[0], feature_axis)
+        else:
+            result = jnp.mean(features, axis=sequence_axes)
+        return result, _axis_after_reduction(feature_axis, sequence_axes)
+    if pooling == "global_avg":
+        return jnp.mean(features, axis=sequence_axes), _axis_after_reduction(
+            feature_axis, sequence_axes
+        )
+    if pooling == "gem":
+        clipped = jnp.clip(features, min=1e-6)
+        result = jnp.mean(clipped**3.0, axis=sequence_axes) ** (1.0 / 3.0)
+        return result, _axis_after_reduction(feature_axis, sequence_axes)
+    if pooling == "last_token":
+        if len(sequence_axes) != 1:
+            raise ValueError(
+                "FeatureSpec pooling='last_token' requires one sequence axis."
+            )
+        if mask is None:
+            result = jnp.take(features, -1, axis=sequence_axes[0])
+        else:
+            result = _last_valid_token(features, mask, sequence_axes[0], feature_axis)
+        return result, result.ndim - 1
+    if pooling == "attention":
+        if key is None:
+            raise ValueError("FeatureSpec pooling='attention' requires a PRNG key.")
+        if len(sequence_axes) != 1:
+            raise ValueError(
+                "FeatureSpec attention pooling requires one sequence axis."
+            )
+        result = _attention_pool_explicit(
+            features,
+            mask,
+            sequence_axes[0],
+            feature_axis,
+            key,
+        )
+        return result, result.ndim - 1
+    raise AssertionError(f"Uncompiled FeatureSpec pooling {pooling!r}.")
+
+
+def _native_readout(
+    model: PyTree,
+    features: jax.Array | dict[str, Any],
+    feature_axis: int,
+    sequence_axes: tuple[int, ...],
+    *,
+    exclude_prompt_tokens: bool,
+) -> jax.Array:
+    pool_type = getattr(model, "global_pool", None)
+    if pool_type is None:
+        raise ValueError(
+            "FeatureSpec pooling='native' requires model.global_pool metadata."
+        )
+    pool_type = _normalize_native_pool_type(pool_type)
+    if isinstance(features, dict):
+        feature_dict = cast(dict[str, Any], features)
+        cls_value = feature_dict.get("x_norm_cls_token")
+        dist_value = feature_dict.get("x_norm_dist_token")
+        patches_value = feature_dict.get("x_norm_patchtokens")
+        if pool_type == "token":
+            if not eqx.is_array(cls_value):
+                raise ValueError("Native token pooling requires x_norm_cls_token.")
+            cls = cast(jax.Array, cls_value)
+            if eqx.is_array(dist_value):
+                return 0.5 * (cls + cast(jax.Array, dist_value))
+            return cls
+        if not eqx.is_array(patches_value):
+            raise ValueError("Native aggregate pooling requires x_norm_patchtokens.")
+        patches = cast(jax.Array, patches_value)
+        if pool_type == "cls_patch_mean":
+            if not eqx.is_array(cls_value):
+                raise ValueError("Native CLS-patch pooling requires x_norm_cls_token.")
+            cls = cast(jax.Array, cls_value)
+            return jnp.concatenate([cls, jnp.mean(patches, axis=-2)], axis=-1)
+        if pool_type == "avg":
+            return jnp.mean(patches, axis=-2)
+        if pool_type == "avgmax":
+            return 0.5 * (jnp.mean(patches, axis=-2) + jnp.max(patches, axis=-2))
+        if pool_type == "max":
+            return jnp.max(patches, axis=-2)
+        raise ValueError(f"Unsupported native pool type {pool_type!r}.")
+
+    if len(sequence_axes) != 1:
+        raise ValueError("Native transformer pooling requires one sequence axis.")
+    sequence_axis = sequence_axes[0]
+    cls = jnp.take(features, _explicit_cls_index(model), axis=sequence_axis)
+    if pool_type == "token":
+        if getattr(model, "dist_token", None) is not None:
+            dist = jnp.take(
+                features, _explicit_cls_index(model) + 1, axis=sequence_axis
+            )
+            return 0.5 * (cls + dist)
+        return cls
+    patches = _explicit_patch_tokens(
+        model,
+        features,
+        sequence_axis,
+        exclude_prompt_tokens=exclude_prompt_tokens,
+    )
+    if pool_type == "cls_patch_mean":
+        result_axis = _axis_after_take(feature_axis, sequence_axis)
+        return jnp.concatenate(
+            [cls, jnp.mean(patches, axis=sequence_axis)], axis=result_axis
+        )
+    if pool_type == "avg":
+        return jnp.mean(patches, axis=sequence_axis)
+    if pool_type == "avgmax":
+        return 0.5 * (
+            jnp.mean(patches, axis=sequence_axis) + jnp.max(patches, axis=sequence_axis)
+        )
+    if pool_type == "max":
+        return jnp.max(patches, axis=sequence_axis)
+    raise ValueError(f"Unsupported native pool type {pool_type!r}.")
+
+
+def _masked_mean(
+    features: jax.Array,
+    padding_mask: jax.Array,
+    sequence_axis: int,
+    feature_axis: int,
+) -> jax.Array:
+    valid = jnp.logical_not(padding_mask.astype(bool))
+    weights = jnp.expand_dims(valid.astype(features.dtype), axis=feature_axis)
+    total = jnp.sum(weights, axis=sequence_axis)
+    summed = jnp.sum(features * weights, axis=sequence_axis)
+    return jnp.where(total > 0, summed / jnp.maximum(total, 1), 0)
+
+
+def _last_valid_token(
+    features: jax.Array,
+    padding_mask: jax.Array,
+    sequence_axis: int,
+    feature_axis: int,
+) -> jax.Array:
+    tokens = jnp.moveaxis(features, (sequence_axis, feature_axis), (-2, -1))
+    valid = jnp.logical_not(padding_mask.astype(bool))
+    positions = jnp.arange(valid.shape[-1], dtype=jnp.int32)
+    index = jnp.max(jnp.where(valid, positions, 0), axis=-1)
+    selected = jnp.take_along_axis(tokens, index[..., None, None], axis=-2)[..., 0, :]
+    return jnp.where(jnp.any(valid, axis=-1)[..., None], selected, 0)
+
+
+def _attention_pool_explicit(
+    features: jax.Array,
+    padding_mask: jax.Array | None,
+    sequence_axis: int,
+    feature_axis: int,
+    key: jax.Array,
+) -> jax.Array:
+    tokens = jnp.moveaxis(features, (sequence_axis, feature_axis), (-2, -1))
+    query = jr.normal(key, (tokens.shape[-1],), dtype=tokens.dtype) / jnp.sqrt(
+        tokens.shape[-1]
+    )
+    scores = tokens @ query
+    if padding_mask is not None:
+        scores = jnp.where(padding_mask.astype(bool), -jnp.inf, scores)
+    weights = jnp.nan_to_num(jax.nn.softmax(scores, axis=-1))
+    return jnp.sum(tokens * weights[..., :, None], axis=-2)
+
+
+def _normalize_features(
+    features: jax.Array,
+    feature_axis: int,
+    normalization: str,
+) -> jax.Array:
+    if normalization == "none":
+        return features
+    dtype = features.dtype
+    working = features.astype(jnp.float32)
+    if normalization == "l2":
+        scale = jnp.linalg.norm(working, axis=feature_axis, keepdims=True)
+        normalized = working / jnp.maximum(scale, 1e-12)
+    else:
+        mean = jnp.mean(working, axis=feature_axis, keepdims=True)
+        variance = jnp.mean((working - mean) ** 2, axis=feature_axis, keepdims=True)
+        normalized = (working - mean) / jnp.sqrt(variance + 1e-6)
+    return normalized.astype(dtype)
+
+
+def _explicit_patch_tokens(
+    model: PyTree,
+    features: jax.Array,
+    sequence_axis: int,
+    *,
+    exclude_prompt_tokens: bool,
+) -> jax.Array:
+    base_prefix = _model_prefix_count(model)
+    prompt_count = int(getattr(model, "num_prompt_tokens", 0))
+    if prompt_count == 0:
+        return jax.lax.slice_in_dim(features, base_prefix, None, axis=sequence_axis)
+
+    prepend_to = getattr(getattr(model, "config", None), "prepend_to", "after_cls")
+    if prepend_to in {"before_all", "input"}:
+        prompt_start = 0
+        patch_start = prompt_count + base_prefix
+    else:
+        prompt_start = 1
+        patch_start = prompt_count + base_prefix
+    patches = jax.lax.slice_in_dim(features, patch_start, None, axis=sequence_axis)
+    if exclude_prompt_tokens:
+        return patches
+    prompts = jax.lax.slice_in_dim(
+        features,
+        prompt_start,
+        prompt_start + prompt_count,
+        axis=sequence_axis,
+    )
+    return jnp.concatenate([prompts, patches], axis=sequence_axis)
+
+
+def _explicit_cls_index(model: PyTree) -> int:
+    prompt_count = int(getattr(model, "num_prompt_tokens", 0))
+    prepend_to = getattr(getattr(model, "config", None), "prepend_to", "after_cls")
+    return prompt_count if prepend_to in {"before_all", "input"} else 0
+
+
+def _axis_after_take(feature_axis: int, removed_axis: int) -> int:
+    return feature_axis - 1 if removed_axis < feature_axis else feature_axis
+
+
+def _axis_after_reduction(feature_axis: int, reduced_axes: tuple[int, ...]) -> int:
+    return feature_axis - sum(axis < feature_axis for axis in reduced_axes)
 
 
 def make_attention_pool_input_from_forward_features(
@@ -305,6 +980,7 @@ def make_linear_probe(
     out_features: int,
     key: jax.Array,
     pool: PoolName | eqx.Module | None = "auto",
+    feature_spec: FeatureSpec | None = None,
     head: eqx.Module | None = None,
 ) -> LinearProbe:
     """Build a linear-probe wrapper with an identity backbone head."""
@@ -316,7 +992,15 @@ def make_linear_probe(
         backbone = replace_head(backbone, IdentityHead())
     except ValueError:
         pass
-    return cast(LinearProbe, LinearProbe(backbone, probe_head, pool=pool))
+    return cast(
+        LinearProbe,
+        LinearProbe(
+            backbone,
+            probe_head,
+            pool=pool,
+            feature_spec=feature_spec,
+        ),
+    )
 
 
 def make_attention_pool_probe(

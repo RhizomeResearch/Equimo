@@ -146,12 +146,15 @@ Defined in `equimo.finetune.heads`.
 ## `extract_features`
 
 ```python
-equimo.finetune.extract_features(model: 'PyTree', *args, pool: 'PoolName | eqx.Module | None' = 'auto', key: 'jax.Array | None' = None, inference: 'bool | None' = True, **kwargs) -> 'Any'
+equimo.finetune.extract_features(model: 'PyTree', *args, pool: 'PoolName | eqx.Module | None' = 'auto', feature_spec: 'FeatureSpec | None' = None, observed_preprocessing_fingerprint: 'str | None' = None, key: 'jax.Array | None' = None, inference: 'bool | None' = True, **kwargs) -> 'Any'
 ```
 
 Defined in `equimo.finetune.feature_extraction`.
 
-> Call a model feature path and apply an optional pooling policy.
+> Extract features through an explicit spec or the compatibility fallback.
+>
+> A supplied ``feature_spec`` controls endpoint traversal and tensor
+> post-processing. Without one, the native/heuristic behavior is unchanged.
 
 <!-- equimo.finetune:FeatureExtractor -->
 <a id="equimo-finetune-featureextractor"></a>
@@ -302,7 +305,7 @@ Defined in `equimo.finetune.feature_extraction`.
 ## `make_linear_probe`
 
 ```python
-equimo.finetune.make_linear_probe(backbone: 'PyTree', *, in_features: 'int', out_features: 'int', key: 'jax.Array', pool: 'PoolName | eqx.Module | None' = 'auto', head: 'eqx.Module | None' = None) -> 'LinearProbe'
+equimo.finetune.make_linear_probe(backbone: 'PyTree', *, in_features: 'int', out_features: 'int', key: 'jax.Array', pool: 'PoolName | eqx.Module | None' = 'auto', feature_spec: 'FeatureSpec | None' = None, head: 'eqx.Module | None' = None) -> 'LinearProbe'
 ```
 
 Defined in `equimo.finetune.feature_extraction`.

@@ -24,6 +24,7 @@ Start with these pages:
 
 - [Concepts](concepts.md)
 - [Selectors](selectors.md)
+- [Executable feature specifications](feature_specs.md)
 - [Linear probe](linear_probe.md)
 - [LP-FT](lpft.md)
 - [LLRD](llrd.md)

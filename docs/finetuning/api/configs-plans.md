@@ -81,7 +81,7 @@ class equimo.finetune.FeatureSpec(endpoint: 'str', output_layout: "Literal['BNC'
 
 Defined in `equimo.finetune.config`.
 
-> Reproducible feature endpoint and preprocessing metadata.
+> Executable feature endpoint, layout, readout, and preprocessing contract.
 
 <!-- equimo.finetune:FilterSpec -->
 <a id="equimo-finetune-filterspec"></a>
@@ -98,7 +98,7 @@ Defined in `typing`.
 ## `FineTuneBundle`
 
 ```python
-class equimo.finetune.FineTuneBundle(method: 'str' = '', schema_version: 'int' = 1, base_model_name: 'str | None' = None, base_model_config: 'Mapping[str, Any]' = <factory>, base_checkpoint_id: 'str | None' = None, equimo_version: 'str' = '', architecture_hash: 'str' = '', adapter_config: 'Mapping[str, Any]' = <factory>, selector_spec: 'Mapping[str, Any]' = <factory>, trainable_labels: 'Any' = None, delta_tree: 'Any' = None, model_state: 'Any' = None, lineage: 'ModelLineage' = <factory>, metadata: 'Mapping[str, Any]' = <factory>) -> None
+class equimo.finetune.FineTuneBundle(method: 'str' = '', schema_version: 'int' = 1, base_model_name: 'str | None' = None, base_model_config: 'Mapping[str, Any]' = <factory>, base_checkpoint_id: 'str | None' = None, equimo_version: 'str' = '', architecture_hash: 'str' = '', adapter_config: 'Mapping[str, Any]' = <factory>, selector_spec: 'Mapping[str, Any]' = <factory>, feature_spec: 'FeatureSpec | None' = None, trainable_labels: 'Any' = None, delta_tree: 'Any' = None, model_state: 'Any' = None, lineage: 'ModelLineage' = <factory>, metadata: 'Mapping[str, Any]' = <factory>) -> None
 ```
 
 Defined in `equimo.finetune.config`.

@@ -132,7 +132,7 @@ class ParamIdentity:
 
 @dataclass(frozen=True)
 class FeatureSpec:
-    """Reproducible feature endpoint and preprocessing metadata."""
+    """Executable feature endpoint, layout, readout, and preprocessing contract."""
 
     endpoint: str
     output_layout: Literal["BNC", "BCHW", "BTC", "BCT", "BC"]
@@ -150,6 +150,117 @@ class FeatureSpec:
     normalize: Literal["none", "l2", "standardize"] = "none"
     layer_aggregation: Mapping[str, Any] | None = None
     preprocessing_fingerprint: str | None = None
+
+    def __post_init__(self) -> None:
+        layouts = {"BNC", "BCHW", "BTC", "BCT", "BC"}
+        selections = {"all", "cls", "patches", "frames", "last_valid", "custom"}
+        normalizations = {"none", "l2", "standardize"}
+        pools = {
+            None,
+            "none",
+            "native",
+            "cls",
+            "cls_patch_mean",
+            "global_avg",
+            "mean_token",
+            "mean_patch",
+            "mean_frame",
+            "attention",
+            "gem",
+            "last_token",
+        }
+        if not self.endpoint:
+            raise ValueError("FeatureSpec.endpoint must be a non-empty endpoint path.")
+        if self.output_layout not in layouts:
+            raise ValueError(
+                f"Unsupported FeatureSpec.output_layout {self.output_layout!r}."
+            )
+        if self.token_selection not in selections:
+            raise ValueError(
+                f"Unsupported FeatureSpec.token_selection {self.token_selection!r}."
+            )
+        if self.token_selection == "custom":
+            raise ValueError(
+                "FeatureSpec.token_selection='custom' has no executable callback "
+                "in the portable contract."
+            )
+        if self.pooling not in pools:
+            raise ValueError(f"Unsupported FeatureSpec.pooling {self.pooling!r}.")
+        if self.normalize not in normalizations:
+            raise ValueError(f"Unsupported FeatureSpec.normalize {self.normalize!r}.")
+        if self.mask_field is not None and not self.mask_field.isidentifier():
+            raise ValueError(
+                "FeatureSpec.mask_field must name one endpoint argument directly."
+            )
+
+        pooling = "none" if self.pooling is None else self.pooling
+        if self.output_layout == "BC" and (
+            self.token_selection != "all" or pooling != "none"
+        ):
+            raise ValueError(
+                "FeatureSpec output_layout='BC' only supports token_selection='all' "
+                "with no pooling."
+            )
+        if self.output_layout == "BCHW" and (
+            self.token_selection != "all"
+            or pooling not in {"none", "global_avg", "gem"}
+        ):
+            raise ValueError(
+                "FeatureSpec output_layout='BCHW' supports only all features with "
+                "pooling none, global_avg, or gem."
+            )
+        if self.token_selection in {"cls", "last_valid"} and pooling != "none":
+            raise ValueError(
+                f"FeatureSpec token_selection={self.token_selection!r} already "
+                "produces one feature vector and cannot also pool."
+            )
+        if self.token_selection == "patches" and pooling not in {
+            "none",
+            "mean_patch",
+            "global_avg",
+            "gem",
+            "attention",
+        }:
+            raise ValueError(
+                "FeatureSpec token_selection='patches' requires patch-compatible "
+                "pooling."
+            )
+        if self.token_selection == "frames" and pooling not in {
+            "none",
+            "mean_frame",
+            "mean_token",
+            "global_avg",
+            "gem",
+            "attention",
+        }:
+            raise ValueError(
+                "FeatureSpec token_selection='frames' requires frame-compatible "
+                "pooling."
+            )
+        if pooling == "native" and self.token_selection != "all":
+            raise ValueError(
+                "FeatureSpec pooling='native' requires token_selection='all'."
+            )
+        if self.mask_field is not None and not (
+            self.token_selection == "last_valid"
+            or pooling in {"mean_token", "mean_frame", "last_token", "attention"}
+        ):
+            raise ValueError(
+                "FeatureSpec.mask_field requires masked token/frame pooling or "
+                "token_selection='last_valid'."
+            )
+
+        if self.layer_aggregation is not None:
+            keys = set(self.layer_aggregation)
+            if keys != {"method"}:
+                raise ValueError(
+                    "FeatureSpec.layer_aggregation only accepts a 'method' field."
+                )
+            method = self.layer_aggregation["method"]
+            if method not in {"last", "mean", "concat"}:
+                raise ValueError(
+                    f"Unsupported FeatureSpec layer aggregation method {method!r}."
+                )
 
 
 @dataclass(frozen=True)
@@ -399,6 +510,7 @@ class FineTuneBundle:
     architecture_hash: str = ""
     adapter_config: Mapping[str, Any] = field(default_factory=dict)
     selector_spec: Mapping[str, Any] = field(default_factory=dict)
+    feature_spec: FeatureSpec | None = None
     trainable_labels: Any = None
     delta_tree: Any = None
     model_state: Any = None

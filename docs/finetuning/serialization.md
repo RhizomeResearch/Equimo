@@ -24,5 +24,19 @@ Use `save_finetune_bundle` and `load_finetune_bundle` when you already have a
 `FineTuneBundle`. Bundle metadata includes parameter counts, dtype summary,
 target paths, a base checkpoint hash, mergeability, and optional user metadata.
 
+An executable [`FeatureSpec`](feature_specs.md) can be stored with the delta:
+
+```python
+bundle = eqft.save_delta(
+    model,
+    "delta.eqft",
+    method="lora",
+    feature_spec=feature_spec,
+)
+```
+
+The versioned feature-spec codec preserves preprocessing identity and rejects
+unknown fields or values instead of silently changing extraction behavior.
+
 Supported delta methods: `lora`, `dora`, `adapter`, `prompt`, `prefix`,
 `scale_shift`, `ia3`, and `vera`.

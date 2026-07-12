@@ -27,6 +27,7 @@ from ._serialization_codecs import (
     supported_methods_text,
 )
 from .config import (
+    FeatureSpec,
     FineTuneBundle,
     FineTuneBundleError,
     ModelLineage,
@@ -82,6 +83,8 @@ _FORMAT = "equimo.finetune.bundle"
 _FORMAT_VERSION = 1
 _ARRAY_MARKER = "__equimo_finetune_array__"
 _TUPLE_MARKER = "__equimo_finetune_tuple__"
+_FEATURE_SPEC_CODEC = "equimo.finetune.FeatureSpec"
+_FEATURE_SPEC_CODEC_VERSION = 1
 
 
 def save_delta(
@@ -94,6 +97,7 @@ def save_delta(
     path: str | Path | None = None,
     base_model: PyTree | None = None,
     spec: Any | None = None,
+    feature_spec: FeatureSpec | None = None,
 ) -> FineTuneBundle:
     """Save a method delta bundle and return the saved bundle.
 
@@ -120,6 +124,7 @@ def save_delta(
         model,
         base_model=resolved_base_model,
         spec=resolved_spec,
+        feature_spec=feature_spec,
         user_metadata=metadata,
         model_state=model_state,
         recalibration_required=recalibration_required,
@@ -192,6 +197,7 @@ def merge_and_save(
     metadata: dict[str, Any] | None = None,
     model_state: Any | None = None,
     recalibration_required: bool | None = None,
+    feature_spec: FeatureSpec | None = None,
 ) -> FineTuneBundle:
     """Merge mergeable method weights where safe, then save a delta bundle."""
 
@@ -203,6 +209,7 @@ def merge_and_save(
         metadata=metadata,
         model_state=model_state,
         recalibration_required=recalibration_required,
+        feature_spec=feature_spec,
     )
 
 
@@ -237,6 +244,7 @@ def _bundle_to_manifest(
         "architecture_hash": bundle.architecture_hash,
         "adapter_config": bundle.adapter_config,
         "selector_spec": bundle.selector_spec,
+        "feature_spec": _feature_spec_to_payload(bundle.feature_spec),
         "trainable_labels": _labels_to_metadata(bundle.trainable_labels),
         "delta_tree": bundle.delta_tree,
         "model_state": bundle.model_state,
@@ -248,6 +256,73 @@ def _bundle_to_manifest(
         "format_version": _FORMAT_VERSION,
         "bundle": _encode_value(payload, arrays),
     }, arrays
+
+
+def _feature_spec_to_payload(spec: FeatureSpec | None) -> dict[str, Any] | None:
+    if spec is None:
+        return None
+    return {
+        "codec": _FEATURE_SPEC_CODEC,
+        "version": _FEATURE_SPEC_CODEC_VERSION,
+        "value": {
+            "endpoint": spec.endpoint,
+            "output_layout": spec.output_layout,
+            "token_selection": spec.token_selection,
+            "pooling": spec.pooling,
+            "mask_field": spec.mask_field,
+            "exclude_prompt_tokens": spec.exclude_prompt_tokens,
+            "normalize": spec.normalize,
+            "layer_aggregation": None
+            if spec.layer_aggregation is None
+            else dict(spec.layer_aggregation),
+            "preprocessing_fingerprint": spec.preprocessing_fingerprint,
+        },
+    }
+
+
+def _feature_spec_from_payload(payload: Any) -> FeatureSpec | None:
+    if payload is None:
+        return None
+    if not isinstance(payload, dict):
+        raise FineTuneBundleError("FeatureSpec codec payload must be a dictionary.")
+    if set(payload) != {"codec", "version", "value"}:
+        raise FineTuneBundleError("FeatureSpec codec payload has unknown fields.")
+    if payload["codec"] != _FEATURE_SPEC_CODEC:
+        raise FineTuneBundleError(
+            f"Unsupported FeatureSpec codec {payload['codec']!r}."
+        )
+    if payload["version"] != _FEATURE_SPEC_CODEC_VERSION:
+        raise FineTuneBundleError(
+            "Unsupported FeatureSpec codec version="
+            f"{payload['version']!r}; expected {_FEATURE_SPEC_CODEC_VERSION}."
+        )
+    value = payload["value"]
+    if not isinstance(value, dict):
+        raise FineTuneBundleError("FeatureSpec codec value must be a dictionary.")
+    expected_fields = {
+        "endpoint",
+        "output_layout",
+        "token_selection",
+        "pooling",
+        "mask_field",
+        "exclude_prompt_tokens",
+        "normalize",
+        "layer_aggregation",
+        "preprocessing_fingerprint",
+    }
+    unknown = set(value) - expected_fields
+    missing = expected_fields - set(value)
+    if unknown or missing:
+        raise FineTuneBundleError(
+            "FeatureSpec codec fields do not match version 1: "
+            f"missing={sorted(missing)}, unknown={sorted(unknown)}."
+        )
+    try:
+        return FeatureSpec(**value)
+    except (TypeError, ValueError) as error:
+        raise FineTuneBundleError(
+            f"Invalid FeatureSpec codec value: {error}"
+        ) from error
 
 
 def _bundle_from_manifest(
@@ -270,7 +345,13 @@ def _bundle_from_manifest(
     payload = _decode_value(encoded, arrays)
     if isinstance(payload.get("lineage"), dict):
         payload["lineage"] = _lineage_from_dict(payload["lineage"])
-    return FineTuneBundle(**payload)
+    payload["feature_spec"] = _feature_spec_from_payload(payload.get("feature_spec"))
+    try:
+        return FineTuneBundle(**payload)
+    except TypeError as error:
+        raise FineTuneBundleError(
+            f"Fine-tuning bundle contains unknown fields: {error}."
+        ) from error
 
 
 def _encode_value(value: Any, arrays: dict[str, Any]) -> Any:
@@ -767,6 +848,16 @@ def _check_schema(bundle: FineTuneBundle) -> None:
             f"Unsupported fine-tuning bundle schema_version={bundle.schema_version!r}; "
             "expected 1."
         )
+    if (
+        bundle.feature_spec is not None
+        and bundle.feature_spec.preprocessing_fingerprint is not None
+        and bundle.lineage.preprocessing_fingerprint is not None
+        and bundle.feature_spec.preprocessing_fingerprint
+        != bundle.lineage.preprocessing_fingerprint
+    ):
+        raise FineTuneBundleError(
+            "FeatureSpec preprocessing fingerprint does not match bundle lineage."
+        )
 
 
 def _scale_shift_dim(module: eqx.Module) -> int:
@@ -909,6 +1000,7 @@ def _enrich_bundle(
     *,
     base_model: PyTree | None,
     spec: Any | None,
+    feature_spec: FeatureSpec | None,
     user_metadata: dict[str, Any] | None,
     model_state: Any | None = None,
     recalibration_required: bool | None = None,
@@ -961,6 +1053,12 @@ def _enrich_bundle(
     stats.setdefault("recalibration_required", recalibration_marker)
     stats.setdefault("quantization_fingerprint", quantization_fingerprint)
     stats.setdefault("equimo_source_revision", _equimo_version() or "unknown")
+    resolved_feature_spec = feature_spec or bundle.feature_spec
+    preprocessing_fingerprint = (
+        None
+        if resolved_feature_spec is None
+        else resolved_feature_spec.preprocessing_fingerprint
+    )
     lineage = replace(
         bundle.lineage if isinstance(bundle.lineage, ModelLineage) else ModelLineage(),
         base_model_name=bundle.lineage.base_model_name or _model_name(metadata_model),
@@ -971,6 +1069,8 @@ def _enrich_bundle(
         model_state_hash=bundle.lineage.model_state_hash or model_state_hash,
         logical_id_table_hash=logical_id_hash,
         quantization_fingerprint=quantization_fingerprint,
+        preprocessing_fingerprint=bundle.lineage.preprocessing_fingerprint
+        or preprocessing_fingerprint,
         model_revision=bundle.lineage.model_revision or _equimo_version() or None,
     )
     return replace(
@@ -980,6 +1080,7 @@ def _enrich_bundle(
         base_model_config=bundle.base_model_config or _model_config(metadata_model),
         equimo_version=bundle.equimo_version or _equimo_version(),
         selector_spec=selector_spec,
+        feature_spec=resolved_feature_spec,
         lineage=lineage,
         trainable_labels=bundle.trainable_labels
         if bundle.trainable_labels is not None

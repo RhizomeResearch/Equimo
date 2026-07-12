@@ -46,7 +46,7 @@ Defined in `equimo.finetune.serialization`.
 ## `merge_and_save`
 
 ```python
-equimo.finetune.merge_and_save(path: 'str | Path', model: 'PyTree', *, method: 'str' = 'lora', metadata: 'dict[str, Any] | None' = None, model_state: 'Any | None' = None, recalibration_required: 'bool | None' = None) -> 'FineTuneBundle'
+equimo.finetune.merge_and_save(path: 'str | Path', model: 'PyTree', *, method: 'str' = 'lora', metadata: 'dict[str, Any] | None' = None, model_state: 'Any | None' = None, recalibration_required: 'bool | None' = None, feature_spec: 'FeatureSpec | None' = None) -> 'FineTuneBundle'
 ```
 
 Defined in `equimo.finetune.serialization`.
@@ -58,7 +58,7 @@ Defined in `equimo.finetune.serialization`.
 ## `save_delta`
 
 ```python
-equimo.finetune.save_delta(*args, method: 'str' = 'lora', metadata: 'dict[str, Any] | None' = None, model_state: 'Any | None' = None, recalibration_required: 'bool | None' = None, model: 'PyTree | None' = None, path: 'str | Path | None' = None, base_model: 'PyTree | None' = None, spec: 'Any | None' = None) -> 'FineTuneBundle'
+equimo.finetune.save_delta(*args, method: 'str' = 'lora', metadata: 'dict[str, Any] | None' = None, model_state: 'Any | None' = None, recalibration_required: 'bool | None' = None, model: 'PyTree | None' = None, path: 'str | Path | None' = None, base_model: 'PyTree | None' = None, spec: 'Any | None' = None, feature_spec: 'FeatureSpec | None' = None) -> 'FineTuneBundle'
 ```
 
 Defined in `equimo.finetune.serialization`.

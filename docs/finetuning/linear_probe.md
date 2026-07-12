@@ -2,6 +2,10 @@
 
 Linear probing freezes the backbone and trains only a new head.
 
+For reproducible endpoint, layout, mask, and pooling behavior across
+modalities, pass an executable [`FeatureSpec`](feature_specs.md). Without one,
+the compatibility native/heuristic extraction route remains in use.
+
 ```python
 probe = eqft.make_linear_probe(
     model,
