@@ -342,6 +342,7 @@ class LoRALinear(eqx.Module):
         lora_B = self.lora_B
         if self.rank_mask is not None:
             lora_B = lora_B * self.rank_mask[None, :]
+        lora_B = _mask_projection_segments(lora_B, self.projection_segments)
         if self.fan_in_fan_out:
             return y + x_drop @ self.delta_weight()
         update = lora_B @ (self.lora_A @ x_drop)

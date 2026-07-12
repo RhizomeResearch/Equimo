@@ -182,18 +182,32 @@ def test_lora_fused_qv_projection_segments_mask_key_rows(tiny_vision_transformer
         key=jr.PRNGKey(0),
     )
     module = eqx.tree_at(
-        lambda m: m.lora_B,
+        lambda m: (m.lora_A, m.lora_B),
         lora.blocks[0].attn.qkv,
-        jnp.ones_like(lora.blocks[0].attn.qkv.lora_B),
+        (
+            jnp.ones_like(lora.blocks[0].attn.qkv.lora_A),
+            jnp.ones_like(lora.blocks[0].attn.qkv.lora_B),
+        ),
     )
+    x = jnp.ones((module.lora_A.shape[1],), dtype=module.lora_A.dtype)
+    live_output = module(x)
+    live_delta = live_output - module.base(x)
     delta = module.delta_weight()
     width = delta.shape[0] // 3
 
     assert isinstance(lora.blocks[0].attn.qkv, eqft.LoRAMergedLinear)
     assert tuple(segment.name for segment in module.projection_segments) == ("q", "v")
+    assert jnp.any(jnp.abs(live_delta[:width]) > 0.0)
+    assert jnp.allclose(live_delta[width : 2 * width], 0.0)
+    assert jnp.any(jnp.abs(live_delta[2 * width :]) > 0.0)
     assert jnp.any(jnp.abs(delta[:width]) > 0.0)
     assert jnp.allclose(delta[width : 2 * width], 0.0)
     assert jnp.any(jnp.abs(delta[2 * width :]) > 0.0)
+
+    assert jnp.allclose(eqx.filter_jit(module)(x), live_output, atol=1e-6)
+    merged = module.merge()
+    assert jnp.allclose(merged(x), live_output, atol=1e-6)
+    assert jnp.allclose(merged.unmerge()(x), live_output, atol=1e-6)
 
 
 def test_lora_accepts_external_linear_like_targets():
