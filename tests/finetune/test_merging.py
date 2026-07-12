@@ -69,6 +69,15 @@ def test_greedy_soup_uses_score_function(tiny_vision_transformer):
     assert len(calls) == 3
 
 
+def test_greedy_soup_preserves_equal_model_weights():
+    models = [jnp.array(0.0), jnp.array(1.0), jnp.array(2.0)]
+
+    soup, selected = eqft.greedy_soup(models, lambda model: float(model))
+
+    assert selected == (0, 1, 2)
+    assert float(soup) == 1.0
+
+
 def test_greedy_soup_config_starts_from_best_model(tiny_vision_transformer):
     models = [
         tiny_vision_transformer,
@@ -83,6 +92,19 @@ def test_greedy_soup_config_starts_from_best_model(tiny_vision_transformer):
     )
 
     assert selected == (1,)
+
+
+def test_greedy_soup_config_preserves_equal_model_weights():
+    models = [jnp.array(1.0), jnp.array(-2.0), jnp.array(2.5)]
+
+    soup, selected = eqft.greedy_soup(
+        models,
+        lambda model: -abs(float(model)),
+        config=eqft.GreedySoupConfig(),
+    )
+
+    assert selected == (0, 1, 2)
+    assert float(soup) == 0.5
 
 
 def test_task_vector_reconstructs_tuned_model(tiny_vision_transformer):

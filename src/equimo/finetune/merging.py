@@ -281,7 +281,10 @@ def greedy_soup(
     best_score = score_fn(soup)
 
     for index, candidate in enumerate(models[1:], start=1):
-        proposal = uniform_soup([soup, candidate])
+        proposal = uniform_soup(
+            [soup, candidate],
+            weights=(float(len(selected)), 1.0),
+        )
         score = score_fn(proposal)
         improves = (
             score >= best_score + min_delta
@@ -849,7 +852,10 @@ def _greedy_soup_from_best(
 
     for index in order[1:]:
         candidate = models[index]
-        proposal = uniform_soup([soup, candidate])
+        proposal = uniform_soup(
+            [soup, candidate],
+            weights=(float(len(selected)), 1.0),
+        )
         score = float(score_fn(proposal))
         improves = (
             score >= best_score + min_delta
