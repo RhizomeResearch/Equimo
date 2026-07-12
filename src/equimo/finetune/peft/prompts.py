@@ -184,6 +184,8 @@ def _prompt_count(model: PyTree, config: PromptConfig) -> int:
         return 1
     if getattr(config, "share_across_layers", False):
         return 1
+    if hasattr(model, "_num_block_layers"):
+        return max(1, model._num_block_layers())
     blocks = getattr(model, "blocks", ())
     return max(1, len(blocks))
 
@@ -247,76 +249,74 @@ def _equimo_vit_features(
     inference: bool | None,
     **kwargs,
 ) -> jax.Array:
-    num_blocks = len(model.blocks)
-    num_prompt_keys = max(num_blocks, 1)
     if key is None:
-        key_pos, *block_subkeys = jr.split(jr.PRNGKey(0), num_blocks + 1)
-        prompt_subkeys = (None,) * num_prompt_keys
+        model_key = jr.PRNGKey(0)
+        prompt_key = None
     else:
-        subkeys = jr.split(key, 1 + num_prompt_keys + num_blocks)
-        key_pos = subkeys[0]
-        prompt_subkeys = subkeys[1 : 1 + num_prompt_keys]
-        block_subkeys = subkeys[1 + num_prompt_keys :]
+        model_key, prompt_key = jr.split(key, 2)
     mask = kwargs.pop("mask", None)
-    x = model.patch_embed(x)
-
-    if mask is not None:
-        if model.mask_token is None:
-            raise AssertionError(
-                "To use masked forward, init the model with `use_mask_token=True`."
-            )
-        if model.dynamic_img_size:
-            mask = jnp.expand_dims(mask, axis=0)
-            value = jnp.reshape(model.mask_token, (-1, 1, 1))
-        else:
-            mask = jnp.reshape(mask, (-1, 1))
-            value = model.mask_token
-        x = jnp.where(mask, x, value.astype(x.dtype))
-
-    if model.local_pos_embed is not None:
-        if model.dynamic_img_size:
-            _, height, width = x.shape
-        else:
-            height = width = model.embed_size
-
-    if model.global_pos_embed is not None:
-        x = model.global_pos_embed(
-            x,
-            cls_token=model.cls_token,
-            reg_tokens=model.reg_tokens,
-            dynamic_img_size=model.dynamic_img_size,
-        )
-    else:
-        prefix = [
-            token for token in (model.cls_token, model.reg_tokens) if token is not None
-        ]
-        if model.dynamic_img_size:
-            x = jnp.moveaxis(x, 0, -1).reshape((-1, x.shape[0]))
-        x = jnp.concatenate([*prefix, x], axis=0) if prefix else x
-
-    rope_sincos = None
-    if model.local_pos_embed is not None and inference:
-        rope_sincos = model.local_pos_embed.get_sincos(
-            H=height,
-            W=width,
-            inference=inference,
-            key=key_pos,
-        )
-
-    x = _run_prompted_blocks(
-        model.blocks,
+    key_pos = jr.split(model_key, len(model.blocks) + 1)[0]
+    prepared = model._prepare_tokens(
         x,
-        prompts,
-        config,
-        block_subkeys,
-        prompt_keys=prompt_subkeys,
+        key=key_pos,
+        mask=mask,
         inference=inference,
-        rope_sincos=rope_sincos,
-        key_pos=key_pos,
-        model=model,
+    )
+
+    def inject_prompt(
+        tokens,
+        rope_sincos,
+        index,
+        height,
+        width,
+        layer_key,
+        layer_inference,
+    ):
+        del height, width
+        rope_needs_prompt = rope_sincos is not None and (
+            index == 0 or rope_sincos[0].shape[0] != tokens.shape[0]
+        )
+        if config.depth == "shallow":
+            prompt = prompts[0].astype(tokens.dtype)
+            if index == 0:
+                prompt = _prompt_for_layer(
+                    prompts,
+                    config,
+                    0,
+                    tokens,
+                    layer_key,
+                    inference=layer_inference,
+                )
+                tokens = _insert_prompt(tokens, prompt, config)
+            if rope_needs_prompt:
+                rope_sincos = _insert_prompt_rope(rope_sincos, prompt, config)
+            return tokens, rope_sincos
+
+        prompt = _prompt_for_layer(
+            prompts,
+            config,
+            index,
+            tokens,
+            layer_key,
+            inference=layer_inference,
+        )
+        tokens = (
+            _insert_prompt(tokens, prompt, config)
+            if index == 0
+            else _replace_prompt(tokens, prompt, config)
+        )
+        if rope_needs_prompt:
+            rope_sincos = _insert_prompt_rope(rope_sincos, prompt, config)
+        return tokens, rope_sincos
+
+    return model._run_blocks(
+        prepared,
+        key=model_key,
+        inference=inference,
+        token_transform=inject_prompt,
+        token_transform_key=prompt_key,
         **kwargs,
     )
-    return x
 
 
 def _simple_token_features(
@@ -365,10 +365,6 @@ def _run_prompted_blocks(
     *,
     prompt_keys,
     inference: bool | None,
-    rope_sincos=None,
-    key_pos: jax.Array | None = None,
-    model=None,
-    **kwargs,
 ) -> jax.Array:
     if not blocks:
         prompt = _prompt_for_layer(
@@ -391,10 +387,8 @@ def _run_prompted_blocks(
             inference=inference,
         )
         x = _insert_prompt(x, prompt, config)
-        rope_sincos = _insert_prompt_rope(rope_sincos, prompt, config)
 
     for index, (block, block_key) in enumerate(zip(blocks, block_keys, strict=True)):
-        prompt = None
         if _uses_deep_prompts(config):
             prompt = _prompt_for_layer(
                 prompts,
@@ -406,42 +400,13 @@ def _run_prompted_blocks(
             )
             if index == 0:
                 x = _insert_prompt(x, prompt, config)
-                rope_sincos = _insert_prompt_rope(rope_sincos, prompt, config)
             else:
                 x = _replace_prompt(x, prompt, config)
-        if (
-            model is not None
-            and getattr(model, "local_pos_embed", None) is not None
-            and not inference
-            and key_pos is not None
-        ):
-            key_pos, key_rope = jr.split(key_pos, 2)
-            rope_sincos = model.local_pos_embed.get_sincos(
-                H=model.embed_size,
-                W=model.embed_size,
-                inference=inference,
-                key=key_rope,
-            )
-            if config.depth == "shallow":
-                prompt = _prompt_for_layer(
-                    prompts,
-                    config,
-                    0,
-                    x,
-                    prompt_keys[0],
-                    inference=inference,
-                )
-            if prompt is not None:
-                rope_sincos = _insert_prompt_rope(rope_sincos, prompt, config)
-        block_kwargs = dict(kwargs)
-        if rope_sincos is not None:
-            block_kwargs["rope_sincos"] = rope_sincos
         x = _call_block(
             block,
             x,
             key=block_key,
             inference=inference,
-            **block_kwargs,
         )
     return x
 
@@ -520,17 +485,7 @@ def _call_block(block, x: jax.Array, *, key, inference, **kwargs) -> jax.Array:
 
 
 def _is_equimo_vit_like(model) -> bool:
-    return all(
-        hasattr(model, name)
-        for name in (
-            "patch_embed",
-            "blocks",
-            "global_pos_embed",
-            "local_pos_embed",
-            "num_prefix_tokens",
-            "global_pool",
-        )
-    )
+    return hasattr(model, "_prepare_tokens") and hasattr(model, "_run_blocks")
 
 
 def _is_simple_token_model(model) -> bool:

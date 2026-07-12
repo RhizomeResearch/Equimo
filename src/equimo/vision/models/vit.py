@@ -381,25 +381,19 @@ class VisionTransformer(eqx.Module):
         Returns:
             Processed feature tensor
         """
-        key_pos, *block_subkeys = jr.split(key, len(self.blocks) + 1)
+        key_pos = jr.split(key, len(self.blocks) + 1)[0]
         x, H, W, rope_sincos = self._prepare_tokens(
             x,
             key=key_pos,
             mask=mask,
             inference=inference,
         )
-
-        for blk, key_block in zip(self.blocks, block_subkeys):
-            if self.local_pos_embed is not None and not inference:
-                key_pos, key_rope = jr.split(key_pos, 2)
-                rope_sincos = self.local_pos_embed.get_sincos(
-                    H=H, W=W, inference=inference, key=key_rope
-                )
-            x = blk(
-                x, rope_sincos=rope_sincos, inference=inference, key=key_block, **kwargs
-            )
-
-        return x
+        return self._run_blocks(
+            (x, H, W, rope_sincos),
+            key=key,
+            inference=inference,
+            **kwargs,
+        )
 
     def intermediate_features(
         self,
@@ -505,6 +499,100 @@ class VisionTransformer(eqx.Module):
                 H=H, W=W, inference=inference, key=key
             )
         return x, H, W, rope_sincos
+
+    def _run_blocks(
+        self,
+        prepared,
+        *,
+        key: PRNGKeyArray,
+        inference: Optional[bool],
+        token_transform: Callable | None = None,
+        token_transform_key: PRNGKeyArray | None = None,
+        **kwargs,
+    ) -> Float[Array, "seqlen dim"]:
+        """Run prepared tokens, optionally transforming them before each layer."""
+
+        x, H, W, rope_sincos = prepared
+        key_pos, *block_subkeys = jr.split(key, len(self.blocks) + 1)
+        num_transform_keys = max(self._num_block_layers(), 1)
+        transform_subkeys = (
+            (None,) * num_transform_keys
+            if token_transform_key is None
+            else jr.split(token_transform_key, num_transform_keys)
+        )
+
+        if not self.blocks and token_transform is not None:
+            x, _ = token_transform(
+                x,
+                rope_sincos,
+                0,
+                H,
+                W,
+                transform_subkeys[0],
+                inference,
+            )
+            return x
+
+        layer_index = 0
+        for blk, key_block in zip(self.blocks, block_subkeys, strict=True):
+            if self.local_pos_embed is not None and not inference:
+                key_pos, key_rope = jr.split(key_pos, 2)
+                rope_sincos = self.local_pos_embed.get_sincos(
+                    H=H, W=W, inference=inference, key=key_rope
+                )
+
+            if token_transform is None:
+                x = blk(
+                    x,
+                    rope_sincos=rope_sincos,
+                    inference=inference,
+                    key=key_block,
+                    **kwargs,
+                )
+                continue
+
+            blocks = blk.blocks
+            num_blocks = 0 if blocks is None else len(blocks)
+            key_down, *layer_subkeys = jr.split(key_block, num_blocks + 2)
+            x = blk.posemb(x)
+            if not blk.downsample_last and blk.downsample is not None:
+                x = (
+                    blk.downsample(x, inference=inference, key=key_down)
+                    if blk.downsampler_needs_key
+                    else blk.downsample(x)
+                )
+            if blocks is not None:
+                for block, layer_key in zip(blocks, layer_subkeys, strict=False):
+                    x, rope_sincos = token_transform(
+                        x,
+                        rope_sincos,
+                        layer_index,
+                        H,
+                        W,
+                        transform_subkeys[layer_index],
+                        inference,
+                    )
+                    x = block(
+                        x,
+                        rope_sincos=rope_sincos,
+                        inference=inference,
+                        key=layer_key,
+                        **kwargs,
+                    )
+                    layer_index += 1
+            if blk.downsample_last and blk.downsample is not None:
+                x = (
+                    blk.downsample(x, inference=inference, key=key_down)
+                    if blk.downsampler_needs_key
+                    else blk.downsample(x)
+                )
+
+        return x
+
+    def _num_block_layers(self) -> int:
+        """Return the number of logical transformer layers across block chunks."""
+
+        return _count_chunk_blocks(self.blocks)
 
     def forward_features(
         self,

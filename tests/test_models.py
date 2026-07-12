@@ -171,6 +171,51 @@ def test_vit_rope():
     assert jnp.all(jnp.isfinite(y_infer))
 
 
+def test_vit_private_block_runner_preserves_untransformed_features():
+    key = jr.PRNGKey(2)
+    model = em.VisionTransformer(
+        img_size=32,
+        in_channels=3,
+        dim=16,
+        patch_size=8,
+        num_heads=2,
+        depths=[1, 1],
+        num_classes=0,
+        use_global_pos_embed=False,
+        use_local_pos_embed=True,
+        dynamic_img_size=True,
+        key=key,
+    )
+    x = jr.normal(key, (3, 32, 48))
+    key_pos, *block_keys = jr.split(key, len(model.blocks) + 1)
+    prepared = model._prepare_tokens(
+        x,
+        key=key_pos,
+        mask=None,
+        inference=False,
+    )
+    expected, height, width, rope_sincos = prepared
+
+    for block, block_key in zip(model.blocks, block_keys, strict=True):
+        key_pos, key_rope = jr.split(key_pos, 2)
+        rope_sincos = model.local_pos_embed.get_sincos(
+            H=height,
+            W=width,
+            inference=False,
+            key=key_rope,
+        )
+        expected = block(
+            expected,
+            rope_sincos=rope_sincos,
+            inference=False,
+            key=block_key,
+        )
+
+    actual = model.features(x, key=key, inference=False)
+
+    assert jnp.array_equal(actual, expected)
+
+
 def test_vit_intermediate_features_last_block_matches_features():
     key = jr.PRNGKey(2)
     model = em.VisionTransformer(

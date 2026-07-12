@@ -218,6 +218,156 @@ def test_vpt_real_vit_register_rope_shape():
     assert features.shape == (11, 8)
 
 
+@pytest.mark.parametrize(
+    ("config", "inference"),
+    [
+        (eqft.PromptConfig(num_tokens=2), True),
+        (eqft.PromptConfig(num_tokens=2), False),
+        (eqft.VPTDeepConfig(num_tokens=2), True),
+        (eqft.VPTDeepConfig(num_tokens=2), False),
+    ],
+    ids=["shallow-inference", "shallow-training", "deep-inference", "deep-training"],
+)
+@pytest.mark.parametrize(
+    ("input_width", "expected_tokens"),
+    [(32, 11), (48, 13)],
+    ids=["square", "non-square"],
+)
+def test_vpt_dynamic_rope_uses_prepared_grid(
+    config,
+    inference,
+    input_width,
+    expected_tokens,
+):
+    model = VisionTransformer(
+        img_size=32,
+        in_channels=3,
+        patch_size=16,
+        dim=8,
+        num_heads=2,
+        depths=[2],
+        reg_tokens=4,
+        num_classes=0,
+        use_mask_token=True,
+        use_global_pos_embed=False,
+        use_local_pos_embed=True,
+        local_pos_embed_reg=True,
+        dynamic_img_size=True,
+        key=jr.PRNGKey(0),
+    )
+    prompted = eqft.apply_prompts(model, config, key=jr.PRNGKey(1))
+    x = jnp.ones((3, 32, input_width))
+    mask = jnp.arange(2 * input_width // 16).reshape((2, -1)) % 2 == 0
+
+    first = prompted.features(
+        x,
+        mask=mask,
+        key=jr.PRNGKey(2),
+        inference=inference,
+    )
+    second = prompted.features(
+        x,
+        mask=mask,
+        key=jr.PRNGKey(2),
+        inference=inference,
+    )
+
+    assert first.shape == (expected_tokens, 8)
+    assert jnp.all(jnp.isfinite(first))
+    assert jnp.array_equal(first, second)
+    assert len(prompted.prompts) == (1 if config.depth == "shallow" else 2)
+
+
+@pytest.mark.parametrize(
+    ("config", "inference"),
+    [
+        (eqft.PromptConfig(num_tokens=2), True),
+        (eqft.PromptConfig(num_tokens=2), False),
+        (eqft.VPTDeepConfig(num_tokens=2), True),
+        (eqft.VPTDeepConfig(num_tokens=2), False),
+    ],
+    ids=["shallow-inference", "shallow-training", "deep-inference", "deep-training"],
+)
+def test_vpt_static_rope_preserves_mask_and_position_preparation(config, inference):
+    model = VisionTransformer(
+        img_size=32,
+        in_channels=3,
+        patch_size=16,
+        dim=8,
+        num_heads=2,
+        depths=[1],
+        reg_tokens=4,
+        num_classes=0,
+        use_mask_token=True,
+        use_global_pos_embed=True,
+        use_local_pos_embed=True,
+        local_pos_embed_reg=True,
+        key=jr.PRNGKey(0),
+    )
+    prompted = eqft.apply_prompts(model, config, key=jr.PRNGKey(1))
+    x = jnp.ones((3, 32, 32))
+    mask = jnp.array([[True, False], [True, False]])
+
+    masked = prompted.features(
+        x,
+        mask=mask,
+        key=jr.PRNGKey(2),
+        inference=inference,
+    )
+    unmasked = prompted.features(
+        x,
+        key=jr.PRNGKey(2),
+        inference=inference,
+    )
+
+    assert masked.shape == (11, 8)
+    assert jnp.all(jnp.isfinite(masked))
+    assert not jnp.allclose(masked, unmasked)
+
+
+def test_vit_token_transform_receives_dynamic_grid_and_rope():
+    model = VisionTransformer(
+        img_size=32,
+        in_channels=3,
+        patch_size=16,
+        dim=8,
+        num_heads=2,
+        depths=[2],
+        reg_tokens=4,
+        num_classes=0,
+        use_global_pos_embed=False,
+        use_local_pos_embed=True,
+        local_pos_embed_reg=True,
+        dynamic_img_size=True,
+        key=jr.PRNGKey(0),
+    )
+    x = jnp.ones((3, 32, 48))
+    key = jr.PRNGKey(1)
+    key_pos = jr.split(key, len(model.blocks) + 1)[0]
+    prepared = model._prepare_tokens(
+        x,
+        key=key_pos,
+        mask=None,
+        inference=False,
+    )
+    observed = []
+
+    def observe(tokens, rope_sincos, index, height, width, key, inference):
+        del key, inference
+        observed.append((index, height, width, rope_sincos[0].shape[0]))
+        return tokens, rope_sincos
+
+    transformed = model._run_blocks(
+        prepared,
+        key=key,
+        inference=False,
+        token_transform=observe,
+    )
+
+    assert transformed.shape == (11, 8)
+    assert observed == [(0, 2, 3, 11), (1, 2, 3, 11)]
+
+
 def test_prompt_trainable_only_prompts_and_head(tiny_vision_transformer):
     prompted = eqft.apply_prompts(
         tiny_vision_transformer,
