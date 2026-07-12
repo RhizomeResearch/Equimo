@@ -21,8 +21,8 @@ default:
 lint:
   stage: lint
   script:
-    - uv run ruff check src
-    - uv run ruff format --check src
+    - uv run ruff check src tests examples models
+    - uv run ruff format --check src tests examples models
     - uv run ty check src
 
 test:
