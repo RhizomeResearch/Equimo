@@ -56,9 +56,7 @@ def _assert_rope_freqs(model, cfg: dict, name: str) -> None:
     expected = _expected_rope_freqs(cfg)
     if rope.freqs.dtype != jnp.float32:
         raise AssertionError(f"{name}: RoPE freqs dtype is {rope.freqs.dtype}")
-    if not np.allclose(
-        np.asarray(rope.freqs), np.asarray(expected), rtol=0, atol=0
-    ):
+    if not np.allclose(np.asarray(rope.freqs), np.asarray(expected), rtol=0, atol=0):
         err = float(np.max(np.abs(np.asarray(rope.freqs - expected))))
         raise AssertionError(f"{name}: RoPE freqs differ from fp32 periods: {err}")
 

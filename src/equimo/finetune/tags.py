@@ -14,9 +14,7 @@ from .paths import iter_param_leaves, key_path_to_path
 
 Tagger = Callable[[Path, Any], Iterable[str]]
 
-_POSITION_EMBED_PARTS = frozenset(
-    {"pos_embed", "position_embed", "position_embedding"}
-)
+_POSITION_EMBED_PARTS = frozenset({"pos_embed", "position_embed", "position_embedding"})
 _CLASS_TOKEN_PARTS = frozenset({"cls_token", "cls_tokens"})
 _REGISTER_TOKEN_PARTS = frozenset(
     {"reg_token", "reg_tokens", "register_token", "register_tokens"}

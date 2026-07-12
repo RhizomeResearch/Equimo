@@ -434,7 +434,9 @@ class FasterViT(eqx.Module):
         """Return selected native patch/stage feature maps."""
 
         total = len(self.blocks) + 1
-        wanted = intermediate_indices(total, indices=indices, n_last_blocks=n_last_blocks)
+        wanted = intermediate_indices(
+            total, indices=indices, n_last_blocks=n_last_blocks
+        )
         _, *block_subkeys = jr.split(key, len(self.blocks) + 1)
         outputs = []
 

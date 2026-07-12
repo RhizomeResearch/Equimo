@@ -351,7 +351,9 @@ class PartialFormer(eqx.Module):
         """Return selected native patch/stage outputs."""
 
         total = len(self.blocks) + 1
-        wanted = intermediate_indices(total, indices=indices, n_last_blocks=n_last_blocks)
+        wanted = intermediate_indices(
+            total, indices=indices, n_last_blocks=n_last_blocks
+        )
         key_posdrop, *block_subkeys = jr.split(key, len(self.blocks) + 1)
         outputs = []
 

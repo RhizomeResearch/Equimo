@@ -249,9 +249,7 @@ class ReduceFormer(eqx.Module):
     ):
         """Return selected native stem/stage outputs."""
 
-        outputs = tuple(
-            self.intermediates(x, key=key, inference=inference, **kwargs)
-        )
+        outputs = tuple(self.intermediates(x, key=key, inference=inference, **kwargs))
         wanted = intermediate_indices(
             len(outputs),
             indices=indices,

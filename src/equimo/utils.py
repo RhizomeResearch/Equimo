@@ -251,7 +251,9 @@ def pool_sd(
         x = x[0]  # class token
     elif pool_type == "cls_patch_mean":
         if num_prefix_tokens < 1:
-            raise ValueError("cls_patch_mean pooling requires at least one prefix token")
+            raise ValueError(
+                "cls_patch_mean pooling requires at least one prefix token"
+            )
         x = jnp.concatenate([x[0], jnp.mean(x[num_prefix_tokens:], axis=0)], axis=0)
     else:
         x = x if reduce_include_prefix else x[num_prefix_tokens:]

@@ -285,7 +285,10 @@ def test_lpft_stage_plans_accept_custom_tagger(tiny_vision_transformer):
     )
 
     assert stage1.param_info.head.weight.label == "head_no_decay"
-    assert stage2.param_info.head.weight.label == direct_stage2.param_info.head.weight.label
+    assert (
+        stage2.param_info.head.weight.label
+        == direct_stage2.param_info.head.weight.label
+    )
 
 
 def test_vision_partial_recipe_uses_last_blocks(tiny_vision_transformer):
