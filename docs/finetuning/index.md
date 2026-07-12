@@ -38,3 +38,18 @@ Start with these pages:
 - [Debugging](debugging.md)
 - [Method defaults](method_defaults.md)
 - [Reference anchors](references.md)
+- [`equimo.finetune` API reference](api/index.md)
+
+## Maintaining the API reference
+
+The API reference is deterministic checked-in Markdown generated directly from
+the live objects in `equimo.finetune.__all__`; no site generator or theme stack
+is required. After changing the public fine-tuning API, regenerate it from the
+repository root:
+
+```bash
+uv run python docs/finetuning/generate_api_reference.py
+```
+
+Use `--check` to verify export coverage, generated signatures and defaults,
+local links and anchors, and that the checked-in pages are current.

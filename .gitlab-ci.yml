@@ -30,6 +30,12 @@ lint:
     - uv run ty check src
     - uv run python tests/ci_shards.py validate
 
+docs:finetune:
+  stage: test
+  needs: ["lint"]
+  script:
+    - uv run python docs/finetuning/generate_api_reference.py --check
+
 test:finetune:
   stage: test
   script:
@@ -106,6 +112,7 @@ build:distribution:
 publish:
   stage: publish
   needs:
+    - "docs:finetune"
     - "test:finetune"
     - "test:models"
     - "test:core"
