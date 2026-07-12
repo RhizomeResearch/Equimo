@@ -30,6 +30,12 @@ from .config import (
 )
 from .paths import key_path_to_path, path_to_str, str_to_path
 from .peft.adapters import extract_adapter_delta, load_adapter_delta, strip_adapters
+from .peft._compat import (
+    bundle_get_path as _bundle_get_path,
+    hash_inexact_pytree,
+    linear_from_state as _linear_from_state,
+    linear_state as _linear_state,
+)
 from .peft.base import get_path
 from .peft.dora import DoRALinear, DoRAMergedLinear
 from .peft.ia3 import IA3Linear
@@ -714,29 +720,6 @@ def _load_vera_delta(base_model: PyTree, bundle: FineTuneBundle) -> PyTree:
     return updated
 
 
-def _linear_state(linear: eqx.nn.Linear) -> dict[str, Any]:
-    return {
-        "in_features": linear.in_features,
-        "out_features": linear.out_features,
-        "use_bias": linear.bias is not None,
-        "weight": linear.weight,
-        "bias": linear.bias,
-    }
-
-
-def _linear_from_state(state: dict[str, Any]) -> eqx.nn.Linear:
-    linear = eqx.nn.Linear(
-        int(state["in_features"]),
-        int(state["out_features"]),
-        use_bias=bool(state["use_bias"]),
-        key=jr.PRNGKey(0),
-    )
-    linear = eqx.tree_at(lambda layer: layer.weight, linear, state["weight"])
-    if state["bias"] is not None:
-        linear = eqx.tree_at(lambda layer: layer.bias, linear, state["bias"])
-    return linear
-
-
 def _extract_dora_delta(model: PyTree) -> FineTuneBundle:
     entries = []
     stripped = model
@@ -825,16 +808,6 @@ def _check_schema(bundle: FineTuneBundle) -> None:
             f"Unsupported fine-tuning bundle schema_version={bundle.schema_version!r}; "
             "expected 1."
         )
-
-
-def _bundle_get_path(model: PyTree, path: tuple[str | int, ...], *, method_name: str):
-    try:
-        return get_path(model, path)
-    except (AttributeError, IndexError, KeyError, TypeError) as error:
-        raise FineTuneBundleError(
-            f"{method_name} delta expects path {path_to_str(path)}, "
-            "but the base model has no matching leaf."
-        ) from error
 
 
 def _scale_shift_dim(module: eqx.Module) -> int:
@@ -1194,18 +1167,13 @@ def _param_count(tree: PyTree) -> int:
 
 
 def _checkpoint_hash(tree: PyTree) -> str:
-    digest = hashlib.sha256()
-    for key_path, leaf in jtu.tree_leaves_with_path(
-        eqx.filter(tree, eqx.is_inexact_array)
-    ):
-        if not eqx.is_inexact_array(leaf):
-            continue
-        array = np.asarray(leaf)
-        digest.update(path_to_str(key_path_to_path(key_path)).encode())
-        digest.update(str(array.shape).encode())
-        digest.update(str(array.dtype).encode())
-        digest.update(array.tobytes())
-    return f"sha256:{digest.hexdigest()}"
+    return hash_inexact_pytree(
+        tree,
+        include_head=True,
+        include_values=True,
+        logical_ids_only=False,
+        prefix="sha256:",
+    )
 
 
 def _check_base_checkpoint(base_model: PyTree, bundle: FineTuneBundle) -> None:

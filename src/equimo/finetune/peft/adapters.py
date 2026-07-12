@@ -18,6 +18,14 @@ from ..heads import ActivationName
 from ..paths import key_path_to_path, path_to_str, str_to_path
 from ..selectors import resolve_target
 from ..tags import Tagger, canonical_tags_for_path
+from ._compat import (
+    bundle_get_path as _bundle_get_path,
+    is_linear_like as _is_linear_like,
+    linear_bias as _linear_bias,
+    linear_from_state as _linear_from_state,
+    linear_state as _linear_state,
+    linear_weight as _linear_weight,
+)
 from .base import get_path
 from .lora import architecture_hash
 
@@ -1208,16 +1216,6 @@ def _wrapper_from_entry(block: eqx.Module, entry: dict[str, Any]):
     raise FineTuneBundleError(f"Unknown adapter wrapper class {entry['class']!r}.")
 
 
-def _bundle_get_path(model: PyTree, path: Path, *, method_name: str):
-    try:
-        return get_path(model, path)
-    except (AttributeError, IndexError, KeyError, TypeError) as error:
-        raise FineTuneBundleError(
-            f"{method_name} delta expects path {path_to_str(path)}, "
-            "but the base model has no matching leaf."
-        ) from error
-
-
 def _bottleneck_state(adapter: BottleneckAdapter) -> dict[str, Any]:
     return {
         "dim": adapter.down.in_features,
@@ -1427,32 +1425,6 @@ def _linear_module_path(path: Path) -> Path:
     return path
 
 
-def _is_linear_like(module: Any) -> bool:
-    weight = getattr(module, "weight", None)
-    return (
-        callable(module)
-        and weight is not None
-        and eqx.is_inexact_array(weight)
-        and weight.ndim == 2
-    )
-
-
-def _linear_weight(module: Any) -> jax.Array:
-    weight = getattr(module, "weight", None)
-    if weight is None or not eqx.is_inexact_array(weight) or weight.ndim != 2:
-        raise TypeError(f"{type(module).__name__} is not a linear-like module.")
-    return weight
-
-
-def _linear_bias(module: Any) -> jax.Array | None:
-    bias = getattr(module, "bias", None)
-    if bias is None:
-        return None
-    if not eqx.is_inexact_array(bias):
-        raise TypeError(f"{type(module).__name__}.bias is not an inexact array.")
-    return bias
-
-
 def _linear_call(weight: jax.Array, bias: jax.Array | None, x: jax.Array) -> jax.Array:
     if x.ndim == 1:
         y = weight @ x
@@ -1621,32 +1593,6 @@ def _layer_norm_from_state(state: dict[str, Any]) -> eqx.nn.LayerNorm:
     if state.get("bias") is not None:
         norm = eqx.tree_at(lambda layer: layer.bias, norm, state["bias"])
     return norm
-
-
-def _linear_state(linear: eqx.nn.Linear) -> dict[str, Any]:
-    return {
-        "in_features": linear.in_features,
-        "out_features": linear.out_features,
-        "use_bias": linear.bias is not None,
-        "weight": linear.weight,
-        "bias": linear.bias,
-    }
-
-
-def _linear_from_state(state: dict[str, Any]) -> eqx.nn.Linear:
-    linear = cast(
-        eqx.nn.Linear,
-        eqx.nn.Linear(
-            int(state["in_features"]),
-            int(state["out_features"]),
-            use_bias=bool(state["use_bias"]),
-            key=jr.PRNGKey(0),
-        ),
-    )
-    linear = eqx.tree_at(lambda layer: layer.weight, linear, state["weight"])
-    if state["bias"] is not None:
-        linear = eqx.tree_at(lambda layer: layer.bias, linear, state["bias"])
-    return linear
 
 
 def _target_block_paths(

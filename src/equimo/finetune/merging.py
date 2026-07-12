@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 from dataclasses import dataclass, field
 from typing import Any, Callable, Mapping, Protocol, Sequence
 
@@ -10,11 +9,11 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
-import numpy as np
 
 from ._typing import PyTree
 from .config import FineTuneBundle, ModelLineage
-from .paths import key_path_to_path, path_to_str
+from .paths import key_path_to_path
+from .peft._compat import hash_inexact_pytree, is_head_path as _is_head_path
 
 
 @dataclass(frozen=True)
@@ -1278,47 +1277,33 @@ def _check_vector_compatibility(
 
 
 def _architecture_hash(model: PyTree, *, include_head: bool) -> str:
-    digest = hashlib.sha256()
-    for key_path, leaf in _iter_hashable_leaves(model, include_head=include_head):
-        array = jnp.asarray(leaf)
-        digest.update(path_to_str(key_path_to_path(key_path)).encode())
-        digest.update(str(tuple(array.shape)).encode())
-        digest.update(str(array.dtype).encode())
-    return digest.hexdigest()
+    return hash_inexact_pytree(
+        model,
+        include_head=include_head,
+        include_values=False,
+        logical_ids_only=False,
+        prefix="",
+    )
 
 
 def _logical_id_table_hash(model: PyTree, *, include_head: bool) -> str:
-    digest = hashlib.sha256()
-    for key_path, _leaf in _iter_hashable_leaves(model, include_head=include_head):
-        digest.update(path_to_str(key_path_to_path(key_path)).encode())
-        digest.update(b"\0")
-    return digest.hexdigest()
+    return hash_inexact_pytree(
+        model,
+        include_head=include_head,
+        include_values=False,
+        logical_ids_only=True,
+        prefix="",
+    )
 
 
 def _checkpoint_hash(model: PyTree, *, include_head: bool) -> str:
-    digest = hashlib.sha256()
-    for key_path, leaf in _iter_hashable_leaves(model, include_head=include_head):
-        array = np.asarray(leaf)
-        digest.update(path_to_str(key_path_to_path(key_path)).encode())
-        digest.update(str(tuple(array.shape)).encode())
-        digest.update(str(array.dtype).encode())
-        digest.update(array.tobytes())
-    return digest.hexdigest()
-
-
-def _iter_hashable_leaves(model: PyTree, *, include_head: bool):
-    filtered = eqx.filter(model, eqx.is_inexact_array)
-    for key_path, leaf in jtu.tree_leaves_with_path(filtered):
-        path = key_path_to_path(key_path)
-        if not eqx.is_inexact_array(leaf):
-            continue
-        if not include_head and _is_head_path(path):
-            continue
-        yield key_path, leaf
-
-
-def _is_head_path(path) -> bool:
-    return any(str(part) in {"head", "classifier"} for part in path)
+    return hash_inexact_pytree(
+        model,
+        include_head=include_head,
+        include_values=True,
+        logical_ids_only=False,
+        prefix="",
+    )
 
 
 def _base_hash_metadata(model: PyTree) -> str | None:

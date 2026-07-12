@@ -24,6 +24,13 @@ from ..config import (
 from ..paths import key_path_to_path, path_to_str, str_to_path
 from ..selectors import resolve_target
 from ..tags import Tagger, canonical_tags_for_path
+from ._compat import (
+    bundle_get_path as _bundle_get_path,
+    hash_inexact_pytree,
+    is_linear_like as _is_linear_like,
+    linear_bias as _linear_bias,
+    linear_weight as _linear_weight,
+)
 from .base import get_path
 
 
@@ -1709,18 +1716,13 @@ def apply_lora_rank_pattern(
 def architecture_hash(model: PyTree) -> str:
     """Hash parameter paths, shapes, and dtypes for compatibility checks."""
 
-    import hashlib
-
-    digest = hashlib.sha256()
-    filtered = eqx.filter(model, eqx.is_inexact_array)
-    for key_path, leaf in jtu.tree_leaves_with_path(filtered):
-        if not eqx.is_inexact_array(leaf):
-            continue
-        path = path_to_str(key_path_to_path(key_path))
-        digest.update(path.encode())
-        digest.update(str(tuple(leaf.shape)).encode())
-        digest.update(str(leaf.dtype).encode())
-    return digest.hexdigest()
+    return hash_inexact_pytree(
+        model,
+        include_head=True,
+        include_values=False,
+        logical_ids_only=False,
+        prefix="",
+    )
 
 
 def _target_linear_module_paths(
@@ -1751,16 +1753,6 @@ def _target_linear_module_paths(
     if not paths and not target.allow_empty:
         raise ValueError("TargetSpec resolved no LoRA linear modules.")
     return tuple(sorted(paths, key=path_to_str))
-
-
-def _bundle_get_path(model: PyTree, path: Path, *, method_name: str):
-    try:
-        return get_path(model, path)
-    except (AttributeError, IndexError, KeyError, TypeError) as error:
-        raise FineTuneBundleError(
-            f"{method_name} delta expects path {path_to_str(path)}, "
-            "but the base model has no matching leaf."
-        ) from error
 
 
 def _entry_metadata(entry: Mapping[str, Any]) -> dict[str, str]:
@@ -1976,32 +1968,6 @@ def _scaling(mode: ScalingMode, alpha: float, rank: int) -> float:
     if mode == "alpha_over_sqrt_r":
         return float(alpha / jnp.sqrt(rank))
     raise ValueError(f"Unsupported LoRA scaling mode {mode!r}.")
-
-
-def _is_linear_like(module: Any) -> bool:
-    weight = getattr(module, "weight", None)
-    return (
-        callable(module)
-        and weight is not None
-        and eqx.is_inexact_array(weight)
-        and weight.ndim == 2
-    )
-
-
-def _linear_weight(module: Any) -> jax.Array:
-    weight = getattr(module, "weight", None)
-    if weight is None or not eqx.is_inexact_array(weight) or weight.ndim != 2:
-        raise TypeError(f"{type(module).__name__} is not a linear-like module.")
-    return weight
-
-
-def _linear_bias(module: Any) -> jax.Array | None:
-    bias = getattr(module, "bias", None)
-    if bias is None:
-        return None
-    if not eqx.is_inexact_array(bias):
-        raise TypeError(f"{type(module).__name__}.bias is not an inexact array.")
-    return bias
 
 
 def _restore_base_weight(module: LoRALinear) -> eqx.Module:
