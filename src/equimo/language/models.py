@@ -64,10 +64,20 @@ class TransformerEncoderStack(eqx.Module):
         key: PRNGKeyArray,
         inference: Optional[bool] = None,
         mask: Optional[Float[Array, ""]] = None,
+        *,
+        attn_mask: Optional[Float[Array, ""]] = None,
+        ffn_mask: Optional[Float[Array, ""]] = None,
     ) -> Float[Array, "seqlen dim"]:
         keys = jr.split(key, len(self.blocks))
         for block, block_key in zip(self.blocks, keys):
-            x = block(x, mask=mask, inference=inference, key=block_key)
+            x = block(
+                x,
+                mask=mask,
+                attn_mask=attn_mask,
+                ffn_mask=ffn_mask,
+                inference=inference,
+                key=block_key,
+            )
         return x
 
     def intermediate_features(
@@ -78,6 +88,9 @@ class TransformerEncoderStack(eqx.Module):
         mask: Optional[Float[Array, ""]] = None,
         indices: Sequence[int] | None = None,
         n_last_blocks: int | None = None,
+        *,
+        attn_mask: Optional[Float[Array, ""]] = None,
+        ffn_mask: Optional[Float[Array, ""]] = None,
     ) -> Tuple[Float[Array, "seqlen dim"], ...]:
         """Return selected native transformer block outputs."""
 
@@ -89,7 +102,14 @@ class TransformerEncoderStack(eqx.Module):
         keys = jr.split(key, len(self.blocks))
         outputs = []
         for i, (block, block_key) in enumerate(zip(self.blocks, keys)):
-            x = block(x, mask=mask, inference=inference, key=block_key)
+            x = block(
+                x,
+                mask=mask,
+                attn_mask=attn_mask,
+                ffn_mask=ffn_mask,
+                inference=inference,
+                key=block_key,
+            )
             if i in wanted:
                 outputs.append(x)
         return tuple(outputs)
@@ -181,7 +201,13 @@ class TextTransformerEncoder(eqx.Module):
             x = x * (self.dim**0.5)
 
         x = x + self.posemb(seq_len=seq_len)
-        x = self.transformer(x, mask=valid_mask[:, None], inference=inference, key=key)
+        x = self.transformer(
+            x,
+            mask=valid_mask[None, None, :],
+            ffn_mask=valid_mask[:, None],
+            inference=inference,
+            key=key,
+        )
         return jax.vmap(self.ln_final)(x)
 
     def intermediate_features(
@@ -204,7 +230,8 @@ class TextTransformerEncoder(eqx.Module):
         x = x + self.posemb(seq_len=seq_len)
         return self.transformer.intermediate_features(
             x,
-            mask=valid_mask[:, None],
+            mask=valid_mask[None, None, :],
+            ffn_mask=valid_mask[:, None],
             inference=inference,
             key=key,
             indices=indices,

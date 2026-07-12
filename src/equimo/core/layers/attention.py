@@ -234,7 +234,12 @@ class Attention(eqx.Module):
 
 @register_attn_block()
 class AttentionBlock(eqx.Module):
-    """Pre-norm transformer block for sequence tensors."""
+    """Pre-norm transformer block for sequence tensors.
+
+    ``mask`` applies to both attention and the feed-forward layer by default.
+    ``attn_mask`` and ``ffn_mask`` override it when those layers need masks with
+    different axis layouts.
+    """
 
     prenorm: eqx.Module
     postnorm: eqx.Module
@@ -335,15 +340,21 @@ class AttentionBlock(eqx.Module):
         x: Float[Array, "seqlen dim"],
         key: PRNGKeyArray,
         inference: Optional[bool] = None,
+        *,
+        mask: Optional[Float[Array, ""]] = None,
+        attn_mask: Optional[Float[Array, ""]] = None,
+        ffn_mask: Optional[Float[Array, ""]] = None,
         **kwargs,
     ) -> Float[Array, "seqlen dim"]:
         key_attn, key_mlp, key_dr1, key_dr2 = jr.split(key, 4)
-        mask = kwargs.get("mask")
-        extra_kwargs = {"mask": mask} if mask is not None else {}
+        attn_mask = mask if attn_mask is None else attn_mask
+        ffn_mask = mask if ffn_mask is None else ffn_mask
+        attn_kwargs = {"mask": attn_mask} if attn_mask is not None else {}
+        ffn_kwargs = {"mask": ffn_mask} if ffn_mask is not None else {}
         attn_kwargs = (
-            extra_kwargs | {"rope_sincos": kwargs["rope_sincos"]}
+            attn_kwargs | {"rope_sincos": kwargs["rope_sincos"]}
             if kwargs.get("rope_sincos") is not None
-            else extra_kwargs
+            else attn_kwargs
         )
         x = self.drop_path1(
             x,
@@ -367,7 +378,7 @@ class AttentionBlock(eqx.Module):
                     jax.vmap(self.norm)(x),
                     inference=inference,
                     key=key_mlp,
-                    **extra_kwargs,
+                    **ffn_kwargs,
                 )
             ),
             inference=inference,
