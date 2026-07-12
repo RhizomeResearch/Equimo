@@ -140,7 +140,8 @@ class BlockChunk(eqx.Module):
         Args:
             x: Input feature tensor
             qa: Query attention token
-            inference: Whether to enable dropout
+            inference: Whether to run stochastic layers in inference mode;
+                True disables dropout and drop-path.
             key: PRNG key for random operations
 
         Returns:
@@ -317,7 +318,8 @@ class PartialFormer(eqx.Module):
 
         Args:
             x: Input image tensor
-            inference: Whether to enable dropout during inference
+            inference: Whether to run stochastic layers in inference mode;
+                True disables dropout and drop-path.
             key: PRNG key for random operations
 
         Returns:
@@ -385,7 +387,8 @@ class PartialFormer(eqx.Module):
 
         Args:
             x: Input image tensor
-            inference: Whether to enable dropout during inference
+            inference: Whether to run stochastic layers in inference mode;
+                True disables dropout and drop-path.
             key: PRNG key for random operations
 
         Returns:

@@ -225,7 +225,8 @@ class LowFormer(eqx.Module):
 
         Args:
             x: Input image tensor
-            inference: Whether to enable dropout during inference
+            inference: Whether to run stochastic layers in inference mode;
+                True disables dropout and drop-path.
             key: PRNG key for random operations
 
         Returns:
@@ -280,7 +281,8 @@ class LowFormer(eqx.Module):
 
         Args:
             x: Input image tensor
-            inference: Whether to enable dropout during inference
+            inference: Whether to run stochastic layers in inference mode;
+                True disables dropout and drop-path.
             key: PRNG key for random operations
 
         Returns:
