@@ -28,6 +28,7 @@ from equimo.core.layers.activation import get_act
 from equimo.core.layers.generic import BlockChunk
 from equimo.core.layers.norm import get_norm
 from equimo.registry import register_model
+from equimo.vision.layers import get_layer
 
 # Size configurations matching the original ConvNeXt paper.
 convnext_sizes: dict[str, dict] = {
@@ -113,6 +114,7 @@ class ConvNeXt(eqx.Module):
                     downsample_last=False,
                     drop_path=dpr[sum(depths[:i]) : sum(depths[: i + 1])],
                     init_values=layer_scale_init_value,
+                    layer_resolver=get_layer,
                     key=_k,
                 )
             )

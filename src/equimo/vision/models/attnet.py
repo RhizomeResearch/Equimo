@@ -27,6 +27,7 @@ from equimo.core.layers.activation import get_act
 from equimo.core.layers.generic import BlockChunk
 from equimo.core.layers.norm import get_norm
 from equimo.registry import register_model
+from equimo.vision.layers import get_layer
 
 
 @register_model("attnet", modality="vision")
@@ -94,6 +95,7 @@ class AttNet(eqx.Module):
                     downsampler="convnormdownsampler",
                     downsampler_kwargs={"mode": "double" if i == 0 else "simple"},
                     drop_path=dpr[sum(depths[:i]) : sum(depths[: i + 1])],
+                    layer_resolver=get_layer,
                     key=_k,
                 )
             )

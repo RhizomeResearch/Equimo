@@ -1,11 +1,17 @@
 """Tests for equimo.vision.layers.attention."""
 
+import sys
+
 import jax
 import jax.numpy as jnp
 import jax.random as jr
 import pytest
 import equinox as eqx
 
+from equimo.core.layers import Attention as CoreAttention
+from equimo.core.layers import DropPath, Mamba2Mixer, Mlp
+from equimo.core.layers import get_layer as get_core_layer
+from equimo.vision.layers import get_layer as get_vision_layer
 from equimo.vision.layers.attention import (
     Attention,
     WindowedAttention,
@@ -134,6 +140,37 @@ class TestAttentionLayers:
     def test_registry(self):
         assert get_attn("attention") is Attention
         assert get_attn_block("attentionblock") is AttentionBlock
+
+    def test_layer_registry_is_scoped_by_modality(self):
+        assert get_core_layer("attention") is CoreAttention
+        assert get_vision_layer("attention") is Attention
+
+    @pytest.mark.parametrize(
+        "name, cls",
+        [
+            ("mlp", Mlp),
+            ("layernorm", eqx.nn.LayerNorm),
+            ("droppath", DropPath),
+            ("mamba2mixer", Mamba2Mixer),
+        ],
+    )
+    def test_vision_layer_registry_includes_shared_core_families(self, name, cls):
+        assert get_vision_layer(name) is cls
+
+    def test_unknown_layer_lists_only_names_in_scope(self):
+        with pytest.raises(ValueError) as core_error:
+            get_core_layer("missing")
+        with pytest.raises(ValueError) as vision_error:
+            get_vision_layer("missing")
+
+        assert "convnextblock" not in str(core_error.value)
+        assert "convnextblock" in str(vision_error.value)
+
+    def test_vision_registry_import_failure_is_surfaced(self, monkeypatch):
+        monkeypatch.setitem(sys.modules, "equimo.vision.layers.convolution", None)
+
+        with pytest.raises(ModuleNotFoundError, match="convolution"):
+            get_vision_layer("attention")
 
     def test_low_precision(self):
         model = Attention(DIM, NUM_HEADS, key=KEY)

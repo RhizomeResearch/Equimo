@@ -20,6 +20,7 @@ from equimo.core.layers.generic import BlockChunk
 from equimo.core.layers.norm import get_norm
 from equimo.registry import register_model
 from equimo.utils import make_drop_path_schedule, to_list
+from equimo.vision.layers import get_layer
 
 
 @register_model("mlla", modality="vision")
@@ -143,6 +144,7 @@ class Mlla(eqx.Module):
                 else {},
                 downsample_last=True,
                 drop_path=dpr[sum(depths[:i]) : sum(depths[: i + 1])],
+                layer_resolver=get_layer,
                 key=block_subkeys[i],
             )
             for i, depth in enumerate(depths)

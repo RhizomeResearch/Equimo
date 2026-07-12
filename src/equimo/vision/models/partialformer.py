@@ -21,8 +21,8 @@ from equimo.core.layers.activation import get_act
 from equimo.vision.layers.attention import get_attn_block
 from equimo.vision.layers.convolution import Stem
 from equimo.core.layers.ffn import get_ffn
-from equimo.core.layers.generic import _resolve_layer
 from equimo.core.layers.norm import get_norm
+from equimo.vision.layers import get_layer
 from equimo.vision.layers.posemb import PosCNN
 from equimo.registry import register_model
 from equimo.utils import to_list
@@ -70,9 +70,9 @@ class BlockChunk(eqx.Module):
         **kwargs,
     ):
         key_ds, key_pos, key_qaproj, *block_subkeys = jr.split(key, depth + 3)
-        block = _resolve_layer(block)
+        block = get_layer(block)
         if isinstance(downsampler, str):
-            downsampler = _resolve_layer(downsampler)
+            downsampler = get_layer(downsampler)
         qa_act_layer = get_act(qa_act_layer)
         qa_norm_layer = get_norm(qa_norm_layer)
         if not isinstance(downsampler, eqx.nn.Identity) or use_cpe:

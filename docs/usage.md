@@ -122,17 +122,26 @@ local archive or directory depending on the compression option.
 ## Registries
 
 Equimo registries let model constructors accept string names for layers and
-blocks. Register custom components with the corresponding decorator, then pass
-the registered name into a model or `BlockChunk` configuration:
+blocks. Layer lookup is scoped by modality: the core resolver sees only shared
+core layers, while the vision resolver also sees vision layers and prefers the
+vision class when a name exists in both scopes.
 
 ```python
+from equimo.core.layers import Attention as CoreAttention
+from equimo.core.layers import get_layer as get_core_layer
 from equimo.registry import get_model_cls
+from equimo.vision.layers import Attention as VisionAttention
+from equimo.vision.layers import get_layer as get_vision_layer
 
 vit_cls = get_model_cls("vit", modality="vision")
+assert get_core_layer("attention") is CoreAttention
+assert get_vision_layer("attention") is VisionAttention
 ```
 
 When the same model name exists in more than one modality, pass `modality=` to
-avoid ambiguity.
+avoid ambiguity. For layer names shared by core and vision, choose the resolver
+for the intended modality; use a family resolver such as `get_attn` when you
+want to target that registry directly.
 
 ## Runnable Examples
 

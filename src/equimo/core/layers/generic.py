@@ -1,7 +1,7 @@
 # ty: ignore[call-non-callable]
 # ty: ignore[unknown-argument]
 # ty: ignore[invalid-assignment]
-from typing import Optional, Sequence, Tuple
+from typing import Callable, Optional, Sequence, Tuple
 
 import equinox as eqx
 import jax
@@ -11,18 +11,13 @@ from einops import rearrange
 from jaxtyping import Array, Float, PRNGKeyArray
 
 from equimo.core.intermediates import intermediate_indices
+from equimo.core.layers._registry import _resolve_from_registries
 from equimo.core.layers.dropout import DropPathAdd
 from equimo.core.layers.norm import LayerScale
 
 
-def _resolve_layer(name_or_cls: "str | type[eqx.Module]") -> "type[eqx.Module]":
-    """Resolve a layer class from its registered name.
-
-    Searches all known registries in priority order. Accepts a class directly
-    (returned as-is) or a string key (looked up across all registries).
-
-    Priority order: attn_block → conv → mixer → posemb → downsampler →
-    patch → attn → norm → ffn → dropout → se → wavelet.
+def get_layer(name_or_cls: str | type[eqx.Module]) -> type[eqx.Module]:
+    """Resolve a class from the core layer registries.
 
     Args:
         name_or_cls: A registered name (case-insensitive) or an eqx.Module subclass.
@@ -31,69 +26,38 @@ def _resolve_layer(name_or_cls: "str | type[eqx.Module]") -> "type[eqx.Module]":
         The resolved module class.
 
     Raises:
-        ValueError: If the name is not found in any registry.
+        ValueError: If the name is not found in the core layer scope.
     """
     if not isinstance(name_or_cls, str):
         return name_or_cls
 
-    name_lower = name_or_cls.lower()
-
-    # Lazy imports to avoid circular dependencies at module load time.
     from equimo.core.layers.attention import (
-        _ATTN_BLOCK_REGISTRY as _CORE_ATTN_BLOCK_REGISTRY,
-        _ATTN_REGISTRY as _CORE_ATTN_REGISTRY,
+        _ATTN_BLOCK_REGISTRY,
+        _ATTN_REGISTRY,
     )
     from equimo.core.layers.dropout import _DROPOUT_REGISTRY
     from equimo.core.layers.ffn import _FFN_REGISTRY
     from equimo.core.layers.mamba import _MIXER_REGISTRY
     from equimo.core.layers.norm import _NORM_REGISTRY
 
-    try:
-        from equimo.vision.layers.attention import (
-            _ATTN_BLOCK_REGISTRY as _VISION_ATTN_BLOCK_REGISTRY,
-            _ATTN_REGISTRY as _VISION_ATTN_REGISTRY,
-        )
-        from equimo.vision.layers.convolution import _CONV_REGISTRY
-        from equimo.vision.layers.downsample import _DOWNSAMPLER_REGISTRY
-        from equimo.vision.layers.patch import _PATCH_REGISTRY
-        from equimo.vision.layers.posemb import _POSEMB_REGISTRY
-        from equimo.vision.layers.squeeze_excite import _SE_REGISTRY
-        from equimo.vision.layers.wavelet import _WAVELET_REGISTRY
-    except ImportError:
-        _VISION_ATTN_BLOCK_REGISTRY = {}
-        _VISION_ATTN_REGISTRY = {}
-        _CONV_REGISTRY = {}
-        _DOWNSAMPLER_REGISTRY = {}
-        _PATCH_REGISTRY = {}
-        _POSEMB_REGISTRY = {}
-        _SE_REGISTRY = {}
-        _WAVELET_REGISTRY = {}
-
-    registries = [
-        ("attn_block", _CORE_ATTN_BLOCK_REGISTRY),
-        ("vision_attn_block", _VISION_ATTN_BLOCK_REGISTRY),
-        ("conv", _CONV_REGISTRY),
-        ("mixer", _MIXER_REGISTRY),
-        ("posemb", _POSEMB_REGISTRY),
-        ("downsampler", _DOWNSAMPLER_REGISTRY),
-        ("patch", _PATCH_REGISTRY),
-        ("attn", _CORE_ATTN_REGISTRY),
-        ("vision_attn", _VISION_ATTN_REGISTRY),
-        ("norm", _NORM_REGISTRY),
-        ("ffn", _FFN_REGISTRY),
-        ("dropout", _DROPOUT_REGISTRY),
-        ("se", _SE_REGISTRY),
-        ("wavelet", _WAVELET_REGISTRY),
-    ]
-
-    for _registry_name, registry in registries:
-        if name_lower in registry:
-            return registry[name_lower]
-
-    available = sorted(set().union(*[r.keys() for _, r in registries]))
-    raise ValueError(
-        f"Layer '{name_or_cls}' not found in any registry. Available: {available}"
+    return _resolve_from_registries(
+        name_or_cls,
+        (
+            ("attention block", _ATTN_BLOCK_REGISTRY),
+            ("mixer", _MIXER_REGISTRY),
+            ("attention", _ATTN_REGISTRY),
+            ("normalization", _NORM_REGISTRY),
+            ("feed-forward", _FFN_REGISTRY),
+            ("dropout", _DROPOUT_REGISTRY),
+        ),
+        scope="core layer",
     )
+
+
+LayerResolver = Callable[
+    [str | type[eqx.Module]],
+    type[eqx.Module],
+]
 
 
 class Residual(eqx.Module):
@@ -188,7 +152,7 @@ class WindowedSequence(eqx.Module):
         key: PRNGKeyArray,
     ):
         self.window_size = window_size
-        block_type = _resolve_layer(block_type)
+        block_type = get_layer(block_type)
         keys = jr.split(key, depth)
 
         if isinstance(drop_path, list):
@@ -300,6 +264,9 @@ class BlockChunk(eqx.Module):
             broadcast; a sequence must have length ``depth``.
         init_values: Layer-scale initialisation value passed to each block.
             Skipped (not forwarded) when ``None``.
+        layer_resolver: Resolver used for string-valued layer arguments. Defaults
+            to the core layer scope; vision callers should inject
+            ``equimo.vision.layers.get_layer``.
         key: PRNG key for parameter initialisation.
 
     Attributes:
@@ -333,6 +300,7 @@ class BlockChunk(eqx.Module):
         downsample_last: bool = False,
         drop_path: float | Sequence[float] = 0.0,
         init_values: float | None = None,
+        layer_resolver: LayerResolver = get_layer,
         key: PRNGKeyArray,
     ):
         assert module is not None or downsampler is not None, (
@@ -341,11 +309,11 @@ class BlockChunk(eqx.Module):
 
         # Resolve string names to classes via the layer registries.
         if module is not None:
-            module = _resolve_layer(module)
+            module = layer_resolver(module)
         if posemb is not None:
-            posemb = _resolve_layer(posemb)
+            posemb = layer_resolver(posemb)
         if downsampler is not None:
-            downsampler = _resolve_layer(downsampler)
+            downsampler = layer_resolver(downsampler)
 
         key_ds, key_pos, *block_subkeys = jr.split(key, depth + 2)
 

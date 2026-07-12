@@ -371,10 +371,12 @@ accept string names wherever a class would normally be passed.
 | `register_wavelet`     | Wavelet transforms     | `equimo.vision.layers` |
 | `register_model`       | Full model classes     | `equimo.registry` or modality model packages |
 
-`equimo.vision.layers.get_layer` resolves a string name across core and vision layer
-registries in priority order, so `BlockChunk` and vision model constructors can accept
-a single string for any layer type. `equimo.core.layers.get_layer` is available for
-shared/core-only code.
+Layer resolution is scoped by modality. `equimo.core.layers.get_layer` searches
+only core registries. `equimo.vision.layers.get_layer` composes vision registries
+with the shared core FFN, normalization, dropout, and mixer families; when a name
+such as `"attention"` exists in both scopes, the vision resolver deliberately
+returns the vision class. Choose the resolver for the intended modality, or use a
+family resolver such as `get_attn` to avoid cross-family ambiguity.
 
 Model registration is modality-aware:
 
@@ -517,7 +519,7 @@ vision architectures. It groups a sequence of identical blocks with optional pos
 embedding and downsampling, and handles stochastic depth scheduling automatically.
 
 ```python
-from equimo.vision.layers import BlockChunk
+from equimo.vision.layers import BlockChunk, get_layer
 from equimo.vision.layers.attention import AttentionBlock
 from equimo.vision.layers.downsample import ConvNormDownsampler
 import jax.random as jr
@@ -534,6 +536,7 @@ stage = BlockChunk(
     downsampler_kwargs={},         # in_channels/out_channels injected automatically
     downsample_last=True,          # blocks run first, then downsample
     drop_path=0.1,
+    layer_resolver=get_layer,      # resolve strings in the vision scope
     key=key,
 )
 ```

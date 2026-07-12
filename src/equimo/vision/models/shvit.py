@@ -21,6 +21,7 @@ from equimo.core.layers.generic import BlockChunk, Residual
 from equimo.core.layers.norm import get_norm
 from equimo.registry import register_model
 from equimo.utils import nearest_power_of_2_divisor, to_list
+from equimo.vision.layers import get_layer
 
 
 class BasicBlock(eqx.Module):
@@ -235,6 +236,7 @@ class SHViT(eqx.Module):
                 downsampler_needs_key=i < len(depths) - 1,
                 downsample_last=True,
                 drop_path=dpr[i],
+                layer_resolver=get_layer,
                 key=block_subkeys[i],
             )
             for i, depth in enumerate(depths)

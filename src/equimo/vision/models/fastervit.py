@@ -18,8 +18,8 @@ from equimo.core.layers.activation import get_act
 from equimo.vision.layers.attention import HATBlock
 from equimo.vision.layers.convolution import DoubleConvBlock
 from equimo.core.layers.ffn import get_ffn
-from equimo.core.layers.generic import _resolve_layer
 from equimo.core.layers.norm import get_norm
+from equimo.vision.layers import get_layer
 from equimo.vision.layers.patch import ConvPatchEmbed
 from equimo.registry import register_model
 from equimo.utils import pool_sd, to_list
@@ -129,8 +129,8 @@ class BlockChunk(eqx.Module):
         ct_size: int = 1,
         **kwargs,
     ):
-        block = _resolve_layer(block)
-        downsampler = _resolve_layer(downsampler)
+        block = get_layer(block)
+        downsampler = get_layer(downsampler)
         key_ds, key_gt, *block_subkeys = jr.split(key, depth + 2)
         if not issubclass(downsampler, eqx.nn.Identity):
             if kwargs.get("dim") is None:

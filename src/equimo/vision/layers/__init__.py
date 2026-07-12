@@ -112,7 +112,6 @@ from equimo.core.layers.generic import (
     BlockChunk,
     Residual,
     WindowedSequence,
-    _resolve_layer as get_layer,
 )
 from equimo.core.layers.mamba import Mamba2Mixer, get_mixer, register_mixer
 from equimo.core.layers.norm import (
@@ -184,3 +183,4 @@ from .squeeze_excite import (
     register_se,
 )
 from .wavelet import HWDConv, get_wavelet, register_wavelet
+from .registry import get_layer
