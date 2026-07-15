@@ -1049,23 +1049,27 @@ def make_attention_pool_probe(
 
 def _call_with_optional_key(fn, *args, key, inference, **kwargs):
     call_kwargs = dict(kwargs)
-    if key is not None:
+    if key is not None and _accepts_keyword(fn, "key"):
         call_kwargs["key"] = key
-    if inference is not None:
+    if inference is not None and _accepts_keyword(fn, "inference"):
         call_kwargs["inference"] = inference
+    return fn(*args, **call_kwargs)
+
+
+def _accepts_keyword(fn, name: str) -> bool:
     try:
-        return fn(*args, **call_kwargs)
-    except TypeError as error:
-        if "unexpected keyword argument" not in str(error):
-            raise
-        call_kwargs.pop("inference", None)
-        try:
-            return fn(*args, **call_kwargs)
-        except TypeError as second_error:
-            if "unexpected keyword argument" not in str(second_error):
-                raise
-            call_kwargs.pop("key", None)
-            return fn(*args, **call_kwargs)
+        parameters = inspect.signature(fn).parameters
+    except (TypeError, ValueError):
+        return True
+    parameter = parameters.get(name)
+    if (
+        parameter is not None
+        and parameter.kind is not inspect.Parameter.POSITIONAL_ONLY
+    ):
+        return True
+    return any(
+        item.kind is inspect.Parameter.VAR_KEYWORD for item in parameters.values()
+    )
 
 
 def _call_forward_features(model: PyTree, *args, key, inference, **kwargs):
@@ -1333,12 +1337,12 @@ def _call_head(
     if not callable(head):
         raise TypeError(f"{type(head).__name__} is not callable.")
     callable_head = cast(Callable[..., object], head)
-    try:
-        return callable_head(x, key=key, inference=inference)
-    except TypeError as error:
-        if "unexpected keyword argument" not in str(error):
-            raise
-        return callable_head(x)
+    return _call_with_optional_key(
+        callable_head,
+        x,
+        key=key,
+        inference=inference,
+    )
 
 
 __all__ = (

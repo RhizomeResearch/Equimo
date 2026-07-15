@@ -63,6 +63,9 @@ This is a breaking layout change. The old top-level `equimo.models`,
 `equimo.layers`, `equimo.io`, `equimo.implicit`, and `equimo.experimental`
 entrypoints are intentionally removed.
 
+For the complete upgrade checklist and compatibility boundary, see the
+[v2 migration guide](docs/migration-v2.md) and [stability policy](docs/stability.md).
+
 ### Migration Cheat Sheet
 
 | Old import | New import |
@@ -674,6 +677,13 @@ model = dinov2_vits14_reg(pretrained=False, dynamic_img_size=True)
 model = load_weights(model, path=Path("path/to/model/"))
 ```
 
+New v2 archives validate their version, model structure, and SHA-256 digest
+before deserialization. Existing archives uploaded during the v2 alpha series
+remain loadable without being regenerated. Equimo v1 archives and the removed
+metadata-driven `load_model` API are not part of the v2 compatibility contract.
+Built-in downloads are also checked against the SHA-256 digest recorded at the
+pinned Hugging Face repository revision.
+
 Constructor parameters are controlled when building the target model:
 
 ```python
@@ -706,7 +716,7 @@ The following models have pretrained weights available in Equimo:
 - [AST](https://arxiv.org/abs/2104.01778)
 - [TabPFN-3](https://arxiv.org/abs/2605.13986)
 
-Model identifiers map to filenames in Equimo's [HuggingFace repository](https://huggingface.co/poiretclement/equimo/tree/main/models/default).
+Model identifiers map to filenames in Equimo's [Hugging Face repository](https://huggingface.co/poiretclement/equimo/tree/bdf43d88f504d6fc3fc7850eb053df0bd762989c/models/default).
 
 The experimental catalog currently covers one representative model per
 modality. Catalog keys use an explicit `<modality>/<variant>` namespace:
@@ -867,7 +877,7 @@ change.
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is licensed under the MIT License; see [LICENSE.md](LICENSE.md).
 
 ## Citation
 

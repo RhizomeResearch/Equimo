@@ -118,23 +118,18 @@ class TestDINOHead:
         x = jr.normal(KEY, (SEQLEN, DIM))
         assert head(x).shape == (SEQLEN, 16)
 
-    def test_l2_norm_before_last_layer(self):
-        """Intermediate features after fc3+act are L2-normalised row-wise."""
+    def test_official_bottleneck_is_linear_before_l2_norm(self):
+        """The final MLP projection is linear before L2 normalization."""
         head = DINOHead(DIM, 32, key=KEY)
         x = jr.normal(KEY, (SEQLEN, DIM))
 
-        # Replicate the forward pass up to the norm step
         act = head.act_layer
         h = act(jax.vmap(head.fc1)(x))
         h = act(jax.vmap(head.fc2)(h))
-        h = act(jax.vmap(head.fc3)(h))
-        norms = jnp.linalg.norm(h, axis=-1)
-        assert jnp.all(norms > 0)  # sanity: nonzero before normalisation
+        h = jax.vmap(head.fc3)(h)
+        h = h / (jnp.linalg.norm(h, axis=-1, keepdims=True) + 1e-12)
 
-        eps = 1e-12
-        h_normed = h / (norms[..., None] + eps)
-        row_norms = jnp.linalg.norm(h_normed, axis=-1)
-        assert jnp.allclose(row_norms, jnp.ones_like(row_norms), atol=1e-5)
+        assert jnp.allclose(head(x), head.last(h), rtol=1e-5, atol=1e-5)
 
 
 # Mlp

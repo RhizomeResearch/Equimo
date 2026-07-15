@@ -21,17 +21,25 @@ def key_path_to_path(key_path: tuple[Any, ...]) -> Path:
 
 
 def path_to_str(path: Path) -> str:
-    """Format a path as a dot-separated string."""
+    """Format a path as an unambiguous dot-separated string.
 
-    return ".".join(str(part) for part in path)
+    Ordinary identifier-like paths keep their historical representation. Dots and
+    backslashes inside string components are escaped, while integer-looking string
+    components use a ``\\s`` prefix so they cannot be confused with sequence indices.
+    """
+
+    return ".".join(_format_path_part(part) for part in path)
 
 
 def str_to_path(path: str) -> Path:
-    """Parse a dot-separated path string."""
+    """Parse a path produced by :func:`path_to_str`.
+
+    Legacy unescaped paths remain supported.
+    """
 
     if not path:
         return ()
-    return tuple(_parse_path_part(part) for part in path.split("."))
+    return tuple(_decode_path_part(part) for part in _split_path(path))
 
 
 def is_path_prefix(prefix: Path, path: Path) -> bool:
@@ -131,7 +139,65 @@ def _normalise_part(part: Any) -> str | int:
 
 
 def _parse_path_part(part: str) -> str | int:
-    return int(part) if part.isdecimal() else part
+    try:
+        return int(part)
+    except ValueError:
+        return part
+
+
+def _format_path_part(part: str | int) -> str:
+    if isinstance(part, int):
+        return str(part)
+    escaped = part.replace("\\", "\\\\").replace(".", "\\.")
+    if not part or isinstance(_parse_path_part(part), int):
+        return f"\\s{escaped}"
+    return escaped
+
+
+def _split_path(path: str) -> tuple[str, ...]:
+    parts: list[str] = []
+    current: list[str] = []
+    index = 0
+    while index < len(path):
+        char = path[index]
+        if char == "\\":
+            if index + 1 >= len(path):
+                raise ValueError(
+                    "Fine-tuning path cannot end with an escape character."
+                )
+            current.extend((char, path[index + 1]))
+            index += 2
+            continue
+        if char == ".":
+            parts.append("".join(current))
+            current = []
+        else:
+            current.append(char)
+        index += 1
+    parts.append("".join(current))
+    return tuple(parts)
+
+
+def _decode_path_part(part: str) -> str | int:
+    force_string = part.startswith("\\s")
+    if force_string:
+        part = part[2:]
+
+    decoded: list[str] = []
+    index = 0
+    while index < len(part):
+        if part[index] == "\\":
+            if index + 1 >= len(part):
+                raise ValueError(
+                    "Fine-tuning path cannot end with an escape character."
+                )
+            decoded.append(part[index + 1])
+            index += 2
+        else:
+            decoded.append(part[index])
+            index += 1
+    value = "".join(decoded)
+    return value if force_string else _parse_path_part(value)
 
 
 __all__ = (

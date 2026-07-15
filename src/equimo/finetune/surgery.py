@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from typing import Any, Mapping, cast
+from collections.abc import Callable, Mapping
+from typing import Any, cast
 
 import equinox as eqx
 import jax
@@ -306,7 +306,10 @@ def _resolve_module_selector_path(
 def _get_path(tree: PyTree, path: tuple[str | int, ...]):
     node = tree
     for part in path:
-        node = node[part] if isinstance(part, int) else getattr(node, part)
+        if isinstance(node, Mapping) or isinstance(part, int):
+            node = node[part]
+        else:
+            node = getattr(node, part)
     return node
 
 

@@ -151,7 +151,7 @@ Defined in `equimo.finetune.peft.lora`.
 ## `AdaLoRAModule`
 
 ```python
-class equimo.finetune.AdaLoRAModule(base: 'eqx.Module', *, rank: 'int', alpha: 'float', key: 'jax.Array', train_base: 'bool' = False, mergeable: 'bool' = True, P: 'jax.Array | None' = None, singular: 'jax.Array | None' = None, Q: 'jax.Array | None' = None, final_mask: 'jax.Array | None' = None, metadata: 'AdaLoRAMetadata | None' = None)
+class equimo.finetune.AdaLoRAModule(base: 'eqx.Module', *, rank: 'int', alpha: 'float', key: 'jax.Array', train_base: 'bool' = False, mergeable: 'bool' = True, P: 'jax.Array | None' = None, singular: 'jax.Array | None' = None, Q: 'jax.Array | None' = None, final_mask: 'jax.Array | None' = None, metadata: 'AdaLoRAMetadata | None' = None, merged: 'bool' = False)
 ```
 
 Defined in `equimo.finetune.peft.lora`.
@@ -964,7 +964,7 @@ equimo.finetune.merge_lora(model: 'PyTree') -> 'PyTree'
 
 Defined in `equimo.finetune.peft.lora`.
 
-> Merge every LoRA module in ``model``.
+> Merge every supported LoRA-family module in ``model``.
 
 <!-- equimo.finetune:merge_lora_fa -->
 <a id="equimo-finetune-merge-lora-fa"></a>
@@ -1370,7 +1370,7 @@ equimo.finetune.unmerge_lora(model: 'PyTree') -> 'PyTree'
 
 Defined in `equimo.finetune.peft.lora`.
 
-> Unmerge every merged LoRA module in ``model``.
+> Unmerge every supported merged LoRA-family module in ``model``.
 
 <!-- equimo.finetune:unmerge_lora_fa -->
 <a id="equimo-finetune-unmerge-lora-fa"></a>

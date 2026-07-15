@@ -78,12 +78,19 @@ class SentencePieceTokenizer:
         """
         tf, _ = _require_tensorflow_text()
         text = tf.strings.lower(input_text) if lowercase else input_text
-        tokens = self.tokenizer.tokenize(text).to_tensor()
+        ragged_tokens = self.tokenizer.tokenize(text)
+        token_lengths = ragged_tokens.row_lengths()
+        tokens = ragged_tokens.to_tensor(default_value=0)
         curr_len = tokens.shape[1]
         if curr_len > max_length:
             tokens = tokens[:, :max_length]
         else:
             padding_len = max_length - curr_len
             tokens = tf.pad(tokens, [[0, 0], [0, padding_len]], constant_values=0)
-        padding_mask = tf.cast(tokens == 0, tf.int32)
+        valid_lengths = tf.minimum(token_lengths, max_length)
+        padding_mask = 1 - tf.sequence_mask(
+            valid_lengths,
+            maxlen=max_length,
+            dtype=tf.int32,
+        )
         return tokens.numpy(), padding_mask.numpy()

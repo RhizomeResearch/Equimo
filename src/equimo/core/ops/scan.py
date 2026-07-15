@@ -139,6 +139,17 @@ def ssd(
     Implementation taken from:
         https://github.com/walln/scratch/blob/ab0b6b891830375b7aa64c8e46e77783b843f5ca/src/scratch/language_modeling/mamba/mamba.py#L537
     """
+    if chunk_size <= 0:
+        raise ValueError("chunk_size must be positive.")
+    if x.ndim != 3 or A.ndim != 2 or B.ndim != 3 or C.ndim != 3:
+        raise ValueError(
+            "ssd expects x=(length, heads, head_dim), A=(length, heads), "
+            "and B/C=(length, heads, state_dim)."
+        )
+    if not (x.shape[:2] == A.shape == B.shape[:2] == C.shape[:2]):
+        raise ValueError("ssd input length and head dimensions must match.")
+    if B.shape != C.shape:
+        raise ValueError("ssd B and C shapes must match.")
     if x.shape[0] % chunk_size != 0:
         raise ValueError(
             f"Sequence length {x.shape[0]} must be divisible by chunk_size {chunk_size}."
@@ -156,7 +167,7 @@ def ssd(
     A_cumsum_f32 = A_cumsum.astype(jnp.float32)
 
     # Compute intra-chunk state (diagonal blocks)
-    L = jnp.exp(segsum(A_cumsum_f32))
+    L = jnp.exp(segsum(A.astype(jnp.float32)))
     Y_diag = jnp.einsum("clhn, cshn, hcls, cshp -> clhp", C, B, L, x)
 
     # Compute intra-chunk state - the right term of low rank factorization of the
@@ -166,15 +177,23 @@ def ssd(
 
     # Compute the inter-chunk SSM recurrence. Producing the correct SSM states at chunk
     # boundaries. This is the middle term of off diagonal blocks; A terms.
+    state_shape = states.shape[1:]
     if initial_states is None:
-        initial_states = jnp.zeros_like(states[:, :1])
+        initial_states = jnp.zeros((1, *state_shape), dtype=states.dtype)
+    else:
+        if initial_states.shape == state_shape:
+            initial_states = initial_states[None]
+        elif initial_states.shape != (1, *state_shape):
+            raise ValueError(
+                "initial_states must have shape "
+                f"{state_shape} or {(1, *state_shape)}, got {initial_states.shape}."
+            )
+        initial_states = initial_states.astype(states.dtype)
 
-    states = jnp.concatenate([initial_states, states], axis=1)
-    decay_chunk = jnp.exp(
-        segsum(jnp.pad(A_cumsum_f32[:, :, -1], ((0, 0), (0, 0), (1, 0))))
-    )
+    states = jnp.concatenate([initial_states, states], axis=0)
+    decay_chunk = jnp.exp(segsum(jnp.pad(A_cumsum_f32[:, :, -1], ((0, 0), (1, 0)))))
     new_states = jnp.einsum("hzc, chpn -> zhpn", decay_chunk, states)
-    states, final_state = new_states[:, :-1], new_states[:, -1]
+    states, final_state = new_states[:-1], new_states[-1]
 
     # Compute state and output conversion per chunk
     # the left term of low rank factorization of the off diagonal blocks; C terms
@@ -184,7 +203,7 @@ def ssd(
     # Add the output of intra-chunk and inter-chunk states
     Y = rearrange(Y_diag + Y_off, "c l h p -> (c l) h p")
 
-    return Y, final_state
+    return Y.astype(x.dtype), final_state.astype(x.dtype)
 
 
 def non_causal_linear_attn(

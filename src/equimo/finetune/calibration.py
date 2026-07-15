@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
+from numbers import Number
 from typing import Literal, cast
 
 import equinox as eqx
 import jax
 import jax.numpy as jnp
+import numpy as np
 
 from .config import CalibrationArtifact
 from .peft._compat import validate_logical_parameter_schema
@@ -486,6 +488,14 @@ def _validate_statistics(logical_id: str, artifact: CalibrationArtifact) -> None
         raise ValueError(
             f"Calibration artifact {logical_id!r} statistics must be a mapping."
         )
+    for name, value in statistics.items():
+        if isinstance(value, (jax.Array, np.ndarray, Number)) and not bool(
+            jnp.all(jnp.isfinite(jnp.asarray(value)))
+        ):
+            raise ValueError(
+                f"Calibration artifact {logical_id!r} statistic {name!r} "
+                "must contain only finite values."
+            )
     expected_key = {
         "activation_covariance": "covariance",
         "activation_svd": "right_singular_vectors",

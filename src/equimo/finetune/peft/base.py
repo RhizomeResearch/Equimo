@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Protocol
 
 from .._typing import PyTree
@@ -22,7 +23,10 @@ def get_path(tree: PyTree, path: tuple[str | int, ...]):
 
     node = tree
     for part in path:
-        node = node[part] if isinstance(part, int) else getattr(node, part)
+        if isinstance(node, Mapping) or isinstance(part, int):
+            node = node[part]
+        else:
+            node = getattr(node, part)
     return node
 
 

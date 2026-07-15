@@ -31,3 +31,16 @@ def test_sentencepiece_token_ids_truncation_and_padding():
     truncated_ids, truncated_mask = tokenizer.encode(["Hello world"], max_length=4)
     assert truncated_ids.tolist() == [expected_ids[:4]]
     assert truncated_mask.tolist() == [[0, 0, 0, 0]]
+
+
+def test_sentencepiece_unknown_id_is_not_treated_as_padding():
+    _require_language_extra()
+    model_path = Path(__file__).parent / "data" / "tiny_sentencepiece.model"
+    tokenizer = SentencePieceTokenizer(path=str(model_path))
+
+    token_ids, padding_mask = tokenizer.encode(["☃"], max_length=8, lowercase=False)
+    valid_length = int(np.sum(padding_mask[0] == 0))
+
+    assert valid_length > 0
+    assert 0 in token_ids[0, :valid_length]
+    assert padding_mask[0, :valid_length].tolist() == [0] * valid_length

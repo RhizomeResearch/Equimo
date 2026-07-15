@@ -260,6 +260,12 @@ class TestConvPatchEmbed:
         x = jr.normal(KEY, (1, self.H, self.W))
         assert layer(x).shape == (256, self.H // 4, self.W // 4)
 
+    def test_odd_spatial_dimensions_use_convolution_output_shape(self):
+        layer = ConvPatchEmbed(3, 4, 8, key=KEY)
+        x = jr.normal(KEY, (3, 65, 67))
+
+        assert layer(x).shape == (8, 17, 17)
+
     def test_dtype_preserved_bfloat16(self):
         layer = ConvPatchEmbed(
             self.IN_CHANNELS, self.HIDDEN_CHANNELS, self.OUT_CHANNELS, key=KEY

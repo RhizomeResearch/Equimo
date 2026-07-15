@@ -44,6 +44,14 @@ def _model_checksum(model) -> str:
     return h.hexdigest()[:16]
 
 
+def _require_cached_checkpoint(identifier):
+    archive = Path(
+        f"~/.cache/equimo/{identifier.split('_')[0]}/{identifier}.tar.lz4"
+    ).expanduser()
+    if not archive.is_file():
+        pytest.skip(f"Converted checkpoint {identifier!r} is not cached locally.")
+
+
 # Utility tests
 
 
@@ -815,6 +823,7 @@ def test_save_load_model_uncompressed():
 
 def test_load_pretrained_model():
     """Test loading a pretrained model from the repository."""
+    _require_cached_checkpoint("dinov2_vits14_reg")
     key = jr.PRNGKey(42)
     model = dinov2_vits14_reg(pretrained=True, dynamic_img_size=True)
 
@@ -837,6 +846,7 @@ def test_dinov2_vits14_reg_matches_timm():
     - equimo forward_features(x)["x_norm_cls_token"] → same quantity
     Tolerance: mean absolute error < 5e-4.
     """
+    _require_cached_checkpoint("dinov2_vits14_reg")
     key = jr.PRNGKey(42)
     ref = np.load(Path(__file__).parent / "data" / "dinov2_vits14_reg_reference.npz")
 
@@ -881,6 +891,7 @@ def test_dinov3_vits16_matches_hf():
     - equimo forward_features(x)["x_norm_cls_token"] → same quantity
     Tolerance: mean absolute error < 5e-4.
     """
+    _require_cached_checkpoint("dinov3_vits16_pretrain_lvd1689m")
     key = jr.PRNGKey(42)
     ref = np.load(Path(__file__).parent / "data" / "dinov3_vits16_reference.npz")
 
@@ -906,6 +917,7 @@ def test_siglip2_vitb16_256_matches_hf():
     - equimo jax.vmap(model.norm)(model.features(x)) → same quantity
     Tolerance: mean absolute error < 5e-4.
     """
+    _require_cached_checkpoint("siglip2_vitb16_256")
     key = jr.PRNGKey(42)
     ref = np.load(Path(__file__).parent / "data" / "siglip2_vitb16_256_reference.npz")
 
@@ -930,6 +942,7 @@ def test_eupe_vitt16_matches_torch():
     - equimo model.features(x)
     Tolerance: mean absolute error < 5e-4.
     """
+    _require_cached_checkpoint("eupe_vitt16")
     key = jr.PRNGKey(42)
     ref = np.load(Path(__file__).parent / "data" / "eupe_vitt16_reference.npz")
 

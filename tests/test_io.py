@@ -1,6 +1,8 @@
 """Tests for serialization and vision IO."""
 
 import importlib
+import hashlib
+import io
 import json
 import multiprocessing
 import os
@@ -14,11 +16,14 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import jax.random as jr
+import lz4.frame
 import numpy as np
 import pytest
 
 from equimo.registry import _MODEL_REGISTRY, get_model_cls, register_model
 from equimo.serialization import (
+    DEFAULT_REPOSITORY_REVISION,
+    DEFAULT_REPOSITORY_URL,
     _decompress_archive,
     _validate_identifier,
     load_weights,
@@ -43,6 +48,24 @@ def _decompress_archive_worker(archive_path, start_barrier, result_queue):
         result_queue.put(("error", f"{type(exc).__name__}: {exc}"))
     else:
         result_queue.put(("ok", str(decompressed)))
+
+
+def _read_lz4_tar(path):
+    with lz4.frame.open(path, "rb") as archive:
+        with tarfile.open(fileobj=archive, mode="r") as tar:
+            return {
+                member.name: tar.extractfile(member).read()
+                for member in tar.getmembers()
+            }
+
+
+def _write_lz4_tar(path, members):
+    with lz4.frame.open(path, "wb") as archive:
+        with tarfile.open(fileobj=archive, mode="w") as tar:
+            for name, payload in members.items():
+                info = tarfile.TarInfo(name)
+                info.size = len(payload)
+                tar.addfile(info, io.BytesIO(payload))
 
 
 # _validate_identifier
@@ -295,6 +318,21 @@ class TestSaveLoadRoundTrip:
         assert "equinox_version" in meta
         assert "equimo_version" in meta
 
+    def test_metadata_contains_v2_format_and_integrity(self, tmp_path):
+        model = self._make_model()
+        path = tmp_path / "model_dir"
+        save_model(path, model, self._model_config(), compression=False)
+
+        metadata = json.loads((path / "metadata.json").read_text())
+        weights = path / "weights.eqx"
+        assert metadata["format"] == "equimo.model.checkpoint"
+        assert metadata["format_version"] == 1
+        assert (
+            metadata["weights_sha256"]
+            == hashlib.sha256(weights.read_bytes()).hexdigest()
+        )
+        assert metadata["model_signature"].startswith("sha256:")
+
     def test_metadata_contains_model_config(self, tmp_path):
         model = self._make_model()
         path = tmp_path / "model_dir"
@@ -342,6 +380,63 @@ class TestSaveLoadRoundTrip:
         x = jr.normal(KEY, (4, 8))
         assert jnp.allclose(model(x), loaded(x), atol=1e-5)
 
+    def test_load_weights_accepts_existing_alpha_metadata(self, tmp_path):
+        model = self._make_model()
+        path = tmp_path / "model_dir"
+        save_model(path, model, self._model_config(), compression=False)
+        metadata_path = path / "metadata.json"
+        metadata = json.loads(metadata_path.read_text())
+        for key in (
+            "format",
+            "format_version",
+            "weights_sha256",
+            "model_class",
+            "model_signature",
+        ):
+            metadata.pop(key)
+        metadata_path.write_text(json.dumps(metadata))
+
+        with pytest.warns(RuntimeWarning, match="v2-alpha checkpoint"):
+            loaded = load_weights(self._make_model(), path=path)
+
+        x = jr.normal(KEY, (4, 8))
+        assert jnp.allclose(model(x), loaded(x), atol=1e-5)
+
+    def test_load_weights_rejects_corrupted_new_checkpoint(self, tmp_path):
+        path = tmp_path / "model_dir"
+        save_model(path, self._make_model(), self._model_config(), compression=False)
+        weights_path = path / "weights.eqx"
+        payload = bytearray(weights_path.read_bytes())
+        payload[-1] ^= 1
+        weights_path.write_bytes(payload)
+
+        with pytest.raises(ValueError, match="checksum mismatch"):
+            load_weights(self._make_model(), path=path)
+
+    def test_load_weights_rejects_incompatible_model_signature(self, tmp_path):
+        path = tmp_path / "model_dir"
+        save_model(path, self._make_model(), self._model_config(), compression=False)
+
+        with pytest.raises(ValueError, match="model signature mismatch"):
+            load_weights(_TinyModel(7, 4, key=KEY), path=path)
+
+    def test_failed_compressed_save_preserves_existing_archive(
+        self, tmp_path, monkeypatch
+    ):
+        path = tmp_path / "model.tar.lz4"
+        path.write_bytes(b"existing archive")
+
+        def fail_serialization(*args, **kwargs):
+            raise RuntimeError("serialization failed")
+
+        monkeypatch.setattr(
+            "equimo.serialization.eqx.tree_serialise_leaves", fail_serialization
+        )
+        with pytest.raises(RuntimeError, match="serialization failed"):
+            save_model(path, self._make_model(), self._model_config())
+
+        assert path.read_bytes() == b"existing archive"
+
     def test_load_weights_inference_mode_default(self, tmp_path):
         model = self._make_model()
         path = tmp_path / "model_dir"
@@ -366,7 +461,7 @@ class TestSaveLoadRoundTrip:
         save_model(path, model, self._model_config())
         archive = tmp_path / "model.tar.lz4"
         load_weights(self._make_model(), path=archive)
-        decompressed = archive.with_suffix("").with_suffix("")
+        decompressed = archive.with_name(f"{archive.name}.extracted")
         assert decompressed.exists()
         # Second load must not fail
         load_weights(self._make_model(), path=archive)
@@ -386,27 +481,22 @@ class TestSaveLoadRoundTrip:
         path = tmp_path / "model"
         save_model(path, model, self._model_config())
         archive = tmp_path / "model.tar.lz4"
-        decompressed = archive.with_suffix("").with_suffix("")
+        decompressed = archive.with_name(f"{archive.name}.extracted")
 
         ctx = multiprocessing.get_context("fork")
         start_barrier = ctx.Barrier(2)
         result_queue = ctx.Queue()
         extraction_queue = ctx.Queue()
-        original_tarfile_open = tarfile.open
+        from equimo import serialization
 
-        def slow_tarfile_open(*args, **kwargs):
-            tar = original_tarfile_open(*args, **kwargs)
-            original_extractall = tar.extractall
+        original_extract = serialization._extract_model_archive
 
-            def extractall(*extract_args, **extract_kwargs):
-                extraction_queue.put("extract")
-                time.sleep(0.2)
-                return original_extractall(*extract_args, **extract_kwargs)
+        def slow_extract(*args, **kwargs):
+            extraction_queue.put("extract")
+            time.sleep(0.2)
+            return original_extract(*args, **kwargs)
 
-            tar.extractall = extractall
-            return tar
-
-        monkeypatch.setattr("equimo.serialization.tarfile.open", slow_tarfile_open)
+        monkeypatch.setattr("equimo.serialization._extract_model_archive", slow_extract)
 
         processes = [
             ctx.Process(
@@ -451,11 +541,56 @@ class TestSaveLoadRoundTrip:
         assert (decompressed / ".complete").exists()
         assert list(tmp_path.glob(".tmp_extract_*")) == []
 
+    def test_decompression_does_not_replace_natural_sibling(self, tmp_path):
+        archive = tmp_path / "model.tar.lz4"
+        save_model(archive, self._make_model(), self._model_config())
+        natural_sibling = tmp_path / "model"
+        natural_sibling.mkdir()
+        marker = natural_sibling / "owned-by-caller"
+        marker.write_text("keep")
+
+        extracted = _decompress_archive(archive)
+
+        assert extracted == tmp_path / "model.tar.lz4.extracted"
+        assert marker.read_text() == "keep"
+
+    def test_existing_alpha_extraction_cache_remains_loadable(self, tmp_path):
+        archive = tmp_path / "model.tar.lz4"
+        save_model(archive, self._make_model(), self._model_config())
+        legacy_cache = tmp_path / "model"
+        legacy_cache.mkdir()
+        for name, payload in _read_lz4_tar(archive).items():
+            (legacy_cache / name).write_bytes(payload)
+        (legacy_cache / ".complete").touch()
+
+        extracted = _decompress_archive(archive)
+
+        assert extracted == legacy_cache
+
+    def test_decompression_rejects_unexpected_archive_members(self, tmp_path):
+        archive = tmp_path / "model.tar.lz4"
+        save_model(archive, self._make_model(), self._model_config())
+        members = _read_lz4_tar(archive)
+        members["unexpected.txt"] = b"unexpected"
+        _write_lz4_tar(archive, members)
+
+        with pytest.raises(ValueError, match="unexpected member"):
+            _decompress_archive(archive)
+
 
 # download (identifier validation; no network calls)
 
 
 class TestDownload:
+    @pytest.fixture(autouse=True)
+    def _isolated_home(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("HOME", str(tmp_path))
+
+    def test_default_repository_is_immutable(self):
+        assert len(DEFAULT_REPOSITORY_REVISION) == 40
+        assert f"/resolve/{DEFAULT_REPOSITORY_REVISION}/" in DEFAULT_REPOSITORY_URL
+        assert "/resolve/main/" not in DEFAULT_REPOSITORY_URL
+
     def test_invalid_identifier_raises(self):
         from equimo.serialization import download
 
@@ -487,6 +622,7 @@ class TestDownload:
             assert result == cache_path
         finally:
             cache_path.unlink(missing_ok=True)
+            cache_path.with_name(f"{cache_path.name}.sha256").unlink(missing_ok=True)
 
     def test_download_makes_get_request(self, tmp_path):
         """When archive is absent, a streaming GET must be issued."""
@@ -517,6 +653,141 @@ class TestDownload:
                 assert call_kwargs.kwargs.get("verify") is True
         finally:
             cache_path.unlink(missing_ok=True)
+            cache_path.with_name(f"{cache_path.name}.sha256").unlink(missing_ok=True)
+
+    def test_cached_file_checksum_is_verified(self):
+        from equimo.serialization import download
+
+        identifier = "vit_test_checksum"
+        cache_path = Path(f"~/.cache/equimo/vit/{identifier}.tar.lz4").expanduser()
+        checksum_path = cache_path.with_name(f"{cache_path.name}.sha256")
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path.write_bytes(b"corrupted")
+        checksum_path.write_text(hashlib.sha256(b"expected").hexdigest() + "\n")
+
+        try:
+            with patch("equimo.serialization.requests.get") as mock_get:
+                with pytest.raises(ValueError, match="checksum mismatch"):
+                    download(identifier, repository="http://example.com")
+                mock_get.assert_not_called()
+        finally:
+            cache_path.unlink(missing_ok=True)
+            checksum_path.unlink(missing_ok=True)
+
+    def test_read_only_legacy_cache_remains_loadable(self, monkeypatch):
+        from equimo import serialization
+
+        identifier = "vit_test_read_only_cache"
+        cache_path = Path(f"~/.cache/equimo/vit/{identifier}.tar.lz4").expanduser()
+        checksum_path = cache_path.with_name(f"{cache_path.name}.sha256")
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path.write_bytes(b"existing")
+        checksum_path.unlink(missing_ok=True)
+
+        def fail_checksum_write(*args, **kwargs):
+            raise PermissionError("read-only cache")
+
+        monkeypatch.setattr(serialization, "_write_checksum", fail_checksum_write)
+        try:
+            with patch("equimo.serialization.requests.get") as mock_get:
+                with pytest.warns(RuntimeWarning, match="read-only cache"):
+                    result = serialization.download(
+                        identifier, repository="http://example.com"
+                    )
+                mock_get.assert_not_called()
+            assert result == cache_path
+        finally:
+            cache_path.unlink(missing_ok=True)
+            checksum_path.unlink(missing_ok=True)
+
+    def test_unchanged_verified_cache_does_not_rehash(self, monkeypatch):
+        from equimo import serialization
+
+        identifier = "vit_test_verified_cache"
+        cache_path = Path(f"~/.cache/equimo/vit/{identifier}.tar.lz4").expanduser()
+        checksum_path = cache_path.with_name(f"{cache_path.name}.sha256")
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path.write_bytes(b"verified")
+        serialization._write_checksum(
+            checksum_path, hashlib.sha256(b"verified").hexdigest(), cache_path
+        )
+
+        def fail_hash(*args, **kwargs):
+            raise AssertionError("unchanged cache should not be rehashed")
+
+        monkeypatch.setattr(serialization, "sha256_file", fail_hash)
+        with patch("equimo.serialization.requests.get") as mock_get:
+            result = serialization.download(identifier, repository="http://example.com")
+            mock_get.assert_not_called()
+        assert result == cache_path
+
+    def test_download_rejects_expected_checksum_mismatch(self):
+        from equimo.serialization import download
+
+        identifier = "vit_test_expected_checksum"
+        cache_path = Path(f"~/.cache/equimo/vit/{identifier}.tar.lz4").expanduser()
+        checksum_path = cache_path.with_name(f"{cache_path.name}.sha256")
+        cache_path.unlink(missing_ok=True)
+        checksum_path.unlink(missing_ok=True)
+        mock_response = MagicMock()
+        mock_response.iter_content.return_value = [b"downloaded"]
+        mock_response.headers = {}
+        mock_response.__enter__ = lambda response: response
+        mock_response.__exit__ = MagicMock(return_value=False)
+        mock_response.raise_for_status = MagicMock()
+
+        try:
+            with patch("equimo.serialization.requests.get", return_value=mock_response):
+                with pytest.raises(ValueError, match="checksum mismatch"):
+                    download(
+                        identifier,
+                        repository="http://example.com",
+                        expected_sha256="0" * 64,
+                    )
+            assert not cache_path.exists()
+        finally:
+            cache_path.unlink(missing_ok=True)
+            checksum_path.unlink(missing_ok=True)
+
+    def test_download_enforces_size_limit(self, monkeypatch):
+        from equimo import serialization
+
+        identifier = "vit_test_size_limit"
+        cache_path = Path(f"~/.cache/equimo/vit/{identifier}.tar.lz4").expanduser()
+        checksum_path = cache_path.with_name(f"{cache_path.name}.sha256")
+        cache_path.unlink(missing_ok=True)
+        checksum_path.unlink(missing_ok=True)
+        mock_response = MagicMock()
+        mock_response.iter_content.return_value = [b"too", b"large"]
+        mock_response.headers = {}
+        mock_response.__enter__ = lambda response: response
+        mock_response.__exit__ = MagicMock(return_value=False)
+        mock_response.raise_for_status = MagicMock()
+        monkeypatch.setattr(serialization, "_MAX_DOWNLOAD_BYTES", 4)
+
+        try:
+            with patch("equimo.serialization.requests.get", return_value=mock_response):
+                with pytest.raises(ValueError, match="size limit"):
+                    serialization.download(identifier, repository="http://example.com")
+            assert not cache_path.exists()
+        finally:
+            cache_path.unlink(missing_ok=True)
+            checksum_path.unlink(missing_ok=True)
+
+    def test_default_repository_uses_embedded_archive_digest(self):
+        from equimo.serialization import download
+
+        identifier = "dinov2_vits14_reg"
+        mock_response = MagicMock()
+        mock_response.iter_content.return_value = [b"not the pinned archive"]
+        mock_response.headers = {}
+        mock_response.__enter__ = lambda response: response
+        mock_response.__exit__ = MagicMock(return_value=False)
+        mock_response.raise_for_status = MagicMock()
+
+        with patch("equimo.serialization.requests.get", return_value=mock_response):
+            with pytest.raises(ValueError, match="checksum mismatch"):
+                download(identifier, repository=DEFAULT_REPOSITORY_URL)
 
 
 # load_image

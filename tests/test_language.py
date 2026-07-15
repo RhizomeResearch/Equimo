@@ -1,3 +1,5 @@
+import equinox as eqx
+import jax
 import jax.numpy as jnp
 import jax.random as jr
 
@@ -79,3 +81,26 @@ def test_language_model_registered_by_modality():
         get_model_cls("text_transformer_encoder", modality="language")
         is TextTransformerEncoder
     )
+
+
+def test_text_transformer_encoder_preserves_bfloat16_dtype():
+    model = TextTransformerEncoder(
+        dim=16,
+        mlp_ratio=2.0,
+        depth=1,
+        num_heads=2,
+        vocab_size=32,
+        key=KEY,
+    )
+    model = jax.tree_util.tree_map(
+        lambda leaf: leaf.astype(jnp.bfloat16) if eqx.is_inexact_array(leaf) else leaf,
+        model,
+    )
+    ids = jnp.asarray([1, 2, 0, 0])
+    padding_mask = jnp.asarray([0, 0, 1, 1])
+
+    features = model.features(ids, padding_mask, key=KEY, inference=True)
+    pooled = model(ids, padding_mask, key=KEY, inference=True)
+
+    assert features.dtype == jnp.bfloat16
+    assert pooled.dtype == jnp.bfloat16

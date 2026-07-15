@@ -1,22 +1,23 @@
 [project]
 name = "Equimo"
-version = "2.0.0a2"
+version = "2.0.0"
 description = "Implementation of modern multimodal models in JAX/Equinox"
 readme = "README.md"
-requires-python = ">=3.12"
-license = { text = "MIT" }
+requires-python = ">=3.12,<3.15"
+license = "MIT"
+license-files = ["LICENSE.md"]
 dependencies = [
   "banax>=0.1.2",
   "einops>=0.8.0",
-  "equinox>=0.11.5",
-  "jax>=0.4.25",
-  "jaxlib>=0.4.25",
+  "equinox>=0.13.3",
+  "jax>=0.8.1",
+  "jaxlib>=0.8.1",
   "loguru>=0.7.3",
   "lz4>=4.4.3",
   "requests>=2.32.3",
 ]
 classifiers = [
-  "Development Status :: 4 - Beta",
+  "Development Status :: 5 - Production/Stable",
 
   "Intended Audience :: Developers",
   "Intended Audience :: Science/Research",
@@ -54,6 +55,13 @@ extras = [
 [build-system]
 requires = ["uv_build>=0.10.12,<0.12.0"]
 build-backend = "uv_build"
+
+[tool.uv.build-backend]
+source-include = [
+  "CHANGELOG.md",
+  "docs/migration-v2.md",
+  "docs/stability.md",
+]
 
 [dependency-groups]
 dev = [

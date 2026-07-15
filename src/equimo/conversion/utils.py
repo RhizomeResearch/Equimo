@@ -129,8 +129,10 @@ def convert_params_from_torch(
                     f"{_msg} Appending original parameters to flat param list because of `jax_whitelist`."
                 )
             else:
-                p = None
-                logger.warning(f"{_msg} Appending `None` to flat param list.")
+                p = param
+                logger.warning(
+                    f"{_msg} Keeping the original JAX parameter because strict=False."
+                )
 
             torch_params_flat.append(p)
             continue
@@ -148,7 +150,12 @@ def convert_params_from_torch(
             logger.error(_msg)
             raise ValueError(_msg)
 
-        torch_params_flat.append(jnp.asarray(torch_param.detach().numpy()))
+        torch_param = torch_param.detach().cpu().resolve_conj().resolve_neg()
+        try:
+            array = torch_param.numpy()
+        except TypeError:
+            array = torch_param.float().numpy()
+        torch_params_flat.append(jnp.asarray(array, dtype=param.dtype))
         _ = torch_params.pop(param_path)
 
     loaded_params = jax.tree_util.tree_unflatten(jax_param_pytree, torch_params_flat)

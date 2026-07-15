@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import hashlib
+import io
 import json
 import pickle
 import tarfile
@@ -13,6 +15,25 @@ import lz4.frame
 import pytest
 
 import equimo.finetune as eqft
+import equimo.finetune.serialization as serialization
+
+
+def _read_archive(path):
+    with lz4.frame.open(path, "rb") as archive:
+        with tarfile.open(fileobj=archive, mode="r") as tar:
+            return {
+                member.name: tar.extractfile(member).read()
+                for member in tar.getmembers()
+            }
+
+
+def _write_archive(path, members):
+    with lz4.frame.open(path, "wb") as archive:
+        with tarfile.open(fileobj=archive, mode="w") as tar:
+            for name, payload in members.items():
+                info = tarfile.TarInfo(name)
+                info.size = len(payload)
+                tar.addfile(info, io.BytesIO(payload))
 
 
 def test_finetune_bundle_has_required_lora_metadata(tiny_vision_transformer):
@@ -227,14 +248,56 @@ def test_delta_file_is_pickle_free_archive(tmp_path, tiny_vision_transformer):
         with tarfile.open(fileobj=archive, mode="r") as tar:
             assert set(tar.getnames()) == {"manifest.json", "arrays.eqx"}
             manifest_file = tar.extractfile("manifest.json")
+            arrays_file = tar.extractfile("arrays.eqx")
             assert manifest_file is not None
+            assert arrays_file is not None
             manifest = json.loads(manifest_file.read().decode())
+            arrays = arrays_file.read()
 
     assert manifest["format"] == "equimo.finetune.bundle"
     assert manifest["bundle"]["method"] == "lora"
+    assert manifest["arrays_sha256"] == hashlib.sha256(arrays).hexdigest()
     with path.open("rb") as handle:
         with pytest.raises(pickle.UnpicklingError):
             pickle.load(handle)
+
+
+def test_bundle_rejects_corrupted_arrays(tmp_path):
+    path = tmp_path / "bundle.eqft"
+    bundle = eqft.FineTuneBundle(method="lora", delta_tree={"value": jnp.ones((1,))})
+    eqft.save_finetune_bundle(path, bundle)
+    members = _read_archive(path)
+    arrays = bytearray(members["arrays.eqx"])
+    arrays[-1] ^= 1
+    members["arrays.eqx"] = bytes(arrays)
+    _write_archive(path, members)
+
+    with pytest.raises(eqft.FineTuneBundleError, match="checksum mismatch"):
+        eqft.load_finetune_bundle(path)
+
+
+def test_bundle_rejects_oversized_arrays_member(tmp_path, monkeypatch):
+    path = tmp_path / "bundle.eqft"
+    bundle = eqft.FineTuneBundle(method="lora", delta_tree={"value": jnp.ones((1,))})
+    eqft.save_finetune_bundle(path, bundle)
+    monkeypatch.setattr(serialization, "_MAX_ARRAY_BYTES", 1)
+
+    with pytest.raises(eqft.FineTuneBundleError, match="size limit"):
+        eqft.load_finetune_bundle(path)
+
+
+def test_failed_bundle_save_preserves_existing_file(tmp_path, monkeypatch):
+    path = tmp_path / "bundle.eqft"
+    path.write_bytes(b"existing bundle")
+
+    def fail_serialization(*args, **kwargs):
+        raise RuntimeError("serialization failed")
+
+    monkeypatch.setattr(serialization.eqx, "tree_serialise_leaves", fail_serialization)
+    with pytest.raises(RuntimeError, match="serialization failed"):
+        eqft.save_finetune_bundle(path, eqft.FineTuneBundle(method="lora"))
+
+    assert path.read_bytes() == b"existing bundle"
 
 
 def test_bundle_schema_version_is_validated(tmp_path):

@@ -29,6 +29,14 @@ CASES = (
 )
 
 
+def _require_cached_checkpoint(identifier):
+    archive = Path(
+        f"~/.cache/equimo/{identifier.split('_')[0]}/{identifier}.tar.lz4"
+    ).expanduser()
+    if not archive.is_file():
+        pytest.skip(f"Converted checkpoint {identifier!r} is not cached locally.")
+
+
 def _waveform():
     time = np.arange(16_000, dtype=np.float32) / 16_000
     return (
@@ -49,6 +57,7 @@ def test_raw_waveform_matches_pinned_upstream_features(variant, factory):
 
 @pytest.mark.parametrize(("variant", "factory"), CASES)
 def test_raw_waveform_matches_pinned_upstream_ast_outputs(variant, factory):
+    _require_cached_checkpoint(variant)
     reference = np.load(DATA_DIR / f"{variant}_raw_audio_reference.npz")
     input_values = jnp.asarray(reference["input_values"])
     model = factory(pretrained=True)

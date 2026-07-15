@@ -122,7 +122,7 @@ class DINOHead(eqx.Module):
     normalization and a weight-normalized final layer.
 
     The architecture follows:
-    input -> fc1 -> act -> fc2 -> act -> fc3 -> act -> L2norm -> weight_norm_linear
+    input -> fc1 -> act -> fc2 -> act -> fc3 -> L2norm -> weight_norm_linear
 
     Attributes:
         fc1: First linear layer projecting to hidden dimension
@@ -190,7 +190,7 @@ class DINOHead(eqx.Module):
         """
         x = self.act_layer(jax.vmap(self.fc1)(x))
         x = self.act_layer(jax.vmap(self.fc2)(x))
-        x = self.act_layer(jax.vmap(self.fc3)(x))
+        x = jax.vmap(self.fc3)(x)
 
         x_f32 = x.astype(jnp.float32)
         x = (

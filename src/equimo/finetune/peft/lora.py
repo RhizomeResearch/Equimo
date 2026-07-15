@@ -891,6 +891,7 @@ class AdaLoRAModule(eqx.Module):
     metadata: AdaLoRAMetadata = eqx.field(static=True)
     train_base: bool = eqx.field(static=True)
     mergeable: bool = eqx.field(static=True)
+    merged: bool = eqx.field(static=True)
 
     def __init__(
         self,
@@ -906,6 +907,7 @@ class AdaLoRAModule(eqx.Module):
         Q: jax.Array | None = None,
         final_mask: jax.Array | None = None,
         metadata: AdaLoRAMetadata | None = None,
+        merged: bool = False,
     ):
         if rank < 1:
             raise ValueError("AdaLoRA rank must be >= 1.")
@@ -932,9 +934,11 @@ class AdaLoRAModule(eqx.Module):
         self.metadata = AdaLoRAMetadata() if metadata is None else metadata
         self.train_base = train_base
         self.mergeable = mergeable
+        self.merged = merged
 
     def __call__(self, x: jax.Array) -> jax.Array:
-        return self.base(x) + self.delta_weight() @ x
+        y = self.base(x)
+        return y if self.merged else y + self.delta_weight() @ x
 
     def delta_weight(self) -> jax.Array:
         singular = self.singular
@@ -948,6 +952,51 @@ class AdaLoRAModule(eqx.Module):
         p_term = p.T @ p - jnp.eye(p.shape[1], dtype=jnp.float32)
         q_term = q @ q.T - jnp.eye(q.shape[0], dtype=jnp.float32)
         return jnp.sum(p_term**2) + jnp.sum(q_term**2)
+
+    def merge(self):
+        """Return a module with the AdaLoRA delta folded into ``base.weight``."""
+
+        if not self.mergeable:
+            raise ValueError("This AdaLoRA module is not mergeable.")
+        if self.merged:
+            raise ValueError("AdaLoRA module is already merged.")
+        base = eqx.tree_at(
+            lambda module: module.weight,
+            self.base,
+            _linear_weight(self.base)
+            + self.delta_weight().astype(_linear_weight(self.base).dtype),
+        )
+        return self._replace(base=base, merged=True)
+
+    def unmerge(self):
+        """Return a module with the AdaLoRA delta removed from ``base.weight``."""
+
+        if not self.merged:
+            return self
+        base = eqx.tree_at(
+            lambda module: module.weight,
+            self.base,
+            _linear_weight(self.base)
+            - self.delta_weight().astype(_linear_weight(self.base).dtype),
+        )
+        return self._replace(base=base, merged=False)
+
+    def _replace(self, *, base: eqx.Module, merged: bool):
+        rank = int(self.singular.shape[0])
+        return AdaLoRAModule(
+            base,
+            rank=rank,
+            alpha=self.scaling * rank,
+            train_base=self.train_base,
+            mergeable=self.mergeable,
+            key=jr.PRNGKey(0),
+            P=self.P,
+            singular=self.singular,
+            Q=self.Q,
+            final_mask=self.final_mask,
+            metadata=self.metadata,
+            merged=merged,
+        )
 
 
 def apply_lora(
@@ -1294,9 +1343,13 @@ def unmerge_fourierft(model: PyTree) -> PyTree:
 
 
 def merge_lora(model: PyTree) -> PyTree:
-    """Merge every LoRA module in ``model``."""
+    """Merge every supported LoRA-family module in ``model``."""
 
-    return _map_lora_modules(model, lambda module: module.merge())
+    merged = _map_lora_modules(model, lambda module: module.merge())
+    merged = _map_lora_fa_modules(merged, lambda module: module.merge())
+    merged = _map_randlora_modules(merged, lambda module: module.merge())
+    merged = _map_fourierft_modules(merged, lambda module: module.merge())
+    return _map_adalora_modules(merged, lambda module: module.merge())
 
 
 def merge_lora_fa(model: PyTree) -> PyTree:
@@ -1324,9 +1377,13 @@ def unmerge_randlora(model: PyTree) -> PyTree:
 
 
 def unmerge_lora(model: PyTree) -> PyTree:
-    """Unmerge every merged LoRA module in ``model``."""
+    """Unmerge every supported merged LoRA-family module in ``model``."""
 
-    return _map_lora_modules(model, lambda module: module.unmerge())
+    unmerged = _map_lora_modules(model, lambda module: module.unmerge())
+    unmerged = _map_lora_fa_modules(unmerged, lambda module: module.unmerge())
+    unmerged = _map_randlora_modules(unmerged, lambda module: module.unmerge())
+    unmerged = _map_fourierft_modules(unmerged, lambda module: module.unmerge())
+    return _map_adalora_modules(unmerged, lambda module: module.unmerge())
 
 
 def extract_lora_delta(
@@ -1409,6 +1466,80 @@ def extract_lora_delta(
                 "metadata": module.metadata,
             }
         )
+    for path, module in iter_lora_fa_modules(model):
+        base_bias = _linear_bias(module.base)
+        entries.append(
+            {
+                "path": path_to_str(path),
+                "class": "LoRAFALinear",
+                "rank": module.rank,
+                "alpha": module.alpha,
+                "scaling": module.scaling_mode,
+                "gradient_mode": module.gradient_mode,
+                "gram_ridge": module.gram_ridge,
+                "custom_vjp": module.custom_vjp,
+                "train_base": module.train_base,
+                "mergeable": module.mergeable,
+                "merged": module.merged,
+                "base_weight_shape": tuple(_linear_weight(module.base).shape),
+                "base_bias_shape": None
+                if base_bias is None
+                else tuple(base_bias.shape),
+                "frozen_A": module.frozen_A,
+                "lora_fa_B": module.lora_fa_B,
+                "correction_matrix": module.correction_matrix,
+            }
+        )
+    for path, module in iter_fourierft_modules(model):
+        base_bias = _linear_bias(module.base)
+        entries.append(
+            {
+                "path": path_to_str(path),
+                "class": "FourierFTLinear",
+                "frequency_indices": module.frequency_indices,
+                "coefficient_dtype": str(module.coefficients_real.dtype),
+                "coefficients_real": module.coefficients_real,
+                "coefficients_imag": module.coefficients_imag,
+                "weight_shape": module.weight_shape,
+                "scale": module.scale,
+                "reconstruction": module.reconstruction,
+                "frequency_selection": module.frequency_selection,
+                "seed": module.seed,
+                "train_base": module.train_base,
+                "mergeable": module.mergeable,
+                "merged": module.merged,
+                "base_weight_shape": tuple(_linear_weight(module.base).shape),
+                "base_bias_shape": None
+                if base_bias is None
+                else tuple(base_bias.shape),
+            }
+        )
+    for path, module in iter_adalora_modules(model):
+        base_bias = _linear_bias(module.base)
+        rank = int(module.singular.shape[0])
+        entries.append(
+            {
+                "path": path_to_str(path),
+                "class": "AdaLoRAModule",
+                "rank": rank,
+                "alpha": module.scaling * rank,
+                "P": module.P,
+                "singular": module.singular,
+                "Q": module.Q,
+                "final_mask": module.final_mask,
+                "metadata": {
+                    "logical_id": module.metadata.logical_id,
+                    "profile_id": module.metadata.profile_id,
+                },
+                "train_base": module.train_base,
+                "mergeable": module.mergeable,
+                "merged": module.merged,
+                "base_weight_shape": tuple(_linear_weight(module.base).shape),
+                "base_bias_shape": None
+                if base_bias is None
+                else tuple(base_bias.shape),
+            }
+        )
 
     return FineTuneBundle(
         method="lora",
@@ -1461,6 +1592,82 @@ def load_lora_delta(base_model: PyTree, bundle: FineTuneBundle) -> PyTree:
                 f"LoRA delta expects path {entry['path']} with bias shape "
                 f"{expected_bias_shape}, got {actual_bias_shape}."
             )
+        if entry["class"] == "LoRAFALinear":
+            lora_fa = cast(
+                LoRAFALinear,
+                LoRAFALinear(
+                    module,
+                    rank=int(entry["rank"]),
+                    alpha=float(entry["alpha"]),
+                    scaling=entry["scaling"],
+                    A_init="orthonormal_rows",
+                    gradient_mode=entry["gradient_mode"],
+                    gram_ridge=float(entry["gram_ridge"]),
+                    custom_vjp=bool(entry["custom_vjp"]),
+                    train_base=bool(entry["train_base"]),
+                    mergeable=bool(entry["mergeable"]),
+                    key=jr.PRNGKey(0),
+                    frozen_A=entry["frozen_A"],
+                    lora_fa_B=entry["lora_fa_B"],
+                    correction_matrix=entry["correction_matrix"],
+                ),
+            )
+            if entry["merged"]:
+                lora_fa = lora_fa.merge()
+            updated = eqx.tree_at(
+                lambda tree, p=path: get_path(tree, p), updated, lora_fa
+            )
+            continue
+        if entry["class"] == "FourierFTLinear":
+            fourier = cast(
+                FourierFTLinear,
+                FourierFTLinear(
+                    module,
+                    frequency_indices=entry["frequency_indices"],
+                    coefficient_dtype=entry["coefficient_dtype"],
+                    reconstruction=entry["reconstruction"],
+                    frequency_selection=entry["frequency_selection"],
+                    seed=entry.get("seed"),
+                    scale=float(entry["scale"]),
+                    train_base=bool(entry["train_base"]),
+                    mergeable=bool(entry["mergeable"]),
+                    coefficients_real=entry["coefficients_real"],
+                    coefficients_imag=entry["coefficients_imag"],
+                ),
+            )
+            if entry["merged"]:
+                fourier = fourier.merge()
+            updated = eqx.tree_at(
+                lambda tree, p=path: get_path(tree, p), updated, fourier
+            )
+            continue
+        if entry["class"] == "AdaLoRAModule":
+            metadata = entry.get("metadata", {})
+            adalora = cast(
+                AdaLoRAModule,
+                AdaLoRAModule(
+                    module,
+                    rank=int(entry["rank"]),
+                    alpha=float(entry["alpha"]),
+                    train_base=bool(entry["train_base"]),
+                    mergeable=bool(entry["mergeable"]),
+                    key=jr.PRNGKey(0),
+                    P=entry["P"],
+                    singular=entry["singular"],
+                    Q=entry["Q"],
+                    final_mask=entry.get("final_mask"),
+                    metadata=AdaLoRAMetadata(
+                        logical_id=str(metadata.get("logical_id", "")),
+                        profile_id=str(metadata.get("profile_id", "safe_default")),
+                    ),
+                ),
+            )
+            if entry["merged"]:
+                adalora = adalora.merge()
+            updated = eqx.tree_at(
+                lambda tree, p=path: get_path(tree, p), updated, adalora
+            )
+            continue
         if entry["class"] == "RandLoRALinear":
             entry_metadata = _entry_metadata(entry)
             lora_module = cast(
@@ -1555,7 +1762,6 @@ def strip_lora(model: PyTree) -> PyTree:
     """Replace LoRA wrappers with their unmerged base linears."""
 
     stripped = unmerge_lora(model)
-    stripped = unmerge_randlora(stripped)
     for path, module in iter_lora_modules(stripped):
         base = _restore_base_weight(module)
         stripped = eqx.tree_at(lambda tree, p=path: get_path(tree, p), stripped, base)
@@ -1563,6 +1769,15 @@ def strip_lora(model: PyTree) -> PyTree:
         stripped = eqx.tree_at(
             lambda tree, p=path: get_path(tree, p), stripped, module.base
         )
+    for iterator in (
+        iter_lora_fa_modules,
+        iter_fourierft_modules,
+        iter_adalora_modules,
+    ):
+        for path, module in iterator(stripped):
+            stripped = eqx.tree_at(
+                lambda tree, p=path: get_path(tree, p), stripped, module.base
+            )
     return stripped
 
 
@@ -2374,6 +2589,15 @@ def _map_lora_modules(model: PyTree, fn) -> PyTree:
 def _map_lora_fa_modules(model: PyTree, fn) -> PyTree:
     updated = model
     for path, module in iter_lora_fa_modules(updated):
+        updated = eqx.tree_at(
+            lambda tree, p=path: get_path(tree, p), updated, fn(module)
+        )
+    return updated
+
+
+def _map_adalora_modules(model: PyTree, fn) -> PyTree:
+    updated = model
+    for path, module in iter_adalora_modules(updated):
         updated = eqx.tree_at(
             lambda tree, p=path: get_path(tree, p), updated, fn(module)
         )

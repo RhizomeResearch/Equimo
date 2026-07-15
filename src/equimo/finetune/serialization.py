@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 import hashlib
-import io
 import json
 from dataclasses import replace
 from importlib import metadata as package_metadata
 from pathlib import Path
 import tarfile
 import tempfile
-from typing import Any, Mapping, cast, get_args
+from typing import Any, BinaryIO, Mapping, cast, get_args
+import warnings
 
 import equinox as eqx
 import jax
@@ -19,6 +19,15 @@ import jax.random as jr
 import jax.tree_util as jtu
 import lz4.frame
 import numpy as np
+
+from equimo._io import (
+    atomic_file,
+    copy_limited,
+    read_limited,
+    sha256_file,
+    sha256_stream,
+    validate_sha256,
+)
 
 from ._typing import PyTree
 from ._serialization_codecs import (
@@ -34,7 +43,9 @@ from .config import (
     ModelLineage,
     ProjectionSegment,
     TargetSpec,
+    TrainableSpec,
 )
+from .masks import resolve_trainable_paths
 from .paths import key_path_to_path, path_to_str, str_to_path
 from .peft import PEFTConfig
 from .peft.adapters import (
@@ -57,7 +68,11 @@ from .peft.lora import (
     FourierFTConfig,
     LoRAConfig,
     extract_lora_delta,
+    iter_adalora_modules,
+    iter_fourierft_modules,
+    iter_lora_fa_modules,
     iter_lora_modules,
+    iter_randlora_modules,
     load_lora_delta,
     strip_lora,
 )
@@ -88,6 +103,10 @@ _FEATURE_SPEC_CODEC = "equimo.finetune.FeatureSpec"
 _FEATURE_SPEC_CODEC_VERSION = 1
 _CALIBRATION_FORMAT = "equimo.finetune.calibration"
 _CALIBRATION_FORMAT_VERSION = 1
+_ARCHIVE_MEMBERS = frozenset(("manifest.json", "arrays.eqx"))
+_MAX_MANIFEST_BYTES = 16 * 1024 * 1024
+_MAX_ARRAY_BYTES = 64 * 1024 * 1024 * 1024
+_SPOOL_MEMORY_BYTES = 64 * 1024 * 1024
 
 
 def save_delta(
@@ -120,7 +139,18 @@ def save_delta(
         spec=spec,
     )
 
-    bundle = _codec_for_save(method).extract(model)
+    codec = _codec_for_save(method)
+    bundle = codec.extract(model)
+    if resolved_base_model is not None:
+        bundle = _capture_trainable_delta(
+            bundle,
+            model,
+            resolved_base_model,
+            resolved_spec,
+            codec=codec,
+        )
+    else:
+        _require_base_for_unrepresented_trainables(model, resolved_spec)
 
     bundle = _enrich_bundle(
         bundle,
@@ -154,7 +184,8 @@ def load_delta(
     _check_schema(bundle)
     _check_base_checkpoint(base_model, bundle)
     _check_bundle_lineage_consistency(bundle)
-    return _codec_for_load(bundle.method).load(base_model, bundle)
+    model = _codec_for_load(bundle.method).load(base_model, bundle)
+    return _apply_trainable_delta(model, bundle)
 
 
 def save_finetune_bundle(path: str | Path, bundle: FineTuneBundle) -> FineTuneBundle:
@@ -165,18 +196,7 @@ def save_finetune_bundle(path: str | Path, bundle: FineTuneBundle) -> FineTuneBu
     path.parent.mkdir(parents=True, exist_ok=True)
 
     manifest, arrays = _bundle_to_manifest(bundle)
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        tmp_path = Path(tmp_dir)
-        manifest_path = tmp_path / "manifest.json"
-        arrays_path = tmp_path / "arrays.eqx"
-        with manifest_path.open("w") as handle:
-            json.dump(manifest, handle)
-        eqx.tree_serialise_leaves(arrays_path, arrays)
-
-        with lz4.frame.open(path, "wb") as archive:
-            with tarfile.open(fileobj=archive, mode="w") as tar:
-                tar.add(manifest_path, arcname="manifest.json")
-                tar.add(arrays_path, arcname="arrays.eqx")
+    _write_archive(path, manifest, arrays)
     return bundle
 
 
@@ -211,17 +231,7 @@ def save_calibration_artifacts(
     }
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        tmp_path = Path(tmp_dir)
-        manifest_path = tmp_path / "manifest.json"
-        arrays_path = tmp_path / "arrays.eqx"
-        with manifest_path.open("w") as handle:
-            json.dump(manifest, handle)
-        eqx.tree_serialise_leaves(arrays_path, arrays)
-        with lz4.frame.open(path, "wb") as archive:
-            with tarfile.open(fileobj=archive, mode="w") as tar:
-                tar.add(manifest_path, arcname="manifest.json")
-                tar.add(arrays_path, arcname="arrays.eqx")
+    _write_archive(path, manifest, arrays)
     return resolved
 
 
@@ -233,30 +243,25 @@ def load_calibration_artifacts(
     from .calibration import validate_calibration_artifacts
 
     path = Path(path)
-    with lz4.frame.open(path, "rb") as archive:
-        with tarfile.open(fileobj=archive, mode="r") as tar:
-            manifest_file = tar.extractfile("manifest.json")
-            arrays_file = tar.extractfile("arrays.eqx")
-            if manifest_file is None or arrays_file is None:
-                raise FineTuneBundleError(
-                    f"Calibration file {path!s} is missing manifest.json or arrays.eqx."
-                )
-            manifest = json.loads(manifest_file.read().decode())
-            arrays_data = io.BytesIO(arrays_file.read())
-    if manifest.get("format") != _CALIBRATION_FORMAT:
-        raise FineTuneBundleError(
-            f"Unsupported calibration format {manifest.get('format')!r}."
-        )
-    if manifest.get("format_version") != _CALIBRATION_FORMAT_VERSION:
-        raise FineTuneBundleError(
-            "Unsupported calibration format_version="
-            f"{manifest.get('format_version')!r}; expected {_CALIBRATION_FORMAT_VERSION}."
-        )
-    encoded = manifest.get("artifacts")
-    templates: dict[str, Any] = {}
-    _collect_array_templates(encoded, templates)
-    arrays = eqx.tree_deserialise_leaves(arrays_data, templates)
-    payload = _decode_value(encoded, arrays)
+    manifest, arrays_data = _read_archive(path, label="Calibration file")
+    try:
+        if manifest.get("format") != _CALIBRATION_FORMAT:
+            raise FineTuneBundleError(
+                f"Unsupported calibration format {manifest.get('format')!r}."
+            )
+        if manifest.get("format_version") != _CALIBRATION_FORMAT_VERSION:
+            raise FineTuneBundleError(
+                "Unsupported calibration format_version="
+                f"{manifest.get('format_version')!r}; expected "
+                f"{_CALIBRATION_FORMAT_VERSION}."
+            )
+        encoded = manifest.get("artifacts")
+        templates: dict[str, Any] = {}
+        _collect_array_templates(encoded, templates)
+        arrays = eqx.tree_deserialise_leaves(arrays_data, templates)
+        payload = _decode_value(encoded, arrays)
+    finally:
+        arrays_data.close()
     if not isinstance(payload, dict):
         raise FineTuneBundleError("Calibration artifact payload must be a dictionary.")
     try:
@@ -310,19 +315,145 @@ def merge_and_save(
 
 def _read_bundle(path: str | Path) -> FineTuneBundle:
     path = Path(path)
-    with lz4.frame.open(path, "rb") as archive:
-        with tarfile.open(fileobj=archive, mode="r") as tar:
-            manifest_file = tar.extractfile("manifest.json")
-            arrays_file = tar.extractfile("arrays.eqx")
-            if manifest_file is None or arrays_file is None:
-                raise FineTuneBundleError(
-                    f"Delta file {path!s} is missing manifest.json or arrays.eqx."
-                )
-            manifest = json.loads(manifest_file.read().decode())
-            arrays_data = io.BytesIO(arrays_file.read())
-    bundle = _bundle_from_manifest(manifest, arrays_data)
+    manifest, arrays_data = _read_archive(path, label="Delta file")
+    try:
+        bundle = _bundle_from_manifest(manifest, arrays_data)
+    finally:
+        arrays_data.close()
     _check_schema(bundle)
     return bundle
+
+
+def _write_archive(
+    path: Path,
+    manifest: dict[str, Any],
+    arrays: dict[str, Any],
+) -> None:
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_path = Path(tmp_dir)
+        manifest_path = tmp_path / "manifest.json"
+        arrays_path = tmp_path / "arrays.eqx"
+        eqx.tree_serialise_leaves(arrays_path, arrays)
+        manifest = {**manifest, "arrays_sha256": sha256_file(arrays_path)}
+        with manifest_path.open("w") as handle:
+            json.dump(manifest, handle, sort_keys=True)
+
+        with atomic_file(path) as temporary:
+            with lz4.frame.open(temporary, "wb") as archive:
+                with tarfile.open(fileobj=archive, mode="w") as tar:
+                    tar.add(manifest_path, arcname="manifest.json")
+                    tar.add(arrays_path, arcname="arrays.eqx")
+
+
+def _read_archive(
+    path: Path,
+    *,
+    label: str,
+) -> tuple[dict[str, Any], BinaryIO]:
+    arrays_data = tempfile.SpooledTemporaryFile(
+        max_size=_SPOOL_MEMORY_BYTES, mode="w+b"
+    )
+    try:
+        with lz4.frame.open(path, "rb") as archive:
+            with tarfile.open(fileobj=archive, mode="r") as tar:
+                members = tar.getmembers()
+                names = [member.name for member in members]
+                if len(names) != len(set(names)):
+                    raise FineTuneBundleError(
+                        f"{label} {path!s} contains duplicate archive members."
+                    )
+                unexpected = set(names) - _ARCHIVE_MEMBERS
+                missing = _ARCHIVE_MEMBERS - set(names)
+                if unexpected:
+                    raise FineTuneBundleError(
+                        f"{label} {path!s} contains unexpected archive members: "
+                        + ", ".join(sorted(unexpected))
+                        + "."
+                    )
+                if missing:
+                    raise FineTuneBundleError(
+                        f"{label} {path!s} is missing: "
+                        + ", ".join(sorted(missing))
+                        + "."
+                    )
+                by_name = {member.name: member for member in members}
+                manifest_member = by_name["manifest.json"]
+                arrays_member = by_name["arrays.eqx"]
+                for member in members:
+                    if not member.isfile():
+                        raise FineTuneBundleError(
+                            f"{label} member {member.name!r} must be a regular file."
+                        )
+                if manifest_member.size > _MAX_MANIFEST_BYTES:
+                    raise FineTuneBundleError(
+                        f"{label} manifest.json exceeds the "
+                        f"{_MAX_MANIFEST_BYTES}-byte size limit."
+                    )
+                if arrays_member.size > _MAX_ARRAY_BYTES:
+                    raise FineTuneBundleError(
+                        f"{label} arrays.eqx exceeds the "
+                        f"{_MAX_ARRAY_BYTES}-byte size limit."
+                    )
+
+                manifest_file = tar.extractfile(manifest_member)
+                arrays_file = tar.extractfile(arrays_member)
+                if manifest_file is None or arrays_file is None:
+                    raise FineTuneBundleError(
+                        f"{label} {path!s} contains unreadable archive members."
+                    )
+                try:
+                    manifest_payload = read_limited(
+                        manifest_file,
+                        _MAX_MANIFEST_BYTES,
+                        label=f"{label} manifest.json",
+                    )
+                    copied = copy_limited(
+                        arrays_file,
+                        arrays_data,
+                        _MAX_ARRAY_BYTES,
+                        label=f"{label} arrays.eqx",
+                    )
+                except ValueError as error:
+                    raise FineTuneBundleError(str(error)) from error
+                if len(manifest_payload) != manifest_member.size:
+                    raise FineTuneBundleError(f"{label} manifest.json is truncated.")
+                if copied != arrays_member.size:
+                    raise FineTuneBundleError(f"{label} arrays.eqx is truncated.")
+        try:
+            manifest = json.loads(manifest_payload)
+        except (UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise FineTuneBundleError(
+                f"{label} manifest.json is not valid JSON: {error}"
+            ) from error
+        if not isinstance(manifest, dict):
+            raise FineTuneBundleError(f"{label} manifest must be a JSON object.")
+        expected_checksum = manifest.get("arrays_sha256")
+        if expected_checksum is None:
+            warnings.warn(
+                f"Loading a v2-alpha {label.lower()} without an arrays checksum.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+        elif not isinstance(expected_checksum, str):
+            raise FineTuneBundleError(f"{label} arrays_sha256 must be a string.")
+        else:
+            try:
+                expected_checksum = validate_sha256(
+                    expected_checksum, label=f"{label} arrays_sha256"
+                )
+            except ValueError as error:
+                raise FineTuneBundleError(str(error)) from error
+            actual_checksum = sha256_stream(arrays_data)
+            if actual_checksum != expected_checksum:
+                raise FineTuneBundleError(
+                    f"{label} arrays checksum mismatch: expected "
+                    f"{expected_checksum}, got {actual_checksum}."
+                )
+        arrays_data.seek(0)
+        return manifest, cast(BinaryIO, arrays_data)
+    except BaseException:
+        arrays_data.close()
+        raise
 
 
 def _bundle_to_manifest(
@@ -422,7 +553,7 @@ def _feature_spec_from_payload(payload: Any) -> FeatureSpec | None:
 
 def _bundle_from_manifest(
     manifest: dict[str, Any],
-    arrays_data: io.BytesIO,
+    arrays_data: BinaryIO,
 ) -> FineTuneBundle:
     if manifest.get("format") != _FORMAT:
         raise FineTuneBundleError(
@@ -1179,7 +1310,7 @@ def _enrich_bundle(
         lineage=lineage,
         trainable_labels=bundle.trainable_labels
         if bundle.trainable_labels is not None
-        else _trainable_labels(model, bundle.method),
+        else _trainable_labels(model, bundle.method, spec),
         model_state=model_state_snapshot,
         metadata={**stats, **dict(bundle.metadata)},
     )
@@ -1472,19 +1603,129 @@ def _prefix_config_from_dict(config: dict[str, Any]) -> PrefixConfig:
     return PrefixConfig(**config)
 
 
-def _trainable_labels(model: PyTree, method: str):
-    from .config import TrainableSpec
+def _trainable_labels(model: PyTree, method: str, spec: Any | None):
     from .surgery import prepare_finetune
 
     plan = prepare_finetune(
         model,
-        trainable=TrainableSpec(
-            mode="peft",
-            method_name=method,
-            train_head=False,
-        ),
+        trainable=_trainable_spec(spec, method),
     )
     return plan.labels
+
+
+def _trainable_spec(spec: Any | None, method: str) -> TrainableSpec:
+    if isinstance(spec, TrainableSpec):
+        return spec
+    return TrainableSpec(
+        mode="peft",
+        method_name=method,
+        train_head=bool(getattr(spec, "train_head", False)),
+        train_norm=bool(getattr(spec, "train_norm", False)),
+        train_bias=bool(getattr(spec, "train_bias", False)),
+    )
+
+
+def _capture_trainable_delta(
+    bundle: FineTuneBundle,
+    model: PyTree,
+    base_model: PyTree,
+    spec: Any | None,
+    *,
+    codec: DeltaCodec,
+) -> FineTuneBundle:
+    reference = codec.load(base_model, bundle)
+    trainable_paths = resolve_trainable_paths(
+        model, _trainable_spec(spec, bundle.method)
+    )
+    entries: list[dict[str, Any]] = []
+    for path in sorted(trainable_paths, key=path_to_str):
+        trained = get_path(model, path)
+        baseline = get_path(reference, path)
+        if not (eqx.is_inexact_array(trained) and eqx.is_inexact_array(baseline)):
+            continue
+        if trained.shape != baseline.shape:
+            raise FineTuneBundleError(
+                f"Trainable delta path {path_to_str(path)!r} changed shape from "
+                f"{baseline.shape} to {trained.shape}."
+            )
+        if trained.dtype != baseline.dtype:
+            raise FineTuneBundleError(
+                f"Trainable delta path {path_to_str(path)!r} changed dtype from "
+                f"{baseline.dtype} to {trained.dtype}."
+            )
+        if np.array_equal(np.asarray(trained), np.asarray(baseline)):
+            continue
+        entries.append(
+            {
+                "path": path_to_str(path),
+                "shape": tuple(trained.shape),
+                "dtype": str(trained.dtype),
+                "delta": trained - baseline,
+            }
+        )
+    if not entries:
+        return bundle
+    return replace(
+        bundle,
+        delta_tree={"format": "path_additions_v1", "entries": tuple(entries)},
+    )
+
+
+def _apply_trainable_delta(model: PyTree, bundle: FineTuneBundle) -> PyTree:
+    delta_tree = bundle.delta_tree
+    if delta_tree is None:
+        return model
+    if not isinstance(delta_tree, Mapping) or delta_tree.get("format") != (
+        "path_additions_v1"
+    ):
+        raise FineTuneBundleError("Unsupported FineTuneBundle delta_tree format.")
+
+    updated = model
+    for entry in delta_tree.get("entries", ()):
+        path = str_to_path(entry["path"])
+        leaf = _bundle_get_path(updated, path, method_name="Trainable")
+        if not eqx.is_inexact_array(leaf):
+            raise FineTuneBundleError(
+                f"Trainable delta expects an inexact array at {entry['path']}."
+            )
+        expected_shape = tuple(entry["shape"])
+        if tuple(leaf.shape) != expected_shape:
+            raise FineTuneBundleError(
+                f"Trainable delta expects path {entry['path']} with shape "
+                f"{expected_shape}, got {tuple(leaf.shape)}."
+            )
+        if str(leaf.dtype) != entry["dtype"]:
+            raise FineTuneBundleError(
+                f"Trainable delta expects path {entry['path']} with dtype "
+                f"{entry['dtype']}, got {leaf.dtype}."
+            )
+        delta = jnp.asarray(entry["delta"], dtype=leaf.dtype)
+        updated = eqx.tree_at(
+            lambda tree, p=path: get_path(tree, p),
+            updated,
+            leaf + delta,
+        )
+    return updated
+
+
+def _require_base_for_unrepresented_trainables(model: PyTree, spec: Any | None) -> None:
+    trainable_base = any(
+        bool(getattr(leaf, "train_base", False))
+        for leaf in jtu.tree_leaves(
+            model,
+            is_leaf=lambda item: hasattr(item, "base") and hasattr(item, "train_base"),
+        )
+        if hasattr(leaf, "train_base")
+    )
+    explicit_non_adapter = isinstance(spec, TrainableSpec) or any(
+        bool(getattr(spec, name, False))
+        for name in ("train_head", "train_norm", "train_bias")
+    )
+    if trainable_base or explicit_non_adapter:
+        raise ValueError(
+            "save_delta requires base_model when trainable base, head, norm, or "
+            "bias leaves must be persisted."
+        )
 
 
 def _model_name(model: PyTree) -> str:
@@ -1548,9 +1789,17 @@ def _always_exact_base_checkpoint(model: PyTree) -> bool:
 
 
 def _lora_exact_base_checkpoint(model: PyTree) -> bool:
-    return all(
-        module.base_weight_delta is None for _, module in iter_lora_modules(model)
+    ordinary = tuple(module for _, module in iter_lora_modules(model))
+    family = (
+        *(module for _, module in iter_lora_fa_modules(model)),
+        *(module for _, module in iter_randlora_modules(model)),
+        *(module for _, module in iter_fourierft_modules(model)),
+        *(module for _, module in iter_adalora_modules(model)),
     )
+    return all(
+        module.base_weight_delta is None and not module.train_base
+        for module in ordinary
+    ) and all(not module.train_base for module in family)
 
 
 def _strip_prompt_model(model: PyTree) -> PyTree:

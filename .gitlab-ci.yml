@@ -38,6 +38,9 @@ docs:finetune:
 
 test:finetune:
   stage: test
+  parallel:
+    matrix:
+      - PYTHON_VERSION: ["3.12", "3.13", "3.14"]
   script:
     - uv run --python "$PYTHON_VERSION" python tests/ci_shards.py finetune --junitxml=report-finetune.xml
   artifacts:
@@ -47,6 +50,9 @@ test:finetune:
 
 test:models:
   stage: test
+  parallel:
+    matrix:
+      - PYTHON_VERSION: ["3.12", "3.13", "3.14"]
   script:
     - uv run --python "$PYTHON_VERSION" python tests/ci_shards.py models --junitxml=report-models.xml
   artifacts:
@@ -56,6 +62,9 @@ test:models:
 
 test:core:
   stage: test
+  parallel:
+    matrix:
+      - PYTHON_VERSION: ["3.12", "3.13", "3.14"]
   script:
     - uv run --python "$PYTHON_VERSION" python tests/ci_shards.py core --junitxml=report-core.xml
   artifacts:
@@ -63,16 +72,21 @@ test:core:
     reports:
       junit: report-core.xml
 
-test:python:
+test:minimum-dependencies:
   stage: test
-  parallel:
-    matrix:
-      - PYTHON_VERSION: ["3.13", "3.14"]
+  before_script:
+    - uv venv .venv-minimum --python "$PYTHON_VERSION"
+    - uv pip install --python .venv-minimum/bin/python --resolution lowest-direct -e .
+    - uv pip install --python .venv-minimum/bin/python "pytest>=9.0.2"
   script:
-    - uv run --python "$PYTHON_VERSION" pytest -q -p no:cacheprovider tests/test_package_metadata.py tests/test_modalities.py tests/test_language.py tests/test_tabpfn.py
+    - .venv-minimum/bin/python -c 'import importlib.metadata as m; assert m.version("jax") == "0.8.1"; assert m.version("jaxlib") == "0.8.1"; assert m.version("equinox") == "0.13.3"'
+    - .venv-minimum/bin/python -m pytest -q -p no:cacheprovider
 
 test:extra:extras:
   stage: test
+  parallel:
+    matrix:
+      - PYTHON_VERSION: ["3.12", "3.13", "3.14"]
   variables:
     EQUIMO_TEST_OPTIONAL_EXTRA: extras
   before_script:
@@ -82,6 +96,9 @@ test:extra:extras:
 
 test:extra:audio:
   stage: test
+  parallel:
+    matrix:
+      - PYTHON_VERSION: ["3.12", "3.13", "3.14"]
   variables:
     EQUIMO_TEST_OPTIONAL_EXTRA: audio
   before_script:
@@ -91,6 +108,10 @@ test:extra:audio:
 
 test:extra:language:
   stage: test
+  # TensorFlow and tensorflow-text do not currently publish Python 3.14 wheels.
+  parallel:
+    matrix:
+      - PYTHON_VERSION: ["3.12", "3.13"]
   variables:
     EQUIMO_TEST_OPTIONAL_EXTRA: language
   before_script:
@@ -100,6 +121,9 @@ test:extra:language:
 
 test:extra:torch:
   stage: test
+  parallel:
+    matrix:
+      - PYTHON_VERSION: ["3.12", "3.13", "3.14"]
   variables:
     EQUIMO_TEST_OPTIONAL_EXTRA: torch
   before_script:
@@ -110,7 +134,7 @@ test:extra:torch:
 build:distribution:
   stage: build
   script:
-    - uv build
+    - uv build --clear --no-sources
     - uv run python -m pytest -q -p no:cacheprovider tests/test_distribution.py
   artifacts:
     paths:
@@ -125,7 +149,7 @@ publish:
     - "test:finetune"
     - "test:models"
     - "test:core"
-    - "test:python"
+    - "test:minimum-dependencies"
     - "test:extra:extras"
     - "test:extra:audio"
     - "test:extra:language"

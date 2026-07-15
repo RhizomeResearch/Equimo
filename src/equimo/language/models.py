@@ -23,11 +23,18 @@ def global_avg_pooling(
 ):
     """Average unpadded tokens over the requested pooling dimensions."""
 
-    valid_mask = 1.0 - compatible_paddings
-    masked_inputs = inputs * valid_mask
+    output_dtype = inputs.dtype
+    accumulation_dtype = (
+        jnp.float32 if output_dtype in (jnp.bfloat16, jnp.float16) else output_dtype
+    )
+    valid_mask = jnp.asarray(1, dtype=accumulation_dtype) - jnp.asarray(
+        compatible_paddings, dtype=accumulation_dtype
+    )
+    masked_inputs = inputs.astype(accumulation_dtype) * valid_mask
     inputs_sum = jnp.sum(masked_inputs, axis=pooling_dims)
     valid_count = jnp.sum(valid_mask, axis=pooling_dims)
-    return inputs_sum / (valid_count + epsilon)
+    pooled = inputs_sum / (valid_count + jnp.asarray(epsilon, dtype=accumulation_dtype))
+    return pooled.astype(output_dtype)
 
 
 class TransformerEncoderStack(eqx.Module):
@@ -194,13 +201,12 @@ class TextTransformerEncoder(eqx.Module):
         inference: Optional[bool] = None,
     ) -> Float[Array, "seqlen dim"]:
         seq_len = ids.shape[0]
-        valid_mask = (padding_mask == 0).astype(jnp.float32)
-
         x = jax.vmap(self.token_embedding)(ids)
+        valid_mask = (padding_mask == 0).astype(x.dtype)
         if self.scale_sqrt_depth:
-            x = x * (self.dim**0.5)
+            x = x * jnp.asarray(self.dim**0.5, dtype=x.dtype)
 
-        x = x + self.posemb(seq_len=seq_len)
+        x = x + self.posemb(seq_len=seq_len).astype(x.dtype)
         x = self.transformer(
             x,
             mask=valid_mask[None, None, :],
@@ -222,12 +228,11 @@ class TextTransformerEncoder(eqx.Module):
         """Return selected native transformer block outputs."""
 
         seq_len = ids.shape[0]
-        valid_mask = (padding_mask == 0).astype(jnp.float32)
-
         x = jax.vmap(self.token_embedding)(ids)
+        valid_mask = (padding_mask == 0).astype(x.dtype)
         if self.scale_sqrt_depth:
-            x = x * (self.dim**0.5)
-        x = x + self.posemb(seq_len=seq_len)
+            x = x * jnp.asarray(self.dim**0.5, dtype=x.dtype)
+        x = x + self.posemb(seq_len=seq_len).astype(x.dtype)
         return self.transformer.intermediate_features(
             x,
             mask=valid_mask[None, None, :],

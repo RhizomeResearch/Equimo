@@ -8,6 +8,7 @@ import jax.numpy as jnp
 import pytest
 
 import equimo.finetune as eqft
+import equimo.finetune.serialization as serialization
 
 
 def _artifacts():
@@ -113,3 +114,31 @@ def test_regmean_rejects_wrong_artifact_kind():
     artifact = next(iter(_artifacts().values()))
     with pytest.raises(ValueError, match="input_covariance"):
         eqft.regmean_merge([jnp.eye(2)], [artifact])
+
+
+@pytest.mark.parametrize("value", [jnp.nan, jnp.inf, -jnp.inf])
+def test_calibration_artifacts_reject_non_finite_statistics(tmp_path, value):
+    artifacts = _artifacts()
+    artifact = artifacts["a"]
+    vectors = artifact.statistics["right_singular_vectors"].at[0, 0].set(value)
+    artifacts["a"] = replace(
+        artifact,
+        statistics={**artifact.statistics, "right_singular_vectors": vectors},
+    )
+
+    with pytest.raises(ValueError, match="finite"):
+        eqft.save_calibration_artifacts(tmp_path / "invalid.eqft", artifacts)
+
+
+def test_failed_calibration_save_preserves_existing_file(tmp_path, monkeypatch):
+    path = tmp_path / "calibration.eqft"
+    path.write_bytes(b"existing calibration")
+
+    def fail_serialization(*args, **kwargs):
+        raise RuntimeError("serialization failed")
+
+    monkeypatch.setattr(serialization.eqx, "tree_serialise_leaves", fail_serialization)
+    with pytest.raises(RuntimeError, match="serialization failed"):
+        eqft.save_calibration_artifacts(path, _artifacts())
+
+    assert path.read_bytes() == b"existing calibration"

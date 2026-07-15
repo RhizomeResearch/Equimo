@@ -201,7 +201,11 @@ equimo.finetune.path_to_str(path: 'Path') -> 'str'
 
 Defined in `equimo.finetune.paths`.
 
-> Format a path as a dot-separated string.
+> Format a path as an unambiguous dot-separated string.
+>
+> Ordinary identifier-like paths keep their historical representation. Dots and
+> backslashes inside string components are escaped, while integer-looking string
+> components use a ``\s`` prefix so they cannot be confused with sequence indices.
 
 <!-- equimo.finetune:resolve_target -->
 <a id="equimo-finetune-resolve-target"></a>
@@ -237,4 +241,6 @@ equimo.finetune.str_to_path(path: 'str') -> 'Path'
 
 Defined in `equimo.finetune.paths`.
 
-> Parse a dot-separated path string.
+> Parse a path produced by :func:`path_to_str`.
+>
+> Legacy unescaped paths remain supported.

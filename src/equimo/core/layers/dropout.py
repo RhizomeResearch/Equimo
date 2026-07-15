@@ -3,10 +3,23 @@ from typing import Callable, Optional
 import equinox as eqx
 import jax
 import jax.lax as lax
+import jax.numpy as jnp
 import jax.random as jr
 from jaxtyping import Array, PRNGKeyArray
 
 _DROPOUT_REGISTRY: dict[str, type[eqx.Module]] = {}
+
+
+def _drop_probability(p: float | jax.Array) -> float:
+    if isinstance(p, jax.Array):
+        if p.size != 1:
+            raise ValueError(f"Got {p.size} values for p")
+        p = float(p.reshape(()))
+    else:
+        p = float(p)
+    if not 0.0 <= p <= 1.0:
+        raise ValueError(f"Drop probability must be between 0 and 1, got {p}.")
+    return p
 
 
 def register_dropout(
@@ -86,12 +99,7 @@ class DropPath(eqx.Module, strict=True):
             with overridden during [`DropPath.__call__`][].
         """
 
-        if isinstance(p, jax.Array):
-            if (_l := len(p)) != 1:
-                raise ValueError(f"Got {_l} values for p")
-            p = float(p[0])
-
-        self.p = p
+        self.p = _drop_probability(p)
         self.inference = inference
 
     def __call__(
@@ -117,6 +125,8 @@ class DropPath(eqx.Module, strict=True):
             inference = True
         if inference:
             return x
+        elif self.p == 1:
+            return jnp.zeros_like(x)
         elif key is None:
             raise RuntimeError(
                 "DropPath requires a key when running in non-deterministic mode."
@@ -152,12 +162,7 @@ class DropPathAdd(eqx.Module, strict=True):
             with overridden during [`DropPathAdd.__call__`][].
         """
 
-        if isinstance(p, jax.Array):
-            if (_l := len(p)) != 1:
-                raise ValueError(f"Got {_l} values for p")
-            p = float(p[0])
-
-        self.p = p
+        self.p = _drop_probability(p)
         self.inference = inference
 
     def __call__(
@@ -185,6 +190,8 @@ class DropPathAdd(eqx.Module, strict=True):
             inference = True
         if inference:
             return x1 + x2
+        elif self.p == 1:
+            return x1
         elif key is None:
             raise RuntimeError(
                 "DropPathAdd requires a key when running in non-deterministic mode."

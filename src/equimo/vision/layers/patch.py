@@ -324,20 +324,22 @@ class ConvPatchEmbed(eqx.Module):
             x: Input tensor of shape (channels, height, width).
 
         Returns:
-            Output tensor of shape (embed_dim, height // 4, width // 4),
+            Output tensor of shape (embed_dim, ceil(height / 4), ceil(width / 4)),
             same dtype as input.
         """
-        c, h, w = x.shape
-
+        x = self.conv1(x)
+        _, height, width = x.shape
         x = self._from_tokens(
-            self.act(jax.vmap(self.norm1)(self._to_tokens(self.conv1(x)))),
-            h=h // 2,
-            w=w // 2,
+            self.act(jax.vmap(self.norm1)(self._to_tokens(x))),
+            h=height,
+            w=width,
         )
+        x = self.conv2(x)
+        _, height, width = x.shape
         x = self._from_tokens(
-            self.act(jax.vmap(self.norm2)(self._to_tokens(self.conv2(x)))),
-            h=h // 4,
-            w=w // 4,
+            self.act(jax.vmap(self.norm2)(self._to_tokens(x))),
+            h=height,
+            w=width,
         )
         return x
 

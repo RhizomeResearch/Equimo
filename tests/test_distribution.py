@@ -7,6 +7,7 @@ from email.parser import BytesParser
 from email.policy import default
 from pathlib import Path
 
+from packaging.specifiers import SpecifierSet
 import pytest
 
 
@@ -45,8 +46,11 @@ def test_wheel_metadata_matches_project(built_distributions):
 
     assert metadata["Name"] == project["name"]
     assert metadata["Version"] == project["version"]
-    assert metadata["Requires-Python"] == project["requires-python"]
-    assert metadata["License"] == project["license"]["text"]
+    assert SpecifierSet(metadata["Requires-Python"]) == SpecifierSet(
+        project["requires-python"]
+    )
+    assert metadata["License-Expression"] == project["license"]
+    assert metadata.get_all("License-File") == ["LICENSE.md"]
     assert metadata["Description-Content-Type"] == "text/markdown"
     assert (
         metadata.get_payload(decode=True).decode()
@@ -63,6 +67,11 @@ def test_built_distributions_contain_all_package_modules(built_distributions):
 
     with zipfile.ZipFile(wheel) as archive:
         wheel_modules = {path for path in archive.namelist() if path.endswith(".py")}
+        wheel_licenses = {
+            path
+            for path in archive.namelist()
+            if ".dist-info/licenses/" in path and not path.endswith("/")
+        }
 
     sdist_root = f"{project['name'].lower()}-{project['version']}"
     with tarfile.open(sdist, "r:gz") as archive:
@@ -74,10 +83,16 @@ def test_built_distributions_contain_all_package_modules(built_distributions):
         }
 
     assert wheel_modules == source_modules
+    assert len(wheel_licenses) == 1
+    assert next(iter(wheel_licenses)).endswith(".dist-info/licenses/LICENSE.md")
     assert sdist_modules == source_modules
     assert {
         f"{sdist_root}/PKG-INFO",
+        f"{sdist_root}/CHANGELOG.md",
+        f"{sdist_root}/LICENSE.md",
         f"{sdist_root}/README.md",
+        f"{sdist_root}/docs/migration-v2.md",
+        f"{sdist_root}/docs/stability.md",
         f"{sdist_root}/pyproject.toml",
     } <= sdist_contents
 

@@ -21,6 +21,16 @@ class NoKwargFeatureModel(eqx.Module):
         return jnp.stack([x, x + 1.0])
 
 
+class InferenceOnlyFeatureModel(eqx.Module):
+    def features(self, x, *, inference=True):
+        return x if inference else x + 1.0
+
+
+class InferenceOnlyHead(eqx.Module):
+    def __call__(self, x, *, inference=True):
+        return x if inference else x + 2.0
+
+
 class ConvFeatureModel(eqx.Module):
     stem: tuple[()] = eqx.field(static=True)
     stages: tuple[()] = eqx.field(static=True)
@@ -70,6 +80,29 @@ def test_replace_head_preserves_backbone(tiny_vision_transformer):
     assert replaced.head(jnp.ones((4,))).shape == (5,)
     assert_tree_allclose(replaced.patch_embed, tiny_vision_transformer.patch_embed)
     assert_tree_allclose(replaced.blocks, tiny_vision_transformer.blocks)
+
+
+def test_optional_dispatch_preserves_supported_inference_argument():
+    x = jnp.ones((2, 3))
+
+    features = eqft.extract_features(
+        InferenceOnlyFeatureModel(),
+        x,
+        pool="none",
+        key=jr.PRNGKey(0),
+        inference=False,
+    )
+    probe = eqft.LinearProbe(
+        InferenceOnlyFeatureModel(),
+        InferenceOnlyHead(),
+        pool="none",
+    )
+
+    assert jnp.array_equal(features, x + 1.0)
+    assert jnp.array_equal(
+        probe(x, key=jr.PRNGKey(0), inference=False),
+        x + 3.0,
+    )
 
 
 def test_replace_head_validates_input_features(tiny_vision_transformer):
