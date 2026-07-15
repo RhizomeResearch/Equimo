@@ -23,6 +23,12 @@ def _reference_text() -> str:
     )
 
 
+def _symbol_section(name: str) -> str:
+    marker = f"<!-- equimo.finetune:{name} -->"
+    section = _reference_text().split(marker, maxsplit=1)[1]
+    return section.split("<!-- equimo.finetune:", maxsplit=1)[0]
+
+
 def test_reference_inventory_matches_public_exports_exactly_once():
     documented = PUBLIC_MARKER.findall(_reference_text())
 
@@ -39,6 +45,11 @@ def test_reference_renders_representative_live_declarations():
     assert "type equimo.finetune.LeafPredicate = Callable[" in text
     assert "equimo.finetune.CANONICAL_TAGS = (" in text
     assert not re.search(r" at 0x[0-9a-fA-F]+", text)
+
+
+def test_type_aliases_do_not_report_runtime_implementation_modules():
+    for name in ("FilterSpec", "LeafPredicate", "Path", "PEFTConfig", "PyTree"):
+        assert "Defined in `" not in _symbol_section(name)
 
 
 def test_reference_is_current_and_links_are_valid():

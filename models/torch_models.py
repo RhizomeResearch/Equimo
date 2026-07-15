@@ -7,6 +7,12 @@ import sys
 from pathlib import Path
 
 
+if __name__ == "__main__":
+    script_dir = Path(__file__).resolve().parent
+    if sys.path and Path(sys.path[0]).resolve() == script_dir:
+        sys.path.pop(0)
+
+
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_OUTPUT_DIR = ROOT / "tests" / "data"
 DEFAULT_SEED = 42

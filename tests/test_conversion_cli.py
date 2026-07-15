@@ -40,6 +40,37 @@ def test_conversion_help_is_offline(script):
     assert "usage:" in result.stdout
 
 
+def test_torch_reference_script_does_not_shadow_standard_library_ast():
+    script = ROOT / "models" / "torch_models.py"
+    probe = """
+import runpy
+import sys
+from pathlib import Path
+
+script = Path(sys.argv[1]).resolve()
+sys.path.insert(0, str(script.parent))
+sys.argv = [str(script), "--help"]
+try:
+    runpy.run_path(str(script), run_name="__main__")
+except SystemExit as error:
+    if error.code not in (None, 0):
+        raise
+
+import ast
+
+assert Path(ast.__file__).resolve() != script.parent / "ast.py"
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", probe, script],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
 @pytest.mark.parametrize("script", SCRIPTS)
 def test_conversion_requires_explicit_inputs(script):
     result = run_script(script)

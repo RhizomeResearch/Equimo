@@ -122,8 +122,6 @@ Defined in `equimo.finetune.config`.
 type equimo.finetune.FilterSpec = Any
 ```
 
-Defined in `typing`.
-
 <!-- equimo.finetune:finalize_calibration_collector -->
 <a id="equimo-finetune-finalize-calibration-collector"></a>
 ## `finalize_calibration_collector`
@@ -247,8 +245,6 @@ Defined in `equimo.finetune.calibration`.
 type equimo.finetune.LeafPredicate = Callable[[tuple[str | int, ...], Any], bool]
 ```
 
-Defined in `typing`.
-
 <!-- equimo.finetune:LLRDConfig -->
 <a id="equimo-finetune-llrdconfig"></a>
 ## `LLRDConfig`
@@ -317,8 +313,6 @@ Defined in `equimo.finetune.config`.
 type equimo.finetune.Path = tuple[str | int, ...]
 ```
 
-Defined in `builtins`.
-
 <!-- equimo.finetune:ProjectionSegment -->
 <a id="equimo-finetune-projectionsegment"></a>
 ## `ProjectionSegment`
@@ -338,8 +332,6 @@ Defined in `equimo.finetune.config`.
 ```python
 type equimo.finetune.PyTree = Any
 ```
-
-Defined in `typing`.
 
 <!-- equimo.finetune:SAMMetadata -->
 <a id="equimo-finetune-sammetadata"></a>

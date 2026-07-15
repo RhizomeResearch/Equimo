@@ -1094,8 +1094,6 @@ Defined in `equimo.finetune.peft.adapters`.
 type equimo.finetune.PEFTConfig = LoRAConfig | DoRAConfig | AdapterConfig | OrthogonalAdapterConfig | FourierFTConfig | PromptConfig | PrefixConfig | ScaleShiftConfig | IA3Config | VeRAConfig
 ```
 
-Defined in `types`.
-
 <!-- equimo.finetune:PiSSAConfig -->
 <a id="equimo-finetune-pissaconfig"></a>
 ## `PiSSAConfig`

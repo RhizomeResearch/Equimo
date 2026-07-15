@@ -212,7 +212,7 @@ def _render_page(title: str, introduction: str, names: list[str]) -> str:
                 "```",
             )
         )
-        module = _module_name(obj)
+        module = None if name in TYPE_ALIASES else _module_name(obj)
         if module is not None:
             lines.extend(("", f"Defined in `{module}`."))
         docstring = _docstring(name, obj)
