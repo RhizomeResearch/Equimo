@@ -1,4 +1,5 @@
 import hashlib
+import os
 import tempfile
 from pathlib import Path
 
@@ -11,6 +12,8 @@ import pytest
 import equimo.tabular.models as tm
 import equimo.vision.models as em
 from equimo.serialization import load_model, save_model
+from equimo.time_series.models import load_t0_weights, t0_alpha
+from equimo.time_series.models.t0 import _safetensors
 from equimo.core.layers.activation import get_act
 from equimo.vision.models.attnet import attnet_xxs
 from equimo.vision.models.fastervit import FasterViT
@@ -807,6 +810,36 @@ def test_tabpfn_v3_classifier_default_matches_torch():
 
     mae = float(np.mean(np.abs(logits - ref["logits"])))
     assert mae < 1e-4, f"TabPFN v3 classifier MAE vs PyTorch: {mae:.2e}"
+
+
+def test_t0_alpha_matches_torch():
+    path = Path(
+        os.environ.get(
+            "T0_ALPHA_WEIGHTS",
+            "/home/mariana/Documents/research/TS/t0-alpha/model.safetensors",
+        )
+    )
+    if not path.exists() or path.stat().st_size < 1_000_000:
+        pytest.skip("T0-alpha safetensors checkpoint is not materialized locally")
+
+    state = _safetensors(path)
+    model = load_t0_weights(t0_alpha(key=KEY), path)
+    np.testing.assert_array_equal(
+        np.asarray(model.patch_encoder.type_embeddings.weight[0, :4]),
+        np.asarray(state["patch_encoder.type_embeddings.weight"][0, :4]),
+    )
+    reference = np.load(Path(__file__).parent / "data/t0_alpha_reference.npz")
+    output = model(
+        *(
+            jnp.asarray(reference[name])
+            for name in ("values", "mask", "group_ids", "variate_type")
+        ),
+        key=KEY,
+        inference=True,
+    )
+    np.testing.assert_allclose(
+        np.asarray(output), reference["output"], rtol=2e-4, atol=2e-4
+    )
 
 
 def test_vit5_small_forward():

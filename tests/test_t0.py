@@ -1,15 +1,11 @@
-import os
-from pathlib import Path
-
 import jax.numpy as jnp
 import jax.random as jr
-import numpy as np
 import pytest
 
 from equimo.core.layers import Attention, BlockChunk, Mlp, SwiGluFused
 from equimo.registry import get_model_cls
 from equimo.time_series.models import T0, load_t0_weights, t0, t0_alpha
-from equimo.time_series.models.t0 import _T0_REGISTRY, _safetensors
+from equimo.time_series.models.t0 import _T0_REGISTRY
 
 
 KEY = jr.PRNGKey(0)
@@ -86,33 +82,3 @@ def test_lfs_pointer_is_rejected(tmp_path):
     pointer.write_text("version https://git-lfs.github.com/spec/v1\n")
     with pytest.raises(ValueError, match="Git LFS pointer"):
         load_t0_weights(_tiny(), pointer)
-
-
-def test_load_t0_alpha_weights():
-    path = Path(
-        os.environ.get(
-            "T0_ALPHA_WEIGHTS",
-            "/home/mariana/Documents/research/TS/t0-alpha/model.safetensors",
-        )
-    )
-    if not path.exists() or path.stat().st_size < 1_000_000:
-        pytest.skip("T0-alpha safetensors checkpoint is not materialized locally")
-
-    state = _safetensors(path)
-    model = load_t0_weights(t0_alpha(key=KEY), path)
-    np.testing.assert_array_equal(
-        np.asarray(model.patch_encoder.type_embeddings.weight[0, :4]),
-        np.asarray(state["patch_encoder.type_embeddings.weight"][0, :4]),
-    )
-    reference = np.load(Path(__file__).parent / "data/t0_alpha_reference.npz")
-    output = model(
-        *(
-            jnp.asarray(reference[name])
-            for name in ("values", "mask", "group_ids", "variate_type")
-        ),
-        key=KEY,
-        inference=True,
-    )
-    np.testing.assert_allclose(
-        np.asarray(output), reference["output"], rtol=2e-4, atol=2e-4
-    )
