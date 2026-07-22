@@ -7,6 +7,7 @@ import jax.numpy as jnp
 import jax.random as jr
 from jaxtyping import Array, Float, Int, PRNGKeyArray
 
+from equimo.core.intermediates import intermediate_indices
 from equimo.core.layers.activation import get_act
 from equimo.core.layers.attention import AttentionBlock
 from equimo.registry import register_model
@@ -20,11 +21,20 @@ def global_avg_pooling(
     pooling_dims: Sequence[int],
     epsilon: float = 1e-8,
 ):
-    valid_mask = 1.0 - compatible_paddings
-    masked_inputs = inputs * valid_mask
+    """Average unpadded tokens over the requested pooling dimensions."""
+
+    output_dtype = inputs.dtype
+    accumulation_dtype = (
+        jnp.float32 if output_dtype in (jnp.bfloat16, jnp.float16) else output_dtype
+    )
+    valid_mask = jnp.asarray(1, dtype=accumulation_dtype) - jnp.asarray(
+        compatible_paddings, dtype=accumulation_dtype
+    )
+    masked_inputs = inputs.astype(accumulation_dtype) * valid_mask
     inputs_sum = jnp.sum(masked_inputs, axis=pooling_dims)
     valid_count = jnp.sum(valid_mask, axis=pooling_dims)
-    return inputs_sum / (valid_count + epsilon)
+    pooled = inputs_sum / (valid_count + jnp.asarray(epsilon, dtype=accumulation_dtype))
+    return pooled.astype(output_dtype)
 
 
 class TransformerEncoderStack(eqx.Module):
@@ -61,11 +71,55 @@ class TransformerEncoderStack(eqx.Module):
         key: PRNGKeyArray,
         inference: Optional[bool] = None,
         mask: Optional[Float[Array, ""]] = None,
+        *,
+        attn_mask: Optional[Float[Array, ""]] = None,
+        ffn_mask: Optional[Float[Array, ""]] = None,
     ) -> Float[Array, "seqlen dim"]:
         keys = jr.split(key, len(self.blocks))
         for block, block_key in zip(self.blocks, keys):
-            x = block(x, mask=mask, inference=inference, key=block_key)
+            x = block(
+                x,
+                mask=mask,
+                attn_mask=attn_mask,
+                ffn_mask=ffn_mask,
+                inference=inference,
+                key=block_key,
+            )
         return x
+
+    def intermediate_features(
+        self,
+        x: Float[Array, "seqlen dim"],
+        key: PRNGKeyArray,
+        inference: Optional[bool] = None,
+        mask: Optional[Float[Array, ""]] = None,
+        indices: Sequence[int] | None = None,
+        n_last_blocks: int | None = None,
+        *,
+        attn_mask: Optional[Float[Array, ""]] = None,
+        ffn_mask: Optional[Float[Array, ""]] = None,
+    ) -> Tuple[Float[Array, "seqlen dim"], ...]:
+        """Return selected native transformer block outputs."""
+
+        wanted = intermediate_indices(
+            len(self.blocks),
+            indices=indices,
+            n_last_blocks=n_last_blocks,
+        )
+        keys = jr.split(key, len(self.blocks))
+        outputs = []
+        for i, (block, block_key) in enumerate(zip(self.blocks, keys)):
+            x = block(
+                x,
+                mask=mask,
+                attn_mask=attn_mask,
+                ffn_mask=ffn_mask,
+                inference=inference,
+                key=block_key,
+            )
+            if i in wanted:
+                outputs.append(x)
+        return tuple(outputs)
 
 
 @register_model("text_transformer_encoder", modality="language")
@@ -147,15 +201,47 @@ class TextTransformerEncoder(eqx.Module):
         inference: Optional[bool] = None,
     ) -> Float[Array, "seqlen dim"]:
         seq_len = ids.shape[0]
-        valid_mask = (padding_mask == 0).astype(jnp.float32)
-
         x = jax.vmap(self.token_embedding)(ids)
+        valid_mask = (padding_mask == 0).astype(x.dtype)
         if self.scale_sqrt_depth:
-            x = x * (self.dim**0.5)
+            x = x * jnp.asarray(self.dim**0.5, dtype=x.dtype)
 
-        x = x + self.posemb(seq_len=seq_len)
-        x = self.transformer(x, mask=valid_mask[:, None], inference=inference, key=key)
+        x = x + self.posemb(seq_len=seq_len).astype(x.dtype)
+        x = self.transformer(
+            x,
+            mask=valid_mask[None, None, :],
+            ffn_mask=valid_mask[:, None],
+            inference=inference,
+            key=key,
+        )
         return jax.vmap(self.ln_final)(x)
+
+    def intermediate_features(
+        self,
+        ids: Int[Array, "seqlen"],  # noqa: F821
+        padding_mask: Float[Array, "seqlen"],  # noqa: F821
+        key: PRNGKeyArray,
+        inference: Optional[bool] = None,
+        indices: Sequence[int] | None = None,
+        n_last_blocks: int | None = None,
+    ) -> Tuple[Float[Array, "seqlen dim"], ...]:
+        """Return selected native transformer block outputs."""
+
+        seq_len = ids.shape[0]
+        x = jax.vmap(self.token_embedding)(ids)
+        valid_mask = (padding_mask == 0).astype(x.dtype)
+        if self.scale_sqrt_depth:
+            x = x * jnp.asarray(self.dim**0.5, dtype=x.dtype)
+        x = x + self.posemb(seq_len=seq_len).astype(x.dtype)
+        return self.transformer.intermediate_features(
+            x,
+            mask=valid_mask[None, None, :],
+            ffn_mask=valid_mask[:, None],
+            inference=inference,
+            key=key,
+            indices=indices,
+            n_last_blocks=n_last_blocks,
+        )
 
     def __call__(
         self,

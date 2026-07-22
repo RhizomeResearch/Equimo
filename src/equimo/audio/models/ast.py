@@ -12,7 +12,7 @@ __all__ = [
     "ast_base_patch16_speechcommands_v2_10_10_0_9812",
 ]
 
-from typing import Callable, Literal, Optional, Tuple, cast
+from typing import Callable, Literal, Optional, Sequence, Tuple, cast
 
 import equinox as eqx
 import jax
@@ -22,6 +22,7 @@ import numpy as np
 from jaxtyping import Array, Float, PRNGKeyArray
 
 from equimo.audio.layers.patch import SpectrogramPatchEmbedding
+from equimo.core.intermediates import intermediate_indices
 from equimo.core.layers.activation import get_act
 from equimo.core.layers.attention import get_attn, get_attn_block
 from equimo.core.layers.ffn import get_ffn
@@ -44,7 +45,7 @@ class AudioSpectrogramTransformer(eqx.Module):
     pos_embed: jax.Array
     cls_token: jax.Array
     dist_token: jax.Array
-    blocks: Tuple[eqx.Module, ...]
+    blocks: Tuple[BlockChunk, ...]
     pos_drop: eqx.nn.Dropout
     norm: eqx.Module
     head_norm: eqx.Module
@@ -91,7 +92,9 @@ class AudioSpectrogramTransformer(eqx.Module):
         norm_layer: str | type[eqx.Module] = "layernorm",
         head_norm_layer: str | type[eqx.Module] | None = None,
         init_values: float | None = None,
-        global_pool: Literal["token", "avg", "avgmax", "max"] = "token",
+        global_pool: Literal[
+            "token", "cls_patch_mean", "avg", "avgmax", "max"
+        ] = "token",
         num_classes: int | None = 527,
         eps: float = 1e-5,
         **kwargs,
@@ -116,7 +119,7 @@ class AudioSpectrogramTransformer(eqx.Module):
         act_layer = get_act(act_layer)
 
         self.patch_embed = SpectrogramPatchEmbedding(
-            dim=dim,
+            embed_dim=dim,
             patch_size=patch_size,
             input_fdim=input_fdim,
             input_tdim=input_tdim,
@@ -170,13 +173,14 @@ class AudioSpectrogramTransformer(eqx.Module):
         )
 
         self.norm = norm_layer(dim, eps=eps)
+        head_in_features = 2 * dim if global_pool == "cls_patch_mean" else dim
         self.head_norm = (
-            get_norm(head_norm_layer)(dim, eps=eps)
+            get_norm(head_norm_layer)(head_in_features, eps=eps)
             if head_norm_layer is not None
             else eqx.nn.Identity()
         )
         self.head = (
-            eqx.nn.Linear(dim, num_classes, key=key_head)
+            eqx.nn.Linear(head_in_features, num_classes, key=key_head)
             if num_classes is not None and num_classes > 0
             else eqx.nn.Identity()
         )
@@ -189,7 +193,61 @@ class AudioSpectrogramTransformer(eqx.Module):
         **kwargs,
     ) -> Float[Array, "seqlen dim"]:
         key_pos, *block_subkeys = jr.split(key, len(self.blocks) + 1)
+        x = self._prepare_tokens(x, key=key_pos, inference=inference)
 
+        for blk, key_block in zip(self.blocks, block_subkeys):
+            x = blk(x, inference=inference, key=key_block, **kwargs)
+
+        return x
+
+    def intermediate_features(
+        self,
+        x: Float[Array, "time frequency"],
+        key: PRNGKeyArray,
+        inference: Optional[bool] = None,
+        indices: Sequence[int] | None = None,
+        n_last_blocks: int | None = None,
+        **kwargs,
+    ) -> tuple[Float[Array, "seqlen dim"], ...]:
+        """Return selected native token outputs after transformer blocks."""
+
+        total = _count_chunk_blocks(self.blocks)
+        wanted = intermediate_indices(
+            total, indices=indices, n_last_blocks=n_last_blocks
+        )
+        key_pos, *block_subkeys = jr.split(key, len(self.blocks) + 1)
+        x = self._prepare_tokens(x, key=key_pos, inference=inference)
+
+        outputs = []
+        offset = 0
+        for blk, key_block in zip(self.blocks, block_subkeys):
+            blocks = blk.blocks
+            n_blocks = 0 if blocks is None else len(blocks)
+            local_indices = tuple(
+                i - offset for i in sorted(wanted) if offset <= i < offset + n_blocks
+            )
+            if local_indices:
+                x, chunk_outputs = blk.intermediate_features(
+                    x,
+                    inference=inference,
+                    key=key_block,
+                    indices=local_indices,
+                    **kwargs,
+                )
+                outputs.extend(chunk_outputs)
+            else:
+                x = blk(x, inference=inference, key=key_block, **kwargs)
+            offset += n_blocks
+
+        return tuple(outputs)
+
+    def _prepare_tokens(
+        self,
+        x: Float[Array, "time frequency"],
+        *,
+        key: PRNGKeyArray,
+        inference: Optional[bool],
+    ) -> Float[Array, "seqlen dim"]:
         x = self.patch_embed(x)
         prefix = [
             self.cls_token.astype(x.dtype),
@@ -197,12 +255,7 @@ class AudioSpectrogramTransformer(eqx.Module):
         ]
         x = jnp.concatenate(prefix + [x], axis=0)
         x = x + self.pos_embed.astype(x.dtype)
-        x = self.pos_drop(x, inference=inference, key=key_pos)
-
-        for blk, key_block in zip(self.blocks, block_subkeys):
-            x = blk(x, inference=inference, key=key_block, **kwargs)
-
-        return x
+        return self.pos_drop(x, inference=inference, key=key)
 
     def forward_features(
         self,
@@ -243,6 +296,10 @@ class AudioSpectrogramTransformer(eqx.Module):
 
         x = self.head_norm(x)
         return self.head(x)
+
+
+def _count_chunk_blocks(blocks: Tuple[BlockChunk, ...]) -> int:
+    return sum(0 if chunk.blocks is None else len(chunk.blocks) for chunk in blocks)
 
 
 _AST_BASE_CFG: dict = {
@@ -302,6 +359,60 @@ _AST_PRETRAINED_VARIANTS = {
     "ast_base_patch16_audioset_10_10_0_4593",
     "ast_base_patch16_speechcommands_v2_10_10_0_9812",
 }
+
+
+def _catalog_model_variants():
+    """Derive the representative catalog entry from the AST authority."""
+    from equimo.catalog import (
+        ModelInput,
+        ModelProvenance,
+        ModelVariant,
+        PretrainedWeights,
+    )
+
+    variant = "ast_base_patch16_audioset_10_10_0_4593"
+    base_cfg, variant_cfg = _AST_REGISTRY[variant]
+    cfg = base_cfg | variant_cfg
+    return (
+        ModelVariant(
+            key=f"audio/{variant}",
+            modality="audio",
+            family="ast",
+            variant=variant,
+            model_registry_key="ast",
+            constructor=f"{__name__}.{variant}",
+            inputs=(
+                ModelInput(
+                    name="x",
+                    shape=(cfg["input_tdim"], cfg["input_fdim"]),
+                    axes=("time", "frequency"),
+                    dtype="float32",
+                    description=(
+                        "One log-mel spectrogram, precomputed by the caller or "
+                        "by equimo.audio.preprocess_ast_waveform."
+                    ),
+                ),
+            ),
+            pretrained=PretrainedWeights(
+                available=variant in _AST_PRETRAINED_VARIANTS,
+                identifier=variant if variant in _AST_PRETRAINED_VARIANTS else None,
+            ),
+            provenance=ModelProvenance(
+                conversion="models/ast.py",
+                reference=(
+                    "tests/data/reference_provenance.json#"
+                    "ast_base_patch16_audioset_10_10_0_4593_reference.npz"
+                ),
+            ),
+            notes=("The model consumes spectrograms; waveform IO is a CPU adapter.",),
+            field_status=(
+                ("inputs", "complete"),
+                ("pretrained", "complete"),
+                ("provenance", "complete"),
+                ("notes", "complete"),
+            ),
+        ),
+    )
 
 
 def _build_ast(

@@ -1,0 +1,462 @@
+"""Prompt tuning tests."""
+
+from __future__ import annotations
+
+import equinox as eqx
+import jax.numpy as jnp
+import jax.random as jr
+import pytest
+
+import equimo.finetune as eqft
+from equimo.vision.models.vit import VisionTransformer
+
+from fixtures import TinyVisionTransformer
+
+
+class MixingBlock(eqx.Module):
+    def __call__(self, x, **kwargs):
+        del kwargs
+        return x + jnp.mean(x, axis=0)
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        eqft.PromptConfig(num_tokens=2, prompt_dropout=0.5),
+        eqft.VPTDeepConfig(num_tokens=2, prompt_dropout=0.5),
+    ],
+    ids=["shallow", "deep"],
+)
+def test_prompt_dropout_changes_training_outputs_across_keys(config):
+    prompted = eqft.apply_prompts(
+        TinyVisionTransformer(depth=2),
+        config,
+        key=jr.PRNGKey(0),
+    )
+    prompted = eqx.tree_at(
+        lambda model: model.prompts,
+        prompted,
+        tuple(jnp.ones_like(prompt) for prompt in prompted.prompts),
+    )
+    x = jnp.ones((2, 3))
+
+    first = prompted.features(x, key=jr.PRNGKey(1), inference=False)
+    second = prompted.features(x, key=jr.PRNGKey(2), inference=False)
+
+    assert not jnp.array_equal(first, second)
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        eqft.PromptConfig(num_tokens=2, prompt_dropout=0.5),
+        eqft.VPTDeepConfig(num_tokens=2, prompt_dropout=0.5),
+    ],
+    ids=["shallow", "deep"],
+)
+def test_prompt_dropout_is_disabled_during_inference(config):
+    prompted = eqft.apply_prompts(
+        TinyVisionTransformer(depth=2),
+        config,
+        key=jr.PRNGKey(0),
+    )
+    x = jnp.ones((2, 3))
+
+    first = prompted.features(x, key=jr.PRNGKey(1), inference=True)
+    second = prompted.features(x, key=jr.PRNGKey(2), inference=True)
+
+    assert jnp.array_equal(first, second)
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        eqft.PromptConfig(num_tokens=2, prompt_dropout=0.5),
+        eqft.VPTDeepConfig(num_tokens=2, prompt_dropout=0.5),
+    ],
+    ids=["shallow", "deep"],
+)
+def test_prompt_dropout_requires_key_during_training(config):
+    prompted = eqft.apply_prompts(
+        TinyVisionTransformer(depth=2),
+        config,
+        key=jr.PRNGKey(0),
+    )
+
+    with pytest.raises(ValueError, match="prompt dropout"):
+        prompted.features(jnp.ones((2, 3)), inference=False)
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        eqft.PromptConfig(num_tokens=2, prompt_dropout=0.5),
+        eqft.VPTDeepConfig(num_tokens=2, prompt_dropout=0.5),
+    ],
+    ids=["shallow", "deep"],
+)
+def test_prompt_dropout_replays_training_output_with_same_key(config):
+    prompted = eqft.apply_prompts(
+        TinyVisionTransformer(depth=2),
+        config,
+        key=jr.PRNGKey(0),
+    )
+    x = jnp.ones((2, 3))
+    key = jr.PRNGKey(1)
+
+    first = prompted.features(x, key=key, inference=False)
+    second = prompted.features(x, key=key, inference=False)
+
+    assert jnp.array_equal(first, second)
+
+
+def test_prompt_dropout_works_without_blocks():
+    prompted = eqft.apply_prompts(
+        TinyVisionTransformer(depth=0),
+        eqft.VPTDeepConfig(num_tokens=2, prompt_dropout=0.5),
+        key=jr.PRNGKey(0),
+    )
+    prompted = eqx.tree_at(
+        lambda model: model.prompts,
+        prompted,
+        tuple(jnp.ones_like(prompt) for prompt in prompted.prompts),
+    )
+    x = jnp.ones((2, 3))
+
+    first = prompted.features(x, key=jr.PRNGKey(1), inference=False)
+    second = prompted.features(x, key=jr.PRNGKey(2), inference=False)
+
+    assert not jnp.array_equal(first, second)
+
+
+def test_vpt_deep_shapes(tiny_vision_transformer):
+    prompted = eqft.apply_prompts(
+        tiny_vision_transformer,
+        eqft.VPTDeepConfig(num_tokens=3),
+        key=jr.PRNGKey(0),
+    )
+    x = jnp.ones((2, 3))
+
+    features = prompted.features(x)
+    logits = prompted(x)
+
+    assert features.shape == (6, 4)
+    assert logits.shape == (2,)
+
+
+def test_vpt_deep_inserts_before_replacing_prompt_slots():
+    model = TinyVisionTransformer(depth=2, num_reg_tokens=2)
+    prompted = eqft.apply_prompts(
+        model,
+        eqft.VPTDeepConfig(num_tokens=2),
+        key=jr.PRNGKey(0),
+    )
+    x = jnp.ones((2, 3))
+
+    features = prompted.features(x)
+
+    assert features.shape == (7, 4)
+
+
+def test_vpt_preserves_register_tokens_before_blocks():
+    model = TinyVisionTransformer(depth=0, num_reg_tokens=2)
+    reg_tokens = jnp.arange(8, dtype=jnp.float32).reshape(2, 4)
+    model = eqx.tree_at(lambda m: m.reg_tokens, model, reg_tokens)
+    model = eqx.tree_at(lambda m: m.norm, model, eqx.nn.Identity())
+    prompted = eqft.apply_prompts(
+        model,
+        eqft.VPTDeepConfig(num_tokens=2),
+        key=jr.PRNGKey(0),
+    )
+    x = jnp.ones((2, 3))
+
+    features = prompted.features(x)
+
+    assert features.shape == (7, 4)
+    assert jnp.array_equal(features[3:5], reg_tokens)
+
+
+def test_vpt_pooling_excludes_prompts(tiny_vision_transformer):
+    prompted = eqft.apply_prompts(
+        tiny_vision_transformer,
+        eqft.PromptConfig(num_tokens=3),
+        key=jr.PRNGKey(0),
+    )
+    x = jnp.ones((2, 3))
+
+    pooled = eqft.extract_features(prompted, x, pool="mean_patch")
+    features = prompted.features(x)
+    manual = jnp.mean(features[4:], axis=0)
+
+    assert jnp.allclose(pooled, manual, atol=1e-6)
+
+
+def test_vpt_real_vit_register_rope_shape():
+    model = VisionTransformer(
+        img_size=32,
+        in_channels=3,
+        patch_size=16,
+        dim=8,
+        num_heads=2,
+        depths=[1],
+        reg_tokens=4,
+        num_classes=3,
+        use_global_pos_embed=False,
+        use_local_pos_embed=True,
+        local_pos_embed_reg=True,
+        key=jr.PRNGKey(0),
+    )
+    prompted = eqft.apply_prompts(
+        model,
+        eqft.VPTDeepConfig(num_tokens=2),
+        key=jr.PRNGKey(1),
+    )
+    x = jnp.ones((3, 32, 32))
+
+    features = prompted.features(x, key=jr.PRNGKey(2), inference=True)
+
+    assert features.shape == (11, 8)
+
+
+@pytest.mark.parametrize(
+    ("config", "inference"),
+    [
+        (eqft.PromptConfig(num_tokens=2), True),
+        (eqft.PromptConfig(num_tokens=2), False),
+        (eqft.VPTDeepConfig(num_tokens=2), True),
+        (eqft.VPTDeepConfig(num_tokens=2), False),
+    ],
+    ids=["shallow-inference", "shallow-training", "deep-inference", "deep-training"],
+)
+@pytest.mark.parametrize(
+    ("input_width", "expected_tokens"),
+    [(32, 11), (48, 13)],
+    ids=["square", "non-square"],
+)
+def test_vpt_dynamic_rope_uses_prepared_grid(
+    config,
+    inference,
+    input_width,
+    expected_tokens,
+):
+    model = VisionTransformer(
+        img_size=32,
+        in_channels=3,
+        patch_size=16,
+        dim=8,
+        num_heads=2,
+        depths=[2],
+        reg_tokens=4,
+        num_classes=0,
+        use_mask_token=True,
+        use_global_pos_embed=False,
+        use_local_pos_embed=True,
+        local_pos_embed_reg=True,
+        dynamic_img_size=True,
+        key=jr.PRNGKey(0),
+    )
+    prompted = eqft.apply_prompts(model, config, key=jr.PRNGKey(1))
+    x = jnp.ones((3, 32, input_width))
+    mask = jnp.arange(2 * input_width // 16).reshape((2, -1)) % 2 == 0
+
+    first = prompted.features(
+        x,
+        mask=mask,
+        key=jr.PRNGKey(2),
+        inference=inference,
+    )
+    second = prompted.features(
+        x,
+        mask=mask,
+        key=jr.PRNGKey(2),
+        inference=inference,
+    )
+
+    assert first.shape == (expected_tokens, 8)
+    assert jnp.all(jnp.isfinite(first))
+    assert jnp.array_equal(first, second)
+    assert len(prompted.prompts) == (1 if config.depth == "shallow" else 2)
+
+
+@pytest.mark.parametrize(
+    ("config", "inference"),
+    [
+        (eqft.PromptConfig(num_tokens=2), True),
+        (eqft.PromptConfig(num_tokens=2), False),
+        (eqft.VPTDeepConfig(num_tokens=2), True),
+        (eqft.VPTDeepConfig(num_tokens=2), False),
+    ],
+    ids=["shallow-inference", "shallow-training", "deep-inference", "deep-training"],
+)
+def test_vpt_static_rope_preserves_mask_and_position_preparation(config, inference):
+    model = VisionTransformer(
+        img_size=32,
+        in_channels=3,
+        patch_size=16,
+        dim=8,
+        num_heads=2,
+        depths=[1],
+        reg_tokens=4,
+        num_classes=0,
+        use_mask_token=True,
+        use_global_pos_embed=True,
+        use_local_pos_embed=True,
+        local_pos_embed_reg=True,
+        key=jr.PRNGKey(0),
+    )
+    prompted = eqft.apply_prompts(model, config, key=jr.PRNGKey(1))
+    x = jnp.ones((3, 32, 32))
+    mask = jnp.array([[True, False], [True, False]])
+
+    masked = prompted.features(
+        x,
+        mask=mask,
+        key=jr.PRNGKey(2),
+        inference=inference,
+    )
+    unmasked = prompted.features(
+        x,
+        key=jr.PRNGKey(2),
+        inference=inference,
+    )
+
+    assert masked.shape == (11, 8)
+    assert jnp.all(jnp.isfinite(masked))
+    assert not jnp.allclose(masked, unmasked)
+
+
+def test_vit_token_transform_receives_dynamic_grid_and_rope():
+    model = VisionTransformer(
+        img_size=32,
+        in_channels=3,
+        patch_size=16,
+        dim=8,
+        num_heads=2,
+        depths=[2],
+        reg_tokens=4,
+        num_classes=0,
+        use_global_pos_embed=False,
+        use_local_pos_embed=True,
+        local_pos_embed_reg=True,
+        dynamic_img_size=True,
+        key=jr.PRNGKey(0),
+    )
+    x = jnp.ones((3, 32, 48))
+    key = jr.PRNGKey(1)
+    key_pos = jr.split(key, len(model.blocks) + 1)[0]
+    prepared = model._prepare_tokens(
+        x,
+        key=key_pos,
+        mask=None,
+        inference=False,
+    )
+    observed = []
+
+    def observe(tokens, rope_sincos, index, height, width, key, inference):
+        del key, inference
+        observed.append((index, height, width, rope_sincos[0].shape[0]))
+        return tokens, rope_sincos
+
+    transformed = model._run_blocks(
+        prepared,
+        key=key,
+        inference=False,
+        token_transform=observe,
+    )
+
+    assert transformed.shape == (11, 8)
+    assert observed == [(0, 2, 3, 11), (1, 2, 3, 11)]
+
+
+def test_prompt_trainable_only_prompts_and_head(tiny_vision_transformer):
+    prompted = eqft.apply_prompts(
+        tiny_vision_transformer,
+        eqft.PromptConfig(num_tokens=3),
+        key=jr.PRNGKey(0),
+    )
+    plan = eqft.prepare_finetune(
+        prompted,
+        trainable=eqft.TrainableSpec(
+            mode="peft", method_name="prompt", train_head=True
+        ),
+    )
+
+    assert plan.trainable.prompts[0] is not None
+    assert plan.trainable.base.patch_embed.proj.weight is None
+    assert plan.trainable.base.head.weight is not None
+    assert "prompt_decay" in plan.report.trainable_by_label
+
+
+def test_soft_prompt_uses_text_embedding_initialization(tiny_text_encoder):
+    prompted = eqft.apply_prompts(
+        tiny_text_encoder,
+        eqft.SoftPromptConfig(num_tokens=2),
+        key=jr.PRNGKey(0),
+    )
+    token_ids = jnp.array([0, 1, 2])
+
+    features = prompted.features(token_ids)
+    logits = prompted(token_ids)
+    plan = eqft.prepare_finetune(
+        prompted,
+        trainable=eqft.TrainableSpec(
+            mode="peft",
+            method_name="prompt",
+            train_head=False,
+        ),
+    )
+
+    assert jnp.array_equal(
+        prompted.prompts[0], tiny_text_encoder.token_embed.weight[:2]
+    )
+    assert features.shape == (5, tiny_text_encoder.dim)
+    assert logits.shape == (tiny_text_encoder.token_embed.weight.shape[0],)
+    assert "prompt_decay" in plan.report.trainable_by_label
+    assert plan.trainable.base.head.weight is None
+
+
+def test_deep_prompt_config_can_share_across_layers():
+    model = TinyVisionTransformer(depth=2)
+    prompted = eqft.apply_prompts(
+        model,
+        eqft.PTuningV2Config(num_tokens=2, share_across_layers=True),
+        key=jr.PRNGKey(0),
+    )
+
+    features = prompted.features(jnp.ones((2, 3)))
+
+    assert len(prompted.prompts) == 1
+    assert features.shape == (5, model.dim)
+
+
+def test_ptuning_v2_rejects_unimplemented_mlp_reparameterizer(
+    tiny_text_encoder,
+):
+    with pytest.raises(ValueError, match="reparameterizer"):
+        eqft.apply_prompts(
+            tiny_text_encoder,
+            eqft.PTuningV2Config(reparameterizer="mlp"),
+            key=jr.PRNGKey(0),
+        )
+
+
+def test_prompts_receive_gradients_when_blocks_mix_tokens(tiny_vision_transformer):
+    model = eqx.tree_at(
+        lambda m: m.blocks,
+        tiny_vision_transformer,
+        tuple(MixingBlock() for _ in tiny_vision_transformer.blocks),
+    )
+    prompted = eqft.apply_prompts(
+        model,
+        eqft.VPTDeepConfig(num_tokens=2),
+        key=jr.PRNGKey(0),
+    )
+    x = jnp.ones((2, 3))
+
+    def loss_fn(prompts):
+        local = eqx.tree_at(lambda m: m.prompts, prompted, prompts)
+        return jnp.sum(local(x))
+
+    grads = eqx.filter_grad(loss_fn)(prompted.prompts)
+
+    assert all(jnp.any(grad != 0) for grad in grads)

@@ -47,6 +47,14 @@ def _model_checksum(model) -> str:
     return h.hexdigest()[:16]
 
 
+def _require_cached_checkpoint(identifier):
+    archive = Path(
+        f"~/.cache/equimo/{identifier.split('_')[0]}/{identifier}.tar.lz4"
+    ).expanduser()
+    if not archive.is_file():
+        pytest.skip(f"Converted checkpoint {identifier!r} is not cached locally.")
+
+
 # Utility tests
 
 
@@ -128,6 +136,26 @@ def test_vit_classification():
     assert jnp.all(jnp.isfinite(y))
 
 
+def test_vit_cls_patch_mean_global_pool():
+    key = jr.PRNGKey(0)
+    model = em.VisionTransformer(
+        img_size=64,
+        in_channels=3,
+        dim=64,
+        patch_size=8,
+        num_heads=[2],
+        depths=[2],
+        num_classes=NUM_CLASSES,
+        global_pool="cls_patch_mean",
+        key=key,
+    )
+    y = model(IMG_64, key=key, inference=True)
+
+    assert model.head.in_features == 128
+    assert y.shape == (NUM_CLASSES,)
+    assert jnp.all(jnp.isfinite(y))
+
+
 def test_vit_rope():
     # RoPE requires dynamic_img_size=True so patch_embed returns (c, h, w)
     # allowing H and W to be read from spatial dims.
@@ -152,6 +180,101 @@ def test_vit_rope():
     assert y_train.shape == (NUM_CLASSES,)
     assert y_infer.shape == (NUM_CLASSES,)
     assert jnp.all(jnp.isfinite(y_infer))
+
+
+def test_vit_private_block_runner_preserves_untransformed_features():
+    key = jr.PRNGKey(2)
+    model = em.VisionTransformer(
+        img_size=32,
+        in_channels=3,
+        dim=16,
+        patch_size=8,
+        num_heads=2,
+        depths=[1, 1],
+        num_classes=0,
+        use_global_pos_embed=False,
+        use_local_pos_embed=True,
+        dynamic_img_size=True,
+        key=key,
+    )
+    x = jr.normal(key, (3, 32, 48))
+    key_pos, *block_keys = jr.split(key, len(model.blocks) + 1)
+    prepared = model._prepare_tokens(
+        x,
+        key=key_pos,
+        mask=None,
+        inference=False,
+    )
+    expected, height, width, rope_sincos = prepared
+
+    for block, block_key in zip(model.blocks, block_keys, strict=True):
+        key_pos, key_rope = jr.split(key_pos, 2)
+        rope_sincos = model.local_pos_embed.get_sincos(
+            H=height,
+            W=width,
+            inference=False,
+            key=key_rope,
+        )
+        expected = block(
+            expected,
+            rope_sincos=rope_sincos,
+            inference=False,
+            key=block_key,
+        )
+
+    actual = model.features(x, key=key, inference=False)
+
+    assert jnp.array_equal(actual, expected)
+
+
+def test_vit_intermediate_features_last_block_matches_features():
+    key = jr.PRNGKey(2)
+    model = em.VisionTransformer(
+        img_size=64,
+        in_channels=3,
+        dim=32,
+        patch_size=8,
+        num_heads=[2],
+        depths=[2],
+        num_classes=0,
+        key=key,
+    )
+
+    intermediates = model.intermediate_features(
+        IMG_64,
+        key=key,
+        inference=True,
+        n_last_blocks=2,
+    )
+    features = model.features(IMG_64, key=key, inference=True)
+
+    assert len(intermediates) == 2
+    assert intermediates[-1].shape == features.shape
+    assert jnp.allclose(intermediates[-1], features)
+
+
+def test_vit_forward_features_without_class_token_has_no_cls_token():
+    key = jr.PRNGKey(3)
+    model = em.VisionTransformer(
+        img_size=32,
+        in_channels=3,
+        dim=16,
+        patch_size=8,
+        num_heads=[2],
+        depths=[1],
+        num_classes=0,
+        class_token=False,
+        reg_tokens=0,
+        global_pos_embed_cls=False,
+        key=key,
+    )
+    x = jr.normal(key, (3, 32, 32))
+
+    fwd = model.forward_features(x, key=key, inference=True)
+
+    assert fwd["x_norm_cls_token"] is None
+    assert fwd["x_norm_reg_tokens"].shape == (0, 16)
+    assert fwd["x_norm_patchtokens"].shape == (16, 16)
 
 
 # VisionParcae
@@ -572,6 +695,28 @@ def test_convnext_features():
     assert jnp.all(jnp.isfinite(feats))
 
 
+def test_convnext_intermediate_features_returns_native_stage_outputs():
+    model = em.ConvNeXt(
+        in_channels=3,
+        depths=[1, 1],
+        dims=[32, 64],
+        num_classes=0,
+        key=KEY,
+    )
+    x = jr.normal(KEY, (3, 64, 64))
+
+    intermediates = model.intermediate_features(
+        x,
+        key=KEY,
+        inference=True,
+        n_last_blocks=1,
+    )
+
+    assert len(intermediates) == 1
+    assert intermediates[0].ndim == 3
+    assert jnp.all(jnp.isfinite(intermediates[0]))
+
+
 def test_convnext_drop_path():
     model = em.ConvNeXt(
         in_channels=3,
@@ -622,8 +767,14 @@ def test_save_load_model_compressed():
 
         save_model(save_path, model, model_config, torch_hub_cfg, compression=True)
 
-        loaded_model = load_model(
-            cls="vit", path=save_path.with_suffix(".tar.lz4"), dynamic_img_size=True
+        loaded_model = em.VisionTransformer(
+            **model_config,
+            dynamic_img_size=True,
+            key=key,
+        )
+        loaded_model = load_weights(
+            loaded_model,
+            path=save_path.with_suffix(".tar.lz4"),
         )
 
         loaded_output = loaded_model.features(x, key=key)
@@ -662,7 +813,12 @@ def test_save_load_model_uncompressed():
 
         save_model(save_path, model, model_config, torch_hub_cfg, compression=False)
 
-        loaded_model = load_model(cls="vit", path=save_path, dynamic_img_size=True)
+        loaded_model = em.VisionTransformer(
+            **model_config,
+            dynamic_img_size=True,
+            key=key,
+        )
+        loaded_model = load_weights(loaded_model, path=save_path)
         loaded_output = loaded_model.features(x, key=key)
 
         assert jnp.allclose(original_output, loaded_output, atol=1e-5)
@@ -670,6 +826,7 @@ def test_save_load_model_uncompressed():
 
 def test_load_pretrained_model():
     """Test loading a pretrained model from the repository."""
+    _require_cached_checkpoint("dinov2_vits14_reg")
     key = jr.PRNGKey(42)
     model = dinov2_vits14_reg(pretrained=True, dynamic_img_size=True)
 
@@ -692,6 +849,7 @@ def test_dinov2_vits14_reg_matches_timm():
     - equimo forward_features(x)["x_norm_cls_token"] → same quantity
     Tolerance: mean absolute error < 5e-4.
     """
+    _require_cached_checkpoint("dinov2_vits14_reg")
     key = jr.PRNGKey(42)
     ref = np.load(Path(__file__).parent / "data" / "dinov2_vits14_reg_reference.npz")
 
@@ -707,6 +865,23 @@ def test_dinov2_vits14_reg_matches_timm():
     assert mae < 1e-5, f"DINOv2 cls token MAE vs timm: {mae:.2e}"
 
 
+def test_dinov3_local_rope_config_matches_official():
+    model = dinov3_vits16_pretrain_lvd1689m(pretrained=False)
+    rope = model.local_pos_embed.patch_rope
+
+    D_head = model.dim // 6
+    expected = 100.0 ** (
+        2.0 * jnp.arange(D_head // 4, dtype=jnp.float32) / float(D_head // 2)
+    )
+
+    assert rope.freqs.dtype == jnp.float32
+    assert rope.normalize_coords == "separate"
+    assert rope.rescale_coords == 2.0
+    np.testing.assert_allclose(
+        np.asarray(rope.freqs), np.asarray(expected), rtol=0, atol=0
+    )
+
+
 def test_dinov3_vits16_matches_hf():
     """DINOv3 ViT-S/16 (LVD-1689M) cls token must match HuggingFace output.
 
@@ -719,6 +894,7 @@ def test_dinov3_vits16_matches_hf():
     - equimo forward_features(x)["x_norm_cls_token"] → same quantity
     Tolerance: mean absolute error < 5e-4.
     """
+    _require_cached_checkpoint("dinov3_vits16_pretrain_lvd1689m")
     key = jr.PRNGKey(42)
     ref = np.load(Path(__file__).parent / "data" / "dinov3_vits16_reference.npz")
 
@@ -729,7 +905,7 @@ def test_dinov3_vits16_matches_hf():
     eq_cls = np.array(fwd["x_norm_cls_token"])  # (384,)
 
     mae = float(np.mean(np.abs(eq_cls - ref["cls_token"])))
-    assert mae < 3e-4, f"DINOv3 cls token MAE vs HuggingFace: {mae:.2e}"
+    assert mae < 1e-4, f"DINOv3 cls token MAE vs HuggingFace: {mae:.2e}"
 
 
 def test_siglip2_vitb16_256_matches_hf():
@@ -744,6 +920,7 @@ def test_siglip2_vitb16_256_matches_hf():
     - equimo jax.vmap(model.norm)(model.features(x)) → same quantity
     Tolerance: mean absolute error < 5e-4.
     """
+    _require_cached_checkpoint("siglip2_vitb16_256")
     key = jr.PRNGKey(42)
     ref = np.load(Path(__file__).parent / "data" / "siglip2_vitb16_256_reference.npz")
 
@@ -768,6 +945,7 @@ def test_eupe_vitt16_matches_torch():
     - equimo model.features(x)
     Tolerance: mean absolute error < 5e-4.
     """
+    _require_cached_checkpoint("eupe_vitt16")
     key = jr.PRNGKey(42)
     ref = np.load(Path(__file__).parent / "data" / "eupe_vitt16_reference.npz")
 
@@ -789,10 +967,9 @@ def test_tabpfn_v3_classifier_default_matches_torch():
     ref = np.load(
         Path(__file__).parent / "data" / "tabpfn_v3_classifier_default_reference.npz"
     )
-    archive = (
-        Path("~/.cache/equimo/tabpfn/tabpfn_v3_classifier_default.tar.lz4")
-        .expanduser()
-    )
+    archive = Path(
+        "~/.cache/equimo/tabpfn/tabpfn_v3_classifier_default.tar.lz4"
+    ).expanduser()
     if not archive.exists():
         pytest.skip("TabPFN v3 converted weights are not cached locally.")
 

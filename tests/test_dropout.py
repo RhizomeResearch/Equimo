@@ -110,6 +110,20 @@ class TestDropPath:
         assert isinstance(layer.p, float)
         assert layer.p == pytest.approx(0.4)
 
+    def test_scalar_jax_array_p_converted_to_float(self):
+        layer = DropPath(p=jnp.asarray(0.4))
+        assert isinstance(layer.p, float)
+        assert layer.p == pytest.approx(0.4)
+
+    def test_p_one_drops_everything_without_key(self):
+        layer = DropPath(p=1.0)
+        assert jnp.array_equal(layer(jnp.ones(SHAPE)), jnp.zeros(SHAPE))
+
+    @pytest.mark.parametrize("p", (-0.1, 1.1))
+    def test_probability_out_of_range_raises(self, p):
+        with pytest.raises(ValueError, match="between 0 and 1"):
+            DropPath(p=p)
+
     def test_jax_array_p_wrong_length_raises(self):
         with pytest.raises(ValueError, match="values for p"):
             DropPath(p=jnp.array([0.1, 0.2]))
@@ -215,6 +229,22 @@ class TestDropPathAdd:
         layer = DropPathAdd(p=p_arr)
         assert isinstance(layer.p, float)
         assert layer.p == pytest.approx(0.4)
+
+    def test_scalar_jax_array_p_converted_to_float(self):
+        layer = DropPathAdd(p=jnp.asarray(0.4))
+        assert isinstance(layer.p, float)
+        assert layer.p == pytest.approx(0.4)
+
+    def test_p_one_always_skips_without_key(self):
+        layer = DropPathAdd(p=1.0)
+        x1 = jnp.ones(SHAPE)
+        x2 = jnp.full(SHAPE, 2.0)
+        assert jnp.array_equal(layer(x1, x2), x1)
+
+    @pytest.mark.parametrize("p", (-0.1, 1.1))
+    def test_probability_out_of_range_raises(self, p):
+        with pytest.raises(ValueError, match="between 0 and 1"):
+            DropPathAdd(p=p)
 
     def test_jax_array_p_wrong_length_raises(self):
         with pytest.raises(ValueError, match="values for p"):

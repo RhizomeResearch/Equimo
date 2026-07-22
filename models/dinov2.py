@@ -1,4 +1,11 @@
+import argparse
+import sys
 from pathlib import Path
+
+if __name__ == "__main__":
+    script_dir = Path(__file__).resolve().parent
+    if sys.path and Path(sys.path[0]).resolve() == script_dir:
+        sys.path.pop(0)
 
 import jax
 import jax.numpy as jnp
@@ -68,17 +75,49 @@ configs = {
     },
 }
 
-citr = iter(configs.items())
-name, config = next(citr)
+
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(description="Convert DINOv2 checkpoints.")
+    parser.add_argument("variants", nargs="*", choices=sorted(configs))
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=Path("~/.cache/equimo/dinov2").expanduser(),
+    )
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument(
+        "--upstream-revision",
+        required=True,
+        help="Commit or tag of facebookresearch/dinov2.",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print resolved conversion work without importing Torch.",
+    )
+    args = parser.parse_args(argv)
+    args.variants = args.variants or sorted(configs)
+    args.output_dir = args.output_dir.expanduser().resolve()
+    return args
 
 
-def main():
+def main(argv=None):
+    args = parse_args(argv)
+    for variant in args.variants:
+        print(
+            f"{variant}: upstream_revision={args.upstream_revision} "
+            f"seed={args.seed} output={args.output_dir / variant}"
+        )
+    if args.dry_run:
+        return
+
     try:
         import torch
     except ImportError as exc:
         raise ImportError("`torch` not available") from exc
 
-    key = jax.random.PRNGKey(42)
+    key = jax.random.PRNGKey(args.seed)
+    rng = np.random.default_rng(args.seed)
     dinov2_config = {
         "img_size": 518,
         "in_channels": 3,
@@ -95,7 +134,8 @@ def main():
         "act_layer": "exactgelu",
     }
 
-    for name, config in configs.items():
+    for name in args.variants:
+        config = configs[name]
         print(f"Converting {name}...")
 
         cfg = dinov2_config | config
@@ -105,7 +145,10 @@ def main():
             key=key,
         )
 
-        torch_hub_cfg = ["facebookresearch/dinov2", name]
+        torch_hub_cfg = [
+            f"facebookresearch/dinov2:{args.upstream_revision}",
+            name,
+        ]
 
         replace_cfg = {
             "reg_tokens": "register_tokens",
@@ -132,7 +175,9 @@ def main():
             return_torch=True,
         )
 
-        arr = np.random.randn(3, cfg["img_size"], cfg["img_size"])
+        arr = rng.standard_normal((3, cfg["img_size"], cfg["img_size"])).astype(
+            np.float32
+        )
         jax_arr = jnp.array(arr)
         torch_arr = torch.tensor(arr).unsqueeze(0).float()
 
@@ -145,9 +190,13 @@ def main():
         )
 
         save_model(
-            Path(f"~/.cache/equimo/dinov2/{name}").expanduser(),
+            args.output_dir / name,
             dinov2,
             cfg,
             torch_hub_cfg,
             compression=True,
         )
+
+
+if __name__ == "__main__":
+    main()

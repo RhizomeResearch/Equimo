@@ -1,5 +1,7 @@
 """Tests for equimo.core.layers.ffn."""
 
+import inspect
+
 import jax
 import jax.numpy as jnp
 import jax.random as jr
@@ -19,6 +21,15 @@ from equimo.core.layers.ffn import (
 KEY = jr.PRNGKey(0)
 SEQLEN = 16
 DIM = 64
+
+
+@pytest.mark.parametrize("ffn_cls", [Mlp, SwiGlu, SwiGluFused])
+def test_ffn_signature_uses_dimension_vocabulary(ffn_cls):
+    parameters = inspect.signature(ffn_cls).parameters
+
+    assert "in_dim" in parameters
+    assert "out_dim" in parameters
+    assert "dim" not in parameters
 
 
 # WeightNormLinear
@@ -107,23 +118,18 @@ class TestDINOHead:
         x = jr.normal(KEY, (SEQLEN, DIM))
         assert head(x).shape == (SEQLEN, 16)
 
-    def test_l2_norm_before_last_layer(self):
-        """Intermediate features after fc3+act are L2-normalised row-wise."""
+    def test_official_bottleneck_is_linear_before_l2_norm(self):
+        """The final MLP projection is linear before L2 normalization."""
         head = DINOHead(DIM, 32, key=KEY)
         x = jr.normal(KEY, (SEQLEN, DIM))
 
-        # Replicate the forward pass up to the norm step
         act = head.act_layer
         h = act(jax.vmap(head.fc1)(x))
         h = act(jax.vmap(head.fc2)(h))
-        h = act(jax.vmap(head.fc3)(h))
-        norms = jnp.linalg.norm(h, axis=-1)
-        assert jnp.all(norms > 0)  # sanity: nonzero before normalisation
+        h = jax.vmap(head.fc3)(h)
+        h = h / (jnp.linalg.norm(h, axis=-1, keepdims=True) + 1e-12)
 
-        eps = 1e-12
-        h_normed = h / (norms[..., None] + eps)
-        row_norms = jnp.linalg.norm(h_normed, axis=-1)
-        assert jnp.allclose(row_norms, jnp.ones_like(row_norms), atol=1e-5)
+        assert jnp.allclose(head(x), head.last(h), rtol=1e-5, atol=1e-5)
 
 
 # Mlp
@@ -136,7 +142,7 @@ class TestMlp:
         assert mlp(x, KEY).shape == (SEQLEN, DIM)
 
     def test_output_shape_custom_out(self):
-        mlp = Mlp(DIM, out_dim=32, key=KEY)
+        mlp = Mlp(in_dim=DIM, out_dim=32, key=KEY)
         x = jr.normal(KEY, (SEQLEN, DIM))
         assert mlp(x, KEY).shape == (SEQLEN, 32)
 
@@ -217,7 +223,7 @@ class TestSwiGlu:
         assert sg(x, KEY).shape == (SEQLEN, DIM)
 
     def test_output_shape_custom_out(self):
-        sg = SwiGlu(DIM, out_dim=32, key=KEY)
+        sg = SwiGlu(in_dim=DIM, out_dim=32, key=KEY)
         x = jr.normal(KEY, (SEQLEN, DIM))
         assert sg(x, KEY).shape == (SEQLEN, 32)
 
@@ -271,7 +277,7 @@ class TestSwiGluFused:
         assert sgf(x, KEY).shape == (SEQLEN, DIM)
 
     def test_output_shape_custom_out(self):
-        sgf = SwiGluFused(DIM, out_dim=32, key=KEY)
+        sgf = SwiGluFused(in_dim=DIM, out_dim=32, key=KEY)
         x = jr.normal(KEY, (SEQLEN, DIM))
         assert sgf(x, KEY).shape == (SEQLEN, 32)
 

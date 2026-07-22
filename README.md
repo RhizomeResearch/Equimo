@@ -15,6 +15,7 @@ Equimo provides JAX/Equinox implementations of recent architectures across modal
 - Extensive documentation and type hints
 - Modality-specific namespaces: `equimo.vision`, `equimo.language`, `equimo.audio`, `equimo.tabular`
 - Generic serialization utilities in `equimo.serialization`
+- Equinox-native fine-tuning utilities in `equimo.finetune`
 
 ## Installation
 
@@ -32,6 +33,16 @@ cd equimo
 pip install -e .
 ```
 
+### Development
+
+To contribute, sync the locked development dependencies and install the
+repository hooks:
+
+```bash
+uv sync --locked --group dev
+uv run pre-commit install
+```
+
 ## Package Layout
 
 Equimo is organized by modality, with reusable building blocks separated from
@@ -42,8 +53,9 @@ modality-specific code:
 | `equimo.core` | Shared layers, scan ops, implicit/DEQ utilities, EMA helpers |
 | `equimo.vision` | Vision models, vision layers, and image IO |
 | `equimo.language` | Text encoders and tokenizers |
-| `equimo.audio` | Audio models, audio layers, and audio IO scaffolding |
+| `equimo.audio` | Audio models, layers, and checkpoint-linked AST waveform preprocessing |
 | `equimo.tabular` | Tabular models and tabular layers |
+| `equimo.finetune` | Trainability plans, heads, PEFT modules, deltas, model merging, and fine-tuning recipes |
 | `equimo.serialization` | Checkpoint save/load, weight loading, archive download/decompression |
 | `equimo.registry` | Modality-aware model registry |
 
@@ -51,16 +63,18 @@ This is a breaking layout change. The old top-level `equimo.models`,
 `equimo.layers`, `equimo.io`, `equimo.implicit`, and `equimo.experimental`
 entrypoints are intentionally removed.
 
+For the complete upgrade checklist and compatibility boundary, see the
+[v2 migration guide](docs/migration-v2.md) and [stability policy](docs/stability.md).
+
 ### Migration Cheat Sheet
 
 | Old import | New import |
 | ---------- | ---------- |
 | `import equimo.models as em` | `import equimo.vision.models as em` |
 | `from equimo.layers import ...` | `from equimo.vision.layers import ...` for vision layers, or `from equimo.core.layers import ...` for shared layers |
-| `from equimo.io import load_model, save_model, load_weights` | `from equimo.serialization import load_model, save_model, load_weights` |
+| `from equimo.io import save_model, load_weights` | `from equimo.serialization import save_model, load_weights` |
 | `from equimo.io import load_image` | `from equimo.vision.io import load_image` |
 | `from equimo.experimental.text import Tokenizer` | `from equimo.language import SentencePieceTokenizer` |
-| `load_model("experimental.textencoder", ...)` | `load_model("text_transformer_encoder", ..., modality="language")` |
 
 ## Implemented Vision Models
 
@@ -106,11 +120,12 @@ prediction tasks in a single forward pass. The upstream model card describes it
 as intended for structured classification and regression tasks up to 1M samples
 and 2000 features, trained purely on synthetic tabular tasks.
 
-Equimo exposes the model core directly: inputs are unbatched `x`, `y`, and
-`n_train` arrays, not the upstream `TabPFNClassifier`/`TabPFNRegressor`
-sklearn-style preprocessing and ensembling API. Classification variants return
-test-row log probabilities over the class vocabulary; regression variants return
-raw 5000-bucket logits.
+Equimo exposes the model core directly: `x` and `y` are unbatched arrays, while
+`n_train` is a Python integer that determines the context/test slice boundary.
+When JIT-compiling a call, `n_train` must be static. This is not the upstream
+`TabPFNClassifier`/`TabPFNRegressor` sklearn-style preprocessing and ensembling
+API. Classification variants return test-row log probabilities over the class
+vocabulary; regression variants return raw 5000-bucket logits.
 
 Available constructors:
 
@@ -153,6 +168,127 @@ logits = model(x, key=key, inference=True)
 # Feature extraction
 features = model.features(x, key=key, inference=True)
 ```
+
+## Examples
+
+See [`docs/usage.md`](./docs/usage.md) for a compact non-fine-tuning usage
+guide covering model construction, feature extraction, text encoders, TabPFN,
+serialization, and registries.
+
+Runnable examples live under [`examples/`](./examples):
+
+| Script | Covers |
+| ------ | ------ |
+| [`examples/vision_feature_extraction.py`](./examples/vision_feature_extraction.py) | Local ViT construction, inference logits, and feature extraction |
+| [`examples/language_encoder.py`](./examples/language_encoder.py) | Text transformer encoding from token IDs and padding masks |
+| [`examples/finetuning/`](./examples/finetuning) | Linear probing, LoRA, adapters, WiSE-FT, Optax, and Rollfast fine-tuning flows |
+
+## Fine-Tuning
+
+`equimo.finetune` provides Equinox-native model-side fine-tuning primitives:
+trainability masks, parameter labels, LLRD metadata, head replacement, feature
+pooling, LoRA, adapters, prompts, scale/shift, IA3, DoRA, model deltas, and
+model-merging utilities.
+
+Equimo intentionally does not provide optimizers, schedules, dataloaders, or
+training loops. The core abstraction is a `FineTunePlan`, which partitions a
+model into trainable and frozen PyTrees and provides labels/group metadata for
+external optimizers such as Optax or Rollfast.
+
+Minimal example:
+
+```python
+import jax
+import equimo.finetune as eqft
+import equimo.vision.models as em
+
+key = jax.random.PRNGKey(0)
+model = em.vit_tiny_patch16_224(num_classes=10, key=key)
+
+plan = eqft.prepare_finetune(
+    model,
+    trainable=eqft.TrainableSpec(
+        mode="full",
+        freeze=eqft.TargetSpec(tags_any=("embedding.patch",)),
+    ),
+    labels=eqft.LLRDConfig(decay=0.75),
+)
+
+trainable = plan.trainable
+frozen = plan.frozen
+
+def loss_fn(trainable, batch):
+    model = plan.combine(trainable)
+    logits = jax.vmap(lambda x: model(x, key=key, inference=False))(batch["x"])
+    return cross_entropy(logits, batch["y"])  # supplied by user code
+```
+
+Frozen leaves are absent from `plan.trainable`; they are not assigned a zero
+learning rate. `plan.labels` and `plan.group_specs` are ready for an external
+optimizer partition.
+
+Rollfast example:
+
+```python
+import rollfast.finetune as rfft
+
+optim = rfft.adamw_from_plan(
+    plan,
+    total_steps=20_000,
+    base_lr=5e-4,
+    schedule="warmup_cosine",
+    weight_decay=0.05,
+    clip_global_norm=1.0,
+    accumulation_steps=4,
+)
+opt_state = optim.init(plan.trainable)
+```
+
+For Rollfast Schedule-Free optimizers, combine `optim.eval_params(trainable,
+opt_state)` with `plan.frozen` for validation or checkpointing.
+For EMA/SWA, request named views such as `view="ema"` or `view="swa"` from the
+same method.
+For optimizer-state memory savings, `rfft.adamw8_from_plan` can quantize large,
+eligible AdamW moment groups while Equimo still emits the same plan metadata.
+For sharpness-aware updates, `rfft.make_sam_step`, `rfft.SAMConfig`, and
+`rfft.ASAMConfig` wrap a Rollfast base optimizer with an explicit two-pass
+SAM/ASAM step. For AdaLoRA-style runs, `rfft.make_adalora_controller` emits
+fixed-shape rank support masks for Equimo AdaLoRA adapters; use
+`eqft.lora_rank_groups` to build controller groups and
+`eqft.apply_lora_rank_pattern` to apply emitted masks.
+For LP-FT or gradual unfreezing, `rfft.reconfigure_optimizer` can migrate
+compatible optimizer state between two Equimo plans and report what changed.
+After optimizer initialization, `rfft.optimizer_state_memory_summary` reports
+measured state bytes, including 8-bit state and Kron preconditioner factors.
+Before initialization, `rfft.estimate_optimizer_state_memory` can estimate
+optimizer-family moment state and Kron preconditioner factors from the Equimo
+plan without materializing optimizer state.
+Structured Rollfast optimizers use the same plan:
+`rfft.hybrid_aurora_adam_from_plan`, `rfft.hybrid_prism_adam_from_plan`, and
+`rfft.hybrid_kron_adam_from_plan` compile Aurora/PRISM/Kron groups without
+adding a Rollfast dependency to Equimo core.
+Use `rfft.make_state_checkpoint(...)` for Rollfast optimizer state; Equimo model
+and delta serialization remain separate.
+
+PEFT example:
+
+```python
+lora_model = eqft.apply_lora(
+    model,
+    eqft.LoRAConfig(rank=8, alpha=16.0),
+    key=key,
+)
+lora_plan = eqft.prepare_finetune(
+    lora_model,
+    trainable=eqft.TrainableSpec(mode="peft", method_name="lora"),
+)
+
+eqft.save_delta(lora_model, "my_lora.eqft", method="lora")
+```
+
+See [docs/finetuning](./docs/finetuning/index.md) for selectors, linear
+probing, LP-FT, LLRD, PEFT methods, serialization, and Optax/Rollfast
+integration examples.
 
 ## Predefined Model Variants
 
@@ -238,10 +374,12 @@ accept string names wherever a class would normally be passed.
 | `register_wavelet`     | Wavelet transforms     | `equimo.vision.layers` |
 | `register_model`       | Full model classes     | `equimo.registry` or modality model packages |
 
-`equimo.vision.layers.get_layer` resolves a string name across core and vision layer
-registries in priority order, so `BlockChunk` and vision model constructors can accept
-a single string for any layer type. `equimo.core.layers.get_layer` is available for
-shared/core-only code.
+Layer resolution is scoped by modality. `equimo.core.layers.get_layer` searches
+only core registries. `equimo.vision.layers.get_layer` composes vision registries
+with the shared core FFN, normalization, dropout, and mixer families; when a name
+such as `"attention"` exists in both scopes, the vision resolver deliberately
+returns the vision class. Choose the resolver for the intended modality, or use a
+family resolver such as `get_attn` to avoid cross-family ambiguity.
 
 Model registration is modality-aware:
 
@@ -384,7 +522,7 @@ vision architectures. It groups a sequence of identical blocks with optional pos
 embedding and downsampling, and handles stochastic depth scheduling automatically.
 
 ```python
-from equimo.vision.layers import BlockChunk
+from equimo.vision.layers import BlockChunk, get_layer
 from equimo.vision.layers.attention import AttentionBlock
 from equimo.vision.layers.downsample import ConvNormDownsampler
 import jax.random as jr
@@ -401,6 +539,7 @@ stage = BlockChunk(
     downsampler_kwargs={},         # in_channels/out_channels injected automatically
     downsample_last=True,          # blocks run first, then downsample
     drop_path=0.1,
+    layer_resolver=get_layer,      # resolve strings in the vision scope
     key=key,
 )
 ```
@@ -415,7 +554,7 @@ blocks (e.g. per-block attention types).
 `tensorflow_text`; install Equimo with the `language` extra:
 
 ```bash
-pip install equimo[language]
+pip install "equimo[language,extras]"
 ```
 
 Zero-shot classification example using TIPS:
@@ -424,9 +563,10 @@ Zero-shot classification example using TIPS:
 import jax
 from einops import rearrange
 
-from equimo.language import SentencePieceTokenizer
-from equimo.serialization import load_model
+from equimo.language import SentencePieceTokenizer, TextTransformerEncoder
+from equimo.serialization import load_weights
 from equimo.vision.io import load_image
+from equimo.vision.models import tips_vits14_hr
 from equimo.utils import PCAVisualizer, normalize, plot_image_and_feature_map
 
 key = jax.random.PRNGKey(42)
@@ -436,12 +576,19 @@ text = [
     "A computer",
 ]
 
-image_encoder = load_model("vit", "tips_vits14_hr", modality="vision")
-text_encoder = load_model(
-    "text_transformer_encoder",
-    "tips_vits14_hr_text",
-    modality="language",
+image_encoder = tips_vits14_hr(pretrained=True)
+text_encoder = TextTransformerEncoder(
+    dim=384,
+    mlp_ratio=4.0,
+    depth=12,
+    num_heads=6,
+    vocab_size=32000,
+    scale_sqrt_depth=True,
+    act_layer="relu",
+    temperature=0.005497702397406101,
+    key=key,
 )
+text_encoder = load_weights(text_encoder, identifier="tips_vits14_hr_text")
 
 ids, paddings = SentencePieceTokenizer(identifier="sentencepiece_tips").encode(
     text, max_length=64
@@ -510,42 +657,51 @@ save_model(
 )
 ```
 
-### Loading Models
+### Loading Weights
 
 ```python
-from equimo.serialization import load_model
+from pathlib import Path
 
-# Load a pre-trained vision model from the official repository
-model = load_model(cls="vit", identifier="dinov2_vits14_reg", modality="vision")
+from equimo.serialization import load_weights
+from equimo.vision.models import dinov2_vits14_reg, siglip2_vitb16_256
 
-# Load a local model (compressed)
-model = load_model(cls="vit", path=Path("path/to/model.tar.lz4"), modality="vision")
+# Load a pre-trained vision model from the official repository.
+model = dinov2_vits14_reg(pretrained=True, dynamic_img_size=True)
 
-# Load a local model (uncompressed directory)
-model = load_model(cls="vit", path=Path("path/to/model/"), modality="vision")
+# Load a local model (compressed).
+model = dinov2_vits14_reg(pretrained=False, dynamic_img_size=True)
+model = load_weights(model, path=Path("path/to/model.tar.lz4"))
+
+# Load a local model (uncompressed directory).
+model = dinov2_vits14_reg(pretrained=False, dynamic_img_size=True)
+model = load_weights(model, path=Path("path/to/model/"))
 ```
 
-Constructor parameters can be overridden at load time:
+New v2 archives validate their version, model structure, and SHA-256 digest
+before deserialization. Existing archives uploaded during the v2 alpha series
+remain loadable without being regenerated. Equimo v1 archives and the removed
+metadata-driven `load_model` API are not part of the v2 compatibility contract.
+Built-in downloads are also checked against the SHA-256 digest recorded at the
+pinned Hugging Face repository revision.
+
+Constructor parameters are controlled when building the target model:
 
 ```python
-model = load_model(
-    cls="vit",
-    identifier="siglip2_vitb16_256",
-    modality="vision",
+model = siglip2_vitb16_256(
+    pretrained=False,
     dynamic_img_size=True,  # forwarded to VisionTransformer.__init__
 )
+model = load_weights(model, identifier="siglip2_vitb16_256")
 ```
 
-Custom models registered with `register_model` can also be loaded by name:
+Custom models are restored the same way:
 
 ```python
-from equimo.vision.models import register_model
-
-@register_model("mynet", modality="vision")
 class MyNet(eqx.Module):
     ...
 
-model = load_model("mynet", path=Path("mynet.tar.lz4"), modality="vision")
+model = MyNet(..., key=key)
+model = load_weights(model, path=Path("mynet.tar.lz4"))
 ```
 
 ## List of Pretrained Models
@@ -560,12 +716,35 @@ The following models have pretrained weights available in Equimo:
 - [AST](https://arxiv.org/abs/2104.01778)
 - [TabPFN-3](https://arxiv.org/abs/2605.13986)
 
-Model identifiers map to filenames in Equimo's [HuggingFace repository](https://huggingface.co/poiretclement/equimo/tree/main/models/default).
+Model identifiers map to filenames in Equimo's [Hugging Face repository](https://huggingface.co/poiretclement/equimo/tree/bdf43d88f504d6fc3fc7850eb053df0bd762989c/models/default).
 
-Examples:
+The experimental catalog currently covers one representative model per
+modality. Catalog keys use an explicit `<modality>/<variant>` namespace:
+
+```python
+from equimo.catalog import create_model, list_models, model_info
+
+vision_models = list_models(modality="vision", pretrained=True)
+info = model_info("vision/dinov2_vits14_reg")
+model = create_model(info.key, pretrained=False)
+```
+
+Discovery only reports checkpoint availability. It does not download weights;
+`create_model` does that only when passed `pretrained=True`. This catalog API
+and its coverage are experimental during the incremental registry migration.
+
+Catalog-covered pretrained identifiers (validated against catalog data):
+
+<!-- model-catalog:begin -->
+- `ast_base_patch16_audioset_10_10_0_4593`
+- `tabpfn_v3_classifier_default`
+- `dinov2_vits14_reg`
+<!-- model-catalog:end -->
+
+The remaining advertised identifiers are legacy entries not yet covered by the
+catalog prototype:
 
 - `dinov2_vitb14`
-- `dinov2_vits14_reg`
 - `dinov3_vits16_pretrain_lvd1689m`
 - `dinov3_vitb16_pretrain_lvd1689m`
 - `dinov3_vitl16_pretrain_lvd1689m`
@@ -577,9 +756,7 @@ Examples:
 - `siglip2_vitl16_512`
 - `siglip2_vitso400m16_384`
 - `tips_vitg14_lr`
-- `ast_base_patch16_audioset_10_10_0_4593`
 - `ast_base_patch16_speechcommands_v2_10_10_0_9812`
-- `tabpfn_v3_classifier_default`
 - `tabpfn_v3_classifier_binary`
 - `tabpfn_v3_classifier_multiclass`
 - `tabpfn_v3_classifier_ood`
@@ -593,6 +770,32 @@ Examples:
 `equimo.audio` provides AST spectrogram models and reusable audio layers. AST
 inputs are single log-mel spectrograms shaped `(time, frequency)`, and batch
 inference can be done with `jax.vmap`.
+
+For the two pretrained variants below, install the checkpoint-faithful
+waveform path with `pip install "equimo[audio]"`. It accepts normalized
+float32 mono or channel-first waveform arrays, resamples them to 16 kHz, and
+returns the exact `(time, frequency)` input expected by the checkpoint:
+
+```python
+import jax
+import numpy as np
+import equimo.audio.models as am
+from equimo.audio import get_ast_preprocessing_spec, preprocess_ast_waveform
+
+variant = "ast_base_patch16_audioset_10_10_0_4593"
+spec = get_ast_preprocessing_spec(variant)
+waveform = np.zeros(48_000, dtype=np.float32)  # normalized mono at 48 kHz
+x = preprocess_ast_waveform(waveform, 48_000, spec=spec)
+
+model = am.ast_base_patch16_audioset_10_10_0_4593(pretrained=True)
+logits = model(x, key=jax.random.PRNGKey(0), inference=True)
+```
+
+`load_ast_wav(path, spec=spec)` is a thin adapter for local, uncompressed
+16-bit PCM WAV files. Multi-channel arrays and files are averaged to mono.
+Decoding and preprocessing run on CPU through TorchAudio and are not JAX
+jittable; model inference remains JAX-native. Precomputed log-mel inputs remain
+fully supported without the optional dependency:
 
 ```python
 import jax
@@ -612,6 +815,11 @@ Pretrained AST checkpoints currently available:
 - `ast_base_patch16_audioset_10_10_0_4593`: Full AudioSet, 10x10 strides, weight-averaged checkpoint.
 - `ast_base_patch16_speechcommands_v2_10_10_0_9812`: SpeechCommands V2-35, 10x10 strides, non-averaged checkpoint.
 
+The preprocessing contracts, upstream revisions, dependency comparison, and
+measured parity tolerances are recorded in
+[`docs/audio_preprocessing.md`](./docs/audio_preprocessing.md). Other AST
+variants intentionally have no raw-waveform helper until independently pinned.
+
 ## Tabular
 
 `equimo.tabular` provides TabPFN-3 models and reusable tabular layers.
@@ -626,9 +834,13 @@ model = tm.tabpfn_v3_classifier_default(pretrained=True)
 
 x = jnp.ones((12, 5))  # (rows, columns)
 y = jnp.array([0, 1, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0])
-n_train = 8
+n_train = 8  # Python integer; static context/test slice boundary
 
-log_probs = model(x, y, n_train, key=key, inference=True)
+predict = jax.jit(
+    lambda x, y, n_train: model(x, y, n_train, key=key, inference=True),
+    static_argnums=2,
+)
+log_probs = predict(x, y, n_train)
 features = model.forward_features(x, y, n_train, key=key, inference=True)
 ```
 
@@ -658,11 +870,14 @@ Isolated `float32` upcasts are mandatory for numerically sensitive operations
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request. For major changes, please open an issue first to discuss what you would like to change.
+Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for the
+development setup, verification workflow, and contributor conventions. For
+major changes, please open an issue first to discuss what you would like to
+change.
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is licensed under the MIT License; see [LICENSE.md](LICENSE.md).
 
 ## Citation
 

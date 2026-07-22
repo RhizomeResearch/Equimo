@@ -33,6 +33,7 @@ import jax
 import jax.random as jr
 from jaxtyping import Array, Float, PRNGKeyArray
 
+from equimo.core.intermediates import intermediate_indices
 from equimo.core.implicit import (
     DEQBlock,
     DEQCell,
@@ -40,6 +41,7 @@ from equimo.core.implicit import (
     get_stabilizer,
     get_strategy,
 )
+from equimo.core.implicit.injectors import FiLM, PreNormAdd, ProjAdd
 from equimo.vision.layers import get_layer
 from equimo.core.layers.activation import get_act
 from equimo.core.layers.norm import get_norm
@@ -113,11 +115,24 @@ class BlockChunk(eqx.Module):
             block_out = out_channels
 
         if module is not None:
+            module_axis = (
+                "channels"
+                if module.__name__.lower()
+                in {
+                    "atconvblock",
+                    "convnextblock",
+                    "doubleconvblock",
+                    "fasternetblock",
+                    "freenetblock",
+                    "iformerblock",
+                }
+                else "dim"
+            )
             if block_type == "normal":
                 blocks = []
                 for i in range(depth):
                     config = (
-                        {"dim": block_out}
+                        {module_axis: block_out}
                         | module_kwargs
                         | {k: module_kwargs[k][i] for k in keys_to_spread}
                     )
@@ -155,7 +170,14 @@ class BlockChunk(eqx.Module):
                 stabilizer_cls = get_stabilizer(stabilizer)
                 strategy_cls = get_strategy(strategy)
 
-                injector_obj = injector_cls(dim=block_in, key=key_inj)
+                if injector_cls in (ProjAdd, PreNormAdd, FiLM):
+                    injector_obj = injector_cls(
+                        in_channels=block_in,
+                        out_channels=block_in,
+                        key=key_inj,
+                    )
+                else:
+                    injector_obj = injector_cls(channels=block_in, key=key_inj)
                 stabilizer_obj = stabilizer_cls(dim=block_in, key=key_stab)
                 strategy_obj = strategy_cls(dim=block_in, key=key_strat)
 
@@ -164,7 +186,7 @@ class BlockChunk(eqx.Module):
                     depth=depth,
                     module=module,
                     module_kwargs={
-                        "dim": block_out,
+                        module_axis: block_out,
                         "in_channels": block_in,
                         "out_channels": block_out,
                     }
@@ -355,6 +377,30 @@ class DEQ(eqx.Module):
         x = self.dropout(x, inference=inference, key=key_drop)
         return x, auxs
 
+    def intermediate_features(
+        self,
+        x: Float[Array, "channels height width"],
+        key: PRNGKeyArray = jr.PRNGKey(42),
+        inference: Optional[bool] = None,
+        indices: Sequence[int] | None = None,
+        n_last_blocks: int | None = None,
+        **kwargs,
+    ) -> tuple[Float[Array, "channels height width"], ...]:
+        """Return selected native stage outputs."""
+
+        wanted = intermediate_indices(
+            len(self.blocks),
+            indices=indices,
+            n_last_blocks=n_last_blocks,
+        )
+        _, *key_blocks = jr.split(key, len(self.blocks) + 1)
+        outputs = []
+        for i, (blk, key_blk) in enumerate(zip(self.blocks, key_blocks)):
+            x, _ = blk(x, inference=inference, key=key_blk)
+            if i in wanted:
+                outputs.append(x)
+        return tuple(outputs)
+
     def readout(
         self,
         z_star: Float[Array, "channels height width"],
@@ -459,4 +505,6 @@ def _build_deq(
 
 
 def deq_convnext_t(**kwargs) -> DEQ:
+    """Build the tiny ConvNeXt-style DEQ model variant."""
+
     return _build_deq("deq_convnext_t", **kwargs)

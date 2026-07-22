@@ -9,7 +9,7 @@ __all__ = [
 ]
 
 import copy
-from typing import Callable, Literal, Optional, Tuple
+from typing import Callable, Literal, Optional, Sequence, Tuple
 
 import equinox as eqx
 import jax
@@ -18,6 +18,7 @@ import numpy as np
 from einops import reduce
 from jaxtyping import Array, Float, PRNGKeyArray
 
+from equimo.core.intermediates import intermediate_indices
 from equimo.core.layers.activation import get_act
 from equimo.vision.layers.attention import RFAttentionBlock
 from equimo.vision.layers.convolution import DSConv, MBConv, SingleConvBlock
@@ -109,6 +110,8 @@ def _make_reduceformer_chunk(
 
 @register_model("reduceformer", modality="vision")
 class ReduceFormer(eqx.Module):
+    """ReduceFormer image classifier with convolutional and RF-attention stages."""
+
     conv_stem: SingleConvBlock
     block_stem: eqx.Module
     blocks: Tuple[eqx.Module, ...]
@@ -235,6 +238,25 @@ class ReduceFormer(eqx.Module):
 
         return intermediates
 
+    def intermediate_features(
+        self,
+        x: Float[Array, "channels height width"],
+        key: PRNGKeyArray = jr.PRNGKey(42),
+        inference: Optional[bool] = None,
+        indices: Sequence[int] | None = None,
+        n_last_blocks: int | None = None,
+        **kwargs,
+    ):
+        """Return selected native stem/stage outputs."""
+
+        outputs = tuple(self.intermediates(x, key=key, inference=inference, **kwargs))
+        wanted = intermediate_indices(
+            len(outputs),
+            indices=indices,
+            n_last_blocks=n_last_blocks,
+        )
+        return tuple(output for i, output in enumerate(outputs) if i in wanted)
+
     def features(
         self,
         x: Float[Array, "channels height width"],
@@ -246,7 +268,8 @@ class ReduceFormer(eqx.Module):
 
         Args:
             x: Input image tensor
-            inference: Whether to enable dropout during inference
+            inference: Whether to run stochastic layers in inference mode;
+                True disables dropout and drop-path.
             key: PRNG key for random operations
 
         Returns:
@@ -273,7 +296,8 @@ class ReduceFormer(eqx.Module):
 
         Args:
             x: Input image tensor
-            inference: Whether to enable dropout during inference
+            inference: Whether to run stochastic layers in inference mode;
+                True disables dropout and drop-path.
             key: PRNG key for random operations
 
         Returns:

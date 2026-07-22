@@ -34,7 +34,7 @@ __all__ = [
 ]
 
 import math
-from typing import Callable, Literal, Optional
+from typing import Callable, Literal, Optional, Sequence
 
 import equinox as eqx
 import jax
@@ -44,6 +44,7 @@ import numpy as np
 from einops import rearrange
 from jaxtyping import Array, Float, Int, PRNGKeyArray
 
+from equimo.core.intermediates import intermediate_indices
 from equimo.core.layers.activation import get_act
 from equimo.vision.layers.attention import get_attn, get_attn_block
 from equimo.core.layers.ffn import get_ffn
@@ -690,7 +691,9 @@ class VisionParcae(eqx.Module):
         untie_global_and_local_cls_norm: bool = False,
         init_values: float | None = None,
         recurrent_init_values: float | None = None,
-        global_pool: Literal["", "token", "avg", "avgmax", "max"] = "avg",
+        global_pool: Literal[
+            "", "token", "cls_patch_mean", "avg", "avgmax", "max"
+        ] = "avg",
         num_classes: int | None = 1000,
         interpolate_antialias: bool = False,
         eps: float = 1e-5,
@@ -872,9 +875,9 @@ class VisionParcae(eqx.Module):
         act_layer = get_act(act_layer)
 
         self.patch_embed = PatchEmbedding(
-            in_channels,
-            dim,
-            patch_size,
+            in_channels=in_channels,
+            embed_dim=dim,
+            patch_size=patch_size,
             img_size=img_size,
             flatten=not dynamic_img_size,
             dynamic_img_size=dynamic_img_size,
@@ -1075,8 +1078,9 @@ class VisionParcae(eqx.Module):
         self.local_cls_norm = (
             norm_layer(dim, eps=eps) if untie_global_and_local_cls_norm else None
         )
+        head_in_features = 2 * dim if global_pool == "cls_patch_mean" else dim
         self.head = (
-            eqx.nn.Linear(dim, num_classes, key=key_head)
+            eqx.nn.Linear(head_in_features, num_classes, key=key_head)
             if num_classes is not None and num_classes > 0
             else eqx.nn.Identity()
         )
@@ -1653,6 +1657,30 @@ class VisionParcae(eqx.Module):
             "x_prenorm": x,
             **aux,
         }
+
+    def intermediate_features(
+        self,
+        x: Float[Array, "channels height width"],
+        key: PRNGKeyArray,
+        inference: Optional[bool] = None,
+        indices: Sequence[int] | None = None,
+        n_last_blocks: int | None = None,
+        **kwargs,
+    ) -> tuple[Float[Array, "..."], ...]:
+        """Return selected native recurrent/coda outputs."""
+
+        x, aux = self._features_with_aux(x, key=key, inference=inference, **kwargs)
+        outputs = (
+            aux["x_recurrent_state"],
+            aux["x_projected_recurrent"],
+            x,
+        )
+        wanted = intermediate_indices(
+            len(outputs),
+            indices=indices,
+            n_last_blocks=n_last_blocks,
+        )
+        return tuple(output for i, output in enumerate(outputs) if i in wanted)
 
     def recurrent_spectral_norm(self) -> Array:
         """Return a spectral-norm diagnostic for the recurrent injection."""

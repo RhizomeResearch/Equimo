@@ -69,7 +69,7 @@ __all__ = [
     "vit5_xlarge",
 ]
 
-from typing import Callable, Literal, Optional, Tuple
+from typing import Callable, Literal, Optional, Sequence, Tuple
 
 import equinox as eqx
 import jax
@@ -79,6 +79,7 @@ import numpy as np
 from einops import rearrange
 from jaxtyping import Array, Float, Int, PRNGKeyArray
 
+from equimo.core.intermediates import intermediate_indices
 from equimo.core.layers.activation import get_act
 from equimo.vision.layers.attention import (
     get_attn,
@@ -131,7 +132,7 @@ class VisionTransformer(eqx.Module):
     cls_token: jax.Array | None
     reg_tokens: jax.Array | None
     mask_token: jax.Array | None
-    blocks: Tuple[eqx.Module, ...]
+    blocks: Tuple[BlockChunk, ...]
     pos_drop: eqx.nn.Dropout
     norm: eqx.Module
     local_cls_norm: eqx.Module | None
@@ -201,7 +202,9 @@ class VisionTransformer(eqx.Module):
         norm_layer: str | type[eqx.Module] = "layernorm",
         untie_global_and_local_cls_norm: bool = False,
         init_values: float | None = None,
-        global_pool: Literal["", "token", "avg", "avgmax", "max"] = "avg",
+        global_pool: Literal[
+            "", "token", "cls_patch_mean", "avg", "avgmax", "max"
+        ] = "avg",
         num_classes: int | None = 1000,
         interpolate_antialias: bool = False,
         eps: float = 1e-5,
@@ -231,9 +234,9 @@ class VisionTransformer(eqx.Module):
         act_layer = get_act(act_layer)
 
         self.patch_embed = PatchEmbedding(
-            in_channels,
-            dim,
-            patch_size,
+            in_channels=in_channels,
+            embed_dim=dim,
+            patch_size=patch_size,
             img_size=img_size,
             flatten=not dynamic_img_size,
             dynamic_img_size=dynamic_img_size,
@@ -351,8 +354,9 @@ class VisionTransformer(eqx.Module):
             norm_layer(dim, eps=eps) if untie_global_and_local_cls_norm else None
         )
 
+        head_in_features = 2 * dim if global_pool == "cls_patch_mean" else dim
         self.head = (
-            eqx.nn.Linear(dim, num_classes, key=key_head)
+            eqx.nn.Linear(head_in_features, num_classes, key=key_head)
             if num_classes is not None and num_classes > 0
             else eqx.nn.Identity()
         )
@@ -369,14 +373,95 @@ class VisionTransformer(eqx.Module):
 
         Args:
             x: Input image tensor
-            inference: Whether to enable dropout during inference
+            inference: Whether to run stochastic layers in inference mode;
+                True disables dropout and drop-path.
             key: PRNG key for random operations
             mask: optional binary mask of the size of the input after patch embedding
 
         Returns:
             Processed feature tensor
         """
+        key_pos = jr.split(key, len(self.blocks) + 1)[0]
+        x, H, W, rope_sincos = self._prepare_tokens(
+            x,
+            key=key_pos,
+            mask=mask,
+            inference=inference,
+        )
+        return self._run_blocks(
+            (x, H, W, rope_sincos),
+            key=key,
+            inference=inference,
+            **kwargs,
+        )
+
+    def intermediate_features(
+        self,
+        x: Float[Array, "channels height width"],
+        key: PRNGKeyArray,
+        mask: Optional[Int[Array, "embed_h embed_w"]] = None,
+        inference: Optional[bool] = None,
+        indices: Sequence[int] | None = None,
+        n_last_blocks: int | None = None,
+        **kwargs,
+    ) -> tuple[Float[Array, "seqlen dim"], ...]:
+        """Return selected native token outputs after transformer blocks."""
+
+        total = _count_chunk_blocks(self.blocks)
+        wanted = intermediate_indices(
+            total, indices=indices, n_last_blocks=n_last_blocks
+        )
         key_pos, *block_subkeys = jr.split(key, len(self.blocks) + 1)
+        x, H, W, rope_sincos = self._prepare_tokens(
+            x,
+            key=key_pos,
+            mask=mask,
+            inference=inference,
+        )
+
+        outputs = []
+        offset = 0
+        for blk, key_block in zip(self.blocks, block_subkeys):
+            if self.local_pos_embed is not None and not inference:
+                key_pos, key_rope = jr.split(key_pos, 2)
+                rope_sincos = self.local_pos_embed.get_sincos(
+                    H=H, W=W, inference=inference, key=key_rope
+                )
+            blocks = blk.blocks
+            n_blocks = 0 if blocks is None else len(blocks)
+            local_indices = tuple(
+                i - offset for i in sorted(wanted) if offset <= i < offset + n_blocks
+            )
+            if local_indices:
+                x, chunk_outputs = blk.intermediate_features(
+                    x,
+                    rope_sincos=rope_sincos,
+                    inference=inference,
+                    key=key_block,
+                    indices=local_indices,
+                    **kwargs,
+                )
+                outputs.extend(chunk_outputs)
+            else:
+                x = blk(
+                    x,
+                    rope_sincos=rope_sincos,
+                    inference=inference,
+                    key=key_block,
+                    **kwargs,
+                )
+            offset += n_blocks
+
+        return tuple(outputs)
+
+    def _prepare_tokens(
+        self,
+        x: Float[Array, "channels height width"],
+        *,
+        key: PRNGKeyArray,
+        mask: Optional[Int[Array, "embed_h embed_w"]],
+        inference: Optional[bool],
+    ):
         x = self.patch_embed(x)
 
         if mask is not None:
@@ -391,14 +476,10 @@ class VisionTransformer(eqx.Module):
                 value = self.mask_token
             x = jnp.where(mask, x, value.astype(x.dtype))
 
-        # Resolve spatial dims for local pos embed before flattening
-        if self.local_pos_embed is not None:
-            if self.dynamic_img_size:
-                _, H, W = x.shape
-            else:
-                H = W = self.embed_size
+        H = W = self.embed_size
+        if self.local_pos_embed is not None and self.dynamic_img_size:
+            _, H, W = x.shape
 
-        # Apply global (model-level) positional embedding (e.g. APE)
         if self.global_pos_embed is not None:
             x = self.global_pos_embed(
                 x,
@@ -407,30 +488,111 @@ class VisionTransformer(eqx.Module):
                 dynamic_img_size=self.dynamic_img_size,
             )
         else:
-            # No global pos embed: manually cat prefix tokens and flatten
             prefix = [t for t in (self.cls_token, self.reg_tokens) if t is not None]
             if self.dynamic_img_size:
                 x = rearrange(x, "c h w -> (h w) c")
             x = jnp.concatenate([*prefix, x], axis=0) if prefix else x
 
-        # Compute local (block-level) positional embedding (e.g. RoPE)
         rope_sincos = None
         if self.local_pos_embed is not None and inference:
             rope_sincos = self.local_pos_embed.get_sincos(
-                H=H, W=W, inference=inference, key=key_pos
+                H=H, W=W, inference=inference, key=key
             )
+        return x, H, W, rope_sincos
 
-        for blk, key_block in zip(self.blocks, block_subkeys):
+    def _run_blocks(
+        self,
+        prepared,
+        *,
+        key: PRNGKeyArray,
+        inference: Optional[bool],
+        token_transform: Callable | None = None,
+        token_transform_key: PRNGKeyArray | None = None,
+        **kwargs,
+    ) -> Float[Array, "seqlen dim"]:
+        """Run prepared tokens, optionally transforming them before each layer."""
+
+        x, H, W, rope_sincos = prepared
+        key_pos, *block_subkeys = jr.split(key, len(self.blocks) + 1)
+        num_transform_keys = max(self._num_block_layers(), 1)
+        transform_subkeys = (
+            (None,) * num_transform_keys
+            if token_transform_key is None
+            else jr.split(token_transform_key, num_transform_keys)
+        )
+
+        if not self.blocks and token_transform is not None:
+            x, _ = token_transform(
+                x,
+                rope_sincos,
+                0,
+                H,
+                W,
+                transform_subkeys[0],
+                inference,
+            )
+            return x
+
+        layer_index = 0
+        for blk, key_block in zip(self.blocks, block_subkeys, strict=True):
             if self.local_pos_embed is not None and not inference:
                 key_pos, key_rope = jr.split(key_pos, 2)
                 rope_sincos = self.local_pos_embed.get_sincos(
                     H=H, W=W, inference=inference, key=key_rope
                 )
-            x = blk(
-                x, rope_sincos=rope_sincos, inference=inference, key=key_block, **kwargs
-            )
+
+            if token_transform is None:
+                x = blk(
+                    x,
+                    rope_sincos=rope_sincos,
+                    inference=inference,
+                    key=key_block,
+                    **kwargs,
+                )
+                continue
+
+            blocks = blk.blocks
+            num_blocks = 0 if blocks is None else len(blocks)
+            key_down, *layer_subkeys = jr.split(key_block, num_blocks + 2)
+            x = blk.posemb(x)
+            if not blk.downsample_last and blk.downsample is not None:
+                x = (
+                    blk.downsample(x, inference=inference, key=key_down)
+                    if blk.downsampler_needs_key
+                    else blk.downsample(x)
+                )
+            if blocks is not None:
+                for block, layer_key in zip(blocks, layer_subkeys, strict=False):
+                    x, rope_sincos = token_transform(
+                        x,
+                        rope_sincos,
+                        layer_index,
+                        H,
+                        W,
+                        transform_subkeys[layer_index],
+                        inference,
+                    )
+                    x = block(
+                        x,
+                        rope_sincos=rope_sincos,
+                        inference=inference,
+                        key=layer_key,
+                        **kwargs,
+                    )
+                    layer_index += 1
+            if blk.downsample_last and blk.downsample is not None:
+                x = (
+                    blk.downsample(x, inference=inference, key=key_down)
+                    if blk.downsampler_needs_key
+                    else blk.downsample(x)
+                )
 
         return x
+
+    def _num_block_layers(self) -> int:
+        """Return the number of logical transformer layers across block chunks."""
+
+        return _count_chunk_blocks(self.blocks)
 
     def forward_features(
         self,
@@ -443,7 +605,8 @@ class VisionTransformer(eqx.Module):
 
         Args:
             x: Input image tensor
-            inference: Whether to enable dropout during inference
+            inference: Whether to run stochastic layers in inference mode;
+                True disables dropout and drop-path.
             key: PRNG key for random operations
 
         Returns:
@@ -455,11 +618,14 @@ class VisionTransformer(eqx.Module):
         """
         x = self.features(x, inference=inference, key=key, **kwargs)
         x_norm = jax.vmap(self.norm)(x)
+        cls_offset = 1 if self.cls_token is not None else 0
+        reg_start = cls_offset
+        reg_end = reg_start + self.num_reg_tokens
 
         return {
-            "x_norm_cls_token": x_norm[0],
-            "x_norm_reg_tokens": x_norm[1 : self.num_reg_tokens + 1],
-            "x_norm_patchtokens": x_norm[self.num_reg_tokens + 1 :],
+            "x_norm_cls_token": x_norm[0] if self.cls_token is not None else None,
+            "x_norm_reg_tokens": x_norm[reg_start:reg_end],
+            "x_norm_patchtokens": x_norm[reg_end:],
             "x_prenorm": x,
         }
 
@@ -474,7 +640,8 @@ class VisionTransformer(eqx.Module):
 
         Args:
             x: Input image tensor
-            inference: Whether to enable dropout during inference
+            inference: Whether to run stochastic layers in inference mode;
+                True disables dropout and drop-path.
             key: PRNG key for random operations
 
         Returns:
@@ -492,6 +659,10 @@ class VisionTransformer(eqx.Module):
         x = self.head(x)
 
         return x
+
+
+def _count_chunk_blocks(blocks: Tuple[BlockChunk, ...]) -> int:
+    return sum(0 if chunk.blocks is None else len(chunk.blocks) for chunk in blocks)
 
 
 _VIT_BASE_CFG: dict = {
@@ -514,6 +685,14 @@ _DINOV2_BASE_CFG: dict = {
     "dynamic_img_size": False,
     "act_layer": "exactgelu",
 }
+_DINOV3_LOCAL_ROPE_CFG: dict = {
+    "strategy": "period",
+    "base": 100.0,
+    "normalize_coords": "separate",
+    "rescale_coords": 2.0,
+    "dtype": jnp.float32,
+    "periods_dtype": jnp.float32,
+}
 _DINOV3_BASE_CFG: dict = {
     "img_size": 224,
     "in_channels": 3,
@@ -522,6 +701,7 @@ _DINOV3_BASE_CFG: dict = {
     "use_mask_token": True,
     "use_global_pos_embed": False,
     "use_local_pos_embed": True,
+    "local_pos_embed_config_patch": _DINOV3_LOCAL_ROPE_CFG,
     "reg_tokens": 4,
     "init_values": 1e-5,
     "eps": 1e-5,
@@ -738,6 +918,7 @@ _VIT_REGISTRY: dict[str, tuple[dict, dict]] = {
             "untie_global_and_local_cls_norm": True,
             "ffn_layer": "swiglu",
             "ffn_kwargs": {"align_to": 64},
+            "qkv_bias": False,
         },
     ),
     # DINOv3 (SAT-493M)
@@ -760,6 +941,7 @@ _VIT_REGISTRY: dict[str, tuple[dict, dict]] = {
             "untie_global_and_local_cls_norm": True,
             "ffn_layer": "swiglu",
             "ffn_kwargs": {"align_to": 64},
+            "qkv_bias": False,
         },
     ),
     # EUPE
@@ -934,6 +1116,57 @@ _VIT_REGISTRY: dict[str, tuple[dict, dict]] = {
         {"dim": 1152, "num_heads": 16, "depths": [28]},
     ),
 }
+
+
+def _catalog_model_variants():
+    """Derive the representative catalog entry from the ViT authority."""
+    from equimo.catalog import (
+        ModelInput,
+        ModelProvenance,
+        ModelVariant,
+        PretrainedWeights,
+    )
+
+    variant = "dinov2_vits14_reg"
+    base_cfg, variant_cfg = _VIT_REGISTRY[variant]
+    cfg = base_cfg | variant_cfg
+    return (
+        ModelVariant(
+            key=f"vision/{variant}",
+            modality="vision",
+            family="dinov2",
+            variant=variant,
+            model_registry_key="vit",
+            constructor=f"{__name__}.{variant}",
+            inputs=(
+                ModelInput(
+                    name="x",
+                    shape=(cfg["in_channels"], cfg["img_size"], cfg["img_size"]),
+                    axes=("channels", "height", "width"),
+                    dtype="float32",
+                    description=(
+                        "One image; checkpoint-specific normalization is "
+                        "caller-managed."
+                    ),
+                ),
+            ),
+            pretrained=PretrainedWeights(available=True, identifier=variant),
+            provenance=ModelProvenance(
+                conversion="models/torch_models.py",
+                reference=(
+                    "tests/data/reference_provenance.json#"
+                    "dinov2_vits14_reg_reference.npz"
+                ),
+            ),
+            notes=("Checkpoint availability does not trigger automatic downloading.",),
+            field_status=(
+                ("inputs", "complete"),
+                ("pretrained", "complete"),
+                ("provenance", "complete"),
+                ("notes", "complete"),
+            ),
+        ),
+    )
 
 
 def _build_vit(

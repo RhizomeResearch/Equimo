@@ -4,7 +4,7 @@
 # ty: ignore[unresolved-attribute]
 __all__ = ["Mlla"]
 
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, List, Optional, Sequence, Tuple
 
 import equinox as eqx
 import jax
@@ -12,6 +12,7 @@ import jax.random as jr
 from einops import reduce
 from jaxtyping import Array, Float, PRNGKeyArray
 
+from equimo.core.intermediates import intermediate_indices
 from equimo.core.layers.activation import get_act
 from equimo.vision.layers.convolution import Stem
 from equimo.core.layers.ffn import get_ffn
@@ -19,6 +20,7 @@ from equimo.core.layers.generic import BlockChunk
 from equimo.core.layers.norm import get_norm
 from equimo.registry import register_model
 from equimo.utils import make_drop_path_schedule, to_list
+from equimo.vision.layers import get_layer
 
 
 @register_model("mlla", modality="vision")
@@ -137,9 +139,12 @@ class Mlla(eqx.Module):
                     "eps": eps,
                 },
                 downsampler="patchmerging" if (i < n_chunks - 1) else None,
-                downsampler_kwargs={"dim": int(dim * 2**i)} if i < n_chunks - 1 else {},
+                downsampler_kwargs={"in_dim": int(dim * 2**i)}
+                if i < n_chunks - 1
+                else {},
                 downsample_last=True,
                 drop_path=dpr[sum(depths[:i]) : sum(depths[: i + 1])],
+                layer_resolver=get_layer,
                 key=block_subkeys[i],
             )
             for i, depth in enumerate(depths)
@@ -167,6 +172,31 @@ class Mlla(eqx.Module):
 
         return x
 
+    def intermediate_features(
+        self,
+        x: Float[Array, "..."],
+        key: PRNGKeyArray = jr.PRNGKey(42),
+        inference: Optional[bool] = None,
+        indices: Sequence[int] | None = None,
+        n_last_blocks: int | None = None,
+    ) -> tuple[Float[Array, "..."], ...]:
+        """Return selected native stage outputs."""
+
+        wanted = intermediate_indices(
+            len(self.blocks),
+            indices=indices,
+            n_last_blocks=n_last_blocks,
+        )
+        key_pd, *keys = jr.split(key, 1 + len(self.blocks))
+        x = self.patch_embed(x)
+        x = self.pos_drop(x, inference=inference, key=key_pd)
+        outputs = []
+        for i, blk in enumerate(self.blocks):
+            x = blk(x, inference=inference, key=keys[i])
+            if i in wanted:
+                outputs.append(x)
+        return tuple(outputs)
+
     def __call__(
         self,
         x: Float[Array, "..."],
@@ -177,7 +207,8 @@ class Mlla(eqx.Module):
 
         Args:
             x: Input tensor (typically an image)
-            inference: Whether to enable dropout during inference
+            inference: Whether to run stochastic layers in inference mode;
+                True disables dropout and drop-path.
             key: PRNG key for random operations
 
         Returns:

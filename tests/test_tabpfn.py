@@ -1,5 +1,6 @@
 import importlib
 
+import jax
 import jax.numpy as jnp
 import jax.random as jr
 import numpy as np
@@ -74,6 +75,48 @@ def test_forward_shape_and_finite():
     assert bool(jnp.all(jnp.isfinite(out)))
 
 
+def test_jit_forward_with_static_n_train():
+    model = _tiny()
+    x, y, n_train = _inputs()
+    predict = jax.jit(
+        lambda x, y, n_train: model(x, y, n_train, key=KEY, inference=True),
+        static_argnums=2,
+    )
+
+    out = predict(x, y, n_train)
+
+    assert out.shape == (x.shape[0] - n_train, 4)
+    assert bool(jnp.all(jnp.isfinite(out)))
+
+
+def test_singleton_forward_and_input_gradients_are_finite():
+    model = _tiny(
+        dim=8,
+        depths=(1, 1, 1),
+        num_inducing_points=2,
+        feature_group_size=2,
+        decoder_head_dim=4,
+    )
+    x = jnp.array(
+        [
+            [1.0, 2.0, 3.0],
+            [2.0, 2.0, 4.0],
+            [3.0, 2.0, 5.0],
+            [4.0, 2.0, 6.0],
+        ]
+    )
+    y = jnp.array([0, 1, 2, 3])
+
+    def loss(inputs):
+        return model(inputs, y, n_train=1, key=KEY, inference=True).sum()
+
+    out = model(x, y, n_train=1, key=KEY, inference=True)
+    gradients = jax.grad(loss)(x)
+
+    assert bool(jnp.all(jnp.isfinite(out)))
+    assert bool(jnp.all(jnp.isfinite(gradients)))
+
+
 def test_regressor_forward_shape_and_finite():
     model = _tiny_regressor()
     x, _, n_train = _inputs()
@@ -95,6 +138,24 @@ def test_features_and_forward_features_shapes():
     assert forward["x_norm_test"].shape == (x.shape[0] - n_train, model.context_dim)
     assert bool(jnp.all(jnp.isfinite(features)))
     assert bool(jnp.all(jnp.isfinite(forward["x_norm_test"])))
+
+
+def test_intermediate_features_shapes():
+    model = _tiny()
+    x, y, n_train = _inputs()
+
+    intermediates = model.intermediate_features(
+        x,
+        y,
+        n_train,
+        key=KEY,
+        inference=True,
+        n_last_blocks=2,
+    )
+
+    assert len(intermediates) == 2
+    assert intermediates[-1].shape == (x.shape[0], model.context_dim)
+    assert bool(jnp.all(jnp.isfinite(intermediates[-1])))
 
 
 def test_forward_handles_nan_and_inf():
@@ -193,12 +254,8 @@ def test_context_drop_path_schedule():
     model = _tiny(depths=(1, 1, 3), drop_path_rate=0.3)
     blocks = model.blocks[0].blocks
 
-    assert [block.drop_path1.p for block in blocks] == pytest.approx(
-        [0.0, 0.15, 0.3]
-    )
-    assert [block.drop_path2.p for block in blocks] == pytest.approx(
-        [0.0, 0.15, 0.3]
-    )
+    assert [block.drop_path1.p for block in blocks] == pytest.approx([0.0, 0.15, 0.3])
+    assert [block.drop_path2.p for block in blocks] == pytest.approx([0.0, 0.15, 0.3])
 
     uniform = _tiny(depths=(1, 1, 3), drop_path_rate=0.3, drop_path_uniform=True)
     assert [block.drop_path1.p for block in uniform.blocks[0].blocks] == pytest.approx(

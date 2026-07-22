@@ -9,6 +9,8 @@ from loguru import logger
 
 
 def stringify_name(path: Tuple) -> str:
+    """Convert a JAX tree path into a dot-separated parameter name."""
+
     stringified = []
     for p in path:
         if isinstance(p, GetAttrKey):
@@ -19,6 +21,8 @@ def stringify_name(path: Tuple) -> str:
 
 
 def expand_torch_tensor(tensor, pos: str, n: int):
+    """Add ``n`` singleton axes before or after a Torch tensor."""
+
     padding = [None] * n
     match pos:
         case "before":
@@ -67,7 +71,10 @@ def convert_params_from_torch(
         import timm  # ty: ignore[unresolved-import]
         import torch  # ty: ignore[unresolved-import]
     except ImportError as exc:
-        raise ImportError("`torch` not available") from exc
+        raise ImportError(
+            "PyTorch and timm are required for model conversion. Install Equimo "
+            "with the 'torch' extra (for example, pip install \"equimo[torch]\")."
+        ) from exc
 
     # Load the pytorch model
     match source:
@@ -122,8 +129,10 @@ def convert_params_from_torch(
                     f"{_msg} Appending original parameters to flat param list because of `jax_whitelist`."
                 )
             else:
-                p = None
-                logger.warning(f"{_msg} Appending `None` to flat param list.")
+                p = param
+                logger.warning(
+                    f"{_msg} Keeping the original JAX parameter because strict=False."
+                )
 
             torch_params_flat.append(p)
             continue
@@ -141,7 +150,12 @@ def convert_params_from_torch(
             logger.error(_msg)
             raise ValueError(_msg)
 
-        torch_params_flat.append(jnp.asarray(torch_param.detach().numpy()))
+        torch_param = torch_param.detach().cpu().resolve_conj().resolve_neg()
+        try:
+            array = torch_param.numpy()
+        except TypeError:
+            array = torch_param.float().numpy()
+        torch_params_flat.append(jnp.asarray(array, dtype=param.dtype))
         _ = torch_params.pop(param_path)
 
     loaded_params = jax.tree_util.tree_unflatten(jax_param_pytree, torch_params_flat)

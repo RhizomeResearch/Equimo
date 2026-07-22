@@ -12,6 +12,8 @@ _ArrayLike = t.Union[np.ndarray, jnp.ndarray]
 
 
 def normalize(x, order: int = 2):
+    """Normalize vectors along the last axis with a minimum norm clamp."""
+
     return x / np.linalg.norm(x, ord=order, axis=-1, keepdims=True).clip(min=1e-3)
 
 
@@ -58,10 +60,12 @@ class PCAVisualizer:
         """Creates a PCA object for visualizing features of shape [..., F]."""
         try:
             from sklearn import decomposition  # ty: ignore[unresolved-import]
-        except ImportError:
+        except ImportError as exc:
             raise ImportError(
-                "You need sklearn to use the PCAVisualizer, install it using `uv add equimo[viz]`"
-            )
+                "scikit-learn is required to use PCAVisualizer. Install Equimo "
+                "with the 'extras' extra (for example, pip install "
+                '"equimo[extras]").'
+            ) from exc
 
         features = np.array(features)
         pca_object = decomposition.PCA(n_components=n_components)
@@ -93,8 +97,11 @@ def plot_image_and_feature_map(
     """
     try:
         import matplotlib.pyplot as plt  # ty: ignore[unresolved-import]
-    except ImportError:
-        raise ImportError("Matplotlib is required to plot an image")
+    except ImportError as exc:
+        raise ImportError(
+            "Matplotlib is required to plot an image. Install Equimo with the "
+            "'extras' extra (for example, pip install \"equimo[extras]\")."
+        ) from exc
 
     feature_map_normalized = (feature_map - feature_map.min()) / (
         feature_map.max() - feature_map.min()
@@ -226,6 +233,7 @@ def pool_sd(
         x: Input tensor of shape (sequence_length, dimension)
         pool_type: Pooling strategy to use:
             - "token": Use first token (typically CLS token)
+            - "cls_patch_mean": Concatenate CLS token and patch-token mean
             - "avg": Average pooling
             - "max": Max pooling
             - "avgmax": Average of max and mean pooling
@@ -235,6 +243,7 @@ def pool_sd(
 
     Returns:
         Pooled tensor. If pool_type is "token", returns vector of size dim.
+        If pool_type is "cls_patch_mean", returns vector of size 2 * dim.
         For other pool types, returns reduced tensor according to the strategy.
 
     Raises:
@@ -245,6 +254,12 @@ def pool_sd(
 
     if pool_type == "token":
         x = x[0]  # class token
+    elif pool_type == "cls_patch_mean":
+        if num_prefix_tokens < 1:
+            raise ValueError(
+                "cls_patch_mean pooling requires at least one prefix token"
+            )
+        x = jnp.concatenate([x[0], jnp.mean(x[num_prefix_tokens:], axis=0)], axis=0)
     else:
         x = x if reduce_include_prefix else x[num_prefix_tokens:]
         match pool_type:
@@ -261,6 +276,8 @@ def pool_sd(
 
 
 def count_params(model: eqx.Module):
+    """Return the number of array parameters in a model, in millions."""
+
     num_params = sum(
         x.size for x in jax.tree_util.tree_leaves(eqx.filter(model, eqx.is_array))
     )

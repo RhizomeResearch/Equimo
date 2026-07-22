@@ -14,7 +14,7 @@ __all__ = [
     "attnet_t4",
 ]
 
-from typing import Callable, Optional, Tuple
+from typing import Callable, Optional, Sequence, Tuple
 
 import equinox as eqx
 import jax
@@ -22,14 +22,18 @@ import jax.random as jr
 import numpy as np
 from jaxtyping import Array, Float, PRNGKeyArray
 
+from equimo.core.intermediates import intermediate_indices
 from equimo.core.layers.activation import get_act
 from equimo.core.layers.generic import BlockChunk
 from equimo.core.layers.norm import get_norm
 from equimo.registry import register_model
+from equimo.vision.layers import get_layer
 
 
 @register_model("attnet", modality="vision")
 class AttNet(eqx.Module):
+    """Attentive-convolution image classifier built from ATConv stages."""
+
     blocks: Tuple[BlockChunk, ...]
     norm: eqx.Module
     head: eqx.nn.Linear | eqx.nn.Identity
@@ -78,7 +82,7 @@ class AttNet(eqx.Module):
                     out_channels=dims[i],
                     module="atconvblock",
                     module_kwargs={
-                        "dim": dims[i],
+                        "channels": dims[i],
                         "kernel_size": kernel_sizes[i],
                         "exp_rate": exp_rates[i],
                         "act_layer": act_layer,
@@ -91,6 +95,7 @@ class AttNet(eqx.Module):
                     downsampler="convnormdownsampler",
                     downsampler_kwargs={"mode": "double" if i == 0 else "simple"},
                     drop_path=dpr[sum(depths[:i]) : sum(depths[: i + 1])],
+                    layer_resolver=get_layer,
                     key=_k,
                 )
             )
@@ -114,6 +119,30 @@ class AttNet(eqx.Module):
         for blk, key_blk in zip(self.blocks, key_blocks):
             x = blk(x, inference=inference, key=key_blk)
         return x
+
+    def intermediate_features(
+        self,
+        x: Float[Array, "channels height width"],
+        key: PRNGKeyArray = jr.PRNGKey(42),
+        inference: Optional[bool] = None,
+        indices: Sequence[int] | None = None,
+        n_last_blocks: int | None = None,
+        **kwargs,
+    ) -> tuple[Float[Array, "channels height width"], ...]:
+        """Return selected native stage outputs."""
+
+        wanted = intermediate_indices(
+            len(self.blocks),
+            indices=indices,
+            n_last_blocks=n_last_blocks,
+        )
+        key_blocks = jr.split(key, len(self.blocks))
+        outputs = []
+        for i, (blk, key_blk) in enumerate(zip(self.blocks, key_blocks)):
+            x = blk(x, inference=inference, key=key_blk)
+            if i in wanted:
+                outputs.append(x)
+        return tuple(outputs)
 
     def __call__(
         self,

@@ -76,9 +76,11 @@ class Preprocessor(eqx.Module):
 
         train = x[:n_train]
         mean = train.mean(axis=0, keepdims=True)
-        std = train.std(axis=0, ddof=1, keepdims=True)
-        std = jnp.where(std == 0, jnp.ones_like(std), std)
-        std = jnp.where(n_train == 1, jnp.ones_like(std), std)
+        if n_train == 1:
+            std = jnp.ones_like(mean)
+        else:
+            std = train.std(axis=0, ddof=1, keepdims=True)
+            std = jnp.where(std == 0, jnp.ones_like(std), std)
         x = jnp.clip((x - mean) / (std + jnp.finfo(std.dtype).eps), min=-100, max=100)
 
         group_size = self.feature_group_size

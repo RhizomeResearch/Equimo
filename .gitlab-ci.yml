@@ -1,42 +1,160 @@
 stages:
   - lint
   - test
+  - build
   - publish
 
 variables:
   UV_CACHE_DIR: .cache/uv
+  UV_PYTHON_DOWNLOADS: automatic
+  PYTHON_VERSION: "3.12"
 
 default:
-  image: ghcr.io/astral-sh/uv:python3.12-bookworm-slim  # uv pre-installed
+  image: ghcr.io/astral-sh/uv:0.9.30-python3.12-bookworm-slim@sha256:e5b65587bce7de595f299855d7385fe7fca39b8a74baa261ba1b7147afa78e58
   cache:
     key:
       files:
         - pyproject.toml
-      prefix: uv
+        - uv.lock
+      prefix: uv-0.9.30-python3.12-bookworm-slim-$CI_RUNNER_ID
     paths:
       - .cache/uv
   before_script:
-    - uv sync --group dev
+    - uv sync --locked --python "$PYTHON_VERSION" --group dev
 
 lint:
   stage: lint
   script:
-    - uv run ruff check src
-    - uv run ruff format --check src
+    - uv run ruff check src tests examples models
+    - uv run ruff format --check src tests examples models
     - uv run ty check src
+    - uv run python tests/ci_shards.py validate
 
-test:
+docs:finetune:
   stage: test
+  needs: ["lint"]
   script:
-    - uv run pytest --junitxml=report.xml
+    - uv run python docs/finetuning/generate_api_reference.py --check
+
+test:finetune:
+  stage: test
+  parallel:
+    matrix:
+      - PYTHON_VERSION: ["3.12", "3.13", "3.14"]
+  script:
+    - uv run --python "$PYTHON_VERSION" python tests/ci_shards.py finetune --junitxml=report-finetune.xml
   artifacts:
+    when: always
     reports:
-      junit: report.xml
+      junit: report-finetune.xml
+
+test:models:
+  stage: test
+  parallel:
+    matrix:
+      - PYTHON_VERSION: ["3.12", "3.13", "3.14"]
+  script:
+    - uv run --python "$PYTHON_VERSION" python tests/ci_shards.py models --junitxml=report-models.xml
+  artifacts:
+    when: always
+    reports:
+      junit: report-models.xml
+
+test:core:
+  stage: test
+  parallel:
+    matrix:
+      - PYTHON_VERSION: ["3.12", "3.13", "3.14"]
+  script:
+    - uv run --python "$PYTHON_VERSION" python tests/ci_shards.py core --junitxml=report-core.xml
+  artifacts:
+    when: always
+    reports:
+      junit: report-core.xml
+
+test:minimum-dependencies:
+  stage: test
+  before_script:
+    - uv venv .venv-minimum --python "$PYTHON_VERSION"
+    - uv pip install --python .venv-minimum/bin/python --resolution lowest-direct -e .
+    - uv pip install --python .venv-minimum/bin/python "pytest>=9.0.2"
+  script:
+    - .venv-minimum/bin/python -c 'import importlib.metadata as m; assert m.version("jax") == "0.8.1"; assert m.version("jaxlib") == "0.8.1"; assert m.version("equinox") == "0.13.3"'
+    - .venv-minimum/bin/python -m pytest -q -p no:cacheprovider
+
+test:extra:extras:
+  stage: test
+  parallel:
+    matrix:
+      - PYTHON_VERSION: ["3.12", "3.13", "3.14"]
+  variables:
+    EQUIMO_TEST_OPTIONAL_EXTRA: extras
+  before_script:
+    - uv sync --locked --python "$PYTHON_VERSION" --group dev --extra extras
+  script:
+    - uv run --python "$PYTHON_VERSION" pytest -q -p no:cacheprovider tests/test_io.py::test_optional_extras_smoke
+
+test:extra:audio:
+  stage: test
+  parallel:
+    matrix:
+      - PYTHON_VERSION: ["3.12", "3.13", "3.14"]
+  variables:
+    EQUIMO_TEST_OPTIONAL_EXTRA: audio
+  before_script:
+    - uv sync --locked --python "$PYTHON_VERSION" --group dev --extra audio
+  script:
+    - uv run --python "$PYTHON_VERSION" pytest -q -p no:cacheprovider tests/audio/test_io.py tests/audio/test_preprocessing_parity.py
+
+test:extra:language:
+  stage: test
+  # TensorFlow and tensorflow-text do not currently publish Python 3.14 wheels.
+  parallel:
+    matrix:
+      - PYTHON_VERSION: ["3.12", "3.13"]
+  variables:
+    EQUIMO_TEST_OPTIONAL_EXTRA: language
+  before_script:
+    - uv sync --locked --python "$PYTHON_VERSION" --group dev --extra language
+  script:
+    - uv run --python "$PYTHON_VERSION" pytest -q -p no:cacheprovider tests/test_language_tokenizers.py
+
+test:extra:torch:
+  stage: test
+  parallel:
+    matrix:
+      - PYTHON_VERSION: ["3.12", "3.13", "3.14"]
+  variables:
+    EQUIMO_TEST_OPTIONAL_EXTRA: torch
+  before_script:
+    - uv sync --locked --python "$PYTHON_VERSION" --group dev --extra torch
+  script:
+    - uv run --python "$PYTHON_VERSION" pytest -q -p no:cacheprovider tests/test_conversion_optional.py
+
+build:distribution:
+  stage: build
+  script:
+    - uv build --clear --no-sources
+    - uv run python -m pytest -q -p no:cacheprovider tests/test_distribution.py
+  artifacts:
+    paths:
+      - dist/*.whl
+      - dist/*.tar.gz
+    expire_in: 1 week
 
 publish:
   stage: publish
   needs:
-    - test
+    - "docs:finetune"
+    - "test:finetune"
+    - "test:models"
+    - "test:core"
+    - "test:minimum-dependencies"
+    - "test:extra:extras"
+    - "test:extra:audio"
+    - "test:extra:language"
+    - "test:extra:torch"
+    - "build:distribution"
   rules:
     - if: $CI_COMMIT_TAG
   id_tokens:
@@ -58,6 +176,4 @@ publish:
         exit 1
       fi
 
-    - uv build
-    - uv publish
-
+    - uv publish dist/*

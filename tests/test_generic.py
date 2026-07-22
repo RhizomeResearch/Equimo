@@ -6,8 +6,11 @@ import jax.random as jr
 import pytest
 from jaxtyping import Array, PRNGKeyArray
 
+from equimo.core.layers._registry import _resolve_from_registries
 from equimo.core.layers.generic import BlockChunk, Residual, WindowedSequence
 from equimo.core.layers.norm import LayerScale
+from equimo.vision.layers import get_layer as get_vision_layer
+from equimo.vision.layers.attention import AttentionBlock as VisionAttentionBlock
 
 KEY = jr.PRNGKey(0)
 DIM = 16
@@ -59,6 +62,48 @@ class _WindowBlock(eqx.Module):
         self, x: Array, *, key: PRNGKeyArray, inference: bool = False
     ) -> Array:
         return x
+
+
+class TestLayerRegistryHelper:
+    def test_class_passthrough_and_case_normalization(self):
+        registries = (("test", {"identity": _IdentityBlock}),)
+
+        assert (
+            _resolve_from_registries(_ScaleBlock, registries, scope="test layer")
+            is _ScaleBlock
+        )
+        assert (
+            _resolve_from_registries("IDENTITY", registries, scope="test layer")
+            is _IdentityBlock
+        )
+
+    def test_collision_requires_an_explicit_policy(self):
+        registries = (
+            ("first", {"shared": _IdentityBlock}),
+            ("second", {"shared": _ScaleBlock}),
+        )
+
+        with pytest.raises(ValueError, match="ambiguous.*first.*second"):
+            _resolve_from_registries("shared", registries, scope="test layer")
+
+        assert (
+            _resolve_from_registries(
+                "shared",
+                registries,
+                scope="test layer",
+                collision_policy="first",
+            )
+            is _IdentityBlock
+        )
+
+    def test_unknown_name_lists_only_supplied_registries(self):
+        registries = (
+            ("first", {"alpha": _IdentityBlock}),
+            ("second", {"beta": _ScaleBlock}),
+        )
+
+        with pytest.raises(ValueError, match=r"Available: \['alpha', 'beta'\]"):
+            _resolve_from_registries("missing", registries, scope="test layer")
 
 
 # Residual
@@ -244,6 +289,17 @@ class _SimpleDownsampler(eqx.Module):
 
 
 class TestBlockChunk:
+    def test_explicit_vision_resolver_constructs_vision_block(self):
+        chunk = BlockChunk(
+            depth=1,
+            module="attentionblock",
+            module_kwargs={"dim": DIM, "num_heads": 4},
+            layer_resolver=get_vision_layer,
+            key=KEY,
+        )
+
+        assert isinstance(chunk.blocks[0], VisionAttentionBlock)
+
     def test_blocks_only(self):
         chunk = BlockChunk(
             depth=3,

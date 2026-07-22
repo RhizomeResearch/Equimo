@@ -70,6 +70,7 @@ __all__ = [
     "get_patch",
     "register_patch",
     # Positional Embeddings
+    "CompositeVisionRoPE",
     "DinoRoPE",
     "LearnedPosEmbed",
     "PosCNN",
@@ -77,6 +78,7 @@ __all__ = [
     "PosEmbMLPSwinv1D",
     "PosEmbMLPSwinv2D",
     "RoPE",
+    "VisionRoPE",
     "get_posemb",
     "register_posemb",
     # Squeeze-and-Excitation
@@ -110,7 +112,6 @@ from equimo.core.layers.generic import (
     BlockChunk,
     Residual,
     WindowedSequence,
-    _resolve_layer as get_layer,
 )
 from equimo.core.layers.mamba import Mamba2Mixer, get_mixer, register_mixer
 from equimo.core.layers.norm import (
@@ -163,6 +164,7 @@ from .patch import (
     register_patch,
 )
 from .posemb import (
+    CompositeVisionRoPE,
     DinoRoPE,
     LearnedPosEmbed,
     PosCNN,
@@ -170,6 +172,7 @@ from .posemb import (
     PosEmbMLPSwinv1D,
     PosEmbMLPSwinv2D,
     RoPE,
+    VisionRoPE,
     get_posemb,
     register_posemb,
 )
@@ -180,3 +183,4 @@ from .squeeze_excite import (
     register_se,
 )
 from .wavelet import HWDConv, get_wavelet, register_wavelet
+from .registry import get_layer

@@ -1,0 +1,586 @@
+"""Prompt tuning wrappers."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Literal, cast
+
+import equinox as eqx
+import jax
+import jax.numpy as jnp
+import jax.random as jr
+
+from .._typing import PyTree
+
+
+@dataclass(frozen=True)
+class PromptConfig:
+    """Configuration for visual/soft prompt tuning."""
+
+    num_tokens: int = 10
+    depth: Literal["shallow", "deep", "all"] = "shallow"
+    init: str = "normal"
+    init_std: float = 0.02
+    prepend_to: Literal["after_cls", "before_all", "input"] = "after_cls"
+    prompt_dropout: float = 0.0
+    exclude_prompt_tokens_from_pool: bool = True
+    train_head: bool = True
+
+
+@dataclass(frozen=True)
+class SoftPromptConfig(PromptConfig):
+    """Soft prompt tuning defaults for text encoders."""
+
+    num_tokens: int = 20
+    depth: Literal["shallow", "deep", "all"] = "shallow"
+    init: str = "from_embedding_if_available"
+    prepend_to: Literal["after_cls", "before_all", "input"] = "input"
+
+
+@dataclass(frozen=True)
+class VPTShallowConfig(PromptConfig):
+    """Visual Prompt Tuning shallow configuration."""
+
+    num_tokens: int = 50
+    depth: Literal["shallow"] = "shallow"
+    prompt_dropout: float = 0.0
+
+
+@dataclass(frozen=True)
+class VPTDeepConfig(PromptConfig):
+    """Visual Prompt Tuning deep configuration."""
+
+    num_tokens: int = 10
+    depth: Literal["deep"] = "deep"
+    prompt_dropout: float = 0.0
+    prepend_to: Literal["after_cls"] = "after_cls"
+
+
+@dataclass(frozen=True)
+class PTuningV2Config(PromptConfig):
+    """P-tuning v2-style deep prompt defaults for language encoders."""
+
+    num_tokens: int = 10
+    depth: Literal["shallow", "deep", "all"] = "all"
+    share_across_layers: bool = False
+    reparameterizer: Literal["none", "mlp"] = "none"
+
+
+@dataclass(frozen=True)
+class VPTShallowRecipe(VPTShallowConfig):
+    """Visual prompt tuning shallow recipe metadata."""
+
+    num_tokens: int = 50
+    depth: Literal["shallow"] = "shallow"
+    prompt_dropout: float = 0.0
+
+
+@dataclass(frozen=True)
+class VPTDeepRecipe(VPTDeepConfig):
+    """Visual prompt tuning deep recipe metadata."""
+
+    num_tokens: int = 10
+    depth: Literal["deep"] = "deep"
+    prompt_dropout: float = 0.0
+
+
+class PromptedModel(eqx.Module):
+    """Model wrapper that inserts trainable prompt tokens into feature sequences."""
+
+    base: PyTree
+    prompts: tuple[jax.Array, ...]
+    config: PromptConfig = eqx.field(static=True)
+
+    @property
+    def num_prompt_tokens(self) -> int:
+        return self.config.num_tokens
+
+    @property
+    def exclude_prompt_tokens_from_pool(self) -> bool:
+        return self.config.exclude_prompt_tokens_from_pool
+
+    @property
+    def num_base_prefix_tokens(self) -> int:
+        return _base_prefix_count(self.base)
+
+    def features(
+        self,
+        *args,
+        key: jax.Array | None = None,
+        inference: bool | None = True,
+        **kwargs,
+    ) -> jax.Array:
+        if _is_equimo_vit_like(self.base):
+            return _equimo_vit_features(
+                self.base,
+                self.prompts,
+                self.config,
+                *args,
+                key=key,
+                inference=inference,
+                **kwargs,
+            )
+        if _is_simple_token_model(self.base):
+            return _simple_token_features(
+                self.base,
+                self.prompts,
+                self.config,
+                *args,
+                key=key,
+                inference=inference,
+                **kwargs,
+            )
+        raise ValueError(
+            "PromptedModel supports ViT-like token models with patch_embed, "
+            "prefix tokens, and blocks."
+        )
+
+    def __call__(
+        self,
+        *args,
+        key: jax.Array | None = None,
+        inference: bool | None = True,
+        **kwargs,
+    ):
+        features = self.features(*args, key=key, inference=inference, **kwargs)
+        if hasattr(self.base, "head"):
+            if _is_equimo_vit_like(self.base):
+                from equimo.utils import pool_sd
+
+                x = jax.vmap(self.base.norm)(features)
+                x = pool_sd(
+                    x,
+                    num_prefix_tokens=self.num_base_prefix_tokens
+                    + self.config.num_tokens,
+                    pool_type=self.base.global_pool,
+                    reduce_include_prefix=False,
+                )
+                return self.base.head(x)
+            token_index = (
+                self.config.num_tokens if _prepends_before_all(self.config) else 0
+            )
+            return self.base.head(features[token_index])
+        return _call_model(self.base, *args, key=key, inference=inference, **kwargs)
+
+
+def apply_prompts(
+    model: PyTree,
+    config: PromptConfig | None = None,
+    *,
+    key: jax.Array,
+) -> PromptedModel:
+    """Wrap a model with trainable prompt tokens."""
+
+    config = PromptConfig() if config is None else config
+    _validate_prompt_config(config)
+    dim = _infer_dim(model)
+    prompt_count = _prompt_count(model, config)
+    prompts = _init_prompts(model, config, dim, prompt_count, key)
+    return cast(PromptedModel, PromptedModel(model, prompts, config))
+
+
+def _prompt_count(model: PyTree, config: PromptConfig) -> int:
+    if config.depth == "shallow":
+        return 1
+    if getattr(config, "share_across_layers", False):
+        return 1
+    if hasattr(model, "_num_block_layers"):
+        return max(1, model._num_block_layers())
+    blocks = getattr(model, "blocks", ())
+    return max(1, len(blocks))
+
+
+def _infer_dim(model: PyTree) -> int:
+    if hasattr(model, "dim"):
+        return int(model.dim)
+    if hasattr(model, "pos_embed"):
+        return int(model.pos_embed.shape[-1])
+    if hasattr(model, "token_embed") and hasattr(model.token_embed, "weight"):
+        return int(model.token_embed.weight.shape[-1])
+    raise ValueError(
+        "Could not infer prompt dimension; pass a model with dim metadata."
+    )
+
+
+def _init_prompts(
+    model: PyTree,
+    config: PromptConfig,
+    dim: int,
+    prompt_count: int,
+    key: jax.Array,
+) -> tuple[jax.Array, ...]:
+    if config.init == "normal":
+        return tuple(
+            jr.normal(prompt_key, (config.num_tokens, dim), dtype=jnp.float32)
+            * config.init_std
+            for prompt_key in jr.split(key, prompt_count)
+        )
+    if config.init == "from_embedding_if_available":
+        prompt = _prompt_from_embedding(model, config.num_tokens)
+        if prompt is not None:
+            return tuple(prompt for _ in range(prompt_count))
+        return tuple(
+            jr.normal(prompt_key, (config.num_tokens, dim), dtype=jnp.float32)
+            * config.init_std
+            for prompt_key in jr.split(key, prompt_count)
+        )
+    raise ValueError(
+        "Unsupported prompt init "
+        f"{config.init!r}; expected normal or from_embedding_if_available."
+    )
+
+
+def _prompt_from_embedding(model: PyTree, num_tokens: int) -> jax.Array | None:
+    token_embed = getattr(model, "token_embed", None)
+    weight = getattr(token_embed, "weight", None)
+    if weight is None:
+        return None
+    indices = jnp.arange(num_tokens) % weight.shape[0]
+    return weight[indices]
+
+
+def _equimo_vit_features(
+    model,
+    prompts: tuple[jax.Array, ...],
+    config: PromptConfig,
+    x: jax.Array,
+    *,
+    key: jax.Array | None,
+    inference: bool | None,
+    **kwargs,
+) -> jax.Array:
+    if key is None:
+        model_key = jr.PRNGKey(0)
+        prompt_key = None
+    else:
+        model_key, prompt_key = jr.split(key, 2)
+    mask = kwargs.pop("mask", None)
+    key_pos = jr.split(model_key, len(model.blocks) + 1)[0]
+    prepared = model._prepare_tokens(
+        x,
+        key=key_pos,
+        mask=mask,
+        inference=inference,
+    )
+
+    def inject_prompt(
+        tokens,
+        rope_sincos,
+        index,
+        height,
+        width,
+        layer_key,
+        layer_inference,
+    ):
+        del height, width
+        rope_needs_prompt = rope_sincos is not None and (
+            index == 0 or rope_sincos[0].shape[0] != tokens.shape[0]
+        )
+        if config.depth == "shallow":
+            prompt = prompts[0].astype(tokens.dtype)
+            if index == 0:
+                prompt = _prompt_for_layer(
+                    prompts,
+                    config,
+                    0,
+                    tokens,
+                    layer_key,
+                    inference=layer_inference,
+                )
+                tokens = _insert_prompt(tokens, prompt, config)
+            if rope_needs_prompt:
+                rope_sincos = _insert_prompt_rope(rope_sincos, prompt, config)
+            return tokens, rope_sincos
+
+        prompt = _prompt_for_layer(
+            prompts,
+            config,
+            index,
+            tokens,
+            layer_key,
+            inference=layer_inference,
+        )
+        tokens = (
+            _insert_prompt(tokens, prompt, config)
+            if index == 0
+            else _replace_prompt(tokens, prompt, config)
+        )
+        if rope_needs_prompt:
+            rope_sincos = _insert_prompt_rope(rope_sincos, prompt, config)
+        return tokens, rope_sincos
+
+    return model._run_blocks(
+        prepared,
+        key=model_key,
+        inference=inference,
+        token_transform=inject_prompt,
+        token_transform_key=prompt_key,
+        **kwargs,
+    )
+
+
+def _simple_token_features(
+    model,
+    prompts: tuple[jax.Array, ...],
+    config: PromptConfig,
+    x: jax.Array,
+    *,
+    key: jax.Array | None,
+    inference: bool | None,
+    **kwargs,
+) -> jax.Array:
+    del kwargs
+    x = _embed_input_tokens(model, x)
+    prefix = _simple_prefix_tokens(model)
+    x = jnp.concatenate([*prefix, x], axis=0) if prefix else x
+    if hasattr(model, "pos_embed"):
+        x = x + model.pos_embed[: x.shape[0]]
+    num_blocks = len(model.blocks)
+    num_prompt_keys = max(num_blocks, 1)
+    if key is None:
+        prompt_keys = (None,) * num_prompt_keys
+        block_keys = (None,) * num_blocks
+    else:
+        subkeys = jr.split(key, num_prompt_keys + num_blocks)
+        prompt_keys = subkeys[:num_prompt_keys]
+        block_keys = subkeys[num_prompt_keys:]
+    x = _run_prompted_blocks(
+        model.blocks,
+        x,
+        prompts,
+        config,
+        block_keys,
+        prompt_keys=prompt_keys,
+        inference=inference,
+    )
+    return _map_tokens(model.norm, x) if hasattr(model, "norm") else x
+
+
+def _run_prompted_blocks(
+    blocks,
+    x: jax.Array,
+    prompts: tuple[jax.Array, ...],
+    config: PromptConfig,
+    block_keys,
+    *,
+    prompt_keys,
+    inference: bool | None,
+) -> jax.Array:
+    if not blocks:
+        prompt = _prompt_for_layer(
+            prompts,
+            config,
+            0,
+            x,
+            prompt_keys[0],
+            inference=inference,
+        )
+        return _insert_prompt(x, prompt, config)
+
+    if config.depth == "shallow":
+        prompt = _prompt_for_layer(
+            prompts,
+            config,
+            0,
+            x,
+            prompt_keys[0],
+            inference=inference,
+        )
+        x = _insert_prompt(x, prompt, config)
+
+    for index, (block, block_key) in enumerate(zip(blocks, block_keys, strict=True)):
+        if _uses_deep_prompts(config):
+            prompt = _prompt_for_layer(
+                prompts,
+                config,
+                index,
+                x,
+                prompt_keys[index],
+                inference=inference,
+            )
+            if index == 0:
+                x = _insert_prompt(x, prompt, config)
+            else:
+                x = _replace_prompt(x, prompt, config)
+        x = _call_block(
+            block,
+            x,
+            key=block_key,
+            inference=inference,
+        )
+    return x
+
+
+def _prompt_for_layer(
+    prompts: tuple[jax.Array, ...],
+    config: PromptConfig,
+    index: int,
+    x: jax.Array,
+    prompt_key: jax.Array | None,
+    *,
+    inference: bool | None,
+) -> jax.Array:
+    prompt = prompts[0 if config.depth == "shallow" else min(index, len(prompts) - 1)]
+    prompt = prompt.astype(x.dtype)
+    if config.prompt_dropout > 0.0 and not inference:
+        if prompt_key is None:
+            raise ValueError("A PRNG key is required when prompt dropout is active.")
+        prompt = _dropout(prompt, config.prompt_dropout, prompt_key)
+    return prompt
+
+
+def _insert_prompt(x: jax.Array, prompt: jax.Array, config: PromptConfig) -> jax.Array:
+    if _prepends_before_all(config):
+        return jnp.concatenate([prompt, x], axis=0)
+    return jnp.concatenate([x[:1], prompt, x[1:]], axis=0)
+
+
+def _insert_prompt_rope(
+    rope_sincos: tuple[jax.Array, jax.Array] | None,
+    prompt: jax.Array,
+    config: PromptConfig,
+) -> tuple[jax.Array, jax.Array] | None:
+    if rope_sincos is None:
+        return None
+
+    sin, cos = rope_sincos
+    prompt_rows = prompt.shape[0]
+    insert_at = 0 if _prepends_before_all(config) else 1
+    sin_prompt = jnp.zeros((prompt_rows, sin.shape[-1]), dtype=sin.dtype)
+    cos_prompt = jnp.ones((prompt_rows, cos.shape[-1]), dtype=cos.dtype)
+    sin = jnp.concatenate([sin[:insert_at], sin_prompt, sin[insert_at:]], axis=0)
+    cos = jnp.concatenate([cos[:insert_at], cos_prompt, cos[insert_at:]], axis=0)
+    return sin, cos
+
+
+def _replace_prompt(x: jax.Array, prompt: jax.Array, config: PromptConfig) -> jax.Array:
+    n = prompt.shape[0]
+    if x.shape[0] >= n and _prepends_before_all(config):
+        return jnp.concatenate([prompt, x[n:]], axis=0)
+    if x.shape[0] >= n + 1 and config.prepend_to == "after_cls":
+        return jnp.concatenate([x[:1], prompt, x[1 + n :]], axis=0)
+    return _insert_prompt(x, prompt, config)
+
+
+def _call_block(block, x: jax.Array, *, key, inference, **kwargs) -> jax.Array:
+    call_kwargs = dict(kwargs)
+    if key is not None:
+        call_kwargs["key"] = key
+    if inference is not None:
+        call_kwargs["inference"] = inference
+    try:
+        return block(x, **call_kwargs)
+    except TypeError as error:
+        if "unexpected keyword argument" not in str(error):
+            raise
+        call_kwargs.pop("inference", None)
+        if key is None:
+            call_kwargs.pop("key", None)
+        try:
+            return block(x, **call_kwargs)
+        except TypeError as second_error:
+            if "unexpected keyword argument" not in str(second_error):
+                raise
+            return block(x)
+
+
+def _is_equimo_vit_like(model) -> bool:
+    return hasattr(model, "_prepare_tokens") and hasattr(model, "_run_blocks")
+
+
+def _is_simple_token_model(model) -> bool:
+    return hasattr(model, "blocks") and (
+        hasattr(model, "patch_embed") or hasattr(model, "token_embed")
+    )
+
+
+def _embed_input_tokens(model, x: jax.Array) -> jax.Array:
+    if hasattr(model, "token_embed"):
+        return jax.vmap(model.token_embed)(x)
+    return _map_tokens(model.patch_embed, x)
+
+
+def _simple_prefix_tokens(model) -> list[jax.Array]:
+    tokens: list[jax.Array] = []
+    for name in ("cls_token", "dist_token", "reg_tokens"):
+        token = getattr(model, name, None)
+        if token is not None:
+            tokens.append(token)
+    return tokens
+
+
+def _base_prefix_count(model) -> int:
+    if hasattr(model, "num_prefix_tokens"):
+        return int(model.num_prefix_tokens)
+    return sum(token.shape[0] for token in _simple_prefix_tokens(model))
+
+
+def _map_tokens(fn, x: jax.Array) -> jax.Array:
+    return fn(x) if x.ndim == 1 else jax.vmap(fn)(x)
+
+
+def _call_features(model, *args, key, inference, **kwargs):
+    if not hasattr(model, "features"):
+        raise ValueError("PromptedModel requires the base model to expose features().")
+    return _call_with_optional_key(
+        model.features, *args, key=key, inference=inference, **kwargs
+    )
+
+
+def _call_model(model, *args, key, inference, **kwargs):
+    return _call_with_optional_key(model, *args, key=key, inference=inference, **kwargs)
+
+
+def _call_with_optional_key(fn, *args, key, inference, **kwargs):
+    call_kwargs = dict(kwargs)
+    if key is not None:
+        call_kwargs["key"] = key
+    if inference is not None:
+        call_kwargs["inference"] = inference
+    try:
+        return fn(*args, **call_kwargs)
+    except TypeError as error:
+        if "unexpected keyword argument" not in str(error):
+            raise
+        call_kwargs.pop("inference", None)
+        try:
+            return fn(*args, **call_kwargs)
+        except TypeError as second_error:
+            if "unexpected keyword argument" not in str(second_error):
+                raise
+            call_kwargs.pop("key", None)
+            return fn(*args, **call_kwargs)
+
+
+def _dropout(x: jax.Array, rate: float, key: jax.Array) -> jax.Array:
+    keep_prob = 1.0 - rate
+    mask = jr.bernoulli(key, keep_prob, shape=x.shape)
+    return jnp.where(mask, x / keep_prob, 0)
+
+
+def _prepends_before_all(config: PromptConfig) -> bool:
+    return config.prepend_to in {"before_all", "input"}
+
+
+def _uses_deep_prompts(config: PromptConfig) -> bool:
+    return config.depth in {"deep", "all"}
+
+
+def _validate_prompt_config(config: PromptConfig) -> None:
+    if isinstance(config, PTuningV2Config) and config.reparameterizer != "none":
+        raise ValueError(
+            "PTuningV2Config.reparameterizer='mlp' is declared but not implemented."
+        )
+
+
+__all__ = (
+    "PTuningV2Config",
+    "PromptConfig",
+    "PromptedModel",
+    "SoftPromptConfig",
+    "VPTDeepConfig",
+    "VPTDeepRecipe",
+    "VPTShallowConfig",
+    "VPTShallowRecipe",
+    "apply_prompts",
+)

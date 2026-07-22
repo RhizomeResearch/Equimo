@@ -1,0 +1,107 @@
+"""Fine-tuning pooling tests."""
+
+from __future__ import annotations
+
+import equinox as eqx
+import jax.numpy as jnp
+import jax.random as jr
+import pytest
+
+import equimo.finetune as eqft
+
+
+def test_pool_cls_shape():
+    tokens = jnp.arange(20, dtype=jnp.float32).reshape(5, 4)
+    pooled = eqft.CLSPool()(tokens)
+
+    assert pooled.shape == (4,)
+    assert jnp.array_equal(pooled, tokens[0])
+
+
+def test_pool_mean_patch_excludes_cls():
+    tokens = jnp.arange(20, dtype=jnp.float32).reshape(5, 4)
+    pooled = eqft.MeanPatchPool(num_prefix_tokens=1)(tokens)
+
+    assert pooled.shape == (4,)
+    assert jnp.array_equal(pooled, jnp.mean(tokens[1:], axis=0))
+
+
+def test_pool_cls_patch_mean_shape_and_values():
+    tokens = jnp.arange(20, dtype=jnp.float32).reshape(5, 4)
+    pooled = eqft.pool_features(tokens, pool="cls_patch_mean")
+
+    expected = jnp.concatenate([tokens[0], jnp.mean(tokens[1:], axis=0)], axis=0)
+    assert pooled.shape == (8,)
+    assert jnp.array_equal(pooled, expected)
+
+
+def test_pool_cls_patch_mean_excludes_prefix_tokens():
+    tokens = jnp.arange(24, dtype=jnp.float32).reshape(6, 4)
+    pooled = eqft.CLSPatchMeanPool(num_prefix_tokens=2)(tokens)
+
+    expected = jnp.concatenate([tokens[0], jnp.mean(tokens[2:], axis=0)], axis=0)
+    assert pooled.shape == (8,)
+    assert jnp.array_equal(pooled, expected)
+
+
+def test_pool_mean_token_mask():
+    tokens = jnp.arange(12, dtype=jnp.float32).reshape(3, 4)
+    mask = jnp.array([1, 1, 0])
+    pooled = eqft.MeanTokenPool()(tokens, mask=mask)
+
+    assert jnp.array_equal(pooled, jnp.mean(tokens[:2], axis=0))
+
+
+@pytest.mark.parametrize(
+    ("mask", "expected_index"),
+    [
+        (jnp.array([True, True, True, True]), 3),
+        (jnp.array([1, 1, 0, 0]), 1),
+        (jnp.array([0, 0, 1, 1]), 3),
+        (jnp.array([1, 0, 1, 0]), 2),
+        (jnp.array([0, 1, 0, 0]), 1),
+        (jnp.array([False, False, False, False]), 0),
+    ],
+)
+def test_pool_last_token_mask_layouts(mask, expected_index):
+    tokens = jnp.arange(12, dtype=jnp.float32).reshape(4, 3)
+
+    pooled = eqft.LastTokenPool()(tokens, mask=mask)
+
+    assert jnp.array_equal(pooled, tokens[expected_index])
+
+
+def test_pool_last_token_mask_jit():
+    tokens = jnp.arange(12, dtype=jnp.float32).reshape(4, 3)
+    mask = jnp.array([0, 1, 0, 1])
+
+    pooled = eqx.filter_jit(eqft.LastTokenPool())(tokens, mask=mask)
+
+    assert jnp.array_equal(pooled, tokens[3])
+
+
+def test_pool_auto_feature_dict_uses_cls_distillation_mean():
+    features = {
+        "x_norm_cls_token": jnp.array([1.0, 3.0]),
+        "x_norm_dist_token": jnp.array([3.0, 7.0]),
+        "x_norm_patchtokens": jnp.array([[20.0, 30.0], [40.0, 50.0]]),
+    }
+
+    pooled = eqft.pool_features(features, pool="auto")
+
+    assert jnp.array_equal(pooled, jnp.array([2.0, 5.0]))
+
+
+def test_pool_attention_policy_uses_key():
+    tokens = jnp.arange(20, dtype=jnp.float32).reshape(5, 4)
+
+    pooled = eqft.pool_features(tokens, pool="attention", key=jr.PRNGKey(0))
+
+    assert pooled.shape == (4,)
+
+
+def test_pool_attention_policy_requires_key():
+    tokens = jnp.arange(20, dtype=jnp.float32).reshape(5, 4)
+
+    with pytest.raises(ValueError, match="requires a PRNG key"):
+        eqft.pool_features(tokens, pool="attention")

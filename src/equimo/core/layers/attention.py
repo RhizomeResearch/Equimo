@@ -99,11 +99,15 @@ def get_attn_block(module: str | type[eqx.Module]) -> type[eqx.Module]:
 
 
 def rope_rotate_half(x: jax.Array) -> jax.Array:
+    """Rotate the last-dimension halves used by rotary embeddings."""
+
     x1, x2 = jnp.split(x, 2, axis=-1)
     return jnp.concatenate([-x2, x1], axis=-1)
 
 
 def rope_apply(x: jax.Array, sin: jax.Array, cos: jax.Array) -> jax.Array:
+    """Apply precomputed rotary sine/cosine factors to an array."""
+
     return (x * cos) + (rope_rotate_half(x) * sin)
 
 
@@ -115,6 +119,11 @@ def rope_apply_qk_last_hw(
     prefix: int | None = None,
 ) -> Tuple[jax.Array, jax.Array]:
     """Apply RoPE to the tail tokens while preserving optional prefix tokens."""
+    if sin.shape[-1] != q.shape[-1] or cos.shape[-1] != q.shape[-1]:
+        raise ValueError(
+            "sin/cos last dim must equal head_dim; got "
+            f"{sin.shape[-1]} and {cos.shape[-1]} vs {q.shape[-1]}"
+        )
     hw = sin.shape[-2]
     n = q.shape[-2]
     if prefix is None:
@@ -230,7 +239,12 @@ class Attention(eqx.Module):
 
 @register_attn_block()
 class AttentionBlock(eqx.Module):
-    """Pre-norm transformer block for sequence tensors."""
+    """Pre-norm transformer block for sequence tensors.
+
+    ``mask`` applies to both attention and the feed-forward layer by default.
+    ``attn_mask`` and ``ffn_mask`` override it when those layers need masks with
+    different axis layouts.
+    """
 
     prenorm: eqx.Module
     postnorm: eqx.Module
@@ -303,7 +317,7 @@ class AttentionBlock(eqx.Module):
             key=key_attn,
         )
         self.mlp = ffn_layer(
-            dim=dim,
+            in_dim=dim,
             hidden_dim=int(dim * mlp_ratio),
             act_layer=act_layer,
             norm_layer=norm_layer if ffn_norm else None,
@@ -331,15 +345,21 @@ class AttentionBlock(eqx.Module):
         x: Float[Array, "seqlen dim"],
         key: PRNGKeyArray,
         inference: Optional[bool] = None,
+        *,
+        mask: Optional[Float[Array, ""]] = None,
+        attn_mask: Optional[Float[Array, ""]] = None,
+        ffn_mask: Optional[Float[Array, ""]] = None,
         **kwargs,
     ) -> Float[Array, "seqlen dim"]:
         key_attn, key_mlp, key_dr1, key_dr2 = jr.split(key, 4)
-        mask = kwargs.get("mask")
-        extra_kwargs = {"mask": mask} if mask is not None else {}
+        attn_mask = mask if attn_mask is None else attn_mask
+        ffn_mask = mask if ffn_mask is None else ffn_mask
+        attn_kwargs = {"mask": attn_mask} if attn_mask is not None else {}
+        ffn_kwargs = {"mask": ffn_mask} if ffn_mask is not None else {}
         attn_kwargs = (
-            extra_kwargs | {"rope_sincos": kwargs["rope_sincos"]}
+            attn_kwargs | {"rope_sincos": kwargs["rope_sincos"]}
             if kwargs.get("rope_sincos") is not None
-            else extra_kwargs
+            else attn_kwargs
         )
         x = self.drop_path1(
             x,
@@ -363,7 +383,7 @@ class AttentionBlock(eqx.Module):
                     jax.vmap(self.norm)(x),
                     inference=inference,
                     key=key_mlp,
-                    **extra_kwargs,
+                    **ffn_kwargs,
                 )
             ),
             inference=inference,

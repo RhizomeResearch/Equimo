@@ -29,8 +29,11 @@ def load_image(
     """Load an RGB image as a channel-first float32 JAX array."""
     try:
         from PIL import Image  # ty: ignore[unresolved-import]
-    except ImportError:
-        raise ImportError("PIL is needed to be able to load images.")
+    except ImportError as exc:
+        raise ImportError(
+            "Pillow is required to load images. Install Equimo with the 'extras' "
+            'extra (for example, pip install "equimo[extras]").'
+        ) from exc
 
     with open(path, "rb") as fd:
         image_bytes = io.BytesIO(fd.read())
