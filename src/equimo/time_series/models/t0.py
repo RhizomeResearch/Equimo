@@ -17,177 +17,14 @@ import numpy as np
 from jaxtyping import Array, Float, Int, PRNGKeyArray
 
 from equimo.conversion.utils import stringify_name
-from equimo.core.layers import Attention, BlockChunk, Mlp, RMSNormGated, SwiGluFused
+from equimo.core.layers import BlockChunk, RMSNormGated
 from equimo.registry import register_model
-
-
-def _linear(layer: eqx.nn.Linear, x: Array) -> Array:
-    y = x @ layer.weight.T
-    return y if layer.bias is None else y + layer.bias
-
-
-class ResidualMlp(eqx.Module):
-    """Reference residual projection, backed by Equimo's Mlp."""
-
-    mlp: Mlp
-    residual_layer: eqx.nn.Linear
-
-    def __init__(self, input_size, hidden_size, output_size, *, key):
-        key1, key2 = jr.split(key)
-        self.mlp = Mlp(
-            input_size,
-            hidden_dim=hidden_size,
-            out_dim=output_size,
-            act_layer="relu",
-            dropout_rate=0.0,
-            key=key1,
-        )
-        self.residual_layer = eqx.nn.Linear(input_size, output_size, key=key2)
-
-    def __call__(self, x, *, key, inference=None):
-        shape = x.shape
-        flat = x.reshape(-1, shape[-1])
-        out = self.mlp(flat, key=key, inference=inference)
-        out += jax.vmap(self.residual_layer)(flat)
-        return out.reshape(*shape[:-1], -1)
-
-
-class PatchEncoder(eqx.Module):
-    projection: ResidualMlp
-    type_embeddings: eqx.nn.Embedding
-    patch_size: int = eqx.field(static=True)
-
-    def __init__(self, embed_dim, patch_size, *, key):
-        key1, key2 = jr.split(key)
-        self.projection = ResidualMlp(patch_size * 3, embed_dim, embed_dim, key=key1)
-        self.type_embeddings = eqx.nn.Embedding(3, embed_dim, key=key2)
-        self.patch_size = patch_size
-
-    def __call__(self, values, mask, variate_type, *, key, inference=None):
-        time = jnp.arange(self.patch_size, dtype=values.dtype) / self.patch_size
-        time = jnp.broadcast_to(time, values.shape)
-        validity = (mask == 0).astype(values.dtype)
-        x = self.projection(
-            jnp.concatenate((values, time, validity), axis=-1),
-            key=key,
-            inference=inference,
-        )
-        return x + self.type_embeddings.weight[jnp.maximum(variate_type[:, :, 0], 0)]
-
-
-def _rotate_half(x: Array) -> Array:
-    pairs = x.reshape(*x.shape[:-1], -1, 2)
-    return jnp.stack((-pairs[..., 1], pairs[..., 0]), axis=-1).reshape(x.shape)
-
-
-def _xpos(q: Array, k: Array) -> tuple[Array, Array]:
-    """Exact rotary-embedding-torch 0.8.x RoPE + XPos."""
-    dim, seq_len = q.shape[-1], q.shape[-2]
-    positions = jnp.arange(seq_len, dtype=q.dtype)
-    frequencies = 1.0 / (10_000 ** (jnp.arange(0, dim, 2) / dim))
-    angles = jnp.repeat(jnp.outer(positions, frequencies), 2, axis=-1)
-    base = (jnp.arange(0, dim, 2) + 0.4 * dim) / (1.4 * dim)
-    power = (positions - (seq_len - 1) // 2) / 512.0
-    scale = jnp.repeat(base[None] ** power[:, None], 2, axis=-1)
-    cos, sin = jnp.cos(angles), jnp.sin(angles)
-    return (
-        (q * cos + _rotate_half(q) * sin) * scale,
-        (k * cos + _rotate_half(k) * sin) / scale,
-    )
-
-
-class AxisAttention(eqx.Module):
-    """T0 axis routing and XPos around Equimo's Attention parameters."""
-
-    attention: Attention
-    attention_type: str = eqx.field(static=True)
-
-    def __init__(self, dim, num_heads, dropout, attention_type, *, key):
-        self.attention = Attention(
-            dim,
-            num_heads,
-            qk_norm=True,
-            norm_layer=RMSNormGated,
-            eps=1e-8,
-            attn_drop=dropout,
-            proj_drop=dropout,
-            key=key,
-        )
-        self.attention_type = attention_type
-
-    def __call__(self, x, mask, *, key, inference=None):
-        if self.attention_type == "group":
-            x = jnp.swapaxes(x, 0, 1)
-        key1, key2 = jr.split(key)
-        attn = self.attention
-        qkv = _linear(attn.qkv, x).reshape(
-            *x.shape[:-1], 3, attn.num_heads, attn.head_dim
-        )
-        q, k, v = jnp.moveaxis(qkv, -3, 0)
-        q, k, v = (jnp.swapaxes(value, -3, -2) for value in (q, k, v))
-        q, k = attn.q_norm(q), attn.k_norm(k)  # ty: ignore[call-non-callable]
-        if self.attention_type == "time":
-            q, k = _xpos(q, k)
-        weights = jnp.einsum("...hqd,...hkd->...hqk", q, k) / jnp.sqrt(attn.head_dim)
-        weights = jnp.where(mask[..., None, :, :], weights, -jnp.inf)
-        weights = jnp.nan_to_num(
-            jax.nn.softmax(weights.astype(jnp.float32), axis=-1)
-        ).astype(x.dtype)
-        weights = attn.attn_drop(weights, key=key1, inference=inference)
-        x = jnp.einsum("...hqk,...hkd->...hqd", weights, v)
-        x = jnp.swapaxes(x, -3, -2).reshape(*x.shape[:-3], x.shape[-2], -1)
-        x = _linear(attn.proj, x)
-        x = attn.proj_drop(x, key=key2, inference=inference)
-        return jnp.swapaxes(x, 0, 1) if self.attention_type == "group" else x
-
-
-class T0Block(eqx.Module):
-    attn_norm: RMSNormGated
-    attn: AxisAttention
-    ffn_norm: RMSNormGated
-    ffn: SwiGluFused
-    ffn_dropout: eqx.nn.Dropout
-    attention_type: str = eqx.field(static=True)
-
-    def __init__(
-        self,
-        dim,
-        num_heads,
-        hidden_dim,
-        dropout,
-        attention_type,
-        *,
-        key,
-        drop_path=0.0,
-    ):
-        del drop_path
-        key1, key2 = jr.split(key)
-        self.attn_norm = RMSNormGated(dim, eps=1e-8)
-        self.attn = AxisAttention(dim, num_heads, dropout, attention_type, key=key1)
-        self.ffn_norm = RMSNormGated(dim, eps=1e-8)
-        # SwiGluFused applies the LLaMA 2/3 contraction internally.
-        self.ffn = SwiGluFused(
-            dim, hidden_dim=hidden_dim * 3 // 2, dropout_rate=0.0, key=key2
-        )
-        self.ffn_dropout = eqx.nn.Dropout(dropout)
-        self.attention_type = attention_type
-
-    def __call__(
-        self,
-        x,
-        *,
-        time_attn_mask,
-        group_attn_mask,
-        key,
-        inference=None,
-    ):
-        key1, key2, key3 = jr.split(key, 3)
-        mask = time_attn_mask if self.attention_type == "time" else group_attn_mask
-        x += self.attn(self.attn_norm(x), mask, key=key1, inference=inference)
-        shape = x.shape
-        flat = self.ffn_norm(x).reshape(-1, shape[-1])
-        out = self.ffn(flat, key=key2, inference=inference).reshape(shape)
-        return x + self.ffn_dropout(out, key=key3, inference=inference)
+from equimo.time_series.layers import (
+    PatchEncoder,
+    ResidualMlp,
+    T0Block,
+    get_layer,
+)
 
 
 @register_model("t0", modality="time_series")
@@ -215,6 +52,9 @@ class T0(eqx.Module):
         group_every_n=3,
         dropout=0.1,
         quantile_levels: Sequence[float] = (0.1, 0.25, 0.5, 0.75, 0.9),
+        patch_encoder_layer="patchencoder",
+        block_layer="t0block",
+        decoder_layer="residualmlp",
         key: PRNGKeyArray,
     ):
         if embed_dim % num_heads:
@@ -223,8 +63,11 @@ class T0(eqx.Module):
             raise ValueError("group_every_n must divide num_layers")
         if patch_size < 1:
             raise ValueError("patch_size must be >= 1")
+        patch_encoder_layer = cast(type[PatchEncoder], get_layer(patch_encoder_layer))
+        block_layer = cast(type[T0Block], get_layer(block_layer))
+        decoder_layer = cast(type[ResidualMlp], get_layer(decoder_layer))
         key_encoder, key_blocks, key_decoder = jr.split(key, 3)
-        self.patch_encoder = PatchEncoder(embed_dim, patch_size, key=key_encoder)
+        self.patch_encoder = patch_encoder_layer(embed_dim, patch_size, key=key_encoder)
         attention_types = [
             "group" if group_every_n > 0 and (i + 1) % group_every_n == 0 else "time"
             for i in range(num_layers)
@@ -232,7 +75,7 @@ class T0(eqx.Module):
         self.blocks = (
             BlockChunk(
                 depth=num_layers,
-                module=T0Block,
+                module=block_layer,
                 module_kwargs={
                     "dim": embed_dim,
                     "num_heads": num_heads,
@@ -245,7 +88,7 @@ class T0(eqx.Module):
         )
         self.out_norm = RMSNormGated(embed_dim, eps=1e-8)
         self.quantile_levels = tuple(sorted(float(q) for q in quantile_levels))
-        self.decoder = ResidualMlp(
+        self.decoder = decoder_layer(
             embed_dim,
             embed_dim,
             patch_size * len(self.quantile_levels),

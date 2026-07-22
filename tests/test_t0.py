@@ -4,6 +4,7 @@ import pytest
 
 from equimo.core.layers import Attention, BlockChunk, Mlp, SwiGluFused
 from equimo.registry import get_model_cls
+from equimo.time_series import layers
 from equimo.time_series.models import T0, load_t0_weights, t0, t0_alpha
 from equimo.time_series.models.t0 import _T0_REGISTRY
 
@@ -82,3 +83,19 @@ def test_lfs_pointer_is_rejected(tmp_path):
     pointer.write_text("version https://git-lfs.github.com/spec/v1\n")
     with pytest.raises(ValueError, match="Git LFS pointer"):
         load_t0_weights(_tiny(), pointer)
+
+
+def test_time_series_layer_registry():
+    assert layers.get_layer("axisattention") is layers.AxisAttention
+    assert layers.get_layer("patchencoder") is layers.PatchEncoder
+    assert layers.get_layer("residualmlp") is layers.ResidualMlp
+    assert layers.get_layer("t0block") is layers.T0Block
+    assert layers.get_layer("mlp") is Mlp
+
+    class CustomLayer(layers.ResidualMlp):
+        pass
+
+    layers.register_layer("custom_t0_layer")(CustomLayer)
+    assert layers.get_layer("custom_t0_layer") is CustomLayer
+    with pytest.raises(ValueError):
+        layers.register_layer("custom_t0_layer")(CustomLayer)
