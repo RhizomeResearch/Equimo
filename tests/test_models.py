@@ -11,7 +11,7 @@ import pytest
 
 import equimo.tabular.models as tm
 import equimo.vision.models as em
-from equimo.serialization import load_model, save_model
+from equimo.serialization import load_weights, save_model
 from equimo.time_series.models import load_t0_weights, t0_alpha
 from equimo.time_series.models.t0 import _safetensors
 from equimo.core.layers.activation import get_act
