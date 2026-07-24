@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import equinox as eqx
+import jax
 import jax.numpy as jnp
 import jax.random as jr
 import pytest
@@ -13,7 +14,7 @@ import equimo.finetune as eqft
 from equimo.audio.models import AudioSpectrogramTransformer
 from equimo.language.models import TextTransformerEncoder
 from equimo.tabular.models import TabPFN
-from equimo.vision.models import VisionTransformer
+from equimo.vision.models import VisionTransformer, dinov2_vits14_reg
 
 
 class EchoFeatures(eqx.Module):
@@ -39,6 +40,19 @@ class PromptTokenFeatures(eqx.Module):
 
     def features(self, x):
         return x
+
+
+@pytest.fixture(scope="module")
+def dinov2_vits14_reg_small():
+    key = jr.PRNGKey(100)
+    model = dinov2_vits14_reg(
+        pretrained=False,
+        img_size=28,
+        depths=[1],
+        key=key,
+    )
+    image = jr.normal(jr.PRNGKey(101), (3, 28, 28))
+    return model, image, key
 
 
 @pytest.mark.parametrize(
@@ -271,6 +285,135 @@ def test_explicit_vision_spec_matches_native_readout():
     fallback = eqft.extract_features(model, x, pool="auto", key=key)
 
     assert jnp.allclose(explicit, fallback)
+
+
+def test_dinov2_explicit_specs_match_normalized_native_outputs(
+    dinov2_vits14_reg_small,
+):
+    model, image, key = dinov2_vits14_reg_small
+    preprocessing_id = "preprocessing:sha256:dinov2-test"
+    final_cls = eqft.FeatureSpec(
+        endpoint="forward_features",
+        output_layout="BNC",
+        token_selection="cls",
+        pooling=None,
+        normalize="none",
+        preprocessing_fingerprint=preprocessing_id,
+    )
+    final_patch_mean = eqft.FeatureSpec(
+        endpoint="forward_features",
+        output_layout="BNC",
+        token_selection="patches",
+        pooling="mean_patch",
+        normalize="l2",
+        exclude_prompt_tokens=True,
+        preprocessing_fingerprint=preprocessing_id,
+    )
+
+    native = model.forward_features(image, key=key, inference=True)
+    cls = eqft.extract_features(
+        model,
+        image,
+        feature_spec=final_cls,
+        observed_preprocessing_fingerprint=preprocessing_id,
+        key=key,
+        inference=True,
+    )
+    patch_mean = eqft.extract_features(
+        model,
+        image,
+        feature_spec=final_patch_mean,
+        observed_preprocessing_fingerprint=preprocessing_id,
+        key=key,
+        inference=True,
+    )
+    expected_patch_mean = jnp.mean(native["x_norm_patchtokens"], axis=0)
+    expected_patch_mean /= jnp.maximum(
+        jnp.linalg.norm(expected_patch_mean),
+        1e-12,
+    )
+
+    assert cls.shape == (384,)
+    assert patch_mean.shape == (384,)
+    assert cls.dtype == native["x_norm_cls_token"].dtype
+    assert patch_mean.dtype == native["x_norm_patchtokens"].dtype
+    assert jnp.all(jnp.isfinite(cls))
+    assert jnp.all(jnp.isfinite(patch_mean))
+    assert jnp.allclose(cls, native["x_norm_cls_token"], rtol=1e-6, atol=1e-6)
+    assert jnp.allclose(patch_mean, expected_patch_mean, rtol=1e-6, atol=1e-6)
+
+
+def test_dinov2_explicit_specs_require_matching_preprocessing(
+    dinov2_vits14_reg_small,
+):
+    model, image, key = dinov2_vits14_reg_small
+    spec = eqft.FeatureSpec(
+        endpoint="forward_features",
+        output_layout="BNC",
+        token_selection="cls",
+        pooling=None,
+        preprocessing_fingerprint="preprocessing:sha256:expected",
+    )
+
+    with pytest.raises(ValueError, match="no observed fingerprint"):
+        eqft.extract_features(model, image, feature_spec=spec, key=key)
+    with pytest.raises(ValueError, match="fingerprint mismatch"):
+        eqft.extract_features(
+            model,
+            image,
+            feature_spec=spec,
+            observed_preprocessing_fingerprint="preprocessing:sha256:other",
+            key=key,
+        )
+
+
+def test_dinov2_explicit_specs_support_jit_and_vmap(dinov2_vits14_reg_small):
+    model, image, key = dinov2_vits14_reg_small
+    preprocessing_id = "preprocessing:sha256:dinov2-test"
+    spec = eqft.FeatureSpec(
+        endpoint="forward_features",
+        output_layout="BNC",
+        token_selection="patches",
+        pooling="mean_patch",
+        normalize="l2",
+        exclude_prompt_tokens=True,
+        preprocessing_fingerprint=preprocessing_id,
+    )
+
+    def extract_one(sample, sample_key):
+        return eqft.extract_features(
+            model,
+            sample,
+            feature_spec=spec,
+            observed_preprocessing_fingerprint=preprocessing_id,
+            key=sample_key,
+            inference=True,
+        )
+
+    eager = extract_one(image, key)
+    compiled = jax.jit(extract_one)(image, key)
+    batch = jnp.stack((image, image))
+    keys = jr.split(key, 2)
+    batched = jax.jit(jax.vmap(extract_one))(batch, keys)
+
+    assert jnp.allclose(compiled, eager, rtol=1e-6, atol=1e-6)
+    assert batched.shape == (2, 384)
+    assert jnp.all(jnp.isfinite(batched))
+
+
+def test_dinov2_explicit_spec_does_not_fall_back_from_invalid_endpoint(
+    dinov2_vits14_reg_small,
+):
+    model, image, key = dinov2_vits14_reg_small
+    spec = eqft.FeatureSpec(
+        endpoint="missing_features",
+        output_layout="BNC",
+        token_selection="cls",
+        pooling=None,
+    )
+
+    with pytest.raises(ValueError, match="missing component"):
+        eqft.extract_features(model, image, feature_spec=spec, key=key)
 
 
 def test_explicit_audio_spec_matches_native_readout():

@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 import hashlib
 import json
 import tarfile
@@ -33,10 +34,41 @@ DEFAULT_REPOSITORY_URL = (
 
 _CHECKPOINT_FORMAT = "equimo.model.checkpoint"
 _CHECKPOINT_FORMAT_VERSION = 1
-_CHECKPOINT_MEMBERS = frozenset(("metadata.json", "weights.eqx"))
+_CHECKPOINT_MEMBER_ORDER = ("metadata.json", "weights.eqx")
+_CHECKPOINT_MEMBERS = frozenset(_CHECKPOINT_MEMBER_ORDER)
+_VERSIONED_METADATA_FIELDS = frozenset(
+    (
+        "format",
+        "format_version",
+        "weights_sha256",
+        "model_class",
+        "model_signature",
+    )
+)
 _MAX_METADATA_BYTES = 16 * 1024 * 1024
 _MAX_WEIGHTS_BYTES = 64 * 1024 * 1024 * 1024
 _MAX_DOWNLOAD_BYTES = 64 * 1024 * 1024 * 1024
+
+
+@dataclass(frozen=True)
+class CheckpointInfo:
+    """Validated identity information for a local Equimo checkpoint.
+
+    ``verified`` means that versioned metadata and the serialized weight digest
+    were internally validated. Model compatibility is additionally checked when
+    a model is supplied to :func:`inspect_checkpoint`. Legacy checkpoints expose
+    a computed weight digest but always remain explicitly unverified.
+    """
+
+    path: Path
+    format: str | None
+    format_version: int | None
+    weights_sha256: str
+    model_class: str | None
+    model_signature: str | None
+    equimo_version: str | None
+    verified: bool
+    legacy: bool
 
 
 def _validate_identifier(identifier: str) -> None:
@@ -50,7 +82,11 @@ def _validate_identifier(identifier: str) -> None:
         )
 
 
-def _decompress_archive(path: Path) -> Path:
+def _decompress_archive(
+    path: Path,
+    *,
+    allow_legacy_cache: bool = True,
+) -> Path:
     """Decompress a ``.tar.lz4`` archive to a managed sibling directory.
 
     Uses a sentinel file (``.complete``) so interrupted extractions are
@@ -71,26 +107,25 @@ def _decompress_archive(path: Path) -> Path:
 
     if _extraction_is_current(path, sentinel):
         return decompressed_dir
-    if _legacy_extraction_is_current(path, legacy_dir):
+    if allow_legacy_cache and _legacy_extraction_is_current(path, legacy_dir):
         _log_legacy_extraction(legacy_dir, decompressed_dir)
         return legacy_dir
 
     with file_lock(lock_path):
         if _extraction_is_current(path, sentinel):
             return decompressed_dir
-        if _legacy_extraction_is_current(path, legacy_dir):
+        if allow_legacy_cache and _legacy_extraction_is_current(path, legacy_dir):
             _log_legacy_extraction(legacy_dir, decompressed_dir)
             return legacy_dir
 
+        archive_identity = _archive_identity(path)
         with atomic_directory(decompressed_dir) as temporary:
             _extract_model_archive(path, temporary)
-            sentinel_payload = {
-                "archive_size": path.stat().st_size,
-                "archive_mtime_ns": path.stat().st_mtime_ns,
-            }
-            (temporary / ".complete").write_text(
-                json.dumps(sentinel_payload, sort_keys=True)
-            )
+            if _archive_identity(path) != archive_identity:
+                raise ValueError(
+                    f"Checkpoint archive changed while it was being extracted: {path!s}."
+                )
+            (temporary / ".complete").write_text(_canonical_json(archive_identity))
 
     return decompressed_dir
 
@@ -107,10 +142,15 @@ def _extraction_is_current(path: Path, sentinel: Path) -> bool:
         payload = json.loads(sentinel.read_text())
     except (FileNotFoundError, json.JSONDecodeError, OSError):
         return False
+    return payload == _archive_identity(path)
+
+
+def _archive_identity(path: Path) -> dict[str, int | str]:
     stat = path.stat()
-    return payload == {
+    return {
         "archive_size": stat.st_size,
         "archive_mtime_ns": stat.st_mtime_ns,
+        "archive_sha256": sha256_file(path),
     }
 
 
@@ -128,6 +168,13 @@ def _legacy_extraction_is_current(path: Path, directory: Path) -> bool:
 
 
 def _extract_model_archive(path: Path, destination: Path) -> None:
+    try:
+        _extract_model_archive_stream(path, destination)
+    except (EOFError, RuntimeError, tarfile.TarError) as error:
+        raise ValueError(f"Invalid checkpoint archive {path!s}: {error}") from error
+
+
+def _extract_model_archive_stream(path: Path, destination: Path) -> None:
     found: set[str] = set()
     total_size = 0
     with lz4.frame.open(path, "rb") as compressed:
@@ -184,6 +231,51 @@ def _extract_model_archive(path: Path, destination: Path) -> None:
         )
 
 
+def _canonical_json(payload: dict) -> str:
+    return json.dumps(
+        payload,
+        allow_nan=False,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+
+
+def _write_metadata(path: Path, metadata: dict) -> None:
+    path.write_text(_canonical_json(metadata), encoding="utf-8")
+
+
+def _write_deterministic_archive(path: Path, directory: Path) -> None:
+    with lz4.frame.open(
+        path,
+        "wb",
+        block_size=lz4.frame.BLOCKSIZE_MAX4MB,
+        block_linked=True,
+        compression_level=0,
+        content_checksum=True,
+        block_checksum=True,
+        auto_flush=False,
+        source_size=0,
+    ) as output:
+        with tarfile.open(
+            fileobj=output,
+            mode="w",
+            format=tarfile.PAX_FORMAT,
+        ) as archive:
+            for name in _CHECKPOINT_MEMBER_ORDER:
+                source = directory / name
+                info = tarfile.TarInfo(name=name)
+                info.size = source.stat().st_size
+                info.mtime = 0
+                info.mode = 0o644
+                info.uid = 0
+                info.gid = 0
+                info.uname = ""
+                info.gname = ""
+                with source.open("rb") as handle:
+                    archive.addfile(info, handle)
+
+
 def save_model(
     path: Path,
     model: eqx.Module,
@@ -191,7 +283,7 @@ def save_model(
     torch_hub_cfg: list[str] | dict | None = None,
     timm_cfg: list | None = None,
     compression: bool = True,
-) -> None:
+) -> Path:
     """Save an Equinox model with its configuration and metadata to disk.
 
     Args:
@@ -206,6 +298,10 @@ def save_model(
             Defaults to ``[]`` when ``None``.
         compression: If ``True`` (default), create a LZ4-compressed tar archive.
             If ``False``, write a plain directory.
+
+    Returns:
+        The exact path written. A ``.tar.lz4`` suffix is included when it was
+        appended automatically.
     """
     # Guard against mutable-default aliasing from callers.
     torch_hub_cfg = torch_hub_cfg if torch_hub_cfg is not None else {}
@@ -235,25 +331,21 @@ def save_model(
             tmp_path = Path(tmp_dir)
             eqx.tree_serialise_leaves(tmp_path / "weights.eqx", model)
             metadata["weights_sha256"] = sha256_file(tmp_path / "weights.eqx")
-            with (tmp_path / "metadata.json").open("w") as handle:
-                json.dump(metadata, handle, sort_keys=True)
+            _write_metadata(tmp_path / "metadata.json", metadata)
 
             path.parent.mkdir(parents=True, exist_ok=True)
             with atomic_file(path) as temporary_archive:
-                with lz4.frame.open(temporary_archive, "wb") as output:
-                    with tarfile.open(fileobj=output, mode="w") as archive:
-                        archive.add(tmp_path / "metadata.json", arcname="metadata.json")
-                        archive.add(tmp_path / "weights.eqx", arcname="weights.eqx")
+                _write_deterministic_archive(temporary_archive, tmp_path)
     else:
         with atomic_directory(path) as temporary:
             eqx.tree_serialise_leaves(temporary / "weights.eqx", model)
             metadata["weights_sha256"] = sha256_file(temporary / "weights.eqx")
-            with (temporary / "metadata.json").open("w") as handle:
-                json.dump(metadata, handle, sort_keys=True)
+            _write_metadata(temporary / "metadata.json", metadata)
 
     logger.debug(f"Metadata: {metadata}")
 
     logger.info("Model successfully saved.")
+    return path
 
 
 def download(
@@ -463,9 +555,204 @@ def _resolve_weights_dir(
     assert path is not None
     if path.suffixes == [".tar", ".lz4"]:
         logger.info("Decompressing...")
-        path = _decompress_archive(path)
+        path = _decompress_archive(path, allow_legacy_cache=False)
 
     return path
+
+
+def inspect_checkpoint(
+    path: Path,
+    *,
+    model: eqx.Module | None = None,
+    allow_legacy: bool = False,
+) -> CheckpointInfo:
+    """Inspect and validate a local checkpoint without deserializing its weights.
+
+    Compressed archives are safely extracted with exact member and size checks.
+    Versioned checkpoints validate their metadata schema and serialized weight
+    digest. When *model* is supplied, its class and array-leaf structure must
+    match. Schema-less v2-alpha checkpoints are rejected unless
+    *allow_legacy=True*; allowed legacy results expose a computed digest but are
+    always marked as unverified.
+
+    ``verified`` describes checkpoint-internal integrity. Supplying *model*
+    additionally makes successful return evidence that model compatibility was
+    checked.
+
+    Args:
+        path: Local uncompressed checkpoint directory or ``.tar.lz4`` archive.
+            No download is attempted.
+        model: Optional model whose class and array-leaf structure must match.
+        allow_legacy: Explicitly allow a schema-less v2-alpha checkpoint.
+
+    Returns:
+        Immutable checkpoint identity and verification information. ``path`` is
+        the exact path supplied by the caller, not an extraction-cache path.
+    """
+
+    source_path = Path(path)
+    if source_path.is_dir():
+        checkpoint_dir = source_path
+    elif source_path.suffixes == [".tar", ".lz4"]:
+        checkpoint_dir = _decompress_archive(
+            source_path,
+            allow_legacy_cache=False,
+        )
+    elif not source_path.exists():
+        raise FileNotFoundError(f"Checkpoint does not exist: {source_path!s}")
+    else:
+        raise ValueError(
+            f"Checkpoint {source_path!s} must be a directory or .tar.lz4 archive."
+        )
+
+    return _inspect_checkpoint_directory(
+        checkpoint_dir,
+        result_path=source_path,
+        model=model,
+        allow_legacy=allow_legacy,
+    )
+
+
+def _inspect_checkpoint_directory(
+    path: Path,
+    *,
+    result_path: Path,
+    model: eqx.Module | None,
+    allow_legacy: bool,
+) -> CheckpointInfo:
+    metadata_path = path / "metadata.json"
+    weights_path = path / "weights.eqx"
+    if not metadata_path.is_file() or not weights_path.is_file():
+        raise ValueError(
+            f"Checkpoint {path!s} must contain metadata.json and weights.eqx."
+        )
+    if metadata_path.stat().st_size > _MAX_METADATA_BYTES:
+        raise ValueError(
+            f"Checkpoint metadata exceeds the {_MAX_METADATA_BYTES}-byte size limit."
+        )
+    if weights_path.stat().st_size > _MAX_WEIGHTS_BYTES:
+        raise ValueError(
+            f"Checkpoint weights exceed the {_MAX_WEIGHTS_BYTES}-byte size limit."
+        )
+
+    with metadata_path.open("rb") as handle:
+        payload = read_limited(handle, _MAX_METADATA_BYTES, label="Checkpoint metadata")
+    try:
+        metadata = json.loads(payload)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ValueError(f"Checkpoint metadata is not valid JSON: {error}") from error
+    if not isinstance(metadata, dict):
+        raise ValueError("Checkpoint metadata must be a JSON object.")
+
+    if "format" not in metadata:
+        partial_fields = (_VERSIONED_METADATA_FIELDS - {"format"}) & metadata.keys()
+        if partial_fields:
+            raise ValueError(
+                "Checkpoint contains incomplete versioned metadata fields: "
+                + ", ".join(sorted(partial_fields))
+                + "."
+            )
+        if not allow_legacy:
+            raise ValueError(
+                "Checkpoint uses schema-less v2-alpha metadata; pass "
+                "allow_legacy=True to inspect it as unverified."
+            )
+        actual_checksum = sha256_file(weights_path)
+        equimo_version = metadata.get("equimo_version")
+        return CheckpointInfo(
+            path=result_path,
+            format=None,
+            format_version=None,
+            weights_sha256=actual_checksum,
+            model_class=None,
+            model_signature=None,
+            equimo_version=equimo_version if isinstance(equimo_version, str) else None,
+            verified=False,
+            legacy=True,
+        )
+
+    if metadata.get("format") != _CHECKPOINT_FORMAT:
+        raise ValueError(f"Unsupported checkpoint format {metadata.get('format')!r}.")
+    format_version = metadata.get("format_version")
+    if type(format_version) is not int or format_version != _CHECKPOINT_FORMAT_VERSION:
+        raise ValueError(
+            "Unsupported checkpoint format_version="
+            f"{format_version!r}; expected {_CHECKPOINT_FORMAT_VERSION}."
+        )
+
+    expected_checksum = metadata.get("weights_sha256")
+    if not isinstance(expected_checksum, str):
+        raise ValueError("Checkpoint metadata is missing weights_sha256.")
+    expected_checksum = validate_sha256(
+        expected_checksum,
+        label="Checkpoint weights_sha256",
+    )
+
+    expected_class = _metadata_string(metadata, "model_class")
+    expected_signature = _metadata_signature(metadata, "model_signature")
+    equimo_version = _metadata_string(metadata, "equimo_version")
+    _metadata_string(metadata, "jax_version")
+    _metadata_string(metadata, "equinox_version")
+    if not isinstance(metadata.get("model_config"), dict):
+        raise ValueError("Checkpoint metadata field 'model_config' must be an object.")
+    if not isinstance(metadata.get("torch_hub_cfg"), (dict, list)):
+        raise ValueError(
+            "Checkpoint metadata field 'torch_hub_cfg' must be an object or array."
+        )
+    if not isinstance(metadata.get("timm"), list):
+        raise ValueError("Checkpoint metadata field 'timm' must be an array.")
+
+    actual_checksum = sha256_file(weights_path)
+    if actual_checksum != expected_checksum:
+        raise ValueError(
+            "Checkpoint weights checksum mismatch: expected "
+            f"{expected_checksum}, got {actual_checksum}."
+        )
+
+    if model is not None:
+        actual_class = _model_class(model)
+        if expected_class != actual_class:
+            raise ValueError(
+                f"Checkpoint model class mismatch: expected {expected_class!r}, "
+                f"got {actual_class!r}."
+            )
+        actual_signature = _model_signature(model)
+        if expected_signature != actual_signature:
+            raise ValueError(
+                "Checkpoint model signature mismatch: expected "
+                f"{expected_signature!r}, got {actual_signature!r}."
+            )
+
+    return CheckpointInfo(
+        path=result_path,
+        format=_CHECKPOINT_FORMAT,
+        format_version=format_version,
+        weights_sha256=actual_checksum,
+        model_class=expected_class,
+        model_signature=expected_signature,
+        equimo_version=equimo_version,
+        verified=True,
+        legacy=False,
+    )
+
+
+def _metadata_string(metadata: dict, field: str) -> str:
+    value = metadata.get(field)
+    if not isinstance(value, str) or not value:
+        raise ValueError(
+            f"Checkpoint metadata field {field!r} must be a non-empty string."
+        )
+    return value
+
+
+def _metadata_signature(metadata: dict, field: str) -> str:
+    value = _metadata_string(metadata, field)
+    if not value.startswith("sha256:"):
+        raise ValueError(
+            f"Checkpoint metadata field {field!r} must use a sha256: prefix."
+        )
+    digest = validate_sha256(value.removeprefix("sha256:"), label=field)
+    return f"sha256:{digest}"
 
 
 def load_weights(
@@ -510,42 +797,12 @@ def load_weights(
             and identifier in PRETRAINED_ARCHIVE_SHA256
         )
     )
-    _validate_checkpoint(
-        load_path, model, alpha_archive_verified=alpha_archive_verified
+    checkpoint = inspect_checkpoint(
+        load_path,
+        model=model,
+        allow_legacy=True,
     )
-    model = eqx.tree_deserialise_leaves(load_path / "weights.eqx", model)
-    model = eqx.nn.inference_mode(model, inference_mode)
-
-    logger.info("Weights loaded successfully.")
-    return model
-
-
-def _validate_checkpoint(
-    path: Path,
-    model: eqx.Module,
-    *,
-    alpha_archive_verified: bool = False,
-) -> dict:
-    metadata_path = path / "metadata.json"
-    weights_path = path / "weights.eqx"
-    if not metadata_path.is_file() or not weights_path.is_file():
-        raise ValueError(
-            f"Checkpoint {path!s} must contain metadata.json and weights.eqx."
-        )
-    if metadata_path.stat().st_size > _MAX_METADATA_BYTES:
-        raise ValueError(
-            f"Checkpoint metadata exceeds the {_MAX_METADATA_BYTES}-byte size limit."
-        )
-    with metadata_path.open("rb") as handle:
-        payload = read_limited(handle, _MAX_METADATA_BYTES, label="Checkpoint metadata")
-    try:
-        metadata = json.loads(payload)
-    except (UnicodeDecodeError, json.JSONDecodeError) as error:
-        raise ValueError(f"Checkpoint metadata is not valid JSON: {error}") from error
-    if not isinstance(metadata, dict):
-        raise ValueError("Checkpoint metadata must be a JSON object.")
-
-    if "format" not in metadata:
+    if checkpoint.legacy:
         message = (
             "Loading a compatible v2-alpha checkpoint without versioned "
             "internal metadata."
@@ -558,43 +815,11 @@ def _validate_checkpoint(
                 RuntimeWarning,
                 stacklevel=2,
             )
-        return metadata
-    if metadata.get("format") != _CHECKPOINT_FORMAT:
-        raise ValueError(f"Unsupported checkpoint format {metadata.get('format')!r}.")
-    if metadata.get("format_version") != _CHECKPOINT_FORMAT_VERSION:
-        raise ValueError(
-            "Unsupported checkpoint format_version="
-            f"{metadata.get('format_version')!r}; expected "
-            f"{_CHECKPOINT_FORMAT_VERSION}."
-        )
+    model = eqx.tree_deserialise_leaves(load_path / "weights.eqx", model)
+    model = eqx.nn.inference_mode(model, inference_mode)
 
-    expected_checksum = metadata.get("weights_sha256")
-    if not isinstance(expected_checksum, str):
-        raise ValueError("Checkpoint metadata is missing weights_sha256.")
-    expected_checksum = validate_sha256(
-        expected_checksum, label="Checkpoint weights_sha256"
-    )
-    actual_checksum = sha256_file(weights_path)
-    if actual_checksum != expected_checksum:
-        raise ValueError(
-            "Checkpoint weights checksum mismatch: expected "
-            f"{expected_checksum}, got {actual_checksum}."
-        )
-
-    expected_class = metadata.get("model_class")
-    if expected_class != _model_class(model):
-        raise ValueError(
-            f"Checkpoint model class mismatch: expected {expected_class!r}, "
-            f"got {_model_class(model)!r}."
-        )
-    expected_signature = metadata.get("model_signature")
-    actual_signature = _model_signature(model)
-    if expected_signature != actual_signature:
-        raise ValueError(
-            "Checkpoint model signature mismatch: expected "
-            f"{expected_signature!r}, got {actual_signature!r}."
-        )
-    return metadata
+    logger.info("Weights loaded successfully.")
+    return model
 
 
 def _model_class(model: eqx.Module) -> str:

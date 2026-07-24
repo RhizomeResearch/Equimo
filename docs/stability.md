@@ -43,10 +43,21 @@ deserializing. Fine-tuning and calibration archives likewise validate their
 manifest and serialized-array digest. All archive readers enforce member and
 size limits.
 
+Compressed model saves are byte-identical for the same model, metadata, and
+Equimo/JAX/Equinox versions. The complete archive digest identifies packaging;
+the embedded weight digest identifies Equinox's serialized parameter stream.
+`inspect_checkpoint` validates local archives or directories without
+deserializing weights. Its `verified` flag covers versioned metadata and
+parameter-stream integrity; model compatibility is additionally checked when a
+model is supplied.
+
 Schema-less model and fine-tuning archives created during the 2.0 alpha series
 remain readable throughout the v2 release line. Their internal checksum cannot
-be reconstructed, so readers identify that compatibility path. Equimo v1
-archives and the removed v1 `load_model` API are outside this contract.
+be reconstructed, so readers identify that compatibility path. Public
+inspection rejects them by default and returns an explicitly unverified result
+only when `allow_legacy=True`; `load_weights` continues to read them with a
+warning. Equimo v1 archives and the removed v1 `load_model` API are outside this
+contract.
 
 Each Equimo release pins its built-in Hugging Face model repository to an
 immutable revision and embeds the Git LFS SHA-256 of every uploaded archive.

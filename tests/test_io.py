@@ -1,5 +1,6 @@
 """Tests for serialization and vision IO."""
 
+from dataclasses import FrozenInstanceError
 import importlib
 import hashlib
 import io
@@ -22,10 +23,12 @@ import pytest
 
 from equimo.registry import _MODEL_REGISTRY, get_model_cls, register_model
 from equimo.serialization import (
+    CheckpointInfo,
     DEFAULT_REPOSITORY_REVISION,
     DEFAULT_REPOSITORY_URL,
     _decompress_archive,
     _validate_identifier,
+    inspect_checkpoint,
     load_weights,
     save_model,
 )
@@ -62,10 +65,29 @@ def _read_lz4_tar(path):
 def _write_lz4_tar(path, members):
     with lz4.frame.open(path, "wb") as archive:
         with tarfile.open(fileobj=archive, mode="w") as tar:
-            for name, payload in members.items():
+            items = members.items() if hasattr(members, "items") else members
+            for name, payload in items:
                 info = tarfile.TarInfo(name)
                 info.size = len(payload)
                 tar.addfile(info, io.BytesIO(payload))
+
+
+def _read_lz4_tar_info(path):
+    with lz4.frame.open(path, "rb") as archive:
+        with tarfile.open(fileobj=archive, mode="r") as tar:
+            return [
+                (
+                    member.name,
+                    member.mtime,
+                    member.mode,
+                    member.uid,
+                    member.gid,
+                    member.uname,
+                    member.gname,
+                    dict(member.pax_headers),
+                )
+                for member in tar.getmembers()
+            ]
 
 
 # _validate_identifier
@@ -289,24 +311,87 @@ class TestSaveLoadRoundTrip:
     def _model_config(self):
         return {"in_features": 8, "out_features": 4}
 
+    def _make_legacy_directory(self, path):
+        save_model(path, self._make_model(), self._model_config(), compression=False)
+        metadata_path = path / "metadata.json"
+        metadata = json.loads(metadata_path.read_text())
+        for key in (
+            "format",
+            "format_version",
+            "weights_sha256",
+            "model_class",
+            "model_signature",
+        ):
+            metadata.pop(key)
+        metadata_path.write_text(json.dumps(metadata))
+        return path
+
     def test_save_creates_lz4_file(self, tmp_path):
         model = self._make_model()
         path = tmp_path / "model"
-        save_model(path, model, self._model_config())
+        result = save_model(path, model, self._model_config())
+
+        assert result == tmp_path / "model.tar.lz4"
         assert (tmp_path / "model.tar.lz4").exists()
 
     def test_save_with_explicit_suffix(self, tmp_path):
         model = self._make_model()
         path = tmp_path / "model.tar.lz4"
-        save_model(path, model, self._model_config())
+        result = save_model(path, model, self._model_config())
+
+        assert result == path
         assert path.exists()
 
     def test_save_no_compression(self, tmp_path):
         model = self._make_model()
         path = tmp_path / "model_dir"
-        save_model(path, model, self._model_config(), compression=False)
+        result = save_model(path, model, self._model_config(), compression=False)
+
+        assert result == path
         assert (path / "metadata.json").exists()
         assert (path / "weights.eqx").exists()
+
+    def test_repeated_compressed_saves_are_byte_identical(self, tmp_path):
+        model = self._make_model()
+        first = save_model(tmp_path / "first", model, self._model_config())
+        second = save_model(tmp_path / "second", model, self._model_config())
+
+        assert first.read_bytes() == second.read_bytes()
+
+    def test_changed_parameters_change_compressed_checkpoint(self, tmp_path):
+        first_model = self._make_model()
+        second_model = _TinyModel(8, 4, key=jr.PRNGKey(1))
+        first = save_model(tmp_path / "first", first_model, self._model_config())
+        second = save_model(tmp_path / "second", second_model, self._model_config())
+
+        assert first.read_bytes() != second.read_bytes()
+
+    def test_changed_metadata_changes_compressed_checkpoint(self, tmp_path):
+        model = self._make_model()
+        first = save_model(tmp_path / "first", model, self._model_config())
+        second = save_model(
+            tmp_path / "second",
+            model,
+            self._model_config() | {"provenance": "second"},
+        )
+
+        assert first.read_bytes() != second.read_bytes()
+
+    def test_compressed_checkpoint_has_canonical_wrapper_metadata(self, tmp_path):
+        archive = save_model(
+            tmp_path / "model",
+            self._make_model(),
+            self._model_config(),
+        )
+
+        assert _read_lz4_tar_info(archive) == [
+            ("metadata.json", 0, 0o644, 0, 0, "", "", {}),
+            ("weights.eqx", 0, 0o644, 0, 0, "", "", {}),
+        ]
+        frame = lz4.frame.get_frame_info(archive.read_bytes())
+        assert frame["content_checksum"] is True
+        assert frame["block_checksum"] is True
+        assert frame["content_size"] == 0
 
     def test_metadata_contains_versions(self, tmp_path):
         model = self._make_model()
@@ -419,6 +504,330 @@ class TestSaveLoadRoundTrip:
 
         with pytest.raises(ValueError, match="model signature mismatch"):
             load_weights(_TinyModel(7, 4, key=KEY), path=path)
+
+    @pytest.mark.parametrize("compression", (False, True))
+    def test_inspect_checkpoint_validates_directory_and_archive(
+        self,
+        tmp_path,
+        compression,
+    ):
+        target = tmp_path / ("model" if compression else "model_dir")
+        path = save_model(
+            target,
+            self._make_model(),
+            self._model_config(),
+            compression=compression,
+        )
+
+        info = inspect_checkpoint(path)
+
+        assert isinstance(info, CheckpointInfo)
+        assert info.path == path
+        assert info.format == "equimo.model.checkpoint"
+        assert info.format_version == 1
+        assert (
+            info.weights_sha256
+            == hashlib.sha256(
+                (
+                    _read_lz4_tar(path)["weights.eqx"]
+                    if compression
+                    else (path / "weights.eqx").read_bytes()
+                )
+            ).hexdigest()
+        )
+        assert info.model_class == f"{_TinyModel.__module__}.{_TinyModel.__qualname__}"
+        assert info.model_signature.startswith("sha256:")
+        assert isinstance(info.equimo_version, str)
+        assert info.verified is True
+        assert info.legacy is False
+        with pytest.raises(FrozenInstanceError):
+            info.verified = False
+
+    def test_inspect_checkpoint_optionally_validates_model(self, tmp_path):
+        path = save_model(
+            tmp_path / "model",
+            self._make_model(),
+            self._model_config(),
+        )
+
+        info = inspect_checkpoint(path, model=self._make_model())
+
+        assert info.verified is True
+        with pytest.raises(ValueError, match="model signature mismatch"):
+            inspect_checkpoint(path, model=_TinyModel(7, 4, key=KEY))
+
+    def test_inspect_checkpoint_rejects_corrupted_weights(self, tmp_path):
+        path = save_model(
+            tmp_path / "model_dir",
+            self._make_model(),
+            self._model_config(),
+            compression=False,
+        )
+        weights_path = path / "weights.eqx"
+        payload = bytearray(weights_path.read_bytes())
+        payload[-1] ^= 1
+        weights_path.write_bytes(payload)
+
+        with pytest.raises(ValueError, match="checksum mismatch"):
+            inspect_checkpoint(path)
+
+    def test_inspect_checkpoint_rejects_invalid_metadata(self, tmp_path):
+        path = save_model(
+            tmp_path / "model_dir",
+            self._make_model(),
+            self._model_config(),
+            compression=False,
+        )
+        (path / "metadata.json").write_text("{")
+
+        with pytest.raises(ValueError, match="not valid JSON"):
+            inspect_checkpoint(path)
+
+    def test_inspect_checkpoint_validates_modern_metadata_schema(self, tmp_path):
+        path = save_model(
+            tmp_path / "model_dir",
+            self._make_model(),
+            self._model_config(),
+            compression=False,
+        )
+        metadata_path = path / "metadata.json"
+        metadata = json.loads(metadata_path.read_text())
+        metadata.pop("model_class")
+        metadata_path.write_text(json.dumps(metadata))
+
+        with pytest.raises(ValueError, match="model_class"):
+            inspect_checkpoint(path)
+
+    def test_inspect_checkpoint_rejects_unsupported_version(self, tmp_path):
+        path = save_model(
+            tmp_path / "model_dir",
+            self._make_model(),
+            self._model_config(),
+            compression=False,
+        )
+        metadata_path = path / "metadata.json"
+        metadata = json.loads(metadata_path.read_text())
+        metadata["format_version"] = 999
+        metadata_path.write_text(json.dumps(metadata))
+
+        with pytest.raises(ValueError, match="Unsupported checkpoint format_version"):
+            inspect_checkpoint(path)
+
+    def test_inspect_checkpoint_enforces_directory_weight_size_limit(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        path = save_model(
+            tmp_path / "model_dir",
+            self._make_model(),
+            self._model_config(),
+            compression=False,
+        )
+        weights_size = (path / "weights.eqx").stat().st_size
+        monkeypatch.setattr(
+            "equimo.serialization._MAX_WEIGHTS_BYTES",
+            weights_size - 1,
+        )
+
+        with pytest.raises(ValueError, match="weights exceed"):
+            inspect_checkpoint(path)
+
+    def test_inspect_checkpoint_rejects_duplicate_archive_members(self, tmp_path):
+        path = save_model(
+            tmp_path / "model",
+            self._make_model(),
+            self._model_config(),
+        )
+        members = _read_lz4_tar(path)
+        _write_lz4_tar(
+            path,
+            [
+                ("metadata.json", members["metadata.json"]),
+                ("metadata.json", members["metadata.json"]),
+                ("weights.eqx", members["weights.eqx"]),
+            ],
+        )
+
+        with pytest.raises(ValueError, match="duplicate member"):
+            inspect_checkpoint(path)
+
+    def test_inspect_checkpoint_rejects_missing_archive_members(self, tmp_path):
+        path = save_model(
+            tmp_path / "model",
+            self._make_model(),
+            self._model_config(),
+        )
+        members = _read_lz4_tar(path)
+        _write_lz4_tar(path, {"metadata.json": members["metadata.json"]})
+
+        with pytest.raises(ValueError, match="missing required members"):
+            inspect_checkpoint(path)
+
+    def test_inspect_checkpoint_rejects_unexpected_archive_members(self, tmp_path):
+        path = save_model(
+            tmp_path / "model",
+            self._make_model(),
+            self._model_config(),
+        )
+        members = _read_lz4_tar(path)
+        members["unexpected.txt"] = b"unexpected"
+        _write_lz4_tar(path, members)
+
+        with pytest.raises(ValueError, match="unexpected member"):
+            inspect_checkpoint(path)
+
+    def test_inspect_checkpoint_fails_closed_for_legacy_checkpoint(self, tmp_path):
+        path = self._make_legacy_directory(tmp_path / "legacy")
+
+        with pytest.raises(ValueError, match="allow_legacy=True"):
+            inspect_checkpoint(path)
+
+        info = inspect_checkpoint(path, allow_legacy=True)
+        assert info.path == path
+        assert info.format is None
+        assert info.format_version is None
+        assert (
+            info.weights_sha256
+            == hashlib.sha256((path / "weights.eqx").read_bytes()).hexdigest()
+        )
+        assert info.model_class is None
+        assert info.model_signature is None
+        assert info.verified is False
+        assert info.legacy is True
+
+    def test_inspect_checkpoint_allows_legacy_archive_explicitly(self, tmp_path):
+        directory = self._make_legacy_directory(tmp_path / "legacy_dir")
+        archive = tmp_path / "legacy.tar.lz4"
+        _write_lz4_tar(
+            archive,
+            {
+                "metadata.json": (directory / "metadata.json").read_bytes(),
+                "weights.eqx": (directory / "weights.eqx").read_bytes(),
+            },
+        )
+
+        info = inspect_checkpoint(archive, allow_legacy=True)
+
+        assert info.path == archive
+        assert info.verified is False
+        assert info.legacy is True
+
+    def test_load_weights_keeps_legacy_archive_compatibility(self, tmp_path):
+        directory = self._make_legacy_directory(tmp_path / "legacy_dir")
+        archive = tmp_path / "legacy.tar.lz4"
+        _write_lz4_tar(
+            archive,
+            {
+                "metadata.json": (directory / "metadata.json").read_bytes(),
+                "weights.eqx": (directory / "weights.eqx").read_bytes(),
+            },
+        )
+
+        with pytest.warns(RuntimeWarning, match="v2-alpha checkpoint"):
+            loaded = load_weights(self._make_model(), path=archive)
+
+        x = jr.normal(KEY, (4, 8))
+        assert jnp.allclose(self._make_model()(x), loaded(x), atol=1e-5)
+
+    def test_inspect_checkpoint_rejects_partial_versioned_metadata(self, tmp_path):
+        path = self._make_legacy_directory(tmp_path / "legacy")
+        metadata_path = path / "metadata.json"
+        metadata = json.loads(metadata_path.read_text())
+        metadata["weights_sha256"] = hashlib.sha256(
+            (path / "weights.eqx").read_bytes()
+        ).hexdigest()
+        metadata_path.write_text(json.dumps(metadata))
+
+        with pytest.raises(ValueError, match="incomplete versioned metadata"):
+            inspect_checkpoint(path, allow_legacy=True)
+
+    def test_load_weights_rejects_corruption_before_deserialization(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        path = save_model(
+            tmp_path / "model_dir",
+            self._make_model(),
+            self._model_config(),
+            compression=False,
+        )
+        weights_path = path / "weights.eqx"
+        payload = bytearray(weights_path.read_bytes())
+        payload[-1] ^= 1
+        weights_path.write_bytes(payload)
+        deserialise = MagicMock()
+        monkeypatch.setattr(
+            "equimo.serialization.eqx.tree_deserialise_leaves",
+            deserialise,
+        )
+
+        with pytest.raises(ValueError, match="checksum mismatch"):
+            load_weights(self._make_model(), path=path)
+
+        deserialise.assert_not_called()
+
+    def test_load_weights_reuses_public_inspection(self, tmp_path, monkeypatch):
+        path = save_model(
+            tmp_path / "model_dir",
+            self._make_model(),
+            self._model_config(),
+            compression=False,
+        )
+        from equimo import serialization
+
+        inspect = MagicMock(wraps=serialization.inspect_checkpoint)
+        monkeypatch.setattr(serialization, "inspect_checkpoint", inspect)
+
+        load_weights(self._make_model(), path=path)
+
+        inspect.assert_called_once()
+        assert inspect.call_args.args == (path,)
+        assert inspect.call_args.kwargs["allow_legacy"] is True
+        assert isinstance(inspect.call_args.kwargs["model"], _TinyModel)
+
+    def test_inspection_revalidates_archive_content_when_stat_is_unchanged(
+        self,
+        tmp_path,
+    ):
+        path = save_model(
+            tmp_path / "model",
+            _TinyModel(128, 128, key=KEY),
+            {"in_features": 128, "out_features": 128},
+        )
+        inspect_checkpoint(path)
+        original_stat = path.stat()
+        payload = bytearray(path.read_bytes())
+        payload[len(payload) // 2] ^= 1
+        path.write_bytes(payload)
+        os.utime(
+            path,
+            ns=(original_stat.st_atime_ns, original_stat.st_mtime_ns),
+        )
+
+        assert path.stat().st_size == original_stat.st_size
+        assert path.stat().st_mtime_ns == original_stat.st_mtime_ns
+        with pytest.raises(ValueError, match="Invalid checkpoint archive"):
+            inspect_checkpoint(path)
+
+    def test_inspect_local_checkpoint_never_downloads(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        path = save_model(
+            tmp_path / "model_dir",
+            self._make_model(),
+            self._model_config(),
+            compression=False,
+        )
+        download = MagicMock(side_effect=AssertionError("unexpected download"))
+        monkeypatch.setattr("equimo.serialization.download", download)
+
+        inspect_checkpoint(path)
+
+        download.assert_not_called()
 
     def test_failed_compressed_save_preserves_existing_archive(
         self, tmp_path, monkeypatch
