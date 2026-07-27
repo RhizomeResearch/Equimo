@@ -80,9 +80,57 @@ and `pooling="native"`; padded language encoders should name their padding-mask
 argument; already-read-out tabular predictions should use layout `BC` with no
 pooling rather than treating rows as text tokens.
 
+Every built-in registered model family has a characterized explicit contract:
+
+| Registry family | Endpoint | Layout | Selection and pooling |
+| --- | --- | --- | --- |
+| `vit`, `vision_parcae` | `forward_features` | `BNC` | `cls` with no pool, or `patches` with `mean_patch` |
+| `ast` | `forward_features` | `BNC` | `frames` with `mean_frame`, or `all` with `native` |
+| `fastervit`, `partialformer`, `mlla`, `vssd` | `features` | `BNC` | `all` with `global_avg` |
+| `attnet`, `convnext`, `iformer`, `lowformer`, `mobilenetv3`, `reduceformer`, `shvit` | `features` | `BCHW` | `all` with `global_avg` |
+| `text_transformer_encoder` | `features` | `BTC` | `all` with `mean_token` and `mask_field="padding_mask"` |
+| `tabpfn` | `__call__` | `BC` | `all` with no pooling |
+| `deq` | `intermediate_features` | `BCHW` | `all` with `global_avg` and `layer_aggregation={"method": "last"}` |
+
+The DEQ contract passes `n_last_blocks=1` to extraction because its
+`features` endpoint intentionally returns both the feature map and solver
+diagnostics. TabPFN callers must keep `n_train` static when JIT-compiling, just
+as they must for a direct model call. Named sizes and pretrained variants share
+their registered family implementation; configurations that remove a class
+token, such as SigLIP-style ViTs, support patch selection but reject `cls`
+selection explicitly.
+
 Third-party integrations without a stable contract can omit `feature_spec` and
 continue to use the compatibility heuristics. Once they publish a spec, invalid
 declarations are not silently redirected to that fallback.
+
+For a base DINOv2 ViT-S model, the normalized class-token and normalized
+patch-mean contracts can be expressed without consumer-side dictionary
+traversal or pooling:
+
+```python
+final_cls = eqft.FeatureSpec(
+    endpoint="forward_features",
+    output_layout="BNC",
+    token_selection="cls",
+    pooling=None,
+    normalize="none",
+    preprocessing_fingerprint=preprocessing_id,
+)
+final_patch_mean = eqft.FeatureSpec(
+    endpoint="forward_features",
+    output_layout="BNC",
+    token_selection="patches",
+    pooling="mean_patch",
+    normalize="l2",
+    exclude_prompt_tokens=True,
+    preprocessing_fingerprint=preprocessing_id,
+)
+```
+
+`forward_features` publishes normalized patch tokens after removing the base
+class/register prefix. Prompt-tuned wrappers expose their own endpoint contract;
+the example above characterizes the unwrapped DINOv2 endpoint.
 
 ## Serialization
 

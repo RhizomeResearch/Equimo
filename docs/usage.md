@@ -110,14 +110,34 @@ Use `equimo.serialization` for model archives and pretrained weight loading:
 
 ```python
 from pathlib import Path
-from equimo.serialization import load_weights, save_model
+from equimo.serialization import inspect_checkpoint, load_weights, save_model
 
 model = load_weights(model, identifier="dinov2_vits14_reg")
-save_model(Path("checkpoint"), model, model_config={}, torch_hub_cfg=[])
+checkpoint_path = save_model(
+    Path("checkpoint"),
+    model,
+    model_config={},
+    torch_hub_cfg=[],
+)
+checkpoint = inspect_checkpoint(checkpoint_path, model=model)
+assert checkpoint.verified and not checkpoint.legacy
+print(checkpoint.weights_sha256)
 ```
 
 `load_weights` resolves Equimo-hosted identifiers, while `save_model` writes a
-local archive or directory depending on the compression option.
+local archive or directory depending on the compression option and returns the
+exact path written. Repeated compressed saves of the same model and metadata
+with the same Equimo/JAX/Equinox versions are byte-identical.
+
+`inspect_checkpoint` only accepts local paths and does not deserialize weights.
+For modern checkpoints, `verified=True` means the metadata schema and embedded
+parameter-stream digest were validated; supplying `model=` additionally checks
+its class and array-leaf structure. `weights_sha256` identifies the serialized
+Equinox parameter stream, while a digest of the complete `.tar.lz4` file
+identifies its packaging. Schema-less v2-alpha checkpoints require
+`allow_legacy=True` for inspection and are always returned with
+`legacy=True, verified=False`; `load_weights` retains their documented loading
+compatibility and emits a warning.
 
 ## Registries
 

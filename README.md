@@ -635,11 +635,13 @@ Equimo provides utilities for saving models locally and loading pre-trained mode
 ### Saving Models Locally
 
 ```python
+import hashlib
 from pathlib import Path
-from equimo.serialization import save_model
+
+from equimo.serialization import inspect_checkpoint, save_model
 
 # Save model with compression (creates .tar.lz4 file)
-save_model(
+checkpoint_path = save_model(
     Path("path/to/save/model"),
     model,
     model_config,
@@ -655,7 +657,21 @@ save_model(
     torch_hub_cfg,
     compression=False,
 )
+
+# Inspect integrity and model compatibility without deserializing weights.
+checkpoint = inspect_checkpoint(checkpoint_path, model=model)
+assert checkpoint.verified and not checkpoint.legacy
+print(checkpoint.weights_sha256)
+
+# The complete archive digest is a distinct packaging identity.
+archive_sha256 = hashlib.sha256(checkpoint_path.read_bytes()).hexdigest()
 ```
+
+`save_model` returns the exact path written, including an automatically appended
+`.tar.lz4` suffix. Given the same model, metadata, and Equimo/JAX/Equinox
+versions, compressed saves are byte-identical. The archive uses canonical
+metadata JSON, fixed PAX member metadata, and fixed streaming LZ4 frame options;
+the Equinox-owned parameter stream and its dtype are unchanged.
 
 ### Loading Weights
 
@@ -683,6 +699,17 @@ remain loadable without being regenerated. Equimo v1 archives and the removed
 metadata-driven `load_model` API are not part of the v2 compatibility contract.
 Built-in downloads are also checked against the SHA-256 digest recorded at the
 pinned Hugging Face repository revision.
+
+`inspect_checkpoint` accepts a local archive or uncompressed directory and
+never downloads. Its `weights_sha256` is the digest of Equinox's serialized
+parameter stream, not the digest of the complete `.tar.lz4` file.
+`CheckpointInfo.verified` means the versioned metadata and parameter digest were
+validated; passing `model=` additionally validates its class and array-leaf
+structure. Schema-less v2-alpha checkpoints fail inspection by default. An
+explicit `allow_legacy=True` returns `legacy=True, verified=False` with a
+computed—but not metadata-verified—parameter digest. `load_weights` continues
+to accept those v2-alpha checkpoints with a warning as required by the v2
+compatibility policy.
 
 Constructor parameters are controlled when building the target model:
 
