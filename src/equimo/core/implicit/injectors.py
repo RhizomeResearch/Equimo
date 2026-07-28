@@ -57,7 +57,7 @@ _untyped_get_injector = make_get(
 def get_injector(module: str | type[AbstractInjector]) -> type[AbstractInjector]:
     """Resolve a injector class from its registry name (or pass through a class)."""
 
-    return _untyped_get_injector(module)  # type: ignore[return-value]
+    return _untyped_get_injector(module)
 
 
 def _logit(p: float, eps: float = 1e-4) -> float:

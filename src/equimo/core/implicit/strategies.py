@@ -54,7 +54,7 @@ def get_strategy(
 ) -> type[AbstractStackStrategy]:
     """Resolve a strategy class from its registry name (or pass through a class)."""
 
-    return _untyped_get_strategy(module)  # type: ignore[return-value]
+    return _untyped_get_strategy(module)
 
 
 @register_strategy(name="entry")

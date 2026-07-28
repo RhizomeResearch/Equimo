@@ -7,9 +7,9 @@ type LayerRegistry = Mapping[str, type[eqx.Module]]
 type NamedLayerRegistry = tuple[str, LayerRegistry]
 
 
-def make_register(
-    registry: dict[str, type[eqx.Module]],
-) -> Callable[..., Callable[[type[eqx.Module]], type[eqx.Module]]]:
+def make_register[M: eqx.Module](
+    registry: dict[str, type[M]],
+) -> Callable[..., Callable[[type[M]], type[M]]]:
     """Create a ``register(name=None, force=False)`` decorator bound to ``registry``.
 
     Why collision checking: prevents third-party extensions from silently
@@ -20,8 +20,8 @@ def make_register(
     def register(
         name: Optional[str] = None,
         force: bool = False,
-    ) -> Callable[[type[eqx.Module]], type[eqx.Module]]:
-        def decorator(cls: type[eqx.Module]) -> type[eqx.Module]:
+    ) -> Callable[[type[M]], type[M]]:
+        def decorator(cls: type[M]) -> type[M]:
             if not issubclass(cls, eqx.Module):
                 raise TypeError(
                     f"Registered class must be a subclass of eqx.Module, "
@@ -44,19 +44,19 @@ def make_register(
     return register
 
 
-def make_get(
-    registry: dict[str, type[eqx.Module]],
+def make_get[M: eqx.Module](
+    registry: dict[str, type[M]],
     *,
     kind: str = "module",
     plural: str = "modules",
-) -> Callable[[str | type[eqx.Module]], type[eqx.Module]]:
+) -> Callable[[str | type[M]], type[M]]:
     """Create a name-to-class resolver bound to ``registry``.
 
     String keys are necessary because configs are stringified and stored as
     JSON files to allow (de)serialization.
     """
 
-    def get(module: str | type[eqx.Module]) -> type[eqx.Module]:
+    def get(module: str | type[M]) -> type[M]:
         if not isinstance(module, str):
             return module
 

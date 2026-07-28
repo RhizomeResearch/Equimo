@@ -56,7 +56,7 @@ _untyped_get_stabilizer = make_get(
 def get_stabilizer(module: str | type[AbstractStabilizer]) -> type[AbstractStabilizer]:
     """Resolve a stabilizer class from its registry name (or pass through a class)."""
 
-    return _untyped_get_stabilizer(module)  # type: ignore[return-value]
+    return _untyped_get_stabilizer(module)
 
 
 @register_stabilizer(name="identity")
