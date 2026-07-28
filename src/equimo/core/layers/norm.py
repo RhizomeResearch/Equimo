@@ -127,7 +127,7 @@ def maybe_layer_scale(
     *,
     init_values: float | None,
     axis: int = 0,
-) -> LayerScale | eqx.nn.Identity:
+) -> eqx.Module:
     """Return a ``LayerScale`` when ``init_values`` is set, else ``Identity``."""
     if init_values is None:
         return eqx.nn.Identity()
