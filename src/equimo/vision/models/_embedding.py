@@ -23,7 +23,7 @@ from equimo.vision.layers.posemb import (
 class TokenEmbeddings(NamedTuple):
     """Components and counts for a ViT-style token embedding stack."""
 
-    patch_embed: PatchEmbedding
+    patch_embed: "PatchEmbedding"
     num_patches: int
     cls_token: jax.Array | None
     reg_tokens: jax.Array | None
@@ -31,7 +31,7 @@ class TokenEmbeddings(NamedTuple):
     num_prefix_tokens: int
     num_embedded_prefix_tokens: int
     embed_len: int
-    global_pos_embed: LearnedPosEmbed | None
+    global_pos_embed: "LearnedPosEmbed | None"
 
 
 def build_token_embeddings(
@@ -69,7 +69,7 @@ def build_token_embeddings(
         dynamic_img_pad=dynamic_img_pad,
         key=key_patchemb,
     )
-    num_patches = patch_embed.num_patches
+    num_patches = patch_embed.num_patches  # ty: ignore[unresolved-attribute]
     cls_token = jr.normal(key_cls, (1, dim)) if class_token else None
     reg_tokens_array = jr.normal(key_reg, (reg_tokens, dim)) if reg_tokens > 0 else None
     mask_token = jnp.zeros((1, dim)) if use_mask_token else None
@@ -99,7 +99,7 @@ def build_token_embeddings(
         global_pos_embed = None
 
     return TokenEmbeddings(
-        patch_embed=patch_embed,
+        patch_embed=patch_embed,  # ty: ignore[invalid-argument-type]
         num_patches=num_patches,
         cls_token=cls_token,
         reg_tokens=reg_tokens_array,
@@ -107,7 +107,7 @@ def build_token_embeddings(
         num_prefix_tokens=num_prefix_tokens,
         num_embedded_prefix_tokens=num_embedded_prefix_tokens,
         embed_len=embed_len,
-        global_pos_embed=global_pos_embed,
+        global_pos_embed=global_pos_embed,  # ty: ignore[invalid-argument-type]
     )
 
 
@@ -123,7 +123,7 @@ def build_local_rope(
     config_patch: dict,
     config_reg: dict,
     static_heads_error: str,
-) -> CompositeVisionRoPE | None:
+) -> "CompositeVisionRoPE | None":
     """Build the composite patch/register RoPE, or ``None`` when disabled."""
 
     if not use_local_pos_embed:
@@ -146,7 +146,7 @@ def build_local_rope(
         if n_reg > 0
         else None
     )
-    return CompositeVisionRoPE(
+    return CompositeVisionRoPE(  # ty: ignore[invalid-return-type]
         patch_rope,
         reg_rope=reg_rope,
         num_prefix_tokens=n_prefix,

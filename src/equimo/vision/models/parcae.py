@@ -1,6 +1,5 @@
 # ty: ignore[call-non-callable]
 # ty: ignore[invalid-assignment]
-# ty: ignore[invalid-return-type]
 # ty: ignore[too-many-positional-arguments]
 # ty: ignore[unknown-argument]
 # ty: ignore[unresolved-attribute]
