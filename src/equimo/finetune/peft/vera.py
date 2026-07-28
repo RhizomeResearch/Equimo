@@ -8,14 +8,13 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import jax.random as jr
-import jax.tree_util as jtu
 
 from .._typing import Path, PyTree
 from ..config import TargetSpec
-from ..paths import key_path_to_path, path_to_str
-from ..selectors import resolve_target
+from ..paths import path_to_str
 from ..tags import Tagger, canonical_tags_for_path
-from .base import get_path
+from .base import get_path, iter_wrappers
+from . import _common
 
 
 @dataclass(frozen=True)
@@ -147,7 +146,7 @@ def apply_vera(
     """Apply VeRA wrappers to selected linear modules."""
 
     config = VeRAConfig() if config is None else config
-    module_paths = _target_linear_paths(model, config.target, tagger=tagger)
+    module_paths = _common.target_linear_paths(model, config.target, tagger=tagger)
     keys = jr.split(key, len(module_paths))
     shared_bases: dict[
         tuple[int, int, int, str, str, str],
@@ -217,14 +216,7 @@ def merge_vera(model: PyTree) -> PyTree:
 def iter_vera_modules(model: PyTree) -> tuple[tuple[Path, VeRALinear], ...]:
     """Return path/module pairs for VeRA wrappers in ``model``."""
 
-    return tuple(
-        (key_path_to_path(key_path), leaf)
-        for key_path, leaf in jtu.tree_leaves_with_path(
-            model,
-            is_leaf=lambda x: isinstance(x, VeRALinear),
-        )
-        if isinstance(leaf, VeRALinear)
-    )
+    return iter_wrappers(model, VeRALinear)
 
 
 def strip_vera(model: PyTree) -> PyTree:
@@ -236,17 +228,6 @@ def strip_vera(model: PyTree) -> PyTree:
             lambda tree, p=path: get_path(tree, p), stripped, module.base
         )
     return stripped
-
-
-def _target_linear_paths(
-    model: PyTree, target: TargetSpec, *, tagger: Tagger
-) -> tuple[Path, ...]:
-    paths = {
-        info.path[:-1]
-        for info in resolve_target(model, target, tagger=tagger)
-        if info.path[-1:] in (("weight",), ("bias",))
-    }
-    return tuple(sorted(paths, key=path_to_str))
 
 
 def _shared_vera_bases(

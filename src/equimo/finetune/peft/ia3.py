@@ -8,14 +8,14 @@ from typing import Literal
 import equinox as eqx
 import jax
 import jax.numpy as jnp
-import jax.tree_util as jtu
 
 from .._typing import Path, PyTree
 from ..config import ProjectionSegment, TargetSpec
-from ..paths import key_path_to_path, path_to_str
+from ..paths import path_to_str
 from ..selectors import resolve_target
 from ..tags import Tagger, canonical_tags_for_path
-from .base import get_path
+from .base import get_path, iter_wrappers
+from . import _common
 
 
 @dataclass(frozen=True)
@@ -173,14 +173,7 @@ def merge_ia3(model: PyTree) -> PyTree:
 def iter_ia3_modules(model: PyTree) -> tuple[tuple[Path, IA3Linear], ...]:
     """Return path/module pairs for IA3 wrappers in ``model``."""
 
-    return tuple(
-        (key_path_to_path(key_path), leaf)
-        for key_path, leaf in jtu.tree_leaves_with_path(
-            model,
-            is_leaf=lambda x: isinstance(x, IA3Linear),
-        )
-        if isinstance(leaf, IA3Linear)
-    )
+    return iter_wrappers(model, IA3Linear)
 
 
 def _target_linear_specs(
@@ -193,14 +186,14 @@ def _target_linear_specs(
     resolved = resolve_target(
         model,
         target,
-        allow_empty=_target_mentions_qkv_segment(target),
+        allow_empty=_common.target_mentions_qkv_segment(target),
         tagger=tagger,
     )
     for info in resolved:
         if info.path[-1:] in (("weight",), ("bias",)):
             specs[info.path[:-1]] = ()
 
-    if _target_mentions_qkv_segment(target):
+    if _common.target_mentions_qkv_segment(target):
         fused = resolve_target(
             model,
             TargetSpec(
@@ -231,20 +224,11 @@ def _target_linear_specs(
     return tuple(sorted(specs.items(), key=lambda item: path_to_str(item[0])))
 
 
-def _target_mentions_qkv_segment(target: TargetSpec) -> bool:
-    tags = set(target.tags_all) | set(target.tags_any)
-    suffixes = (".q", ".k", ".v")
-    return any(
-        tag in {"attention.q", "attention.k", "attention.v"} or tag.endswith(suffixes)
-        for tag in tags
-    )
-
-
 def _projection_segments_for_target(
     module: eqx.nn.Linear,
     target: TargetSpec,
 ) -> tuple[ProjectionSegment, ...]:
-    selected = _selected_qkv_segment_names(target)
+    selected = _common.selected_qkv_segment_names(target)
     if not selected:
         return ()
     weight = module.weight
@@ -264,15 +248,6 @@ def _projection_segments_for_target(
         for name in ("q", "k", "v")
         if name in selected
     )
-
-
-def _selected_qkv_segment_names(target: TargetSpec) -> frozenset[str]:
-    names: set[str] = set()
-    for tag in (*target.tags_all, *target.tags_any):
-        last = tag.rsplit(".", maxsplit=1)[-1]
-        if last in {"q", "k", "v"}:
-            names.add(last)
-    return frozenset(names)
 
 
 def _merge_segments(

@@ -9,15 +9,14 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import jax.random as jr
-import jax.tree_util as jtu
 
 from .._typing import Path, PyTree
 from ..config import TargetSpec
-from ..paths import key_path_to_path, path_to_str
-from ..selectors import resolve_target
+from ..paths import path_to_str
 from ..tags import Tagger, canonical_tags_for_path
-from .base import get_path
+from .base import get_path, iter_wrappers
 from .lora import ScalingMode
+from . import _common
 
 
 @dataclass(frozen=True)
@@ -165,7 +164,7 @@ class DoRALinear(eqx.Module):
 
     def _dropout_weight_projection(self, x: jax.Array, key: jax.Array) -> jax.Array:
         direction_norm = self._direction_norm()
-        x_drop = _dropout(x, self.dropout, key)
+        x_drop = _common.dropout(x, self.dropout, key)
         projected = (
             self.base.weight @ x + (self.lora_B @ (self.lora_A @ x_drop)) * self.scaling
         )
@@ -186,7 +185,7 @@ def apply_dora(
     """Apply DoRA wrappers to selected linears."""
 
     config = DoRAConfig() if config is None else config
-    module_paths = _target_linear_paths(model, config.target, tagger=tagger)
+    module_paths = _common.target_linear_paths(model, config.target, tagger=tagger)
     keys = jr.split(key, len(module_paths))
     updated = model
     for module_path, subkey in zip(module_paths, keys, strict=True):
@@ -247,25 +246,7 @@ def merge_dora(model: PyTree) -> PyTree:
 def iter_dora_modules(model: PyTree) -> tuple[tuple[Path, DoRALinear], ...]:
     """Return path/module pairs for DoRA wrappers in ``model``."""
 
-    return tuple(
-        (key_path_to_path(key_path), leaf)
-        for key_path, leaf in jtu.tree_leaves_with_path(
-            model,
-            is_leaf=lambda x: isinstance(x, DoRALinear),
-        )
-        if isinstance(leaf, DoRALinear)
-    )
-
-
-def _target_linear_paths(
-    model: PyTree, target: TargetSpec, *, tagger: Tagger
-) -> tuple[Path, ...]:
-    paths = {
-        info.path[:-1]
-        for info in resolve_target(model, target, tagger=tagger)
-        if info.path[-1:] in (("weight",), ("bias",))
-    }
-    return tuple(sorted(paths, key=path_to_str))
+    return iter_wrappers(model, DoRALinear)
 
 
 def _init_lora(
@@ -297,12 +278,6 @@ def _init_magnitude(base: eqx.nn.Linear, magnitude_init: str) -> jax.Array:
         "Unsupported DoRA magnitude_init "
         f"{magnitude_init!r}; expected 'base_weight_norm'."
     )
-
-
-def _dropout(x: jax.Array, rate: float, key: jax.Array) -> jax.Array:
-    keep_prob = 1.0 - rate
-    mask = jr.bernoulli(key, keep_prob, shape=x.shape)
-    return jnp.where(mask, x / keep_prob, 0)
 
 
 __all__ = (

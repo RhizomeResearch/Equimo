@@ -61,7 +61,7 @@ from .peft._compat import (
     linear_from_state as _linear_from_state,
     linear_state as _linear_state,
 )
-from .peft.base import get_path
+from .peft.base import get_path, iter_wrappers as _iter_wrappers
 from .peft.dora import DoRAConfig, DoRALinear, DoRAMergedLinear
 from .peft.ia3 import IA3Config, IA3Linear
 from .peft.lora import (
@@ -1088,17 +1088,6 @@ def _ia3_dim(
     if not projection_segments:
         return int(base.out_features)
     return sum(segment.stop - segment.start for segment in projection_segments)
-
-
-def _iter_wrappers(model: PyTree, wrapper_type: type):
-    return tuple(
-        (key_path_to_path(key_path), leaf)
-        for key_path, leaf in jtu.tree_leaves_with_path(
-            model,
-            is_leaf=lambda x: isinstance(x, wrapper_type),
-        )
-        if isinstance(leaf, wrapper_type)
-    )
 
 
 def _enrich_bundle(

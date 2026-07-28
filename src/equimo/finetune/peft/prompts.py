@@ -11,6 +11,7 @@ import jax.numpy as jnp
 import jax.random as jr
 
 from .._typing import PyTree
+from . import _common
 
 
 @dataclass(frozen=True)
@@ -407,7 +408,7 @@ def _prompt_for_layer(
     if config.prompt_dropout > 0.0 and not inference:
         if prompt_key is None:
             raise ValueError("A PRNG key is required when prompt dropout is active.")
-        prompt = _dropout(prompt, config.prompt_dropout, prompt_key)
+        prompt = _common.dropout(prompt, config.prompt_dropout, prompt_key)
     return prompt
 
 
@@ -524,12 +525,6 @@ def _call_with_optional_key(fn, *args, key, inference, **kwargs):
                 raise
             call_kwargs.pop("key", None)
             return fn(*args, **call_kwargs)
-
-
-def _dropout(x: jax.Array, rate: float, key: jax.Array) -> jax.Array:
-    keep_prob = 1.0 - rate
-    mask = jr.bernoulli(key, keep_prob, shape=x.shape)
-    return jnp.where(mask, x / keep_prob, 0)
 
 
 def _prepends_before_all(config: PromptConfig) -> bool:
