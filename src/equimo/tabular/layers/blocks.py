@@ -43,7 +43,6 @@ def register_attn_block(
             cls,
             registry_name,
             force,
-            "tabular attention block",
             add_to_layer_registry=True,
         )
 

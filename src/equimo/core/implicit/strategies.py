@@ -27,51 +27,34 @@ import jax.random as jr
 from jaxtyping import PRNGKeyArray
 
 from ._base import AbstractInjector, AbstractStackStrategy, InputContext
+from equimo.core.layers._registry import make_get, make_register
 
 _STRATEGY_REGISTRY: dict[str, type[AbstractStackStrategy]] = {}
+
+
+_typed_register_strategy = make_register(_STRATEGY_REGISTRY)
 
 
 def register_strategy(
     name: Optional[str] = None,
     force: bool = False,
 ) -> Callable[[type[AbstractStackStrategy]], type[AbstractStackStrategy]]:
-    """Decorator to register a new stack strategy under ``name``."""
+    """Decorator to register a new strategy class under ``name``."""
 
-    def decorator(cls: type[AbstractStackStrategy]) -> type[AbstractStackStrategy]:
-        if not issubclass(cls, eqx.Module):
-            raise TypeError(
-                f"Registered class must be a subclass of eqx.Module, got {type(cls)}"
-            )
+    return _typed_register_strategy(name=name, force=force)
 
-        registry_name = name.lower() if name else cls.__name__.lower()
 
-        if registry_name in _STRATEGY_REGISTRY and not force:
-            raise ValueError(
-                f"Cannot register '{registry_name}'. It is already registered "
-                f"to {_STRATEGY_REGISTRY[registry_name]}."
-            )
-
-        _STRATEGY_REGISTRY[registry_name] = cls
-        return cls
-
-    return decorator
+_untyped_get_strategy = make_get(
+    _STRATEGY_REGISTRY, kind="strategy", plural="strategies"
+)
 
 
 def get_strategy(
     module: str | type[AbstractStackStrategy],
 ) -> type[AbstractStackStrategy]:
-    """Resolve a strategy class from its registry name (or pass through)."""
-    if not isinstance(module, str):
-        return module
+    """Resolve a strategy class from its registry name (or pass through a class)."""
 
-    module_lower = module.lower()
-    if module_lower not in _STRATEGY_REGISTRY:
-        raise ValueError(
-            f"Got an unknown strategy string: '{module}'. "
-            f"Available strategies: {list(_STRATEGY_REGISTRY.keys())}"
-        )
-
-    return _STRATEGY_REGISTRY[module_lower]
+    return _untyped_get_strategy(module)  # type: ignore[return-value]
 
 
 @register_strategy(name="entry")

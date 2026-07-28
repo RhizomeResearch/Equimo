@@ -37,101 +37,22 @@ from equimo.vision.layers.posemb import (
     RoPE,
 )
 from equimo.utils import nearest_power_of_2_divisor
+from equimo.core.layers._registry import make_get, make_register
 
 _ATTN_REGISTRY: dict[str, type[eqx.Module]] = {}
 _ATTN_BLOCK_REGISTRY: dict[str, type[eqx.Module]] = {}
 
 
-def register_attn(
-    name: Optional[str] = None,
-    force: bool = False,
-) -> Callable[[type[eqx.Module]], type[eqx.Module]]:
-    """Decorator to dynamically register new attention modules.
-
-    Args:
-        name: Registry key. Defaults to the lowercase class name.
-        force: If True, allow overwriting an existing entry. Default False.
-    """
-
-    def decorator(cls: type[eqx.Module]) -> type[eqx.Module]:
-        if not issubclass(cls, eqx.Module):
-            raise TypeError(
-                f"Registered class must be a subclass of eqx.Module, got {type(cls)}"
-            )
-
-        registry_name = name.lower() if name else cls.__name__.lower()
-
-        if registry_name in _ATTN_REGISTRY and not force:
-            raise ValueError(
-                f"Cannot register '{registry_name}'. It is already registered "
-                f"to {_ATTN_REGISTRY[registry_name]}."
-            )
-
-        _ATTN_REGISTRY[registry_name] = cls
-        return cls
-
-    return decorator
+register_attn = make_register(_ATTN_REGISTRY)
 
 
-def get_attn(module: str | type[eqx.Module]) -> type[eqx.Module]:
-    """Get an `eqx.Module` class from its common name."""
-    if not isinstance(module, str):
-        return module
-
-    module_lower = module.lower()
-    if module_lower not in _ATTN_REGISTRY:
-        raise ValueError(
-            f"Got an unknown module string: '{module}'. "
-            f"Available modules: {list(_ATTN_REGISTRY.keys())}"
-        )
-
-    return _ATTN_REGISTRY[module_lower]
+get_attn = make_get(_ATTN_REGISTRY)
 
 
-def register_attn_block(
-    name: Optional[str] = None,
-    force: bool = False,
-) -> Callable[[type[eqx.Module]], type[eqx.Module]]:
-    """Decorator to dynamically register new attention blocks.
-
-    Args:
-        name: Registry key. Defaults to the lowercase class name.
-        force: If True, allow overwriting an existing entry. Default False.
-    """
-
-    def decorator(cls: type[eqx.Module]) -> type[eqx.Module]:
-        if not issubclass(cls, eqx.Module):
-            raise TypeError(
-                f"Registered class must be a subclass of eqx.Module, got {type(cls)}"
-            )
-
-        registry_name = name.lower() if name else cls.__name__.lower()
-
-        if registry_name in _ATTN_BLOCK_REGISTRY and not force:
-            raise ValueError(
-                f"Cannot register '{registry_name}'. It is already registered "
-                f"to {_ATTN_BLOCK_REGISTRY[registry_name]}."
-            )
-
-        _ATTN_BLOCK_REGISTRY[registry_name] = cls
-        return cls
-
-    return decorator
+register_attn_block = make_register(_ATTN_BLOCK_REGISTRY)
 
 
-def get_attn_block(module: str | type[eqx.Module]) -> type[eqx.Module]:
-    """Get an `eqx.Module` class from its common name."""
-    if not isinstance(module, str):
-        return module
-
-    module_lower = module.lower()
-    if module_lower not in _ATTN_BLOCK_REGISTRY:
-        raise ValueError(
-            f"Got an unknown module string: '{module}'. "
-            f"Available modules: {list(_ATTN_BLOCK_REGISTRY.keys())}"
-        )
-
-    return _ATTN_BLOCK_REGISTRY[module_lower]
+get_attn_block = make_get(_ATTN_BLOCK_REGISTRY)
 
 
 register_attn()(Attention)

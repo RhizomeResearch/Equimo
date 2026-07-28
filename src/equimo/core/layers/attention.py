@@ -15,87 +15,22 @@ from equimo.core.layers.activation import get_act
 from equimo.core.layers.dropout import DropPathAdd
 from equimo.core.layers.ffn import get_ffn
 from equimo.core.layers.norm import LayerScale, get_norm
+from equimo.core.layers._registry import make_get, make_register
 
 _ATTN_REGISTRY: dict[str, type[eqx.Module]] = {}
 _ATTN_BLOCK_REGISTRY: dict[str, type[eqx.Module]] = {}
 
 
-def register_attn(
-    name: Optional[str] = None,
-    force: bool = False,
-) -> Callable[[type[eqx.Module]], type[eqx.Module]]:
-    """Register a modality-neutral attention module."""
-
-    def decorator(cls: type[eqx.Module]) -> type[eqx.Module]:
-        if not issubclass(cls, eqx.Module):
-            raise TypeError(
-                f"Registered class must be a subclass of eqx.Module, got {type(cls)}"
-            )
-
-        registry_name = name.lower() if name else cls.__name__.lower()
-        if registry_name in _ATTN_REGISTRY and not force:
-            raise ValueError(
-                f"Cannot register '{registry_name}'. It is already registered "
-                f"to {_ATTN_REGISTRY[registry_name]}."
-            )
-
-        _ATTN_REGISTRY[registry_name] = cls
-        return cls
-
-    return decorator
+register_attn = make_register(_ATTN_REGISTRY)
 
 
-def get_attn(module: str | type[eqx.Module]) -> type[eqx.Module]:
-    """Resolve a modality-neutral attention class."""
-    if not isinstance(module, str):
-        return module
-
-    module_lower = module.lower()
-    if module_lower not in _ATTN_REGISTRY:
-        raise ValueError(
-            f"Got an unknown module string: '{module}'. "
-            f"Available modules: {list(_ATTN_REGISTRY.keys())}"
-        )
-    return _ATTN_REGISTRY[module_lower]
+get_attn = make_get(_ATTN_REGISTRY)
 
 
-def register_attn_block(
-    name: Optional[str] = None,
-    force: bool = False,
-) -> Callable[[type[eqx.Module]], type[eqx.Module]]:
-    """Register a modality-neutral transformer block."""
-
-    def decorator(cls: type[eqx.Module]) -> type[eqx.Module]:
-        if not issubclass(cls, eqx.Module):
-            raise TypeError(
-                f"Registered class must be a subclass of eqx.Module, got {type(cls)}"
-            )
-
-        registry_name = name.lower() if name else cls.__name__.lower()
-        if registry_name in _ATTN_BLOCK_REGISTRY and not force:
-            raise ValueError(
-                f"Cannot register '{registry_name}'. It is already registered "
-                f"to {_ATTN_BLOCK_REGISTRY[registry_name]}."
-            )
-
-        _ATTN_BLOCK_REGISTRY[registry_name] = cls
-        return cls
-
-    return decorator
+register_attn_block = make_register(_ATTN_BLOCK_REGISTRY)
 
 
-def get_attn_block(module: str | type[eqx.Module]) -> type[eqx.Module]:
-    """Resolve a modality-neutral transformer block class."""
-    if not isinstance(module, str):
-        return module
-
-    module_lower = module.lower()
-    if module_lower not in _ATTN_BLOCK_REGISTRY:
-        raise ValueError(
-            f"Got an unknown module string: '{module}'. "
-            f"Available modules: {list(_ATTN_BLOCK_REGISTRY.keys())}"
-        )
-    return _ATTN_BLOCK_REGISTRY[module_lower]
+get_attn_block = make_get(_ATTN_BLOCK_REGISTRY)
 
 
 def rope_rotate_half(x: jax.Array) -> jax.Array:

@@ -29,7 +29,6 @@ def register_decoder(
             cls,
             registry_name,
             force,
-            "tabular decoder",
             add_to_layer_registry=True,
         )
 
@@ -54,7 +53,6 @@ def register_embedding(
             cls,
             registry_name,
             force,
-            "tabular embedding",
             add_to_layer_registry=True,
         )
 

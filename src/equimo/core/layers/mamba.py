@@ -1,7 +1,7 @@
 # ty: ignore[invalid-assignment]
 # ty: ignore[too-many-positional-arguments]
 import math
-from typing import Callable, List, Optional, Tuple
+from typing import List, Tuple
 
 import equinox as eqx
 import jax
@@ -12,61 +12,15 @@ from jaxtyping import Array, Float, PRNGKeyArray
 
 from equimo.core.layers.norm import RMSNormGated, get_norm
 from equimo.core.ops.scan import non_causal_linear_attn
+from equimo.core.layers._registry import make_get, make_register
 
 _MIXER_REGISTRY: dict[str, type[eqx.Module]] = {}
 
 
-def register_mixer(
-    name: Optional[str] = None,
-    force: bool = False,
-) -> Callable[[type[eqx.Module]], type[eqx.Module]]:
-    """Decorator to dynamically register new mixer modules.
-
-    Why collision checking: Prevents third-party extensions from silently
-    overwriting core layers, which can silently corrupt the computational graph.
-
-    Args:
-        name: Registry key. Defaults to the lowercase class name.
-        force: If True, allow overwriting an existing entry. Default False.
-    """
-
-    def decorator(cls: type[eqx.Module]) -> type[eqx.Module]:
-        if not issubclass(cls, eqx.Module):
-            raise TypeError(
-                f"Registered class must be a subclass of eqx.Module, got {type(cls)}"
-            )
-
-        registry_name = name.lower() if name else cls.__name__.lower()
-
-        if registry_name in _MIXER_REGISTRY and not force:
-            raise ValueError(
-                f"Cannot register '{registry_name}'. It is already registered "
-                f"to {_MIXER_REGISTRY[registry_name]}."
-            )
-
-        _MIXER_REGISTRY[registry_name] = cls
-        return cls
-
-    return decorator
+register_mixer = make_register(_MIXER_REGISTRY)
 
 
-def get_mixer(module: str | type[eqx.Module]) -> type[eqx.Module]:
-    """Get a mixer `eqx.Module` class from its registered name.
-
-    This is necessary because configs have to be stringified and stored as
-    json files to allow (de)serialization.
-    """
-    if not isinstance(module, str):
-        return module
-
-    module_lower = module.lower()
-    if module_lower not in _MIXER_REGISTRY:
-        raise ValueError(
-            f"Got an unknown module string: '{module}'. "
-            f"Available modules: {list(_MIXER_REGISTRY.keys())}"
-        )
-
-    return _MIXER_REGISTRY[module_lower]
+get_mixer = make_get(_MIXER_REGISTRY)
 
 
 @register_mixer()

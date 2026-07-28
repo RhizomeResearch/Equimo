@@ -32,8 +32,12 @@ from jaxtyping import PRNGKeyArray
 from equimo.core.layers.norm import LayerNorm2d
 
 from ._base import AbstractInjector, InputContext
+from equimo.core.layers._registry import make_get, make_register
 
 _INJECTOR_REGISTRY: dict[str, type[AbstractInjector]] = {}
+
+
+_typed_register_injector = make_register(_INJECTOR_REGISTRY)
 
 
 def register_injector(
@@ -42,39 +46,18 @@ def register_injector(
 ) -> Callable[[type[AbstractInjector]], type[AbstractInjector]]:
     """Decorator to register a new injector class under ``name``."""
 
-    def decorator(cls: type[AbstractInjector]) -> type[AbstractInjector]:
-        if not issubclass(cls, eqx.Module):
-            raise TypeError(
-                f"Registered class must be a subclass of eqx.Module, got {type(cls)}"
-            )
+    return _typed_register_injector(name=name, force=force)
 
-        registry_name = name.lower() if name else cls.__name__.lower()
 
-        if registry_name in _INJECTOR_REGISTRY and not force:
-            raise ValueError(
-                f"Cannot register '{registry_name}'. It is already registered "
-                f"to {_INJECTOR_REGISTRY[registry_name]}."
-            )
-
-        _INJECTOR_REGISTRY[registry_name] = cls
-        return cls
-
-    return decorator
+_untyped_get_injector = make_get(
+    _INJECTOR_REGISTRY, kind="injector", plural="injectors"
+)
 
 
 def get_injector(module: str | type[AbstractInjector]) -> type[AbstractInjector]:
-    """Resolve an injector class from its registry name (or pass through if already a class)."""
-    if not isinstance(module, str):
-        return module
+    """Resolve a injector class from its registry name (or pass through a class)."""
 
-    module_lower = module.lower()
-    if module_lower not in _INJECTOR_REGISTRY:
-        raise ValueError(
-            f"Got an unknown injector string: '{module}'. "
-            f"Available injectors: {list(_INJECTOR_REGISTRY.keys())}"
-        )
-
-    return _INJECTOR_REGISTRY[module_lower]
+    return _untyped_get_injector(module)  # type: ignore[return-value]
 
 
 def _logit(p: float, eps: float = 1e-4) -> float:

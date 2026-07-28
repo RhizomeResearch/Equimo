@@ -1,4 +1,4 @@
-from typing import Callable, Optional
+from typing import Optional
 
 import equinox as eqx
 import jax
@@ -6,6 +6,7 @@ import jax.lax as lax
 import jax.numpy as jnp
 import jax.random as jr
 from jaxtyping import Array, PRNGKeyArray
+from equimo.core.layers._registry import make_get, make_register
 
 _DROPOUT_REGISTRY: dict[str, type[eqx.Module]] = {}
 
@@ -22,57 +23,10 @@ def _drop_probability(p: float | jax.Array) -> float:
     return p
 
 
-def register_dropout(
-    name: Optional[str] = None,
-    force: bool = False,
-) -> Callable[[type[eqx.Module]], type[eqx.Module]]:
-    """Decorator to dynamically register new dropout modules.
-
-    Why collision checking: Prevents third-party extensions from silently
-    overwriting core layers, which can silently corrupt the computational graph.
-
-    Args:
-        name: Registry key. Defaults to the lowercase class name.
-        force: If True, allow overwriting an existing entry. Default False.
-    """
-
-    def decorator(cls: type[eqx.Module]) -> type[eqx.Module]:
-        if not issubclass(cls, eqx.Module):
-            raise TypeError(
-                f"Registered class must be a subclass of eqx.Module, got {type(cls)}"
-            )
-
-        registry_name = name.lower() if name else cls.__name__.lower()
-
-        if registry_name in _DROPOUT_REGISTRY and not force:
-            raise ValueError(
-                f"Cannot register '{registry_name}'. It is already registered "
-                f"to {_DROPOUT_REGISTRY[registry_name]}."
-            )
-
-        _DROPOUT_REGISTRY[registry_name] = cls
-        return cls
-
-    return decorator
+register_dropout = make_register(_DROPOUT_REGISTRY)
 
 
-def get_dropout(module: str | type[eqx.Module]) -> type[eqx.Module]:
-    """Get a dropout `eqx.Module` class from its registered name.
-
-    This is necessary because configs have to be stringified and stored as
-    json files to allow (de)serialization.
-    """
-    if not isinstance(module, str):
-        return module
-
-    module_lower = module.lower()
-    if module_lower not in _DROPOUT_REGISTRY:
-        raise ValueError(
-            f"Got an unknown module string: '{module}'. "
-            f"Available modules: {list(_DROPOUT_REGISTRY.keys())}"
-        )
-
-    return _DROPOUT_REGISTRY[module_lower]
+get_dropout = make_get(_DROPOUT_REGISTRY)
 
 
 @register_dropout()

@@ -22,7 +22,6 @@ def register_preprocessor(
             cls,
             registry_name,
             force,
-            "tabular preprocessor",
             add_to_layer_registry=True,
         )
 

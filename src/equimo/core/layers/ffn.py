@@ -13,58 +13,15 @@ from jaxtyping import Array, Float, PRNGKeyArray
 
 from equimo.core.layers.activation import get_act
 from equimo.core.layers.norm import get_norm
+from equimo.core.layers._registry import make_get, make_register
 
 _FFN_REGISTRY: dict[str, type[eqx.Module]] = {}
 
 
-def register_ffn(
-    name: Optional[str] = None,
-    force: bool = False,
-) -> Callable[[type[eqx.Module]], type[eqx.Module]]:
-    """Decorator to dynamically register new FFN modules.
-
-    Why collision checking: Prevents third-party extensions from silently
-    overwriting core layers, which can silently corrupt the computational graph.
-
-    Args:
-        name: Registry key. Defaults to the lowercase class name.
-        force: If True, allow overwriting an existing entry. Default False.
-    """
-
-    def decorator(cls: type[eqx.Module]) -> type[eqx.Module]:
-        if not issubclass(cls, eqx.Module):
-            raise TypeError(
-                f"Registered class must be a subclass of eqx.Module, got {type(cls)}"
-            )
-
-        # Default to class name if explicit name is omitted
-        registry_name = name.lower() if name else cls.__name__.lower()
-
-        if registry_name in _FFN_REGISTRY and not force:
-            raise ValueError(
-                f"Cannot register '{registry_name}'. It is already registered "
-                f"to {_FFN_REGISTRY[registry_name]}."
-            )
-
-        _FFN_REGISTRY[registry_name] = cls
-        return cls
-
-    return decorator
+register_ffn = make_register(_FFN_REGISTRY)
 
 
-def get_ffn(module: str | type[eqx.Module]) -> type[eqx.Module]:
-    """Get an `eqx.Module` class from its common name."""
-    if not isinstance(module, str):
-        return module
-
-    module_lower = module.lower()
-    if module_lower not in _FFN_REGISTRY:
-        raise ValueError(
-            f"Got an unknown module string: '{module}'. "
-            f"Available modules: {list(_FFN_REGISTRY.keys())}"
-        )
-
-    return _FFN_REGISTRY[module_lower]
+get_ffn = make_get(_FFN_REGISTRY)
 
 
 @register_ffn()
