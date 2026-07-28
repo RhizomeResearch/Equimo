@@ -1,5 +1,4 @@
 # ty: ignore[invalid-assignment]
-# ty: ignore[call-non-callable]
 # ty: ignore[too-many-positional-arguments]
 # ty: ignore[unknown-argument]
 __all__ = [
@@ -14,20 +13,20 @@ __all__ = [
     "eupe_convnext_base",
 ]
 
-from typing import Callable, Optional, Sequence, Tuple
+from typing import Callable, Tuple
 
 import equinox as eqx
 import jax.random as jr
 import numpy as np
-from jaxtyping import Array, Float, PRNGKeyArray
+from jaxtyping import PRNGKeyArray
 
-from equimo.core.intermediates import intermediate_indices
 from equimo.core.layers.activation import get_act
 from equimo.core.layers.generic import BlockChunk
 from equimo.core.layers.norm import get_norm
 from equimo.registry import register_model
 from equimo.vision.layers import get_layer
 from equimo.core.factory import build_model_variant
+from equimo.vision.models._features import DenseStageFeatures
 
 # Size configurations matching the original ConvNeXt paper.
 convnext_sizes: dict[str, dict] = {
@@ -39,7 +38,7 @@ convnext_sizes: dict[str, dict] = {
 
 
 @register_model("convnext", modality="vision")
-class ConvNeXt(eqx.Module):
+class ConvNeXt(DenseStageFeatures, eqx.Module):
     """ConvNeXt: A ConvNet for the 2020s (Liu et al., 2022).
 
     Four-stage hierarchical CNN using depthwise separable convolutions with
@@ -126,58 +125,6 @@ class ConvNeXt(eqx.Module):
             if num_classes is not None and num_classes > 0
             else eqx.nn.Identity()
         )
-
-    def features(
-        self,
-        x: Float[Array, "channels height width"],
-        key: PRNGKeyArray = jr.PRNGKey(42),
-        inference: Optional[bool] = None,
-        **kwargs,
-    ) -> Float[Array, "dim height width"]:
-        key_drop, *key_blocks = jr.split(key, len(self.blocks) + 1)
-
-        for blk, key_blk in zip(self.blocks, key_blocks):
-            x = blk(x, inference=inference, key=key_blk)
-        x = self.dropout(x, inference=inference, key=key_drop)
-
-        return x
-
-    def intermediate_features(
-        self,
-        x: Float[Array, "channels height width"],
-        key: PRNGKeyArray = jr.PRNGKey(42),
-        inference: Optional[bool] = None,
-        indices: Sequence[int] | None = None,
-        n_last_blocks: int | None = None,
-        **kwargs,
-    ) -> tuple[Float[Array, "dim height width"], ...]:
-        """Return selected native stage outputs."""
-
-        wanted = intermediate_indices(
-            len(self.blocks),
-            indices=indices,
-            n_last_blocks=n_last_blocks,
-        )
-        _, *key_blocks = jr.split(key, len(self.blocks) + 1)
-        outputs = []
-        for i, (blk, key_blk) in enumerate(zip(self.blocks, key_blocks)):
-            x = blk(x, inference=inference, key=key_blk)
-            if i in wanted:
-                outputs.append(x)
-        return tuple(outputs)
-
-    def __call__(
-        self,
-        x: Float[Array, "channels height width"],
-        key: PRNGKeyArray = jr.PRNGKey(42),
-        inference: Optional[bool] = None,
-        **kwargs,
-    ) -> Float[Array, "num_classes"]:  # noqa: F821
-        x = self.features(x, inference=inference, key=key)
-        x = self.norm(x.mean((1, 2)))
-        x = self.head(x)
-
-        return x
 
 
 _CONVNEXT_BASE_CFG: dict = {
