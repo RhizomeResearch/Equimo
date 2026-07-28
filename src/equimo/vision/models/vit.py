@@ -92,7 +92,8 @@ from equimo.core.layers.generic import (
 )
 from equimo.core.layers.norm import get_norm
 from equimo.vision.layers.patch import PatchEmbedding
-from equimo.vision.layers.posemb import LearnedPosEmbed, VisionRoPE, CompositeVisionRoPE
+from equimo.vision.models._embedding import build_local_rope, build_token_embeddings
+from equimo.vision.layers.posemb import LearnedPosEmbed, CompositeVisionRoPE
 from equimo.registry import register_model
 from equimo.utils import pool_sd, to_list
 from equimo.core.factory import build_model_variant
@@ -222,7 +223,6 @@ class VisionTransformer(eqx.Module):
         self.num_prefix_tokens = 1 if class_token else 0
         self.num_prefix_tokens += reg_tokens
         self.num_reg_tokens = reg_tokens
-        self.num_embedded_prefix_tokens = 0
         self.dynamic_img_size = dynamic_img_size
         self.antialias = interpolate_antialias
         self.global_pos_embed_cls = global_pos_embed_cls
@@ -237,80 +237,49 @@ class VisionTransformer(eqx.Module):
         norm_layer = get_norm(norm_layer)
         act_layer = get_act(act_layer)
 
-        self.patch_embed = PatchEmbedding(
-            in_channels=in_channels,
-            embed_dim=dim,
-            patch_size=patch_size,
+        embeddings = build_token_embeddings(
             img_size=img_size,
-            flatten=not dynamic_img_size,
+            in_channels=in_channels,
+            dim=dim,
+            patch_size=patch_size,
+            class_token=class_token,
+            reg_tokens=reg_tokens,
+            use_mask_token=use_mask_token,
             dynamic_img_size=dynamic_img_size,
             dynamic_img_pad=dynamic_img_pad,
-            key=key_patchemb,
+            global_pos_embed_cls=global_pos_embed_cls,
+            global_pos_embed_reg=global_pos_embed_reg,
+            use_global_pos_embed=use_global_pos_embed,
+            interpolate_antialias=interpolate_antialias,
+            embed_size=self.embed_size,
+            key_patchemb=key_patchemb,
+            key_posemb=key_posemb,
+            key_cls=key_cls,
+            key_reg=key_reg,
         )
-        self.num_patches = self.patch_embed.num_patches
-        self.cls_token = jr.normal(key_cls, (1, dim)) if class_token else None
-        self.reg_tokens = (
-            jr.normal(key_reg, (reg_tokens, dim)) if reg_tokens > 0 else None
+        self.patch_embed = embeddings.patch_embed
+        self.num_patches = embeddings.num_patches
+        self.cls_token = embeddings.cls_token
+        self.reg_tokens = embeddings.reg_tokens
+        self.mask_token = embeddings.mask_token
+        self.num_embedded_prefix_tokens = embeddings.num_embedded_prefix_tokens
+        self.embed_len = embeddings.embed_len
+        self.global_pos_embed = embeddings.global_pos_embed
+
+        self.local_pos_embed = build_local_rope(
+            dim=dim,
+            num_heads=num_heads,
+            use_local_pos_embed=use_local_pos_embed,
+            class_token=class_token,
+            local_pos_embed_reg=local_pos_embed_reg,
+            num_prefix_tokens=self.num_prefix_tokens,
+            num_reg_tokens=self.num_reg_tokens,
+            config_patch=local_pos_embed_config_patch,
+            config_reg=local_pos_embed_config_reg,
+            static_heads_error=(
+                "Local pos embedding (RoPE) currently requires a static number of heads."
+            ),
         )
-
-        self.mask_token = jnp.zeros((1, dim)) if use_mask_token else None
-
-        if not global_pos_embed_cls:
-            self.embed_len = self.num_patches
-        elif global_pos_embed_reg:
-            self.embed_len = self.num_patches + self.num_prefix_tokens
-            self.num_embedded_prefix_tokens += self.num_prefix_tokens
-        else:
-            self.num_embedded_prefix_tokens += 1
-            self.embed_len = self.num_patches + 1
-
-        if use_global_pos_embed:
-            self.global_pos_embed = LearnedPosEmbed(
-                weight=jr.normal(key_posemb, (self.embed_len, dim)),
-                dim=dim,
-                embed_size=self.embed_size,
-                num_prefix_tokens=self.num_prefix_tokens,
-                num_embedded_prefix_tokens=self.num_embedded_prefix_tokens,
-                global_pos_embed_cls=global_pos_embed_cls,
-                global_pos_embed_reg=global_pos_embed_reg,
-                antialias=interpolate_antialias,
-            )
-        else:
-            self.global_pos_embed = None
-
-        if use_local_pos_embed:
-            if not isinstance(num_heads, int):
-                raise ValueError(
-                    "Local pos embedding (RoPE) currently requires a static number of heads."
-                )
-            patch_rope = VisionRoPE(
-                dim=dim,
-                num_heads=num_heads,
-                **local_pos_embed_config_patch,
-            )
-            _n_prefix = (
-                (1 if class_token else 0)
-                if local_pos_embed_reg
-                else self.num_prefix_tokens
-            )
-            _n_reg = self.num_reg_tokens if local_pos_embed_reg else 0
-            reg_rope = (
-                VisionRoPE(
-                    dim=dim,
-                    num_heads=num_heads,
-                    **local_pos_embed_config_reg,
-                )
-                if _n_reg > 0
-                else None
-            )
-            self.local_pos_embed = CompositeVisionRoPE(
-                patch_rope,
-                reg_rope=reg_rope,
-                num_prefix_tokens=_n_prefix,
-                num_registers=_n_reg,
-            )
-        else:
-            self.local_pos_embed = None
         self.pos_drop = eqx.nn.Dropout(pos_drop_rate)
 
         if drop_path_uniform:
