@@ -29,6 +29,19 @@ register_dropout = make_register(_DROPOUT_REGISTRY)
 get_dropout = make_get(_DROPOUT_REGISTRY)
 
 
+def split_drop_path(drop_path: float | list[float]) -> tuple[float, float]:
+    """Normalize a 1-or-2-element drop-path spec into ``(rate1, rate2)``."""
+    if isinstance(drop_path, list):
+        if len(drop_path) == 1:
+            return float(drop_path[0]), float(drop_path[0])
+        if len(drop_path) == 2:
+            return float(drop_path[0]), float(drop_path[1])
+        raise AssertionError(
+            f"`drop_path` needs 1 or 2 elements, got {len(drop_path)}."
+        )
+    return float(drop_path), float(drop_path)
+
+
 @register_dropout()
 class DropPath(eqx.Module, strict=True):
     """Applies drop path (stochastic depth).

@@ -122,6 +122,18 @@ class LayerScale(eqx.Module):
         return x * scale
 
 
+def maybe_layer_scale(
+    dim: int,
+    *,
+    init_values: float | None,
+    axis: int = 0,
+) -> LayerScale | eqx.nn.Identity:
+    """Return a ``LayerScale`` when ``init_values`` is set, else ``Identity``."""
+    if init_values is None:
+        return eqx.nn.Identity()
+    return LayerScale(dim, axis=axis, init_values=init_values)
+
+
 @register_norm(name="dynamictanh")
 class DyT(eqx.Module):
     """Dynamic Tanh layer.

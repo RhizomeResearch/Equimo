@@ -16,8 +16,14 @@ from einops import rearrange
 from jaxtyping import Array, Float, PRNGKeyArray
 
 from equimo.core.layers.activation import get_act
-from equimo.core.layers.dropout import DropPathAdd
-from equimo.core.layers.norm import LayerNorm2d, LayerScale, RMSNorm2d, get_norm
+from equimo.core.layers.dropout import DropPathAdd, split_drop_path
+from equimo.core.layers.norm import (
+    LayerNorm2d,
+    LayerScale,
+    RMSNorm2d,
+    get_norm,
+    maybe_layer_scale,
+)
 from equimo.vision.layers.squeeze_excite import SEModule
 from equimo.utils import make_divisible, nearest_power_of_2_divisor
 from equimo.core.layers._registry import make_get, make_register
@@ -209,26 +215,11 @@ class DoubleConvBlock(eqx.Module):
             key=key_conv2,
         )
 
-        if isinstance(drop_path, list):
-            if (_l := len(drop_path)) == 1:
-                dr1 = drop_path[0]
-            elif _l == 2:
-                dr1, _ = drop_path
-                dr1 = float(dr1)
-            else:
-                raise AssertionError(
-                    f"`drop_path` needs to have 1 or 2 elements, got {_l} ({drop_path})."
-                )
-        else:
-            dr1 = float(drop_path)
+        dr1, _ = split_drop_path(drop_path)
 
         self.drop_path1 = DropPathAdd(dr1)
 
-        self.ls1 = (
-            LayerScale(channels, init_values=init_values)
-            if init_values
-            else eqx.nn.Identity()
-        )
+        self.ls1 = maybe_layer_scale(channels, init_values=init_values)
 
     def __call__(
         self,
@@ -1300,11 +1291,7 @@ class IFormerBlock(eqx.Module):
             use_bias=False,
             key=key_conv3,
         )
-        self.ls = (
-            LayerScale(channels, axis=0, init_values=init_values)
-            if init_values is not None
-            else eqx.nn.Identity()
-        )
+        self.ls = maybe_layer_scale(channels, axis=0, init_values=init_values)
         self.dropout = eqx.nn.Dropout(dropout)
         self.drop_path = DropPathAdd(drop_path)
 
@@ -1386,11 +1373,7 @@ class ConvNeXtBlock(eqx.Module):
             kernel_size=1,
             key=key_pw2,
         )
-        self.ls = (
-            LayerScale(channels, axis=0, init_values=init_values)
-            if init_values is not None
-            else eqx.nn.Identity()
-        )
+        self.ls = maybe_layer_scale(channels, axis=0, init_values=init_values)
         self.drop_path = DropPathAdd(drop_path)
 
     def __call__(
@@ -2682,19 +2665,7 @@ class ATConvBlock(eqx.Module):
         self.norm1 = LayerNorm2d(channels)
         self.norm2 = LayerNorm2d(channels)
 
-        if isinstance(drop_path, list):
-            if (_l := len(drop_path)) == 1:
-                dr1 = dr2 = drop_path[0]
-            elif _l == 2:
-                dr1, dr2 = drop_path
-                dr1 = float(dr1)
-                dr2 = float(dr2)
-            else:
-                raise AssertionError(
-                    f"`drop_path` needs to have 1 or 2 elements, got {_l} ({drop_path})."
-                )
-        else:
-            dr1 = dr2 = float(drop_path)
+        dr1, dr2 = split_drop_path(drop_path)
 
         self.drop_path1 = DropPathAdd(dr1)
         self.drop_path2 = DropPathAdd(dr2)

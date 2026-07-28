@@ -12,9 +12,9 @@ from einops import rearrange
 from jaxtyping import Array, Float, PRNGKeyArray
 
 from equimo.core.layers.activation import get_act
-from equimo.core.layers.dropout import DropPathAdd
+from equimo.core.layers.dropout import DropPathAdd, split_drop_path
 from equimo.core.layers.ffn import get_ffn
-from equimo.core.layers.norm import LayerScale, get_norm
+from equimo.core.layers.norm import LayerScale, get_norm, maybe_layer_scale
 from equimo.core.layers._registry import make_get, make_register
 
 _ATTN_REGISTRY: dict[str, type[eqx.Module]] = {}
@@ -222,17 +222,7 @@ class AttentionBlock(eqx.Module):
         ffn_layer = get_ffn(ffn_layer)
         norm_layer = get_norm(norm_layer)
 
-        if isinstance(drop_path, list):
-            if len(drop_path) == 1:
-                dr1 = dr2 = float(drop_path[0])
-            elif len(drop_path) == 2:
-                dr1, dr2 = float(drop_path[0]), float(drop_path[1])
-            else:
-                raise AssertionError(
-                    f"`drop_path` needs 1 or 2 elements, got {len(drop_path)}."
-                )
-        else:
-            dr1 = dr2 = float(drop_path)
+        dr1, dr2 = split_drop_path(drop_path)
 
         self.prenorm = norm_layer(dim, eps=eps)
         self.postnorm = (
@@ -264,16 +254,8 @@ class AttentionBlock(eqx.Module):
         )
         self.drop_path1 = DropPathAdd(dr1)
         self.drop_path2 = DropPathAdd(dr2)
-        self.ls1 = (
-            LayerScale(dim, axis=1, init_values=init_values)
-            if init_values is not None
-            else eqx.nn.Identity()
-        )
-        self.ls2 = (
-            LayerScale(dim, axis=1, init_values=init_values)
-            if init_values is not None
-            else eqx.nn.Identity()
-        )
+        self.ls1 = maybe_layer_scale(dim, axis=1, init_values=init_values)
+        self.ls2 = maybe_layer_scale(dim, axis=1, init_values=init_values)
 
     def __call__(
         self,
