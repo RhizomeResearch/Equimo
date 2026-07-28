@@ -2,7 +2,6 @@
 # ty: ignore[call-non-callable]
 # ty: ignore[invalid-assignment]
 # ty: ignore[invalid-argument-type]
-# ty: ignore[invalid-return-type]
 # ty: ignore[too-many-positional-arguments]
 """DEQ model (ConvNeXt variant).
 
@@ -47,6 +46,7 @@ from equimo.core.layers.activation import get_act
 from equimo.core.layers.norm import get_norm
 from equimo.registry import register_model
 from equimo.utils import make_drop_path_schedule
+from equimo.core.factory import build_model_variant
 
 
 class BlockChunk(eqx.Module):
@@ -485,23 +485,15 @@ def _build_deq(
     key: PRNGKeyArray | None = None,
     **overrides,
 ) -> DEQ:
-    if key is None:
-        key = jax.random.PRNGKey(42)
-
-    base_cfg, variant_cfg = _DEQ_REGISTRY[variant]
-    cfg = base_cfg | variant_cfg | overrides
-    model = DEQ(**cfg, key=key)
-
-    if pretrained:
-        from equimo.serialization import load_weights
-
-        model = load_weights(
-            model,
-            identifier=variant,
-            inference_mode=inference_mode,
-        )
-
-    return model
+    return build_model_variant(
+        DEQ,
+        _DEQ_REGISTRY,
+        variant,
+        pretrained=pretrained,
+        inference_mode=inference_mode,
+        key=key,
+        **overrides,
+    )
 
 
 def deq_convnext_t(**kwargs) -> DEQ:

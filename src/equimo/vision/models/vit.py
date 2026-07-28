@@ -3,7 +3,6 @@
 # ty: ignore[too-many-positional-arguments]
 # ty: ignore[unknown-argument]
 # ty: ignore[invalid-argument-type]
-# ty: ignore[invalid-return-type]
 __all__ = [
     "VisionTransformer",
     # Standard ViT presets
@@ -86,12 +85,17 @@ from equimo.vision.layers.attention import (
     get_attn_block,
 )
 from equimo.core.layers.ffn import get_ffn
-from equimo.core.layers.generic import BlockChunk
+from equimo.core.layers.generic import (
+    BlockChunk,
+    count_chunk_blocks,
+    make_transformer_block_chunk,
+)
 from equimo.core.layers.norm import get_norm
 from equimo.vision.layers.patch import PatchEmbedding
 from equimo.vision.layers.posemb import LearnedPosEmbed, VisionRoPE, CompositeVisionRoPE
 from equimo.registry import register_model
 from equimo.utils import pool_sd, to_list
+from equimo.core.factory import build_model_variant
 
 
 @register_model("vit", modality="vision")
@@ -319,31 +323,33 @@ class VisionTransformer(eqx.Module):
         num_heads = to_list(num_heads, n_chunks)
         attn_layer = to_list(attn_layer, n_chunks)
         self.blocks = tuple(
-            BlockChunk(
-                depth=depths[i],
-                module=block,
-                module_kwargs={
-                    "dim": dims[i],
-                    "num_heads": num_heads[i],
-                    "mlp_ratio": mlp_ratio,
-                    "qkv_bias": qkv_bias,
-                    "proj_bias": proj_bias,
-                    "qk_norm": qk_norm,
-                    "attn_drop": attn_drop,
-                    "proj_drop": proj_drop,
-                    "act_layer": act_layer,
-                    "attn_layer": attn_layer[i],
-                    "ffn_layer": ffn_layer,
-                    "ffn_bias": ffn_bias,
-                    "ffn_kwargs": ffn_kwargs,
-                    "norm_layer": norm_layer,
-                    "eps": eps,
-                },
-                drop_path=dpr[sum(depths[:i]) : sum(depths[: i + 1])],
-                init_values=init_values,
-                key=block_subkeys[i],
-            )
+            chunk
             for i, depth in enumerate(depths)
+            if (
+                chunk := make_transformer_block_chunk(
+                    depth=depths[i],
+                    dim=dims[i],
+                    num_heads=num_heads[i],
+                    block=block,
+                    attn_layer=attn_layer[i],
+                    ffn_layer=ffn_layer,
+                    mlp_ratio=mlp_ratio,
+                    qkv_bias=qkv_bias,
+                    proj_bias=proj_bias,
+                    qk_norm=qk_norm,
+                    attn_drop=attn_drop,
+                    proj_drop=proj_drop,
+                    act_layer=act_layer,
+                    ffn_bias=ffn_bias,
+                    ffn_kwargs=ffn_kwargs,
+                    norm_layer=norm_layer,
+                    eps=eps,
+                    drop_path=dpr[sum(depths[:i]) : sum(depths[: i + 1])],
+                    init_values=init_values,
+                    key=block_subkeys[i],
+                )
+            )
+            is not None
         )
 
         self.norm = norm_layer(dim, eps=eps)
@@ -407,7 +413,7 @@ class VisionTransformer(eqx.Module):
     ) -> tuple[Float[Array, "seqlen dim"], ...]:
         """Return selected native token outputs after transformer blocks."""
 
-        total = _count_chunk_blocks(self.blocks)
+        total = count_chunk_blocks(self.blocks)
         wanted = intermediate_indices(
             total, indices=indices, n_last_blocks=n_last_blocks
         )
@@ -592,7 +598,7 @@ class VisionTransformer(eqx.Module):
     def _num_block_layers(self) -> int:
         """Return the number of logical transformer layers across block chunks."""
 
-        return _count_chunk_blocks(self.blocks)
+        return count_chunk_blocks(self.blocks)
 
     def forward_features(
         self,
@@ -659,10 +665,6 @@ class VisionTransformer(eqx.Module):
         x = self.head(x)
 
         return x
-
-
-def _count_chunk_blocks(blocks: Tuple[BlockChunk, ...]) -> int:
-    return sum(0 if chunk.blocks is None else len(chunk.blocks) for chunk in blocks)
 
 
 _VIT_BASE_CFG: dict = {
@@ -1196,23 +1198,15 @@ def _build_vit(
     Raises:
         KeyError: If *variant* is not found in the registry.
     """
-    if key is None:
-        key = jax.random.PRNGKey(42)
-
-    base_cfg, variant_cfg = _VIT_REGISTRY[variant]
-    cfg = base_cfg | variant_cfg | overrides
-    model = VisionTransformer(**cfg, key=key)
-
-    if pretrained:
-        from equimo.serialization import load_weights
-
-        model = load_weights(
-            model,
-            identifier=variant,
-            inference_mode=inference_mode,
-        )
-
-    return model
+    return build_model_variant(
+        VisionTransformer,
+        _VIT_REGISTRY,
+        variant,
+        pretrained=pretrained,
+        inference_mode=inference_mode,
+        key=key,
+        **overrides,
+    )
 
 
 def vit_tiny_patch16_224(**kwargs) -> VisionTransformer:

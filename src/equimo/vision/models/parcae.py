@@ -48,12 +48,13 @@ from equimo.core.intermediates import intermediate_indices
 from equimo.core.layers.activation import get_act
 from equimo.vision.layers.attention import get_attn, get_attn_block
 from equimo.core.layers.ffn import get_ffn
-from equimo.core.layers.generic import BlockChunk
+from equimo.core.layers.generic import BlockChunk, make_transformer_block_chunk
 from equimo.core.layers.norm import get_norm
 from equimo.vision.layers.patch import PatchEmbedding
 from equimo.vision.layers.posemb import CompositeVisionRoPE, LearnedPosEmbed, VisionRoPE
 from equimo.registry import register_model
 from equimo.utils import pool_sd
+from equimo.core.factory import build_model_variant
 
 InjectionKind = Literal["diagonal", "diagonal_exact_zoh", "linear", "add"]
 BInitMode = Literal["raw", "fixed_point", "target_depth", "one_step"]
@@ -245,60 +246,6 @@ def _apply_norm_sequence(
     x: Float[Array, "seq dim"],
 ) -> Float[Array, "seq dim"]:
     return jax.vmap(norm)(x)
-
-
-def _make_block_chunk(
-    *,
-    depth: int,
-    dim: int,
-    num_heads: int,
-    block: type[eqx.Module],
-    attn_layer: type[eqx.Module],
-    ffn_layer: type[eqx.Module],
-    mlp_ratio: float,
-    qkv_bias: bool,
-    proj_bias: bool,
-    qk_norm: bool,
-    attn_drop: float,
-    proj_drop: float,
-    act_layer: Callable,
-    ffn_bias: bool,
-    ffn_kwargs: dict,
-    norm_layer: type[eqx.Module],
-    eps: float,
-    drop_path: list[float],
-    init_values: float | None,
-    key: PRNGKeyArray,
-) -> BlockChunk | None:
-    """Build a ViT-style Equimo ``BlockChunk`` or return ``None`` for depth 0."""
-
-    if depth <= 0:
-        return None
-
-    return BlockChunk(
-        depth=depth,
-        module=block,
-        module_kwargs={
-            "dim": dim,
-            "num_heads": num_heads,
-            "mlp_ratio": mlp_ratio,
-            "qkv_bias": qkv_bias,
-            "proj_bias": proj_bias,
-            "qk_norm": qk_norm,
-            "attn_drop": attn_drop,
-            "proj_drop": proj_drop,
-            "act_layer": act_layer,
-            "attn_layer": attn_layer,
-            "ffn_layer": ffn_layer,
-            "ffn_bias": ffn_bias,
-            "ffn_kwargs": ffn_kwargs,
-            "norm_layer": norm_layer,
-            "eps": eps,
-        },
-        drop_path=drop_path,
-        init_values=init_values,
-        key=key,
-    )
 
 
 class VisionParcaeDiagonalInjection(eqx.Module):
@@ -974,7 +921,7 @@ class VisionParcae(eqx.Module):
         core_dpr = dpr[core_start:core_end]
         coda_dpr = dpr[core_end:]
 
-        self.prelude = _make_block_chunk(
+        self.prelude = make_transformer_block_chunk(
             depth=n_layers_in_prelude,
             dim=dim,
             num_heads=num_heads,
@@ -1009,7 +956,7 @@ class VisionParcae(eqx.Module):
             key=key_adapter,
         )
 
-        self.core_block = _make_block_chunk(
+        self.core_block = make_transformer_block_chunk(
             depth=n_layers_in_recurrent_block,
             dim=recurrent_dim,
             num_heads=recurrent_num_heads,
@@ -1048,7 +995,7 @@ class VisionParcae(eqx.Module):
                 std=C_init_std,
             )
 
-        self.coda = _make_block_chunk(
+        self.coda = make_transformer_block_chunk(
             depth=n_layers_in_coda,
             dim=dim,
             num_heads=num_heads,
@@ -1879,25 +1826,15 @@ def _build_vision_parcae(
 ) -> VisionParcae:
     """Build a VisionParcae variant from the local registry."""
 
-    if key is None:
-        key = jax.random.PRNGKey(42)
-    if variant not in _VISION_PARCAE_REGISTRY:
-        raise KeyError(f"Unknown VisionParcae variant: {variant!r}.")
-
-    base_cfg, variant_cfg = _VISION_PARCAE_REGISTRY[variant]
-    cfg = base_cfg | variant_cfg | overrides
-    model = VisionParcae(**cfg, key=key)
-
-    if pretrained:
-        from equimo.serialization import load_weights
-
-        model = load_weights(
-            model,
-            identifier=variant,
-            inference_mode=inference_mode,
-        )
-
-    return model
+    return build_model_variant(
+        VisionParcae,
+        _VISION_PARCAE_REGISTRY,
+        variant,
+        pretrained=pretrained,
+        inference_mode=inference_mode,
+        key=key,
+        **overrides,
+    )
 
 
 def vision_parcae_tiny_patch16_224(**kwargs) -> VisionParcae:

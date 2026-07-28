@@ -1,6 +1,5 @@
 # ty: ignore[invalid-assignment]
 # ty: ignore[call-non-callable]
-# ty: ignore[invalid-return-type]
 # ty: ignore[too-many-positional-arguments]
 # ty: ignore[unknown-argument]
 __all__ = [
@@ -18,7 +17,6 @@ __all__ = [
 from typing import Callable, Optional, Sequence, Tuple
 
 import equinox as eqx
-import jax
 import jax.random as jr
 import numpy as np
 from jaxtyping import Array, Float, PRNGKeyArray
@@ -29,6 +27,7 @@ from equimo.core.layers.generic import BlockChunk
 from equimo.core.layers.norm import get_norm
 from equimo.registry import register_model
 from equimo.vision.layers import get_layer
+from equimo.core.factory import build_model_variant
 
 # Size configurations matching the original ConvNeXt paper.
 convnext_sizes: dict[str, dict] = {
@@ -233,23 +232,15 @@ def _build_convnext(
     key: PRNGKeyArray | None = None,
     **overrides,
 ) -> ConvNeXt:
-    if key is None:
-        key = jax.random.PRNGKey(42)
-
-    base_cfg, variant_cfg = _CONVNEXT_REGISTRY[variant]
-    cfg = base_cfg | variant_cfg | overrides
-    model = ConvNeXt(**cfg, key=key)
-
-    if pretrained:
-        from equimo.serialization import load_weights
-
-        model = load_weights(
-            model,
-            identifier=variant,
-            inference_mode=inference_mode,
-        )
-
-    return model
+    return build_model_variant(
+        ConvNeXt,
+        _CONVNEXT_REGISTRY,
+        variant,
+        pretrained=pretrained,
+        inference_mode=inference_mode,
+        key=key,
+        **overrides,
+    )
 
 
 def convnext_t(**kwargs) -> ConvNeXt:

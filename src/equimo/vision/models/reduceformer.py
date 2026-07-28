@@ -8,11 +8,9 @@ __all__ = [
     "reduceformer_backbone_b3",
 ]
 
-import copy
 from typing import Callable, Literal, Optional, Sequence, Tuple
 
 import equinox as eqx
-import jax
 import jax.random as jr
 import numpy as np
 from einops import reduce
@@ -25,6 +23,7 @@ from equimo.vision.layers.convolution import DSConv, MBConv, SingleConvBlock
 from equimo.core.layers.generic import BlockChunk
 from equimo.core.layers.norm import get_norm
 from equimo.registry import register_model
+from equimo.core.factory import build_model_variant
 
 
 def _make_reduceformer_chunk(
@@ -352,23 +351,16 @@ def _build_reduceformer(
     key: PRNGKeyArray | None = None,
     **overrides,
 ) -> ReduceFormer:
-    if key is None:
-        key = jax.random.PRNGKey(42)
-
-    base_cfg, variant_cfg = _REDUCEFORMER_REGISTRY[variant]
-    cfg = copy.deepcopy(base_cfg | variant_cfg | overrides)
-    model = ReduceFormer(**cfg, key=key)
-
-    if pretrained:
-        from equimo.serialization import load_weights
-
-        model = load_weights(
-            model,
-            identifier=variant,
-            inference_mode=inference_mode,
-        )
-
-    return model
+    return build_model_variant(
+        ReduceFormer,
+        _REDUCEFORMER_REGISTRY,
+        variant,
+        pretrained=pretrained,
+        inference_mode=inference_mode,
+        key=key,
+        deepcopy_cfg=True,
+        **overrides,
+    )
 
 
 def reduceformer_backbone_b1(**kwargs) -> ReduceFormer:

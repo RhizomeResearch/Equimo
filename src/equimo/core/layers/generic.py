@@ -444,3 +444,63 @@ class BlockChunk(eqx.Module):
                 x = self.downsample(x)
 
         return x, tuple(outputs)
+
+
+def make_transformer_block_chunk(
+    *,
+    depth: int,
+    dim: int,
+    num_heads: int,
+    block: type[eqx.Module],
+    attn_layer: type[eqx.Module],
+    ffn_layer: type[eqx.Module],
+    mlp_ratio: float,
+    qkv_bias: bool,
+    proj_bias: bool,
+    qk_norm: bool,
+    attn_drop: float,
+    proj_drop: float,
+    act_layer: Callable,
+    ffn_bias: bool,
+    ffn_kwargs: dict,
+    norm_layer: type[eqx.Module],
+    eps: float,
+    drop_path: list[float],
+    init_values: float | None,
+    key: PRNGKeyArray,
+) -> BlockChunk | None:
+    """Build a ViT-style ``BlockChunk`` or return ``None`` for depth 0."""
+
+    if depth <= 0:
+        return None
+
+    return BlockChunk(  # ty: ignore[invalid-return-type]
+        depth=depth,
+        module=block,
+        module_kwargs={
+            "dim": dim,
+            "num_heads": num_heads,
+            "mlp_ratio": mlp_ratio,
+            "qkv_bias": qkv_bias,
+            "proj_bias": proj_bias,
+            "qk_norm": qk_norm,
+            "attn_drop": attn_drop,
+            "proj_drop": proj_drop,
+            "act_layer": act_layer,
+            "attn_layer": attn_layer,
+            "ffn_layer": ffn_layer,
+            "ffn_bias": ffn_bias,
+            "ffn_kwargs": ffn_kwargs,
+            "norm_layer": norm_layer,
+            "eps": eps,
+        },
+        drop_path=drop_path,
+        init_values=init_values,
+        key=key,
+    )
+
+
+def count_chunk_blocks(blocks: Sequence[BlockChunk]) -> int:
+    """Count concrete blocks across a sequence of ``BlockChunk``s."""
+
+    return sum(0 if chunk.blocks is None else len(chunk.blocks) for chunk in blocks)

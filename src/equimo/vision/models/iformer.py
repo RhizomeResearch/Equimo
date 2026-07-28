@@ -1,6 +1,5 @@
 # ty: ignore[invalid-assignment]
 # ty: ignore[too-many-positional-arguments]
-# ty: ignore[invalid-return-type]
 # ty: ignore[unknown-argument]
 __all__ = [
     "IFormer",
@@ -15,7 +14,6 @@ __all__ = [
 from typing import Callable, Optional, Sequence, Tuple
 
 import equinox as eqx
-import jax
 import jax.random as jr
 import numpy as np
 from jaxtyping import Array, Float, PRNGKeyArray
@@ -26,6 +24,7 @@ from equimo.core.layers.activation import get_act
 from equimo.core.layers.generic import BlockChunk
 from equimo.core.layers.norm import get_norm
 from equimo.registry import register_model
+from equimo.core.factory import build_model_variant
 
 
 @register_model("iformer", modality="vision")
@@ -359,23 +358,15 @@ def _build_iformer(
     key: PRNGKeyArray | None = None,
     **overrides,
 ) -> IFormer:
-    if key is None:
-        key = jax.random.PRNGKey(42)
-
-    base_cfg, variant_cfg = _IFORMER_REGISTRY[variant]
-    cfg = base_cfg | variant_cfg | overrides
-    model = IFormer(**cfg, key=key)
-
-    if pretrained:
-        from equimo.serialization import load_weights
-
-        model = load_weights(
-            model,
-            identifier=variant,
-            inference_mode=inference_mode,
-        )
-
-    return model
+    return build_model_variant(
+        IFormer,
+        _IFORMER_REGISTRY,
+        variant,
+        pretrained=pretrained,
+        inference_mode=inference_mode,
+        key=key,
+        **overrides,
+    )
 
 
 def iformer_t(**kwargs) -> IFormer:
