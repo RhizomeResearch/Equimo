@@ -13,7 +13,6 @@ Plan inspection and general model-surgery utilities.
 - [`extract_subtree`](#equimo-finetune-extract-subtree)
 - [`inspect_plan`](#equimo-finetune-inspect-plan)
 - [`inspect_trainables`](#equimo-finetune-inspect-trainables)
-- [`partition_for_training`](#equimo-finetune-partition-for-training)
 - [`prepare_finetune`](#equimo-finetune-prepare-finetune)
 - [`replace_head`](#equimo-finetune-replace-head)
 - [`set_dropout_rate`](#equimo-finetune-set-dropout-rate)
@@ -80,24 +79,12 @@ Defined in `equimo.finetune.inspection`.
 
 > Return a trainability report for a model or existing plan.
 
-<!-- equimo.finetune:partition_for_training -->
-<a id="equimo-finetune-partition-for-training"></a>
-## `partition_for_training`
-
-```python
-equimo.finetune.partition_for_training(model: 'PyTree', trainable: 'TrainableSpec', *, labels: 'LLRDConfig | None' = None, model_state: 'eqx.nn.State | None' = None, state_policy: 'StatePolicy | None' = None, feature_spec: 'FeatureSpec | None' = None, aux_losses: 'tuple[AuxLossSpec, ...]' = (), profile: 'MethodProfile | None' = None, lineage: 'ModelLineage | None' = None, tagger: 'Tagger' = <function canonical_tags_for_path>) -> 'FineTunePlan'
-```
-
-Defined in `equimo.finetune.surgery`.
-
-> Alias for ``prepare_finetune``.
-
 <!-- equimo.finetune:prepare_finetune -->
 <a id="equimo-finetune-prepare-finetune"></a>
 ## `prepare_finetune`
 
 ```python
-equimo.finetune.prepare_finetune(model: 'PyTree', *, trainable: 'TrainableSpec', labels: 'LLRDConfig | None' = None, model_state: 'eqx.nn.State | None' = None, state_policy: 'StatePolicy | None' = None, feature_spec: 'FeatureSpec | None' = None, aux_losses: 'tuple[AuxLossSpec, ...]' = (), profile: 'MethodProfile | None' = None, lineage: 'ModelLineage | None' = None, tagger: 'Tagger' = <function canonical_tags_for_path>) -> 'FineTunePlan'
+equimo.finetune.prepare_finetune(model: 'PyTree', *, trainable: 'TrainableSpec', labels: 'LLRDConfig | None' = None, model_state: 'eqx.nn.State | None' = None, state_policy: 'StatePolicy | None' = None, feature_spec: 'FeatureSpec | None' = None, aux_losses: 'tuple[AuxLossSpec, ...]' = (), lineage: 'ModelLineage | None' = None, tagger: 'Tagger' = <function canonical_tags_for_path>) -> 'FineTunePlan'
 ```
 
 Defined in `equimo.finetune.surgery`.
@@ -109,7 +96,7 @@ Defined in `equimo.finetune.surgery`.
 ## `replace_head`
 
 ```python
-equimo.finetune.replace_head(model: 'PyTree', head: 'eqx.Module', *, selector: 'str | TargetSpec' = 'head', sample_features: 'jax.Array | None' = None, validate_shape: 'bool' = True, preserve_old_head_metadata: 'bool' = False, tagger: 'Tagger' = <function canonical_tags_for_path>) -> 'PyTree'
+equimo.finetune.replace_head(model: 'PyTree', head: 'eqx.Module', *, selector: 'str | TargetSpec' = 'head', sample_features: 'jax.Array | None' = None, tagger: 'Tagger' = <function canonical_tags_for_path>) -> 'PyTree'
 ```
 
 Defined in `equimo.finetune.surgery`.

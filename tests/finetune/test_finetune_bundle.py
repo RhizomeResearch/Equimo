@@ -91,9 +91,11 @@ def test_delta_spec_order_and_bundle_roundtrip(tmp_path, tiny_vision_transformer
     )
     path = tmp_path / "lora.eqft"
 
-    bundle = eqft.save_delta(path, model, tiny_vision_transformer, spec, method="lora")
+    bundle = eqft.save_delta(
+        model, path, base_model=tiny_vision_transformer, spec=spec, method="lora"
+    )
     loaded_bundle = eqft.load_finetune_bundle(path)
-    loaded_model = eqft.load_delta(path, tiny_vision_transformer)
+    loaded_model = eqft.load_delta(tiny_vision_transformer, path)
 
     assert loaded_bundle.method == bundle.method
     assert bundle.selector_spec["target"]["tags_any"] == ("attention.proj",)
@@ -126,10 +128,10 @@ def test_bundle_carries_model_state_snapshot_and_hash(
     path = tmp_path / "stateful-lora.eqft"
 
     bundle = eqft.save_delta(
-        path,
         model,
-        tiny_vision_transformer,
-        spec,
+        path,
+        base_model=tiny_vision_transformer,
+        spec=spec,
         method="lora",
         model_state=model_state,
     )
@@ -163,10 +165,10 @@ def test_bundle_records_recalibration_marker_without_model_state(
     path = tmp_path / "recalibrate-lora.eqft"
 
     bundle = eqft.save_delta(
-        path,
         model,
-        tiny_vision_transformer,
-        spec,
+        path,
+        base_model=tiny_vision_transformer,
+        spec=spec,
         method="lora",
         recalibration_required=True,
     )
@@ -180,7 +182,7 @@ def test_bundle_records_recalibration_marker_without_model_state(
     assert loaded.metadata["recalibration_required"] is True
 
 
-def test_delta_spec_keyword_model_form_roundtrip(tmp_path, tiny_vision_transformer):
+def test_delta_with_base_model_and_spec_roundtrip(tmp_path, tiny_vision_transformer):
     spec = eqft.LoRAConfig(
         rank=2,
         alpha=4.0,
@@ -194,12 +196,12 @@ def test_delta_spec_keyword_model_form_roundtrip(tmp_path, tiny_vision_transform
     path = tmp_path / "lora-keyword.eqft"
 
     bundle = eqft.save_delta(
+        model,
         path,
-        model=model,
         base_model=tiny_vision_transformer,
         spec=spec,
     )
-    loaded_model = eqft.load_delta(path, tiny_vision_transformer)
+    loaded_model = eqft.load_delta(tiny_vision_transformer, path)
 
     assert bundle.selector_spec["target"]["tags_any"] == ("attention.proj",)
     assert (

@@ -6,6 +6,7 @@ import inspect
 
 import jax.random as jr
 
+import equimo.finetune as eqft
 from equimo.finetune.language import recipes
 
 
@@ -27,7 +28,9 @@ def test_language_recipes_work_on_tiny_text(tiny_text_encoder):
         out_features=3,
         key=jr.PRNGKey(2),
     )
-    frozen = recipes.locked_tower(tiny_text_encoder)
+    frozen = eqft.prepare_finetune(
+        tiny_text_encoder, trainable=eqft.TrainableSpec(mode="frozen")
+    )
 
     assert lora.blocks[0].attn.qkv.lora_A.shape[0] == 2
     assert prefix.prefixes[0].shape == (2, 4)

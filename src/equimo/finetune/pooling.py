@@ -230,19 +230,6 @@ class LastTokenPool(eqx.Module):
         return x[index]
 
 
-class TokenIndexPool(eqx.Module):
-    """Return a token at a fixed index."""
-
-    index: int = eqx.field(static=True)
-
-    def __init__(self, index: int):
-        self.index = index
-
-    def __call__(self, x: jax.Array, **kwargs) -> jax.Array:
-        del kwargs
-        return x[self.index]
-
-
 class GlobalAveragePool(eqx.Module):
     """Mean-pool all non-channel axes of dense channel-first features."""
 
@@ -373,6 +360,5 @@ __all__ = (
     "MeanPatchPool",
     "MeanTokenPool",
     "PoolName",
-    "TokenIndexPool",
     "pool_features",
 )

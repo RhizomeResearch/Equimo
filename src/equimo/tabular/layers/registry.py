@@ -14,7 +14,6 @@ def _register_module(
     cls: type[eqx.Module],
     registry_name: str,
     force: bool,
-    registry_label: str,
     *,
     add_to_layer_registry: bool = False,
 ) -> type[eqx.Module]:
@@ -72,7 +71,6 @@ def register_layer(
             cls,
             registry_name,
             force,
-            "tabular layer",
         )
 
     return decorator

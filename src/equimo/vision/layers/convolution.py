@@ -16,61 +16,25 @@ from einops import rearrange
 from jaxtyping import Array, Float, PRNGKeyArray
 
 from equimo.core.layers.activation import get_act
-from equimo.core.layers.dropout import DropPathAdd
-from equimo.core.layers.norm import LayerNorm2d, LayerScale, RMSNorm2d, get_norm
+from equimo.core.layers.dropout import DropPathAdd, split_drop_path
+from equimo.core.layers.norm import (
+    LayerNorm2d,
+    LayerScale,
+    RMSNorm2d,
+    get_norm,
+    maybe_layer_scale,
+)
 from equimo.vision.layers.squeeze_excite import SEModule
 from equimo.utils import make_divisible, nearest_power_of_2_divisor
+from equimo.core.layers._registry import make_get, make_register
 
 _CONV_REGISTRY: dict[str, type[eqx.Module]] = {}
 
 
-def register_conv(
-    name: Optional[str] = None,
-    force: bool = False,
-) -> Callable[[type[eqx.Module]], type[eqx.Module]]:
-    """Decorator to dynamically register new conv modules.
-
-    Why collision checking: Prevents third-party extensions from silently
-    overwriting core layers, which can silently corrupt the computational graph.
-
-    Args:
-        name: Registry key. Defaults to the lowercase class name.
-        force: If True, allow overwriting an existing entry. Default False.
-    """
-
-    def decorator(cls: type[eqx.Module]) -> type[eqx.Module]:
-        if not issubclass(cls, eqx.Module):
-            raise TypeError(
-                f"Registered class must be a subclass of eqx.Module, got {type(cls)}"
-            )
-
-        registry_name = name.lower() if name else cls.__name__.lower()
-
-        if registry_name in _CONV_REGISTRY and not force:
-            raise ValueError(
-                f"Cannot register '{registry_name}'. It is already registered "
-                f"to {_CONV_REGISTRY[registry_name]}."
-            )
-
-        _CONV_REGISTRY[registry_name] = cls
-        return cls
-
-    return decorator
+register_conv = make_register(_CONV_REGISTRY)
 
 
-def get_conv(module: str | type[eqx.Module]) -> type[eqx.Module]:
-    """Get a conv ``eqx.Module`` class from its registered name."""
-    if not isinstance(module, str):
-        return module
-
-    module_lower = module.lower()
-    if module_lower not in _CONV_REGISTRY:
-        raise ValueError(
-            f"Got an unknown module string: '{module}'. "
-            f"Available modules: {list(_CONV_REGISTRY.keys())}"
-        )
-
-    return _CONV_REGISTRY[module_lower]
+get_conv = make_get(_CONV_REGISTRY)
 
 
 @register_conv()
@@ -116,7 +80,6 @@ class SingleConvBlock(eqx.Module):
             out_channels: Number of output channels
             key: PRNG key for initialization
             norm_layer: Normalization layer class or registry name (default: "groupnorm")
-            norm_max_group: Maximum number of groups for GroupNorm (default: 32)
             act_layer: Optional activation function or registry name (default: None)
             norm_kwargs: Args passed to the norm layer. This allows disabling
                 weights of LayerNorm, which do not work well with conv layers
@@ -200,7 +163,6 @@ class DoubleConvBlock(eqx.Module):
         padding: str | int = "SAME",
         use_bias: bool = False,
         act_layer: str | Callable | None = "gelu",
-        norm_max_group: int = 32,
         dropout: float = 0.0,
         drop_path: float = 0.0,
         init_values: float | None = None,
@@ -216,7 +178,6 @@ class DoubleConvBlock(eqx.Module):
             stride: Stride of the convolution (default: 1)
             padding: Padding size for convolution (default: SAME)
             act_layer: Activation function or registry name (default: "gelu")
-            norm_max_group: Maximum number of groups for GroupNorm (default: 32)
             drop_path: Drop path rate (default: 0.0)
             init_values: Initial value for layer scaling (default: None)
         """
@@ -254,26 +215,11 @@ class DoubleConvBlock(eqx.Module):
             key=key_conv2,
         )
 
-        if isinstance(drop_path, list):
-            if (_l := len(drop_path)) == 1:
-                dr1 = drop_path[0]
-            elif _l == 2:
-                dr1, _ = drop_path
-                dr1 = float(dr1)
-            else:
-                raise AssertionError(
-                    f"`drop_path` needs to have 1 or 2 elements, got {_l} ({drop_path})."
-                )
-        else:
-            dr1 = float(drop_path)
+        dr1, _ = split_drop_path(drop_path)
 
         self.drop_path1 = DropPathAdd(dr1)
 
-        self.ls1 = (
-            LayerScale(channels, init_values=init_values)
-            if init_values
-            else eqx.nn.Identity()
-        )
+        self.ls1 = maybe_layer_scale(channels, init_values=init_values)
 
     def __call__(
         self,
@@ -663,7 +609,6 @@ class C3(eqx.Module):
         out_channels: int,
         *,
         key: PRNGKeyArray,
-        n: int = 1,
         shortcut: bool = True,
         groups: int = 1,
         expansion_ratio: float = 0.5,
@@ -1346,11 +1291,7 @@ class IFormerBlock(eqx.Module):
             use_bias=False,
             key=key_conv3,
         )
-        self.ls = (
-            LayerScale(channels, axis=0, init_values=init_values)
-            if init_values is not None
-            else eqx.nn.Identity()
-        )
+        self.ls = maybe_layer_scale(channels, axis=0, init_values=init_values)
         self.dropout = eqx.nn.Dropout(dropout)
         self.drop_path = DropPathAdd(drop_path)
 
@@ -1432,11 +1373,7 @@ class ConvNeXtBlock(eqx.Module):
             kernel_size=1,
             key=key_pw2,
         )
-        self.ls = (
-            LayerScale(channels, axis=0, init_values=init_values)
-            if init_values is not None
-            else eqx.nn.Identity()
-        )
+        self.ls = maybe_layer_scale(channels, axis=0, init_values=init_values)
         self.drop_path = DropPathAdd(drop_path)
 
     def __call__(
@@ -1479,9 +1416,7 @@ class GenericGhostModule(eqx.Module):
     dw_size: int = eqx.field(static=True)
     stride: int = eqx.field(static=True)
     primary_has_skip: bool = eqx.field(static=True)
-    primary_has_scale: bool = eqx.field(static=True)
     cheap_has_skip: bool = eqx.field(static=True)
-    cheap_has_scale: bool = eqx.field(static=True)
 
     # Runtime flags
     inference: bool
@@ -1544,9 +1479,7 @@ class GenericGhostModule(eqx.Module):
         self.dw_size = dw_size
         self.stride = stride
         self.primary_has_skip = primary_has_skip
-        self.primary_has_scale = primary_has_scale
         self.cheap_has_skip = cheap_has_skip
-        self.cheap_has_scale = cheap_has_scale
 
         # Those are actually placeholders, updated at each epoch, only used at inference time
         self.primary_conv = eqx.nn.Conv2d(
@@ -1760,7 +1693,6 @@ class GhostBottleneck(eqx.Module):
 
     # Static config
     stride: int = eqx.field(static=True)
-    dw_kernel_size: int = eqx.field(static=True)
     use_shortcut_mode_in_ghost1: bool = eqx.field(static=True)
     allow_identity_residual: bool = eqx.field(static=True)
 
@@ -1794,7 +1726,6 @@ class GhostBottleneck(eqx.Module):
         **kwargs,
     ):
         self.stride = stride
-        self.dw_kernel_size = dw_kernel_size
         self.inference = False
         self.allow_identity_residual = allow_identity_residual
 
@@ -2349,8 +2280,6 @@ class FasterNetBlock(eqx.Module):
         key: PRNGKeyArray,
         n_dim: int = 4,
         mlp_ratio: int = 3,
-        kernel_size: int = 3,
-        padding: str | int = "SAME",
         norm_layer: str | type[eqx.Module] | None = "groupnorm",
         norm_max_group: int = 32,
         act_layer: str | Callable | None = "relu",
@@ -2736,19 +2665,7 @@ class ATConvBlock(eqx.Module):
         self.norm1 = LayerNorm2d(channels)
         self.norm2 = LayerNorm2d(channels)
 
-        if isinstance(drop_path, list):
-            if (_l := len(drop_path)) == 1:
-                dr1 = dr2 = drop_path[0]
-            elif _l == 2:
-                dr1, dr2 = drop_path
-                dr1 = float(dr1)
-                dr2 = float(dr2)
-            else:
-                raise AssertionError(
-                    f"`drop_path` needs to have 1 or 2 elements, got {_l} ({drop_path})."
-                )
-        else:
-            dr1 = dr2 = float(drop_path)
+        dr1, dr2 = split_drop_path(drop_path)
 
         self.drop_path1 = DropPathAdd(dr1)
         self.drop_path2 = DropPathAdd(dr2)

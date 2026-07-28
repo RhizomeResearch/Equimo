@@ -11,6 +11,7 @@ import jax.numpy as jnp
 import jax.random as jr
 
 from .._typing import PyTree
+from . import _common
 
 
 @dataclass(frozen=True)
@@ -64,24 +65,6 @@ class PTuningV2Config(PromptConfig):
     depth: Literal["shallow", "deep", "all"] = "all"
     share_across_layers: bool = False
     reparameterizer: Literal["none", "mlp"] = "none"
-
-
-@dataclass(frozen=True)
-class VPTShallowRecipe(VPTShallowConfig):
-    """Visual prompt tuning shallow recipe metadata."""
-
-    num_tokens: int = 50
-    depth: Literal["shallow"] = "shallow"
-    prompt_dropout: float = 0.0
-
-
-@dataclass(frozen=True)
-class VPTDeepRecipe(VPTDeepConfig):
-    """Visual prompt tuning deep recipe metadata."""
-
-    num_tokens: int = 10
-    depth: Literal["deep"] = "deep"
-    prompt_dropout: float = 0.0
 
 
 class PromptedModel(eqx.Module):
@@ -425,7 +408,7 @@ def _prompt_for_layer(
     if config.prompt_dropout > 0.0 and not inference:
         if prompt_key is None:
             raise ValueError("A PRNG key is required when prompt dropout is active.")
-        prompt = _dropout(prompt, config.prompt_dropout, prompt_key)
+        prompt = _common.dropout(prompt, config.prompt_dropout, prompt_key)
     return prompt
 
 
@@ -519,14 +502,6 @@ def _map_tokens(fn, x: jax.Array) -> jax.Array:
     return fn(x) if x.ndim == 1 else jax.vmap(fn)(x)
 
 
-def _call_features(model, *args, key, inference, **kwargs):
-    if not hasattr(model, "features"):
-        raise ValueError("PromptedModel requires the base model to expose features().")
-    return _call_with_optional_key(
-        model.features, *args, key=key, inference=inference, **kwargs
-    )
-
-
 def _call_model(model, *args, key, inference, **kwargs):
     return _call_with_optional_key(model, *args, key=key, inference=inference, **kwargs)
 
@@ -552,12 +527,6 @@ def _call_with_optional_key(fn, *args, key, inference, **kwargs):
             return fn(*args, **call_kwargs)
 
 
-def _dropout(x: jax.Array, rate: float, key: jax.Array) -> jax.Array:
-    keep_prob = 1.0 - rate
-    mask = jr.bernoulli(key, keep_prob, shape=x.shape)
-    return jnp.where(mask, x / keep_prob, 0)
-
-
 def _prepends_before_all(config: PromptConfig) -> bool:
     return config.prepend_to in {"before_all", "input"}
 
@@ -579,8 +548,6 @@ __all__ = (
     "PromptedModel",
     "SoftPromptConfig",
     "VPTDeepConfig",
-    "VPTDeepRecipe",
     "VPTShallowConfig",
-    "VPTShallowRecipe",
     "apply_prompts",
 )

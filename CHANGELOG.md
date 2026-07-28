@@ -3,6 +3,48 @@
 All notable changes to Equimo are documented here. Equimo follows Semantic
 Versioning from version 2.0.0 onward.
 
+## [Unreleased]
+
+### Removed
+
+- **Breaking:** unused fine-tuning API surface identified by a code audit
+  (nothing removed was exercised by documentation, examples, or tests beyond
+  its own definition): the method-profile layer (`profiles.py`,
+  `MethodProfile`, `FineTunePlan.profile`), the `*Recipe` shells duplicating
+  the real `*Config` classes (`LoRARecipe`, `DoRARecipe`, `AdapterRecipe`,
+  `VPTShallowRecipe`, `VPTDeepRecipe`, `LinearProbeRecipe`,
+  `LinearProbeConfig`, `FineTuneRecipe`, `HeadSpec`, `SAMMetadata`), the
+  `equimo.finetune.integrations` package, the `equimo.finetune.tabular`
+  package and other one-line aliases (`partition_for_training`,
+  `locked_tower`, `linear_probe`, `attention_pool_probe`,
+  `adapter_transformer_strong`, `merge_and_save`), the unused
+  `MergeMethod`/`MergePlan`/`KnOTSMerging` and `PEFTModuleMixin` protocols,
+  and `CompactLeafMap`, `TokenClassificationHead`, `TokenIndexPool`,
+  `is_layer_norm`. Method fidelity notes moved to
+  `docs/finetuning/method_defaults.md`.
+- Constructor parameters that were accepted but silently ignored: `C3(n)`,
+  `FasterNetBlock(kernel_size, padding)`, `DoubleConvBlock(norm_max_group)`,
+  `LinearAngularAttention(qk_norm)`, `RFAttentionBlock(residual_mbconv)`,
+  `ConvAttention(norm_kwargs)`, `Vssd(d_state, d_conv)`, and
+  `interpolate_antialias` on `FasterViT`/`PartialFormer`.
+- `equimo.catalog`'s runtime descriptor-validation framework and
+  `create_model` remain; the authoring contract is now enforced by tests.
+
+### Changed
+
+- **Breaking:** `save_delta` and `load_delta` accept a single, documented
+  call order: `save_delta(model, path, *, base_model=None, spec=None, ...)`
+  and `load_delta(base_model, path_or_bundle)`. The on-disk bundle format is
+  unchanged.
+- `replace_head` always validates the replacement head; the `validate_shape`
+  and `preserve_old_head_metadata` flags are removed.
+- Internal consolidation with no behavioral or checkpoint impact: shared
+  registry factories, model-variant factory, drop-path and layer-scale
+  helpers, PEFT micro-helpers and wrapper walkers, entry-based delta codec
+  drivers, feature-forward mixins, and shared ViT/Parcae embedding builders.
+  Saved-checkpoint compatibility is guarded by a new structure-signature
+  test (`tests/test_checkpoint_signature_stability.py`).
+
 ## [2.0.0] - 2026-07-15
 
 ### Added

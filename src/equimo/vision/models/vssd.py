@@ -1,30 +1,18 @@
-# ty: ignore[call-non-callable]
-# ty: ignore[too-many-positional-arguments]
-# ty: ignore[unknown-argument]
-# ty: ignore[unresolved-attribute]
 __all__ = ["Vssd"]
 
-from typing import Callable, List, Optional, Sequence, Tuple
+from typing import Callable, List, Tuple
 
 import equinox as eqx
-import jax
-import jax.random as jr
-from einops import reduce
-from jaxtyping import Array, Float, PRNGKeyArray
+from jaxtyping import PRNGKeyArray
 
-from equimo.core.intermediates import intermediate_indices
-from equimo.core.layers.activation import get_act
-from equimo.vision.layers.convolution import Stem
-from equimo.core.layers.ffn import get_ffn
-from equimo.core.layers.generic import BlockChunk
-from equimo.core.layers.norm import get_norm
 from equimo.registry import register_model
-from equimo.utils import make_drop_path_schedule, to_list
-from equimo.vision.layers import get_layer
+from equimo.utils import to_list
+from equimo.vision.models._features import TokenStemFeatures
+from equimo.vision.models.mlla import build_mlla_stack
 
 
 @register_model("vssd", modality="vision")
-class Vssd(eqx.Module):
+class Vssd(TokenStemFeatures, eqx.Module):
     """Vision Mamba with Non-Causal State Space Duality (VSSD)[1].
 
     A hybrid vision architecture that combines Mamba state space models with attention
@@ -62,8 +50,6 @@ class Vssd(eqx.Module):
         *,
         key: PRNGKeyArray,
         dim: int = 64,
-        d_state: int = 64,
-        d_conv: int = 3,
         expand: int = 2,
         patch_size: int = 4,
         depths: List[int] = [2, 4, 12, 4],
@@ -94,8 +80,6 @@ class Vssd(eqx.Module):
             in_channels: Number of input channels
             key: PRNG key for initialization
             dim: Initial model dimension
-            d_state: Dimension of Mamba state space
-            d_conv: Kernel size for Mamba convolution
             expand: Expansion factor for attention head dimension
             patch_size: Size of image patches
             depths: Number of blocks in each stage
@@ -112,134 +96,34 @@ class Vssd(eqx.Module):
             num_classes: Number of classification classes
             **kwargs: Additional arguments
         """
-        act_layer = get_act(act_layer)
-        ffn_layer = get_ffn(ffn_layer)
-        norm_layer = get_norm(norm_layer)
-
-        key_stem, key_head, *block_subkeys = jr.split(key, 2 + len(depths))
-
         n_chunks = len(depths)
-        self.num_features = int(dim * 2 ** (n_chunks - 1))
-
-        self.patch_embed = Stem(
-            in_channels=in_channels,
-            img_size=img_size,
-            patch_size=patch_size,
-            embed_dim=dim,
-            key=key_stem,
-        )
-        patches_resolution = self.patch_embed.patches_resolution
-
-        self.pos_drop = eqx.nn.Dropout(drop_rate)
-
-        dpr = make_drop_path_schedule(drop_path_rate, depths, uniform=drop_path_uniform)
-
         num_heads = to_list(num_heads, n_chunks)
-        attentions_layers = tuple(to_list(attentions_layers, n_chunks))
-        self.blocks = tuple(
-            BlockChunk(
-                depth=depth,
-                module="mllablock",
-                module_kwargs={
-                    "dim": int(dim * 2**i),
-                    "input_resolution": (
-                        patches_resolution[0] // (2**i),
-                        patches_resolution[1] // (2**i),
-                    ),
-                    "num_heads": num_heads[i],
-                    "head_dim": int(dim * 2**i) * expand // num_heads[i],
-                    "act_layer": act_layer,
-                    "use_dwc": False,
-                    "attn_layer": attentions_layers[i],
-                    "mlp_ratio": mlp_ratio,
-                    "ffn_layer": ffn_layer,
-                    "eps": eps,
-                },
-                downsampler="patchmerging" if (i < n_chunks - 1) else None,
-                downsampler_kwargs={"in_dim": int(dim * 2**i)}
-                if i < n_chunks - 1
-                else {},
-                downsample_last=True,
-                drop_path=dpr[sum(depths[:i]) : sum(depths[: i + 1])],
-                layer_resolver=get_layer,
-                key=block_subkeys[i],
-            )
-            for i, depth in enumerate(depths)
+        head_dims = [int(dim * 2**i) * expand // num_heads[i] for i in range(n_chunks)]
+        (
+            self.num_features,
+            self.patch_embed,
+            self.pos_drop,
+            self.blocks,
+            self.norm,
+            self.head,
+        ) = build_mlla_stack(
+            img_size=img_size,
+            in_channels=in_channels,
+            key=key,
+            dim=dim,
+            patch_size=patch_size,
+            depths=depths,
+            num_heads=num_heads,
+            attentions_layers=attentions_layers,
+            act_layer=act_layer,
+            ffn_layer=ffn_layer,
+            norm_layer=norm_layer,
+            drop_rate=drop_rate,
+            drop_path_rate=drop_path_rate,
+            drop_path_uniform=drop_path_uniform,
+            mlp_ratio=mlp_ratio,
+            eps=eps,
+            num_classes=num_classes,
+            use_dwc=False,
+            head_dims=head_dims,
         )
-
-        self.norm = norm_layer(self.num_features, eps=eps)
-        self.head = (
-            eqx.nn.Linear(self.num_features, num_classes, key=key_head)
-            if num_classes is not None and num_classes > 0
-            else eqx.nn.Identity()
-        )
-
-    def features(
-        self,
-        x: Float[Array, "..."],
-        key: PRNGKeyArray = jr.PRNGKey(42),
-        inference: Optional[bool] = None,
-    ) -> Float[Array, "..."]:
-        key_pd, *keys = jr.split(key, 1 + len(self.blocks))
-
-        x = self.patch_embed(x)
-        x = self.pos_drop(x, inference=inference, key=key_pd)
-        for i, blk in enumerate(self.blocks):
-            x = blk(x, inference=inference, key=keys[i])
-
-        return x
-
-    def intermediate_features(
-        self,
-        x: Float[Array, "..."],
-        key: PRNGKeyArray = jr.PRNGKey(42),
-        inference: Optional[bool] = None,
-        indices: Sequence[int] | None = None,
-        n_last_blocks: int | None = None,
-    ) -> tuple[Float[Array, "..."], ...]:
-        """Return selected native stage outputs."""
-
-        wanted = intermediate_indices(
-            len(self.blocks),
-            indices=indices,
-            n_last_blocks=n_last_blocks,
-        )
-        key_pd, *keys = jr.split(key, 1 + len(self.blocks))
-        x = self.patch_embed(x)
-        x = self.pos_drop(x, inference=inference, key=key_pd)
-        outputs = []
-        for i, blk in enumerate(self.blocks):
-            x = blk(x, inference=inference, key=keys[i])
-            if i in wanted:
-                outputs.append(x)
-        return tuple(outputs)
-
-    def __call__(
-        self,
-        x: Float[Array, "..."],
-        key: PRNGKeyArray = jr.PRNGKey(42),
-        inference: Optional[bool] = None,
-    ) -> Float[Array, "..."]:
-        """Process input image through the VSSD network.
-
-        Args:
-            x: Input image tensor
-            inference: Whether to run stochastic layers in inference mode;
-                True disables dropout and drop-path.
-            key: PRNG key for random operations
-
-        Returns:
-            Classification logits for each class
-
-        The forward pass consists of:
-        1. Patch embedding and optional dropout
-        2. Processing through multiple stages of blocks
-        3. Global average pooling
-        4. Classification head
-        """
-        x = self.features(x, inference=inference, key=key)
-        x = jax.vmap(self.norm)(x)
-        x = reduce(x, "s d -> d", "mean")
-        x = self.head(x)
-
-        return x

@@ -12,7 +12,6 @@ Utilities for locating, describing, labeling, and filtering PyTree leaves.
 - [`canonical_tags_for_path`](#equimo-finetune-canonical-tags-for-path)
 - [`extract_param_paths`](#equimo-finetune-extract-param-paths)
 - [`infer_depth`](#equimo-finetune-infer-depth)
-- [`is_layer_norm`](#equimo-finetune-is-layer-norm)
 - [`is_linear`](#equimo-finetune-is-linear)
 - [`iter_param_infos`](#equimo-finetune-iter-param-infos)
 - [`iter_param_leaves`](#equimo-finetune-iter-param-leaves)
@@ -70,18 +69,6 @@ equimo.finetune.infer_depth(path: 'Path') -> 'int | None'
 Defined in `equimo.finetune.tags`.
 
 > Infer semantic block depth from common Equimo path shapes.
-
-<!-- equimo.finetune:is_layer_norm -->
-<a id="equimo-finetune-is-layer-norm"></a>
-## `is_layer_norm`
-
-```python
-equimo.finetune.is_layer_norm(path: 'Path', node: 'Any') -> 'bool'
-```
-
-Defined in `equimo.finetune.selectors`.
-
-> Return whether ``node`` is an Equinox LayerNorm module.
 
 <!-- equimo.finetune:is_linear -->
 <a id="equimo-finetune-is-linear"></a>

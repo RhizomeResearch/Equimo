@@ -9,6 +9,7 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import jax.random as jr
+from .peft import _common
 
 
 ActivationName = Literal["gelu", "relu", "silu", "tanh", "identity"]
@@ -54,7 +55,7 @@ class LinearHead(eqx.Module):
         )
 
     def __call__(self, x: jax.Array) -> jax.Array:
-        return _apply_last_axis(self.linear, x)
+        return _common.apply_last_axis(self.linear, x)
 
 
 class LayerNormReadoutHead(eqx.Module):
@@ -74,7 +75,7 @@ class LayerNormReadoutHead(eqx.Module):
         key: jax.Array | None = None,
         inference: bool | None = True,
     ) -> jax.Array:
-        x = _apply_last_axis(self.norm, x)
+        x = _common.apply_last_axis(self.norm, x)
         return _call_head(self.head, x, key=key, inference=inference)
 
 
@@ -161,16 +162,16 @@ class MLPHead(eqx.Module):
             jr.split(key, max(len(self.layers) - 1, 1)) if key is not None else ()
         )
         for index, layer in enumerate(self.layers):
-            x = _apply_last_axis(layer, x)
+            x = _common.apply_last_axis(layer, x)
             if index == len(self.layers) - 1:
                 continue
-            x = _activation(self.activation)(x)
+            x = _common.activation(self.activation)(x)
             if self.dropout > 0.0 and not inference:
                 if key is None:
                     raise ValueError(
                         "A PRNG key is required when MLPHead dropout is active."
                     )
-                x = _dropout(x, self.dropout, dropout_keys[index])
+                x = _common.dropout(x, self.dropout, dropout_keys[index])
         return x
 
 
@@ -272,11 +273,11 @@ class AttentionPoolingClassifierHead(eqx.Module):
             )
 
         n_tokens = tokens.shape[0]
-        z = _apply_last_axis(self.input_proj, tokens)
-        z = _apply_last_axis(self.norm, z)
+        z = _common.apply_last_axis(self.input_proj, tokens)
+        z = _common.apply_last_axis(self.norm, z)
 
         q = self.query_token.reshape(self.num_heads, self.head_dim).astype(z.dtype)
-        kv = _apply_last_axis(self.kv, z)
+        kv = _common.apply_last_axis(self.kv, z)
         kv = kv.reshape(n_tokens, 2, self.num_heads, self.head_dim)
         k = jnp.transpose(kv[:, 0, :, :], (1, 0, 2))
         v = jnp.transpose(kv[:, 1, :, :], (1, 0, 2))
@@ -304,7 +305,7 @@ class AttentionPoolingClassifierHead(eqx.Module):
                     "A PRNG key is required when AttentionPoolingClassifierHead "
                     "dropout is active."
                 )
-            pooled = _dropout(pooled, self.dropout, key)
+            pooled = _common.dropout(pooled, self.dropout, key)
 
         return self.classifier(pooled)
 
@@ -422,28 +423,6 @@ class CTCHead(eqx.Module):
         return self.head(x)
 
 
-class TokenClassificationHead(eqx.Module):
-    """Token-level classification head that returns raw logits."""
-
-    head: LinearHead
-
-    def __init__(
-        self,
-        in_features: int,
-        out_features: int,
-        *,
-        key: jax.Array,
-        bias: bool = True,
-    ):
-        self.head = cast(
-            LinearHead,
-            LinearHead(in_features, out_features, key=key, bias=bias),
-        )
-
-    def __call__(self, x: jax.Array) -> jax.Array:
-        return self.head(x)
-
-
 class DenseFeatureAdapter(eqx.Module):
     """Project dense or token features along the last axis."""
 
@@ -487,14 +466,14 @@ class DenseFeatureAdapter(eqx.Module):
         key: jax.Array | None = None,
         inference: bool | None = True,
     ) -> jax.Array:
-        y = _apply_last_axis(self.projection, x)
-        y = _activation(self.activation)(y)
+        y = _common.apply_last_axis(self.projection, x)
+        y = _common.activation(self.activation)(y)
         if self.dropout > 0.0 and not inference:
             if key is None:
                 raise ValueError(
                     "A PRNG key is required when DenseFeatureAdapter dropout is active."
                 )
-            y = _dropout(y, self.dropout, key)
+            y = _common.dropout(y, self.dropout, key)
         return y
 
 
@@ -527,17 +506,6 @@ def _init_linear(
     return linear
 
 
-def _apply_last_axis(
-    module: Callable[[jax.Array], jax.Array], x: jax.Array
-) -> jax.Array:
-    if x.ndim == 1:
-        return module(x)
-    leading_shape = x.shape[:-1]
-    x_flat = x.reshape((-1, x.shape[-1]))
-    y_flat = jax.vmap(module)(x_flat)
-    return y_flat.reshape((*leading_shape, y_flat.shape[-1]))
-
-
 def _call_head(
     head: eqx.Module, x: jax.Array, *, key: jax.Array | None, inference: bool | None
 ) -> jax.Array:
@@ -550,26 +518,6 @@ def _call_head(
         if "unexpected keyword argument" not in str(error):
             raise
         return callable_head(x)
-
-
-def _activation(name: ActivationName) -> Callable[[jax.Array], jax.Array]:
-    if name == "gelu":
-        return jax.nn.gelu
-    if name == "relu":
-        return jax.nn.relu
-    if name == "silu":
-        return jax.nn.silu
-    if name == "tanh":
-        return jnp.tanh
-    if name == "identity":
-        return lambda x: x
-    raise ValueError(f"Unsupported activation {name!r}.")
-
-
-def _dropout(x: jax.Array, rate: float, key: jax.Array) -> jax.Array:
-    keep_prob = 1.0 - rate
-    mask = jr.bernoulli(key, keep_prob, shape=x.shape)
-    return jnp.where(mask, x / keep_prob, 0)
 
 
 def _logit(p: float) -> float:
@@ -589,5 +537,4 @@ __all__ = (
     "MLPHead",
     "MultiLabelHead",
     "ProjectionHead",
-    "TokenClassificationHead",
 )

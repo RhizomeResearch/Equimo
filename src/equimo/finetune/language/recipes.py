@@ -7,11 +7,10 @@ from typing import cast
 import jax
 
 from .._typing import PyTree
-from ..config import FineTunePlan, TargetSpec, TrainableSpec
+from ..config import TargetSpec
 from ..heads import ProjectionHead
 from ..peft.lora import LoRAConfig, apply_lora
 from ..peft.prefix import PrefixConfig, PrefixTunedModel, apply_prefixes
-from ..surgery import prepare_finetune
 
 
 def lora_encoder(
@@ -63,14 +62,7 @@ def projection_head(
     )
 
 
-def locked_tower(model: PyTree) -> FineTunePlan:
-    """Freeze all language tower leaves."""
-
-    return prepare_finetune(model, trainable=TrainableSpec(mode="frozen"))
-
-
 __all__ = (
-    "locked_tower",
     "lora_encoder",
     "prefix_encoder",
     "projection_head",

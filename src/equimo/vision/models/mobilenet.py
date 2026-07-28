@@ -1,12 +1,10 @@
 # ty: ignore[invalid-assignment]
-# ty: ignore[invalid-return-type]
 __all__ = ["MobileNetv3", "mobilenetv3_small", "mobilenetv3_large"]
 
 
 from typing import Optional, Sequence
 
 import equinox as eqx
-import jax
 import jax.random as jr
 from einops import reduce
 from jaxtyping import Array, Float, PRNGKeyArray
@@ -15,6 +13,7 @@ from equimo.core.intermediates import intermediate_indices
 from equimo.core.layers.activation import get_act
 from equimo.vision.layers.convolution import MBConv, SingleConvBlock
 from equimo.registry import register_model
+from equimo.core.factory import build_model_variant
 
 MNLayerConfig = tuple[int, int, int, int, bool, str]
 
@@ -185,23 +184,15 @@ def _build_mobilenet(
     key: PRNGKeyArray | None = None,
     **overrides,
 ) -> MobileNetv3:
-    if key is None:
-        key = jax.random.PRNGKey(42)
-
-    base_cfg, variant_cfg = _MOBILENET_REGISTRY[variant]
-    cfg = base_cfg | variant_cfg | overrides
-    model = MobileNetv3(**cfg, key=key)
-
-    if pretrained:
-        from equimo.serialization import load_weights
-
-        model = load_weights(
-            model,
-            identifier=variant,
-            inference_mode=inference_mode,
-        )
-
-    return model
+    return build_model_variant(
+        MobileNetv3,
+        _MOBILENET_REGISTRY,
+        variant,
+        pretrained=pretrained,
+        inference_mode=inference_mode,
+        key=key,
+        **overrides,
+    )
 
 
 def mobilenetv3_small(**kwargs) -> MobileNetv3:

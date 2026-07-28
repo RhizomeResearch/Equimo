@@ -102,11 +102,7 @@ def l2_sp_loss(
 
     resolved_config = L2SPConfig() if config is None else config
     resolved_reduction = resolved_config.reduction if reduction is None else reduction
-    entries = _matched_l2_entries(
-        model,
-        reference,
-        resolved_config,
-    )
+    entries = _matched_l2_entries(model, reference)
     shared_pairs = tuple(
         _l2_leaf(leaf, ref)
         for path, leaf, ref in entries
@@ -557,7 +553,6 @@ def _delta_spatial_axes(features_channel_last: jax.Array) -> tuple[int, ...]:
 def _matched_l2_entries(
     model: PyTree,
     reference: PyTree,
-    config: L2SPConfig,
 ) -> tuple[tuple[Path, jax.Array, jax.Array], ...]:
     model_entries = _inexact_array_entries(model)
     reference_entries = _inexact_array_entries(reference)

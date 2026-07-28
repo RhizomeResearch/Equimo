@@ -15,7 +15,7 @@ import jax.tree_util as jtu
 from .._typing import Path, PyTree
 from ..config import FineTuneBundle, FineTuneBundleError, TargetSpec, TrainableSpec
 from ..heads import ActivationName
-from ..paths import key_path_to_path, path_to_str, str_to_path
+from ..paths import path_to_str, str_to_path
 from ..selectors import resolve_target
 from ..tags import Tagger, canonical_tags_for_path
 from ._compat import (
@@ -26,8 +26,9 @@ from ._compat import (
     linear_state as _linear_state,
     linear_weight as _linear_weight,
 )
-from .base import get_path
+from .base import get_path, iter_wrappers
 from .lora import architecture_hash
+from . import _common
 
 
 AdapterPlacement = Literal["after_mlp", "parallel", "both"]
@@ -52,50 +53,6 @@ class AdapterConfig:
     pre_norm: bool = False
     train_base: bool = False
     target: TargetSpec = TargetSpec(tags_any=("block",))
-
-
-@dataclass(frozen=True)
-class AdapterRecipe:
-    """Recipe metadata for bottleneck adapter fine-tuning."""
-
-    bottleneck: int = 64
-    placement: AdapterPlacement = "after_mlp"
-    activation: ActivationName = "gelu"
-    dropout: float = 0.0
-    train_head: bool = True
-    train_norm: bool = True
-
-    @classmethod
-    def strong(
-        cls,
-        *,
-        bottleneck: int = 64,
-        placement: AdapterPlacement = "both",
-        activation: ActivationName = "gelu",
-        dropout: float = 0.0,
-        train_head: bool = True,
-        train_norm: bool = True,
-    ) -> "AdapterRecipe":
-        """Return the stronger two-placement adapter recipe preset."""
-
-        return cls(
-            bottleneck=bottleneck,
-            placement=placement,
-            activation=activation,
-            dropout=dropout,
-            train_head=train_head,
-            train_norm=train_norm,
-        )
-
-    def to_config(self) -> AdapterConfig:
-        """Convert recipe metadata to an adapter module config."""
-
-        return AdapterConfig(
-            bottleneck=self.bottleneck,
-            placement=self.placement,
-            activation=self.activation,
-            dropout=self.dropout,
-        )
 
 
 @dataclass(frozen=True)
@@ -247,9 +204,11 @@ class AdapterFusion(eqx.Module):
 
         if not adapter_outputs:
             raise ValueError("AdapterFusion requires at least one adapter output.")
-        query = _apply_last_axis(self.query, x)
+        query = _common.apply_last_axis(self.query, x)
         keys = jnp.stack(
-            tuple(_apply_last_axis(self.key, output) for output in adapter_outputs),
+            tuple(
+                _common.apply_last_axis(self.key, output) for output in adapter_outputs
+            ),
             axis=-2,
         )
         logits = jnp.sum(keys * query[..., None, :], axis=-1) / jnp.sqrt(
@@ -273,9 +232,12 @@ class AdapterFusion(eqx.Module):
                 raise ValueError(
                     "A PRNG key is required when adapter fusion dropout is active."
                 )
-            weights = _dropout(weights, self.dropout, key)
+            weights = _common.dropout(weights, self.dropout, key)
         values = jnp.stack(
-            tuple(_apply_last_axis(self.value, output) for output in adapter_outputs),
+            tuple(
+                _common.apply_last_axis(self.value, output)
+                for output in adapter_outputs
+            ),
             axis=-2,
         )
         return jnp.sum(values * weights[..., None], axis=-2)
@@ -353,16 +315,16 @@ class BottleneckAdapter(eqx.Module):
         key: jax.Array | None = None,
         inference: bool | None = True,
     ) -> jax.Array:
-        y = _apply_last_axis(self.norm, x) if self.norm is not None else x
-        y = _apply_last_axis(self.down, y)
-        y = _activation(self.activation)(y)
+        y = _common.apply_last_axis(self.norm, x) if self.norm is not None else x
+        y = _common.apply_last_axis(self.down, y)
+        y = _common.activation(self.activation)(y)
         if self.dropout > 0.0 and not inference:
             if key is None:
                 raise ValueError(
                     "A PRNG key is required when adapter dropout is active."
                 )
-            y = _dropout(y, self.dropout, key)
-        return _apply_last_axis(self.up, y) * self.residual_scale
+            y = _common.dropout(y, self.dropout, key)
+        return _common.apply_last_axis(self.up, y) * self.residual_scale
 
 
 class AdaptFormerAdapter(eqx.Module):
@@ -437,7 +399,7 @@ class SerialAdapterBlock(eqx.Module):
         y = _call_base(self.base, x, *args, key=key, inference=inference, **kwargs)
         adapters = _active_adapters(self)
         if self.adapter_fusion is not None:
-            keys = _split_optional_key(key, len(adapters) + 1)
+            keys = _common.split_optional_key(key, len(adapters) + 1)
             adapter_outputs = tuple(
                 adapter(y, key=adapter_key, inference=inference)
                 for adapter, adapter_key in zip(adapters, keys[:-1], strict=True)
@@ -448,7 +410,7 @@ class SerialAdapterBlock(eqx.Module):
                 key=keys[-1],
                 inference=inference,
             )
-        keys = _split_optional_key(key, len(adapters))
+        keys = _common.split_optional_key(key, len(adapters))
         for adapter, adapter_key in zip(adapters, keys, strict=True):
             y = y + adapter(y, key=adapter_key, inference=inference)
         return y
@@ -475,7 +437,7 @@ class OutputAdapterModule(eqx.Module):
         y = _call_base(self.base, x, *args, key=key, inference=inference, **kwargs)
         adapters = _active_adapters(self)
         if self.adapter_fusion is not None:
-            keys = _split_optional_key(key, len(adapters) + 1)
+            keys = _common.split_optional_key(key, len(adapters) + 1)
             adapter_outputs = tuple(
                 adapter(y, key=adapter_key, inference=inference)
                 for adapter, adapter_key in zip(adapters, keys[:-1], strict=True)
@@ -486,7 +448,7 @@ class OutputAdapterModule(eqx.Module):
                 key=keys[-1],
                 inference=inference,
             )
-        keys = _split_optional_key(key, len(adapters))
+        keys = _common.split_optional_key(key, len(adapters))
         for adapter, adapter_key in zip(adapters, keys, strict=True):
             y = y + adapter(y, key=adapter_key, inference=inference)
         return y
@@ -1107,19 +1069,14 @@ def iter_adapter_wrappers(
 ]:
     """Return path/wrapper pairs for adapter-wrapped blocks."""
 
-    wrapper_types = (
-        SerialAdapterBlock,
-        OutputAdapterModule,
-        ParallelAdapterBlock,
-        AdaptFormerBlock,
-    )
-    return tuple(
-        (key_path_to_path(key_path), leaf)
-        for key_path, leaf in jtu.tree_leaves_with_path(
-            model,
-            is_leaf=lambda x: isinstance(x, wrapper_types),
-        )
-        if isinstance(leaf, wrapper_types)
+    return iter_wrappers(
+        model,
+        (
+            SerialAdapterBlock,
+            OutputAdapterModule,
+            ParallelAdapterBlock,
+            AdaptFormerBlock,
+        ),
     )
 
 
@@ -1128,14 +1085,7 @@ def iter_orthogonal_adapters(
 ) -> tuple[tuple[Path, OrthogonalLinear], ...]:
     """Return path/module pairs for orthogonal linear wrappers in ``model``."""
 
-    return tuple(
-        (key_path_to_path(key_path), leaf)
-        for key_path, leaf in jtu.tree_leaves_with_path(
-            model,
-            is_leaf=lambda x: isinstance(x, OrthogonalLinear),
-        )
-        if isinstance(leaf, OrthogonalLinear)
-    )
+    return iter_wrappers(model, OrthogonalLinear)
 
 
 def _adapter_entry(
@@ -1411,18 +1361,12 @@ def _target_linear_module_paths(
     tagger: Tagger,
 ) -> tuple[Path, ...]:
     paths = {
-        _linear_module_path(info.path)
+        _common.linear_module_path(info.path)
         for info in resolve_target(model, target, tagger=tagger)
     }
     if not paths and not target.allow_empty:
         raise ValueError("TargetSpec resolved no linear modules.")
     return tuple(sorted(paths, key=path_to_str))
-
-
-def _linear_module_path(path: Path) -> Path:
-    if path[-1:] in (("weight",), ("bias",)):
-        return path[:-1]
-    return path
 
 
 def _linear_call(weight: jax.Array, bias: jax.Array | None, x: jax.Array) -> jax.Array:
@@ -1541,22 +1485,6 @@ def _apply_boft_factor_to_last_axis(
     y_blocks = jnp.einsum("...nb,nab->...na", x_blocks, blocks)
     y_perm = y_blocks.reshape(x.shape)
     return jnp.take(y_perm, inverse, axis=-1)
-
-
-def _apply_orthogonal_blocks_to_last_axis(
-    x: jax.Array,
-    skew_param: jax.Array,
-    *,
-    eps: float,
-) -> jax.Array:
-    blocks = jax.vmap(lambda block: _cayley(block, eps=eps))(skew_param)
-    block_size = blocks.shape[-1]
-    leading = x.shape[:-1]
-    if x.shape[-1] % block_size != 0:
-        raise ValueError("BOFT block_size must divide the feature axis.")
-    x_blocks = x.reshape((*leading, x.shape[-1] // block_size, block_size))
-    y_blocks = jnp.einsum("...nb,nab->...na", x_blocks, blocks)
-    return y_blocks.reshape(x.shape)
 
 
 def _cayley(skew_param: jax.Array, *, eps: float) -> jax.Array:
@@ -1835,41 +1763,10 @@ def _identity_linear(linear: eqx.nn.Linear) -> eqx.nn.Linear:
     return linear
 
 
-def _apply_last_axis(
-    module: Callable[[jax.Array], jax.Array], x: jax.Array
-) -> jax.Array:
-    if x.ndim == 1:
-        return module(x)
-    leading_shape = x.shape[:-1]
-    x_flat = x.reshape((-1, x.shape[-1]))
-    y_flat = jax.vmap(module)(x_flat)
-    return y_flat.reshape((*leading_shape, y_flat.shape[-1]))
-
-
 def _call_module(module: eqx.Module, x: jax.Array) -> jax.Array:
     if not callable(module):
         raise TypeError(f"{type(module).__name__} is not callable.")
     return cast(Callable[[jax.Array], jax.Array], module)(x)
-
-
-def _activation(name: ActivationName):
-    if name == "gelu":
-        return jax.nn.gelu
-    if name == "relu":
-        return jax.nn.relu
-    if name == "silu":
-        return jax.nn.silu
-    if name == "tanh":
-        return jnp.tanh
-    if name == "identity":
-        return lambda x: x
-    raise ValueError(f"Unsupported adapter activation {name!r}.")
-
-
-def _dropout(x: jax.Array, rate: float, key: jax.Array) -> jax.Array:
-    keep_prob = 1.0 - rate
-    mask = jr.bernoulli(key, keep_prob, shape=x.shape)
-    return jnp.where(mask, x / keep_prob, 0)
 
 
 def _call_base(base, x, *args, key, inference, **kwargs):
@@ -1887,14 +1784,6 @@ def _call_base(base, x, *args, key, inference, **kwargs):
         return base(x, *args, **call_kwargs)
 
 
-def _split_optional_key(
-    key: jax.Array | None, count: int
-) -> tuple[jax.Array | None, ...]:
-    if key is None:
-        return (None,) * count
-    return tuple(jr.split(key, count))
-
-
 def _split_pair(key: jax.Array | None) -> tuple[jax.Array | None, jax.Array | None]:
     if key is None:
         return None, None
@@ -1910,7 +1799,6 @@ __all__ = (
     "AdapterConfig",
     "AdapterFusion",
     "AdapterFusionConfig",
-    "AdapterRecipe",
     "BottleneckAdapter",
     "OrthogonalLinear",
     "OutputAdapterModule",

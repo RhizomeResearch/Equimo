@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Callable, Mapping, Protocol, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 import equinox as eqx
 import jax
@@ -70,30 +70,6 @@ class TaskVector:
     base_checkpoint_hash: str = ""
     logical_id_table_hash: str = ""
     metadata: Mapping[str, Any] = field(default_factory=dict)
-
-
-@dataclass(frozen=True)
-class MergePlan:
-    """Prepared modern merge operation."""
-
-    method: str
-    task_vectors: tuple[TaskVector, ...]
-    method_config: Mapping[str, Any] = field(default_factory=dict)
-    metadata: Mapping[str, Any] = field(default_factory=dict)
-
-
-class MergeMethod(Protocol):
-    """Common interface for data-aware or subspace-aware model mergers."""
-
-    def prepare(
-        self,
-        models: Sequence[PyTree | TaskVector],
-        artifacts: Mapping[str, Any] | None = None,
-    ) -> MergePlan:
-        """Prepare a merge plan from models or precomputed task vectors."""
-
-    def merge(self, plan: MergePlan) -> FineTuneBundle:
-        """Merge a prepared plan into a portable fine-tuning bundle."""
 
 
 @dataclass(frozen=True)
@@ -676,69 +652,6 @@ def task_vector_bundle(
     )
 
 
-@dataclass(frozen=True)
-class KnOTSMerging:
-    """KnOTS method wrapper for the common merge interface."""
-
-    config: KnOTSConfig = field(default_factory=KnOTSConfig)
-
-    def prepare(
-        self,
-        models: Sequence[PyTree | TaskVector],
-        artifacts: Mapping[str, Any] | None = None,
-    ) -> MergePlan:
-        vectors = _task_vectors_from_inputs(models, artifacts)
-        method_config = _knots_config_dict(self.config)
-        return MergePlan(
-            method="knots",
-            task_vectors=vectors,
-            method_config=method_config,
-            metadata=_knots_metadata(self.config),
-        )
-
-    def merge(self, plan: MergePlan) -> FineTuneBundle:
-        config = _knots_config_from_mapping(plan.method_config)
-        vector = knots_task_vector(plan.task_vectors, config=config)
-        return task_vector_bundle(
-            vector,
-            method=plan.method,
-            metadata=plan.metadata,
-            adapter_config={"method_config": plan.method_config},
-        )
-
-
-def _task_vectors_from_inputs(
-    models: Sequence[PyTree | TaskVector],
-    artifacts: Mapping[str, Any] | None,
-) -> tuple[TaskVector, ...]:
-    artifacts = {} if artifacts is None else artifacts
-    artifact_vectors = artifacts.get("task_vectors")
-    if artifact_vectors is not None:
-        return _task_vector_tuple(artifact_vectors)
-    if all(isinstance(model, TaskVector) for model in models):
-        return _task_vector_tuple(models)
-    base_model = artifacts.get("base_model")
-    if base_model is not None:
-        include_head = bool(artifacts.get("include_head", False))
-        return tuple(
-            task_vector(base_model, model, include_head=include_head)
-            for model in models
-        )
-    raise ValueError(
-        "Modern merge preparation requires TaskVector inputs, "
-        "artifacts['task_vectors'], or artifacts['base_model']."
-    )
-
-
-def _task_vector_tuple(vectors: Sequence[Any]) -> tuple[TaskVector, ...]:
-    resolved = tuple(vectors)
-    if not resolved:
-        raise ValueError("Modern merge preparation requires at least one task vector.")
-    if not all(isinstance(vector, TaskVector) for vector in resolved):
-        raise TypeError("task_vectors must contain only TaskVector instances.")
-    return resolved
-
-
 def _merged_task_vector(
     vectors: Sequence[TaskVector],
     merged: PyTree,
@@ -821,26 +734,6 @@ def _knots_metadata(config: KnOTSConfig) -> dict[str, Any]:
         "orientation": config.orientation,
         "non_matrix_policy": config.non_matrix_policy,
     }
-
-
-def _knots_config_dict(config: KnOTSConfig) -> dict[str, Any]:
-    return {
-        "rank": config.rank,
-        "orientation": config.orientation,
-        "basis_policy": config.basis_policy,
-        "non_matrix_policy": config.non_matrix_policy,
-        "require_same_base_hash": config.require_same_base_hash,
-    }
-
-
-def _knots_config_from_mapping(config: Mapping[str, Any]) -> KnOTSConfig:
-    return KnOTSConfig(
-        rank=config.get("rank"),
-        orientation=str(config.get("orientation", "out_in")),
-        basis_policy=str(config.get("basis_policy", "shared_left_svd")),
-        non_matrix_policy=str(config.get("non_matrix_policy", "mean")),
-        require_same_base_hash=bool(config.get("require_same_base_hash", True)),
-    )
 
 
 def _greedy_soup_from_best(
@@ -1353,9 +1246,6 @@ __all__ = (
     "TaskVector",
     "TaskVectorConfig",
     "KnOTSConfig",
-    "KnOTSMerging",
-    "MergeMethod",
-    "MergePlan",
     "TIESConfig",
     "UniformSoupConfig",
     "WiSEFTConfig",

@@ -36,3 +36,34 @@
 | Fisher merge | diagonal Fisher-weighted averaging |
 | RegMean | ridge 1e-5, external input covariances |
 | SAM/ASAM | metadata only, optimizer remains external |
+
+## Method fidelity notes
+
+Default-config fidelity relative to the reference implementations cited in
+[references](references.md). "paper-exact" means the default configuration
+reproduces the paper's method; "reference implementation" means it follows the
+authors' released code; "safe default" means Equimo deliberately deviates for
+identity-safe initialization or robustness.
+
+| Method | Fidelity of defaults | Primary references | Notable default deviation |
+|---|---|---|---|
+| AdaptFormer | paper-exact | Chen et al. 2022 | none with `AdaptFormerConfig.paper_chen2022()` |
+| Bottleneck adapters (Houlsby) | safe default | Houlsby et al. 2019; adapter-bert | Kaiming down / zero up init instead of small truncated-normal for both projections |
+| AdapterFusion | reference implementation | Pfeiffer et al. 2021 | none |
+| VPT (deep and shallow) | reference implementation | Jia et al. 2022 | none |
+| Soft prompts | safe default | Lester et al. 2021 | shallow input-prepended prompts |
+| P-tuning v2 | safe default | Liu et al. 2022 | none for default depth="all" |
+| Prefix tuning | reference implementation | Li and Liang 2021 | projected K/V prefix state |
+| IA3 | reference implementation | Liu et al. 2022 (T-Few) | none |
+| SSF (scale/shift) | reference implementation | Lian et al. 2022 | none |
+| LoRA | safe default (`lora.equimo_default`) / reference for Q,V-only targeting | Hu et al. 2021 | default targets qkv+proj rather than the paper's Q,V-only |
+| rsLoRA | reference implementation | Kalajdzievski 2023 | alpha over sqrt(rank) scaling |
+| PiSSA | reference implementation with full SVD; experimental with randomized SVD | Meng et al. 2024 | exactness requires `svd="full"`, `niter=0` |
+| LoRA-FA | reference implementation | Zhang et al. 2026 (v3, corrected B-gradient) | frozen-A custom VJP |
+| VeRA | safe default | Kopiczko et al. 2024 | shape-compatible frozen random bases; exactness requires a pinned seed |
+| DoRA | paper-exact (`paper_equation`) / reference (NVlabs) | Liu et al. 2024 | magnitude taken over the merged weight norm |
+| EVA initializer | reference implementation | Paischer et al. 2024 | requires activation-SVD calibration artifacts |
+| FourierFT | reference implementation | Gao et al. 2024 | exactness requires an explicit frequency seed |
+| OFT | reference implementation | Qiu et al. 2023 | Cayley parameterization |
+| BOFT | reference implementation | Liu et al. 2024 | butterfly-factored Cayley; requires explicit block size |
+| RandLoRA | reference implementation | Albert et al. 2025 | serialized frozen random bases |

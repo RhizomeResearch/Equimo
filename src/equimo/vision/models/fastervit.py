@@ -138,8 +138,7 @@ class BlockChunk(eqx.Module):
                     "Using a downsampler requires passing a `dim` argument."
                 )
 
-        # self.reshape = block is not ConvBlock
-        self.reshape = True  # TODO
+        self.reshape = True
         self.downsampler_contains_dropout = downsampler_contains_dropout
         self.is_hat = block is HATBlock
         self.ct_size = ct_size
@@ -326,7 +325,6 @@ class FasterViT(eqx.Module):
         do_propagation: bool = False,
         global_pool: Literal["", "token", "avg", "avgmax", "max"] = "avg",
         num_classes: int | None = 1000,
-        interpolate_antialias: bool = False,
         **kwargs,
     ):
         act_layer = get_act(act_layer)

@@ -2,29 +2,29 @@
 
 # `equimo.finetune` API reference
 
-This reference covers all 317 names exported by `equimo.finetune.__all__`.
+This reference covers all 268 names exported by `equimo.finetune.__all__`.
 Signatures and defaults are generated from the installed source objects.
 See the [fine-tuning overview](../index.md) for task-oriented guides.
 
 ## [Configs and plans](configs-plans.md)
 
-Configuration records, plan metadata, and the core public typing aliases. (33 symbols)
+Configuration records, plan metadata, and the core public typing aliases. (28 symbols)
 
 ## [Selectors, paths, labels, and tags](selectors-tags.md)
 
-Utilities for locating, describing, labeling, and filtering PyTree leaves. (18 symbols)
+Utilities for locating, describing, labeling, and filtering PyTree leaves. (17 symbols)
 
 ## [Heads, pooling, and feature extraction](heads-pooling.md)
 
-Task heads, pooling modules, probes, and feature-extraction helpers. (31 symbols)
+Task heads, pooling modules, probes, and feature-extraction helpers. (29 symbols)
 
 ## [Parameter-efficient fine-tuning](peft.md)
 
-Public adapters, LoRA-family methods, prompts, prefixes, and related surgery. (113 symbols)
+Public adapters, LoRA-family methods, prompts, prefixes, and related surgery. (108 symbols)
 
 ## [Recipes and profiles](recipes-profiles.md)
 
-Fine-tuning recipes, staged workflows, and declared fidelity profiles. (56 symbols)
+Fine-tuning recipes, staged workflows, and declared fidelity profiles. (26 symbols)
 
 ## [Regularization](regularization.md)
 
@@ -32,16 +32,16 @@ Regularization configurations, losses, and feature-tap helpers. (18 symbols)
 
 ## [Model merging](merging.md)
 
-Model soups, task vectors, and modern model-merging methods. (26 symbols)
+Model soups, task vectors, and modern model-merging methods. (23 symbols)
 
 ## [Serialization](serialization.md)
 
-Fine-tuning bundle and delta persistence helpers. (7 symbols)
+Fine-tuning bundle and delta persistence helpers. (6 symbols)
 
 ## [Modality and integration namespaces](integrations.md)
 
-Public audio, language, tabular, and vision modality namespaces. (4 symbols)
+Public audio, language, tabular, and vision modality namespaces. (3 symbols)
 
 ## [Inspection and model surgery](inspection-surgery.md)
 
-Plan inspection and general model-surgery utilities. (11 symbols)
+Plan inspection and general model-surgery utilities. (10 symbols)

@@ -1,64 +1,18 @@
-from typing import Callable, Optional
+from typing import Optional
 
 import equinox as eqx
 import jax.numpy as jnp
 from jax import lax
 from jaxtyping import Array, Float
+from equimo.core.layers._registry import make_get, make_register
 
 _NORM_REGISTRY: dict[str, type[eqx.Module]] = {}
 
 
-def register_norm(
-    name: Optional[str] = None,
-    force: bool = False,
-) -> Callable[[type[eqx.Module]], type[eqx.Module]]:
-    """Decorator to dynamically register new norm modules.
-
-    Why collision checking: Prevents third-party extensions from silently
-    overwriting core layers, which can silently corrupt the computational graph.
-
-    Args:
-        name: Registry key. Defaults to the lowercase class name.
-        force: If True, allow overwriting an existing entry. Default False.
-    """
-
-    def decorator(cls: type[eqx.Module]) -> type[eqx.Module]:
-        if not issubclass(cls, eqx.Module):
-            raise TypeError(
-                f"Registered class must be a subclass of eqx.Module, got {type(cls)}"
-            )
-
-        registry_name = name.lower() if name else cls.__name__.lower()
-
-        if registry_name in _NORM_REGISTRY and not force:
-            raise ValueError(
-                f"Cannot register '{registry_name}'. It is already registered "
-                f"to {_NORM_REGISTRY[registry_name]}."
-            )
-
-        _NORM_REGISTRY[registry_name] = cls
-        return cls
-
-    return decorator
+register_norm = make_register(_NORM_REGISTRY)
 
 
-def get_norm(module: str | type[eqx.Module]) -> type[eqx.Module]:
-    """Get a norm `eqx.Module` class from its registered name.
-
-    This is necessary because configs have to be stringified and stored as
-    json files to allow (de)serialization.
-    """
-    if not isinstance(module, str):
-        return module
-
-    module_lower = module.lower()
-    if module_lower not in _NORM_REGISTRY:
-        raise ValueError(
-            f"Got an unknown module string: '{module}'. "
-            f"Available modules: {list(_NORM_REGISTRY.keys())}"
-        )
-
-    return _NORM_REGISTRY[module_lower]
+get_norm = make_get(_NORM_REGISTRY)
 
 
 @register_norm()
@@ -166,6 +120,18 @@ class LayerScale(eqx.Module):
         scale = self.gamma.reshape(shape).astype(x.dtype)
 
         return x * scale
+
+
+def maybe_layer_scale(
+    dim: int,
+    *,
+    init_values: float | None,
+    axis: int = 0,
+) -> eqx.Module:
+    """Return a ``LayerScale`` when ``init_values`` is set, else ``Identity``."""
+    if init_values is None:
+        return eqx.nn.Identity()
+    return LayerScale(dim, axis=axis, init_values=init_values)
 
 
 @register_norm(name="dynamictanh")

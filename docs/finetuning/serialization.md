@@ -10,11 +10,10 @@ bundle = eqft.save_delta(model, "delta.eqft", method="lora")
 loaded = eqft.load_delta(base_model, "delta.eqft")
 ```
 
-The spec-style order is also accepted:
+Attach base-model lineage and the applied spec as metadata:
 
 ```python
-bundle = eqft.save_delta("delta.eqft", model, base_model, spec)
-loaded = eqft.load_delta("delta.eqft", base_model)
+bundle = eqft.save_delta(model, "delta.eqft", base_model=base_model, spec=spec)
 ```
 
 Loading checks architecture hashes and target shapes. Incompatible bases raise

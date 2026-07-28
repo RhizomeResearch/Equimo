@@ -10,7 +10,6 @@ Public audio, language, tabular, and vision modality namespaces.
 
 - [`audio`](#equimo-finetune-audio)
 - [`language`](#equimo-finetune-language)
-- [`tabular`](#equimo-finetune-tabular)
 - [`vision`](#equimo-finetune-vision)
 
 <!-- equimo.finetune:audio -->
@@ -37,18 +36,6 @@ Defined in `equimo.finetune.language`.
 
 > Language fine-tuning selectors and recipes.
 
-<!-- equimo.finetune:tabular -->
-<a id="equimo-finetune-tabular"></a>
-## `tabular`
-
-```python
-module equimo.finetune.tabular
-```
-
-Defined in `equimo.finetune.tabular`.
-
-> Tabular fine-tuning recipes.
-
 <!-- equimo.finetune:vision -->
 <a id="equimo-finetune-vision"></a>
 ## `vision`
@@ -59,4 +46,4 @@ module equimo.finetune.vision
 
 Defined in `equimo.finetune.vision`.
 
-> Vision fine-tuning selectors, dense utilities, prompts, and recipes.
+> Vision fine-tuning dense-feature utilities.

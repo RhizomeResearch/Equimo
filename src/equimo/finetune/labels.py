@@ -42,7 +42,7 @@ def make_labeled_param_info_tree(
     """Build a ``ParamInfo`` tree with trainability, labels, and group specs."""
 
     config = LLRDConfig(decay=1.0) if llrd_config is None else llrd_config
-    all_depths = _all_depths(model, config, tagger=tagger)
+    all_depths = _all_depths(model, config)
     selected_depths = _selected_depths(
         model,
         trainable_paths,
@@ -207,8 +207,6 @@ def _lr_multiplier(
 def _all_depths(
     model: PyTree,
     config: LLRDConfig,
-    *,
-    tagger: Tagger,
 ) -> tuple[int, ...]:
     filtered = eqx.filter(model, eqx.is_inexact_array)
     depths: set[int] = set()
@@ -230,7 +228,7 @@ def _selected_depths(
     tagger: Tagger,
 ) -> tuple[int, ...]:
     if trainable_paths is None:
-        return _all_depths(model, config, tagger=tagger)
+        return _all_depths(model, config)
 
     filtered = eqx.filter(model, eqx.is_inexact_array)
     depths: set[int] = set()

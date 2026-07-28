@@ -103,7 +103,6 @@ def convert_params_from_torch(
 
     # Extract the parameters from the defined Jax model
     jax_params = eqx.filter(jax_model, eqx.is_array)
-    # _, jax_params, _ = nnx.split(jax_model, nnx.Param, ...)
     jax_params_flat, jax_param_pytree = jax.tree_util.tree_flatten_with_path(jax_params)
 
     torch_params_flat = []
