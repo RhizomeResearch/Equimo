@@ -824,7 +824,7 @@ def _extract_scale_shift_delta(model: PyTree) -> FineTuneBundle:
     )
 
 
-def _build_scale_shift_wrapper(base: Any, entry: dict[str, Any]) -> ScaleShiftWrapper:
+def _build_scale_shift_wrapper(base: Any, entry: dict[str, Any]) -> Any:
     dim = int(entry["scale"].shape[0])
     if entry["scale"].shape != entry["shift"].shape:
         raise FineTuneBundleError(
@@ -884,7 +884,7 @@ def _extract_ia3_delta(model: PyTree) -> FineTuneBundle:
     )
 
 
-def _build_ia3_wrapper(base: Any, entry: dict[str, Any]) -> IA3Linear:
+def _build_ia3_wrapper(base: Any, entry: dict[str, Any]) -> Any:
     if not isinstance(base, eqx.nn.Linear):
         raise FineTuneBundleError(
             f"IA3 delta expects linear module at {entry['path']}, "
@@ -954,7 +954,7 @@ def _extract_vera_delta(model: PyTree) -> FineTuneBundle:
     )
 
 
-def _build_vera_wrapper(base: Any, entry: dict[str, Any]) -> VeRALinear:
+def _build_vera_wrapper(base: Any, entry: dict[str, Any]) -> Any:
     if not isinstance(base, eqx.nn.Linear):
         raise FineTuneBundleError(
             f"VeRA delta expects linear module at {entry['path']}, "
@@ -1031,7 +1031,7 @@ def _extract_dora_delta(model: PyTree) -> FineTuneBundle:
     )
 
 
-def _build_dora_wrapper(base: Any, entry: dict[str, Any]) -> DoRALinear:
+def _build_dora_wrapper(base: Any, entry: dict[str, Any]) -> Any:
     if not isinstance(base, eqx.nn.Linear):
         raise FineTuneBundleError(
             f"DoRA delta expects linear module at {entry['path']}, "
