@@ -32,15 +32,12 @@ Defined in `equimo.finetune.serialization`.
 ## `load_delta`
 
 ```python
-equimo.finetune.load_delta(*args) -> 'PyTree'
+equimo.finetune.load_delta(base_model: 'PyTree', path_or_bundle: 'str | Path | FineTuneBundle') -> 'PyTree'
 ```
 
 Defined in `equimo.finetune.serialization`.
 
 > Load a delta bundle into a compatible base model.
->
-> Both ``load_delta(base_model, path_or_bundle)`` and the spec-style
-> ``load_delta(path_or_bundle, base_model)`` call order are accepted.
 
 <!-- equimo.finetune:load_finetune_bundle -->
 <a id="equimo-finetune-load-finetune-bundle"></a>
@@ -71,19 +68,17 @@ Defined in `equimo.finetune.serialization`.
 ## `save_delta`
 
 ```python
-equimo.finetune.save_delta(*args, method: 'str' = 'lora', metadata: 'dict[str, Any] | None' = None, model_state: 'Any | None' = None, recalibration_required: 'bool | None' = None, model: 'PyTree | None' = None, path: 'str | Path | None' = None, base_model: 'PyTree | None' = None, spec: 'Any | None' = None, feature_spec: 'FeatureSpec | None' = None) -> 'FineTuneBundle'
+equimo.finetune.save_delta(model: 'PyTree', path: 'str | Path', *, base_model: 'PyTree | None' = None, spec: 'Any | None' = None, method: 'str' = 'lora', metadata: 'dict[str, Any] | None' = None, model_state: 'Any | None' = None, recalibration_required: 'bool | None' = None, feature_spec: 'FeatureSpec | None' = None) -> 'FineTuneBundle'
 ```
 
 Defined in `equimo.finetune.serialization`.
 
 > Save a method delta bundle and return the saved bundle.
 >
-> ``save_delta(model, path, ...)``, ``save_delta(path, model, base_model, spec)``,
-> and the spec-style ``save_delta(path, model=..., base_model=..., spec=...)``
-> call orders are accepted. ``base_model`` and ``spec`` are metadata inputs;
-> optimizers remain external. ``model_state`` must be a bundle-serializable
-> snapshot when supplied; otherwise use ``recalibration_required=True`` for
-> exports whose state must be recalibrated before evaluation.
+> ``base_model`` and ``spec`` are metadata inputs; optimizers remain
+> external. ``model_state`` must be a bundle-serializable snapshot when
+> supplied; otherwise use ``recalibration_required=True`` for exports whose
+> state must be recalibrated before evaluation.
 
 <!-- equimo.finetune:save_finetune_bundle -->
 <a id="equimo-finetune-save-finetune-bundle"></a>

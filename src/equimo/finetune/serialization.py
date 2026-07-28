@@ -110,34 +110,29 @@ _SPOOL_MEMORY_BYTES = 64 * 1024 * 1024
 
 
 def save_delta(
-    *args,
+    model: PyTree,
+    path: str | Path,
+    *,
+    base_model: PyTree | None = None,
+    spec: Any | None = None,
     method: str = "lora",
     metadata: dict[str, Any] | None = None,
     model_state: Any | None = None,
     recalibration_required: bool | None = None,
-    model: PyTree | None = None,
-    path: str | Path | None = None,
-    base_model: PyTree | None = None,
-    spec: Any | None = None,
     feature_spec: FeatureSpec | None = None,
 ) -> FineTuneBundle:
     """Save a method delta bundle and return the saved bundle.
 
-    ``save_delta(model, path, ...)``, ``save_delta(path, model, base_model, spec)``,
-    and the spec-style ``save_delta(path, model=..., base_model=..., spec=...)``
-    call orders are accepted. ``base_model`` and ``spec`` are metadata inputs;
-    optimizers remain external. ``model_state`` must be a bundle-serializable
-    snapshot when supplied; otherwise use ``recalibration_required=True`` for
-    exports whose state must be recalibrated before evaluation.
+    ``base_model`` and ``spec`` are metadata inputs; optimizers remain
+    external. ``model_state`` must be a bundle-serializable snapshot when
+    supplied; otherwise use ``recalibration_required=True`` for exports whose
+    state must be recalibrated before evaluation.
     """
 
-    model, path, resolved_base_model, resolved_spec = _resolve_save_delta_args(
-        args,
-        model=model,
-        path=path,
-        base_model=base_model,
-        spec=spec,
-    )
+    if not isinstance(path, (str, Path)):
+        raise TypeError("save_delta path must be a str or pathlib.Path.")
+    resolved_base_model = base_model
+    resolved_spec = spec
 
     codec = _codec_for_save(method)
     bundle = codec.extract(model)
@@ -167,15 +162,11 @@ def save_delta(
 
 
 def load_delta(
-    *args,
+    base_model: PyTree,
+    path_or_bundle: str | Path | FineTuneBundle,
 ) -> PyTree:
-    """Load a delta bundle into a compatible base model.
+    """Load a delta bundle into a compatible base model."""
 
-    Both ``load_delta(base_model, path_or_bundle)`` and the spec-style
-    ``load_delta(path_or_bundle, base_model)`` call order are accepted.
-    """
-
-    base_model, path_or_bundle = _resolve_load_delta_args(args)
     bundle = (
         path_or_bundle
         if isinstance(path_or_bundle, FineTuneBundle)
@@ -1108,92 +1099,6 @@ def _iter_wrappers(model: PyTree, wrapper_type: type):
         )
         if isinstance(leaf, wrapper_type)
     )
-
-
-def _resolve_save_delta_args(
-    args,
-    *,
-    model: PyTree | None,
-    path: str | Path | None,
-    base_model: PyTree | None,
-    spec: Any | None,
-) -> tuple[PyTree, str | Path, PyTree | None, Any | None]:
-    resolved_model = model
-    resolved_path = path
-    resolved_base_model = base_model
-    resolved_spec = spec
-
-    if len(args) > 4:
-        raise TypeError("save_delta accepts at most four positional arguments.")
-
-    if args:
-        if _is_pathlike(args[0]):
-            if resolved_path is not None:
-                raise TypeError(
-                    "save_delta path was provided both positionally and by keyword."
-                )
-            resolved_path = args[0]
-            if len(args) >= 2:
-                if resolved_model is not None:
-                    raise TypeError(
-                        "save_delta model was provided both positionally and by keyword."
-                    )
-                resolved_model = args[1]
-            if len(args) >= 3:
-                if resolved_base_model is not None:
-                    raise TypeError(
-                        "save_delta base_model was provided both positionally and by keyword."
-                    )
-                resolved_base_model = args[2]
-            if len(args) >= 4:
-                if resolved_spec is not None:
-                    raise TypeError(
-                        "save_delta spec was provided both positionally and by keyword."
-                    )
-                resolved_spec = args[3]
-        else:
-            if resolved_model is not None:
-                raise TypeError(
-                    "save_delta model was provided both positionally and by keyword."
-                )
-            resolved_model = args[0]
-            if len(args) >= 2:
-                if resolved_path is not None:
-                    raise TypeError(
-                        "save_delta path was provided both positionally and by keyword."
-                    )
-                resolved_path = args[1]
-            if len(args) >= 3:
-                if resolved_base_model is not None:
-                    raise TypeError(
-                        "save_delta base_model was provided both positionally and by keyword."
-                    )
-                resolved_base_model = args[2]
-            if len(args) >= 4:
-                if resolved_spec is not None:
-                    raise TypeError(
-                        "save_delta spec was provided both positionally and by keyword."
-                    )
-                resolved_spec = args[3]
-
-    if resolved_model is None or resolved_path is None:
-        raise TypeError("save_delta requires a model and path.")
-    if not _is_pathlike(resolved_path):
-        raise TypeError("save_delta path must be a str or pathlib.Path.")
-    return resolved_model, resolved_path, resolved_base_model, resolved_spec
-
-
-def _resolve_load_delta_args(args) -> tuple[PyTree, str | Path | FineTuneBundle]:
-    if len(args) != 2:
-        raise TypeError("load_delta requires a base model and path_or_bundle.")
-    first, second = args
-    if _is_pathlike(first) or isinstance(first, FineTuneBundle):
-        return second, first
-    return first, second
-
-
-def _is_pathlike(value: Any) -> bool:
-    return isinstance(value, (str, Path))
 
 
 def _enrich_bundle(
