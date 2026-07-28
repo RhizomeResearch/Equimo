@@ -9,7 +9,7 @@ from importlib import metadata as package_metadata
 from pathlib import Path
 import tarfile
 import tempfile
-from typing import Any, BinaryIO, Mapping, cast, get_args
+from typing import Any, BinaryIO, Callable, Mapping, cast, get_args
 import warnings
 
 import equinox as eqx
@@ -750,280 +750,326 @@ def _prefix_projection_from_state(state: dict[str, Any]) -> PrefixProjection:
     )
 
 
-def _extract_scale_shift_delta(model: PyTree) -> FineTuneBundle:
+def _extract_entry_delta(
+    model: PyTree,
+    *,
+    method: str,
+    wrapper_type: type,
+    entry_fn: Callable[[Any], dict[str, Any]],
+    strip_inline: bool = True,
+    architecture_model_fn: Callable[[PyTree], PyTree] | None = None,
+) -> FineTuneBundle:
+    """Extract an entry-per-wrapper delta bundle.
+
+    ``entry_fn`` maps a wrapper to its payload dict (the ``path`` key is added
+    here). The architecture hash is computed over the inline-stripped tree, or
+    over ``architecture_model_fn(model)`` when provided.
+    """
+
     entries = []
     stripped = model
-    for path, wrapper in _iter_wrappers(model, ScaleShiftWrapper):
-        entries.append(
-            {
-                "path": path_to_str(path),
-                "scale": wrapper.scale_shift.scale,
-                "shift": wrapper.scale_shift.shift,
-                "axis": wrapper.scale_shift.axis,
-                "mergeable": wrapper.mergeable,
-            }
-        )
-        stripped = eqx.tree_at(
-            lambda tree, p=path: get_path(tree, p), stripped, wrapper.base
-        )
+    for path, wrapper in _iter_wrappers(model, wrapper_type):
+        entries.append({"path": path_to_str(path), **entry_fn(wrapper)})
+        if strip_inline:
+            stripped = eqx.tree_at(
+                lambda tree, p=path: get_path(tree, p), stripped, wrapper.base
+            )
+    hashed = stripped if architecture_model_fn is None else architecture_model_fn(model)
     return FineTuneBundle(
-        method="scale_shift",
+        method=method,
         schema_version=1,
-        architecture_hash=architecture_hash(stripped),
+        architecture_hash=architecture_hash(hashed),
         adapter_config={"entries": entries},
+    )
+
+
+def _load_entry_delta(
+    base_model: PyTree,
+    bundle: FineTuneBundle,
+    *,
+    method_name: str,
+    build_fn: Callable[[Any, dict[str, Any]], Any],
+) -> PyTree:
+    """Load an entry-per-wrapper delta bundle.
+
+    ``build_fn`` validates the target module against the entry and returns the
+    reconstructed wrapper to insert at the entry's path.
+    """
+
+    _check_hash(base_model, bundle, method_name)
+    updated = base_model
+    for entry in bundle.adapter_config.get("entries", ()):
+        path = str_to_path(entry["path"])
+        base = _bundle_get_path(updated, path, method_name=method_name)
+        wrapper = build_fn(base, entry)
+        updated = eqx.tree_at(lambda tree, p=path: get_path(tree, p), updated, wrapper)
+    return updated
+
+
+def _scale_shift_entry(wrapper: ScaleShiftWrapper) -> dict[str, Any]:
+    return {
+        "scale": wrapper.scale_shift.scale,
+        "shift": wrapper.scale_shift.shift,
+        "axis": wrapper.scale_shift.axis,
+        "mergeable": wrapper.mergeable,
+    }
+
+
+def _extract_scale_shift_delta(model: PyTree) -> FineTuneBundle:
+    return _extract_entry_delta(
+        model,
+        method="scale_shift",
+        wrapper_type=ScaleShiftWrapper,
+        entry_fn=_scale_shift_entry,
+    )
+
+
+def _build_scale_shift_wrapper(base: Any, entry: dict[str, Any]) -> ScaleShiftWrapper:
+    dim = int(entry["scale"].shape[0])
+    if entry["scale"].shape != entry["shift"].shape:
+        raise FineTuneBundleError(
+            f"Scale/shift delta expects matching scale and shift shapes at "
+            f"{entry['path']}, got {entry['scale'].shape} and {entry['shift'].shape}."
+        )
+    expected_dim = _scale_shift_dim(base)
+    if dim != expected_dim:
+        raise FineTuneBundleError(
+            f"Scale/shift delta expects path {entry['path']} with feature "
+            f"dimension {dim}, got {expected_dim}."
+        )
+    return ScaleShiftWrapper(
+        base,
+        ScaleShift(
+            dim,
+            axis=entry["axis"],
+            scale=entry["scale"],
+            shift=entry["shift"],
+        ),
+        mergeable=bool(entry.get("mergeable", True)),
     )
 
 
 def _load_scale_shift_delta(base_model: PyTree, bundle: FineTuneBundle) -> PyTree:
-    _check_hash(base_model, bundle, "Scale/shift")
-    updated = base_model
-    for entry in bundle.adapter_config.get("entries", ()):
-        path = str_to_path(entry["path"])
-        base = _bundle_get_path(updated, path, method_name="Scale/shift")
-        dim = int(entry["scale"].shape[0])
-        if entry["scale"].shape != entry["shift"].shape:
-            raise FineTuneBundleError(
-                f"Scale/shift delta expects matching scale and shift shapes at "
-                f"{entry['path']}, got {entry['scale'].shape} and {entry['shift'].shape}."
-            )
-        expected_dim = _scale_shift_dim(base)
-        if dim != expected_dim:
-            raise FineTuneBundleError(
-                f"Scale/shift delta expects path {entry['path']} with feature "
-                f"dimension {dim}, got {expected_dim}."
-            )
-        wrapper = ScaleShiftWrapper(
-            base,
-            ScaleShift(
-                dim,
-                axis=entry["axis"],
-                scale=entry["scale"],
-                shift=entry["shift"],
-            ),
-            mergeable=bool(entry.get("mergeable", True)),
-        )
-        updated = eqx.tree_at(lambda tree, p=path: get_path(tree, p), updated, wrapper)
-    return updated
+    return _load_entry_delta(
+        base_model,
+        bundle,
+        method_name="Scale/shift",
+        build_fn=_build_scale_shift_wrapper,
+    )
+
+
+def _ia3_entry(wrapper: IA3Linear) -> dict[str, Any]:
+    return {
+        "ia3": wrapper.ia3,
+        "mergeable": wrapper.mergeable,
+        "weight_shape": tuple(wrapper.base.weight.shape),
+        "projection_segments": tuple(
+            {
+                "name": segment.name,
+                "axis": segment.axis,
+                "start": segment.start,
+                "stop": segment.stop,
+            }
+            for segment in wrapper.projection_segments
+        ),
+    }
 
 
 def _extract_ia3_delta(model: PyTree) -> FineTuneBundle:
-    entries = []
-    stripped = model
-    for path, wrapper in _iter_wrappers(model, IA3Linear):
-        entries.append(
-            {
-                "path": path_to_str(path),
-                "ia3": wrapper.ia3,
-                "mergeable": wrapper.mergeable,
-                "weight_shape": tuple(wrapper.base.weight.shape),
-                "projection_segments": tuple(
-                    {
-                        "name": segment.name,
-                        "axis": segment.axis,
-                        "start": segment.start,
-                        "stop": segment.stop,
-                    }
-                    for segment in wrapper.projection_segments
-                ),
-            }
-        )
-        stripped = eqx.tree_at(
-            lambda tree, p=path: get_path(tree, p), stripped, wrapper.base
-        )
-    return FineTuneBundle(
+    return _extract_entry_delta(
+        model,
         method="ia3",
-        schema_version=1,
-        architecture_hash=architecture_hash(stripped),
-        adapter_config={"entries": entries},
+        wrapper_type=IA3Linear,
+        entry_fn=_ia3_entry,
+    )
+
+
+def _build_ia3_wrapper(base: Any, entry: dict[str, Any]) -> IA3Linear:
+    if not isinstance(base, eqx.nn.Linear):
+        raise FineTuneBundleError(
+            f"IA3 delta expects linear module at {entry['path']}, "
+            f"got {type(base).__name__}."
+        )
+    if tuple(base.weight.shape) != tuple(entry["weight_shape"]):
+        raise FineTuneBundleError(
+            f"IA3 delta expects path {entry['path']} with shape "
+            f"{entry['weight_shape']}, got {tuple(base.weight.shape)}."
+        )
+    projection_segments = _ia3_projection_segments(entry)
+    expected_dim = _ia3_dim(base, projection_segments)
+    if tuple(entry["ia3"].shape) != (expected_dim,):
+        raise FineTuneBundleError(
+            f"IA3 delta expects path {entry['path']} with scale shape "
+            f"({expected_dim},), got {tuple(entry['ia3'].shape)}."
+        )
+    return IA3Linear(
+        base,
+        ia3=entry["ia3"],
+        projection_segments=projection_segments,
+        mergeable=bool(entry.get("mergeable", True)),
     )
 
 
 def _load_ia3_delta(base_model: PyTree, bundle: FineTuneBundle) -> PyTree:
-    _check_hash(base_model, bundle, "IA3")
-    updated = base_model
-    for entry in bundle.adapter_config.get("entries", ()):
-        path = str_to_path(entry["path"])
-        base = _bundle_get_path(updated, path, method_name="IA3")
-        if not isinstance(base, eqx.nn.Linear):
-            raise FineTuneBundleError(
-                f"IA3 delta expects linear module at {entry['path']}, "
-                f"got {type(base).__name__}."
-            )
-        if tuple(base.weight.shape) != tuple(entry["weight_shape"]):
-            raise FineTuneBundleError(
-                f"IA3 delta expects path {entry['path']} with shape "
-                f"{entry['weight_shape']}, got {tuple(base.weight.shape)}."
-            )
-        projection_segments = _ia3_projection_segments(entry)
-        expected_dim = _ia3_dim(base, projection_segments)
-        if tuple(entry["ia3"].shape) != (expected_dim,):
-            raise FineTuneBundleError(
-                f"IA3 delta expects path {entry['path']} with scale shape "
-                f"({expected_dim},), got {tuple(entry['ia3'].shape)}."
-            )
-        wrapper = IA3Linear(
-            base,
-            ia3=entry["ia3"],
-            projection_segments=projection_segments,
-            mergeable=bool(entry.get("mergeable", True)),
-        )
-        updated = eqx.tree_at(lambda tree, p=path: get_path(tree, p), updated, wrapper)
-    return updated
+    return _load_entry_delta(
+        base_model,
+        bundle,
+        method_name="IA3",
+        build_fn=_build_ia3_wrapper,
+    )
+
+
+def _vera_entry(wrapper: VeRALinear) -> dict[str, Any]:
+    return {
+        "rank": int(wrapper.vera_A.shape[0]),
+        "shared": wrapper.shared,
+        "frozen_A_init": wrapper.frozen_A_init,
+        "frozen_B_init": wrapper.frozen_B_init,
+        "mergeable": wrapper.mergeable,
+        "basis_generation": wrapper.basis_generation,
+        "basis_key_data": wrapper.basis_key_data,
+        "basis_pool_key": wrapper.basis_pool_key,
+        "share_scope": wrapper.share_scope,
+        "input_scale_axis": "rank",
+        "output_scale_axis": "logical_output",
+        "base_weight_shape": tuple(wrapper.base.weight.shape),
+        "base_bias_shape": None
+        if wrapper.base.bias is None
+        else tuple(wrapper.base.bias.shape),
+        "vera_A": wrapper.vera_A,
+        "vera_B": wrapper.vera_B,
+        "vera_input_scale": wrapper.vera_input_scale,
+        "vera_output_scale": wrapper.vera_output_scale,
+    }
 
 
 def _extract_vera_delta(model: PyTree) -> FineTuneBundle:
-    entries = []
-    for path, wrapper in _iter_wrappers(model, VeRALinear):
-        entries.append(
-            {
-                "path": path_to_str(path),
-                "rank": int(wrapper.vera_A.shape[0]),
-                "shared": wrapper.shared,
-                "frozen_A_init": wrapper.frozen_A_init,
-                "frozen_B_init": wrapper.frozen_B_init,
-                "mergeable": wrapper.mergeable,
-                "basis_generation": wrapper.basis_generation,
-                "basis_key_data": wrapper.basis_key_data,
-                "basis_pool_key": wrapper.basis_pool_key,
-                "share_scope": wrapper.share_scope,
-                "input_scale_axis": "rank",
-                "output_scale_axis": "logical_output",
-                "base_weight_shape": tuple(wrapper.base.weight.shape),
-                "base_bias_shape": None
-                if wrapper.base.bias is None
-                else tuple(wrapper.base.bias.shape),
-                "vera_A": wrapper.vera_A,
-                "vera_B": wrapper.vera_B,
-                "vera_input_scale": wrapper.vera_input_scale,
-                "vera_output_scale": wrapper.vera_output_scale,
-            }
-        )
-    return FineTuneBundle(
+    return _extract_entry_delta(
+        model,
         method="vera",
-        schema_version=1,
-        architecture_hash=architecture_hash(strip_vera(model)),
-        adapter_config={"entries": entries},
+        wrapper_type=VeRALinear,
+        entry_fn=_vera_entry,
+        strip_inline=False,
+        architecture_model_fn=strip_vera,
+    )
+
+
+def _build_vera_wrapper(base: Any, entry: dict[str, Any]) -> VeRALinear:
+    if not isinstance(base, eqx.nn.Linear):
+        raise FineTuneBundleError(
+            f"VeRA delta expects linear module at {entry['path']}, "
+            f"got {type(base).__name__}."
+        )
+    if tuple(base.weight.shape) != tuple(entry["base_weight_shape"]):
+        raise FineTuneBundleError(
+            f"VeRA delta expects path {entry['path']} with weight shape "
+            f"{entry['base_weight_shape']}, got {tuple(base.weight.shape)}."
+        )
+    expected_bias_shape = entry["base_bias_shape"]
+    actual_bias_shape = None if base.bias is None else tuple(base.bias.shape)
+    if actual_bias_shape != expected_bias_shape:
+        raise FineTuneBundleError(
+            f"VeRA delta expects path {entry['path']} with bias shape "
+            f"{expected_bias_shape}, got {actual_bias_shape}."
+        )
+    return VeRALinear(
+        base,
+        rank=int(entry["rank"]),
+        key=jr.PRNGKey(0),
+        shared=bool(entry.get("shared", True)),
+        frozen_A_init=entry.get("frozen_A_init", "kaiming_uniform"),
+        frozen_B_init=entry.get("frozen_B_init", "kaiming_uniform"),
+        mergeable=bool(entry.get("mergeable", True)),
+        vera_A=entry["vera_A"],
+        vera_B=entry["vera_B"],
+        vera_input_scale=entry["vera_input_scale"],
+        vera_output_scale=entry["vera_output_scale"],
+        basis_generation=entry.get("basis_generation", "unknown_legacy"),
+        basis_key_data=tuple(entry.get("basis_key_data", ())),
+        basis_pool_key=tuple(entry.get("basis_pool_key", ())),
+        share_scope=entry.get(
+            "share_scope",
+            "shape_compatible" if bool(entry.get("shared", True)) else "per_module",
+        ),
     )
 
 
 def _load_vera_delta(base_model: PyTree, bundle: FineTuneBundle) -> PyTree:
-    _check_hash(base_model, bundle, "VeRA")
-    updated = base_model
-    for entry in bundle.adapter_config.get("entries", ()):
-        path = str_to_path(entry["path"])
-        base = _bundle_get_path(updated, path, method_name="VeRA")
-        if not isinstance(base, eqx.nn.Linear):
-            raise FineTuneBundleError(
-                f"VeRA delta expects linear module at {entry['path']}, "
-                f"got {type(base).__name__}."
-            )
-        if tuple(base.weight.shape) != tuple(entry["base_weight_shape"]):
-            raise FineTuneBundleError(
-                f"VeRA delta expects path {entry['path']} with weight shape "
-                f"{entry['base_weight_shape']}, got {tuple(base.weight.shape)}."
-            )
-        expected_bias_shape = entry["base_bias_shape"]
-        actual_bias_shape = None if base.bias is None else tuple(base.bias.shape)
-        if actual_bias_shape != expected_bias_shape:
-            raise FineTuneBundleError(
-                f"VeRA delta expects path {entry['path']} with bias shape "
-                f"{expected_bias_shape}, got {actual_bias_shape}."
-            )
-        wrapper = VeRALinear(
-            base,
-            rank=int(entry["rank"]),
-            key=jr.PRNGKey(0),
-            shared=bool(entry.get("shared", True)),
-            frozen_A_init=entry.get("frozen_A_init", "kaiming_uniform"),
-            frozen_B_init=entry.get("frozen_B_init", "kaiming_uniform"),
-            mergeable=bool(entry.get("mergeable", True)),
-            vera_A=entry["vera_A"],
-            vera_B=entry["vera_B"],
-            vera_input_scale=entry["vera_input_scale"],
-            vera_output_scale=entry["vera_output_scale"],
-            basis_generation=entry.get("basis_generation", "unknown_legacy"),
-            basis_key_data=tuple(entry.get("basis_key_data", ())),
-            basis_pool_key=tuple(entry.get("basis_pool_key", ())),
-            share_scope=entry.get(
-                "share_scope",
-                "shape_compatible" if bool(entry.get("shared", True)) else "per_module",
-            ),
-        )
-        updated = eqx.tree_at(lambda tree, p=path: get_path(tree, p), updated, wrapper)
-    return updated
+    return _load_entry_delta(
+        base_model,
+        bundle,
+        method_name="VeRA",
+        build_fn=_build_vera_wrapper,
+    )
+
+
+def _dora_entry(wrapper: DoRALinear) -> dict[str, Any]:
+    return {
+        "class": wrapper.__class__.__name__,
+        "rank": wrapper.rank,
+        "alpha": wrapper.alpha,
+        "scaling": wrapper.scaling_mode,
+        "dropout": wrapper.dropout,
+        "eps": wrapper.eps,
+        "norm_gradient": wrapper.norm_gradient,
+        "norm_impl": wrapper.norm_impl,
+        "train_base": wrapper.train_base,
+        "mergeable": wrapper.mergeable,
+        "lora_A": wrapper.lora_A,
+        "lora_B": wrapper.lora_B,
+        "magnitude": wrapper.magnitude,
+        "weight_shape": tuple(wrapper.base.weight.shape),
+    }
 
 
 def _extract_dora_delta(model: PyTree) -> FineTuneBundle:
-    entries = []
-    stripped = model
-    for path, wrapper in _iter_wrappers(model, DoRALinear):
-        entries.append(
-            {
-                "path": path_to_str(path),
-                "class": wrapper.__class__.__name__,
-                "rank": wrapper.rank,
-                "alpha": wrapper.alpha,
-                "scaling": wrapper.scaling_mode,
-                "dropout": wrapper.dropout,
-                "eps": wrapper.eps,
-                "norm_gradient": wrapper.norm_gradient,
-                "norm_impl": wrapper.norm_impl,
-                "train_base": wrapper.train_base,
-                "mergeable": wrapper.mergeable,
-                "lora_A": wrapper.lora_A,
-                "lora_B": wrapper.lora_B,
-                "magnitude": wrapper.magnitude,
-                "weight_shape": tuple(wrapper.base.weight.shape),
-            }
-        )
-        stripped = eqx.tree_at(
-            lambda tree, p=path: get_path(tree, p), stripped, wrapper.base
-        )
-    return FineTuneBundle(
+    return _extract_entry_delta(
+        model,
         method="dora",
-        schema_version=1,
-        architecture_hash=architecture_hash(stripped),
-        adapter_config={"entries": entries},
+        wrapper_type=DoRALinear,
+        entry_fn=_dora_entry,
+    )
+
+
+def _build_dora_wrapper(base: Any, entry: dict[str, Any]) -> DoRALinear:
+    if not isinstance(base, eqx.nn.Linear):
+        raise FineTuneBundleError(
+            f"DoRA delta expects linear module at {entry['path']}, "
+            f"got {type(base).__name__}."
+        )
+    if tuple(base.weight.shape) != tuple(entry["weight_shape"]):
+        raise FineTuneBundleError(
+            f"DoRA delta expects path {entry['path']} with shape "
+            f"{entry['weight_shape']}, got {tuple(base.weight.shape)}."
+        )
+    wrapper_type = (
+        DoRAMergedLinear if entry["class"] == "DoRAMergedLinear" else DoRALinear
+    )
+    return wrapper_type(
+        base,
+        rank=int(entry["rank"]),
+        alpha=float(entry["alpha"]),
+        scaling=entry["scaling"],
+        dropout=float(entry.get("dropout", 0.0)),
+        eps=float(entry["eps"]),
+        norm_gradient=entry.get("norm_gradient", "full"),
+        norm_impl=entry.get("norm_impl", "dense"),
+        train_base=bool(entry.get("train_base", False)),
+        mergeable=bool(entry.get("mergeable", True)),
+        key=jr.PRNGKey(0),
+        lora_A=entry["lora_A"],
+        lora_B=entry["lora_B"],
+        magnitude=entry["magnitude"],
     )
 
 
 def _load_dora_delta(base_model: PyTree, bundle: FineTuneBundle) -> PyTree:
-    _check_hash(base_model, bundle, "DoRA")
-    updated = base_model
-    for entry in bundle.adapter_config.get("entries", ()):
-        path = str_to_path(entry["path"])
-        base = _bundle_get_path(updated, path, method_name="DoRA")
-        if not isinstance(base, eqx.nn.Linear):
-            raise FineTuneBundleError(
-                f"DoRA delta expects linear module at {entry['path']}, "
-                f"got {type(base).__name__}."
-            )
-        if tuple(base.weight.shape) != tuple(entry["weight_shape"]):
-            raise FineTuneBundleError(
-                f"DoRA delta expects path {entry['path']} with shape "
-                f"{entry['weight_shape']}, got {tuple(base.weight.shape)}."
-            )
-        wrapper_type = (
-            DoRAMergedLinear if entry["class"] == "DoRAMergedLinear" else DoRALinear
-        )
-        wrapper = wrapper_type(
-            base,
-            rank=int(entry["rank"]),
-            alpha=float(entry["alpha"]),
-            scaling=entry["scaling"],
-            dropout=float(entry.get("dropout", 0.0)),
-            eps=float(entry["eps"]),
-            norm_gradient=entry.get("norm_gradient", "full"),
-            norm_impl=entry.get("norm_impl", "dense"),
-            train_base=bool(entry.get("train_base", False)),
-            mergeable=bool(entry.get("mergeable", True)),
-            key=jr.PRNGKey(0),
-            lora_A=entry["lora_A"],
-            lora_B=entry["lora_B"],
-            magnitude=entry["magnitude"],
-        )
-        updated = eqx.tree_at(lambda tree, p=path: get_path(tree, p), updated, wrapper)
-    return updated
+    return _load_entry_delta(
+        base_model,
+        bundle,
+        method_name="DoRA",
+        build_fn=_build_dora_wrapper,
+    )
 
 
 def _check_hash(base_model: PyTree, bundle: FineTuneBundle, method_name: str) -> None:
