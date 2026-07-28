@@ -501,14 +501,6 @@ def _map_tokens(fn, x: jax.Array) -> jax.Array:
     return fn(x) if x.ndim == 1 else jax.vmap(fn)(x)
 
 
-def _call_features(model, *args, key, inference, **kwargs):
-    if not hasattr(model, "features"):
-        raise ValueError("PromptedModel requires the base model to expose features().")
-    return _call_with_optional_key(
-        model.features, *args, key=key, inference=inference, **kwargs
-    )
-
-
 def _call_model(model, *args, key, inference, **kwargs):
     return _call_with_optional_key(model, *args, key=key, inference=inference, **kwargs)
 

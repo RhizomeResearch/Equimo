@@ -62,8 +62,6 @@ class Vssd(eqx.Module):
         *,
         key: PRNGKeyArray,
         dim: int = 64,
-        d_state: int = 64,
-        d_conv: int = 3,
         expand: int = 2,
         patch_size: int = 4,
         depths: List[int] = [2, 4, 12, 4],
@@ -94,8 +92,6 @@ class Vssd(eqx.Module):
             in_channels: Number of input channels
             key: PRNG key for initialization
             dim: Initial model dimension
-            d_state: Dimension of Mamba state space
-            d_conv: Kernel size for Mamba convolution
             expand: Expansion factor for attention head dimension
             patch_size: Size of image patches
             depths: Number of blocks in each stage

@@ -116,7 +116,6 @@ class SingleConvBlock(eqx.Module):
             out_channels: Number of output channels
             key: PRNG key for initialization
             norm_layer: Normalization layer class or registry name (default: "groupnorm")
-            norm_max_group: Maximum number of groups for GroupNorm (default: 32)
             act_layer: Optional activation function or registry name (default: None)
             norm_kwargs: Args passed to the norm layer. This allows disabling
                 weights of LayerNorm, which do not work well with conv layers
@@ -200,7 +199,6 @@ class DoubleConvBlock(eqx.Module):
         padding: str | int = "SAME",
         use_bias: bool = False,
         act_layer: str | Callable | None = "gelu",
-        norm_max_group: int = 32,
         dropout: float = 0.0,
         drop_path: float = 0.0,
         init_values: float | None = None,
@@ -216,7 +214,6 @@ class DoubleConvBlock(eqx.Module):
             stride: Stride of the convolution (default: 1)
             padding: Padding size for convolution (default: SAME)
             act_layer: Activation function or registry name (default: "gelu")
-            norm_max_group: Maximum number of groups for GroupNorm (default: 32)
             drop_path: Drop path rate (default: 0.0)
             init_values: Initial value for layer scaling (default: None)
         """
@@ -663,7 +660,6 @@ class C3(eqx.Module):
         out_channels: int,
         *,
         key: PRNGKeyArray,
-        n: int = 1,
         shortcut: bool = True,
         groups: int = 1,
         expansion_ratio: float = 0.5,
@@ -1479,9 +1475,7 @@ class GenericGhostModule(eqx.Module):
     dw_size: int = eqx.field(static=True)
     stride: int = eqx.field(static=True)
     primary_has_skip: bool = eqx.field(static=True)
-    primary_has_scale: bool = eqx.field(static=True)
     cheap_has_skip: bool = eqx.field(static=True)
-    cheap_has_scale: bool = eqx.field(static=True)
 
     # Runtime flags
     inference: bool
@@ -1544,9 +1538,7 @@ class GenericGhostModule(eqx.Module):
         self.dw_size = dw_size
         self.stride = stride
         self.primary_has_skip = primary_has_skip
-        self.primary_has_scale = primary_has_scale
         self.cheap_has_skip = cheap_has_skip
-        self.cheap_has_scale = cheap_has_scale
 
         # Those are actually placeholders, updated at each epoch, only used at inference time
         self.primary_conv = eqx.nn.Conv2d(
@@ -1760,7 +1752,6 @@ class GhostBottleneck(eqx.Module):
 
     # Static config
     stride: int = eqx.field(static=True)
-    dw_kernel_size: int = eqx.field(static=True)
     use_shortcut_mode_in_ghost1: bool = eqx.field(static=True)
     allow_identity_residual: bool = eqx.field(static=True)
 
@@ -1794,7 +1785,6 @@ class GhostBottleneck(eqx.Module):
         **kwargs,
     ):
         self.stride = stride
-        self.dw_kernel_size = dw_kernel_size
         self.inference = False
         self.allow_identity_residual = allow_identity_residual
 
@@ -2349,8 +2339,6 @@ class FasterNetBlock(eqx.Module):
         key: PRNGKeyArray,
         n_dim: int = 4,
         mlp_ratio: int = 3,
-        kernel_size: int = 3,
-        padding: str | int = "SAME",
         norm_layer: str | type[eqx.Module] | None = "groupnorm",
         norm_max_group: int = 32,
         act_layer: str | Callable | None = "relu",

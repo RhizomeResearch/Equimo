@@ -81,8 +81,7 @@ class BlockChunk(eqx.Module):
                     "Using a downsampler or a CPE requires passing a `dim` argument."
                 )
 
-        # self.reshape = block is not ConvBlock
-        self.reshape = True  # TODO
+        self.reshape = True
         self.downsampler_contains_dropout = downsampler_contains_dropout
 
         keys_to_spread = [
@@ -232,7 +231,6 @@ class PartialFormer(eqx.Module):
         norm_layer: str | type[eqx.Module] = "layernorm",
         init_values: float | None = None,
         num_classes: int | None = 1000,
-        interpolate_antialias: bool = False,
         **kwargs,
     ):
         block = get_attn_block(block)

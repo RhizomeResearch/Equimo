@@ -917,53 +917,6 @@ class VisionRoPE(eqx.Module):
         t_w = jnp.arange(W, dtype=jnp.float32) / W * self.pt_seq_len
         return t_h, t_w
 
-    # def get_sincos(
-    #     self,
-    #     *,
-    #     H: int,
-    #     W: int,
-    #     key: Optional[PRNGKeyArray] = None,
-    #     inference: bool = True,
-    # ) -> Tuple[jax.Array, jax.Array]:
-    #     """Compute ``(sin, cos)`` each with shape ``(H*W, D_out)``.
-
-    #     For period-based: ``D_out = D_head``.
-    #     For mode-based:   ``D_out = 2 * dim`` (height + width concatenated).
-
-    #     ``key`` and ``inference`` are only used by the period strategy
-    #     (for augmentations) and can be omitted for mode-based usage.
-    #     """
-    #     dtype = self.dtype
-    #     freqs = jax.lax.stop_gradient(self.freqs).astype(dtype)
-
-    #     if self.strategy == "period":
-    #         if key is None and not inference:
-    #             raise ValueError(
-    #                 "A PRNG key is required for period-based RoPE during training."
-    #             )
-    #         if key is None:
-    #             key = jax.random.PRNGKey(0)
-    #         D_quarter = self.D_head // 4
-
-    #         coords = self._coords_period(H, W, key=key, inference=inference)
-    #         angles = (2.0 * jnp.pi * coords[:, :, None]) / freqs[None, None, :]
-    #         angles = angles.reshape(H * W, 2 * D_quarter)
-    #         angles = jnp.tile(angles, (1, 2))
-
-    #     else:  # "mode"
-    #         t_h, t_w = self._coords_mode(H, W)
-
-    #         freqs_h = jnp.outer(t_h, freqs)
-    #         freqs_w = jnp.outer(t_w, freqs)
-    #         freqs_h = jnp.repeat(freqs_h, 2, axis=-1)
-    #         freqs_w = jnp.repeat(freqs_w, 2, axis=-1)
-
-    #         D = freqs_h.shape[-1]
-    #         fh = jnp.broadcast_to(freqs_h[:, None, :], (H, W, D))
-    #         fw = jnp.broadcast_to(freqs_w[None, :, :], (H, W, D))
-    #         angles = jnp.concatenate([fh, fw], axis=-1).reshape(H * W, -1)
-
-    #     return jnp.sin(angles).astype(dtype), jnp.cos(angles).astype(dtype)
     def get_sincos(
         self,
         *,
@@ -1021,20 +974,6 @@ class VisionRoPE(eqx.Module):
 
         return sin, cos
 
-    # def __call__(
-    #     self,
-    #     x: Float[Array, "..."],
-    #     *,
-    #     key: Optional[PRNGKeyArray] = None,
-    #     inference: bool = True,
-    # ) -> Float[Array, "..."]:
-    #     """Apply rotary embedding. Expects ``x.shape[-3]`` to be ``H * W``."""
-    #     seq_len = x.shape[-3]
-    #     ft = int(seq_len**0.5)
-    #     sin, cos = self.get_sincos(H=ft, W=ft, key=key, inference=inference)
-    #     cos = cos[:, None, :]
-    #     sin = sin[:, None, :]
-    #     return x * cos + _rotate_half(x) * sin
     def __call__(
         self,
         x: Float[Array, "..."],

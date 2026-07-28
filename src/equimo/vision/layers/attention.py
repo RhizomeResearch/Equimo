@@ -281,7 +281,6 @@ class HATBlock(eqx.Module):
 
     hat_norm1: Optional[eqx.Module] = eqx.field(default=None)
     hat_norm2: Optional[eqx.Module] = eqx.field(default=None)
-    hat_norm3: Optional[eqx.Module] = eqx.field(default=None)
     hat_attn: Optional[eqx.Module] = eqx.field(default=None)
     hat_mlp: Optional[eqx.Module] = eqx.field(default=None)
     hat_drop_path: Optional[DropPathAdd] = eqx.field(default=None)
@@ -1745,7 +1744,6 @@ class LinearAngularAttention(eqx.Module):
         sparsity_threshold: float = 0.2,
         qkv_bias: bool = True,
         proj_bias: bool = True,
-        qk_norm: bool = False,
         attn_drop: float = 0.0,
         proj_drop: float = 0.0,
         res_kernel_size: int = 9,
@@ -1985,7 +1983,6 @@ class RFAttentionBlock(eqx.Module):
         context_drop: float = 0.0,
         local_drop: float = 0.0,
         drop_path: float | List[float] = 0.0,
-        residual_mbconv: bool = False,
         init_values: float | None = None,
         residual: bool = True,
         **kwargs,
@@ -2087,7 +2084,6 @@ class ConvAttention(eqx.Module):
         fuse: bool = True,
         attention_type: Literal["softmax", "sigmoid"] = "softmax",
         norm_layer: str | type[eqx.Module] | None = "groupnorm",
-        norm_kwargs: dict = {},
         **kwargs,
     ):
         key_qkv1, key_qkv2, key_oproj, key_upsampling = jr.split(key, 4)

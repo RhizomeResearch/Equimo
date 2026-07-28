@@ -1499,22 +1499,6 @@ def _apply_boft_factor_to_last_axis(
     return jnp.take(y_perm, inverse, axis=-1)
 
 
-def _apply_orthogonal_blocks_to_last_axis(
-    x: jax.Array,
-    skew_param: jax.Array,
-    *,
-    eps: float,
-) -> jax.Array:
-    blocks = jax.vmap(lambda block: _cayley(block, eps=eps))(skew_param)
-    block_size = blocks.shape[-1]
-    leading = x.shape[:-1]
-    if x.shape[-1] % block_size != 0:
-        raise ValueError("BOFT block_size must divide the feature axis.")
-    x_blocks = x.reshape((*leading, x.shape[-1] // block_size, block_size))
-    y_blocks = jnp.einsum("...nb,nab->...na", x_blocks, blocks)
-    return y_blocks.reshape(x.shape)
-
-
 def _cayley(skew_param: jax.Array, *, eps: float) -> jax.Array:
     del eps
     skew = skew_param - skew_param.T

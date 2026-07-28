@@ -613,7 +613,6 @@ class VisionParcae(eqx.Module):
     injection_type: InjectionKind = eqx.field(static=True)
     B_init_mode: BInitMode = eqx.field(static=True)
     B_init_target_depth: int | None = eqx.field(static=True)
-    B_init_target_scale: float = eqx.field(static=True)
     state_init: StateInitKind = eqx.field(static=True)
     state_init_scale: float | None = eqx.field(static=True)
     sample_recurrence: bool = eqx.field(static=True)
@@ -859,7 +858,6 @@ class VisionParcae(eqx.Module):
         self.injection_type = injection_type
         self.B_init_mode = resolved_B_init_mode
         self.B_init_target_depth = B_init_target_depth
-        self.B_init_target_scale = B_init_target_scale
         self.state_init = state_init
         self.state_init_scale = state_init_scale
         self.sample_recurrence = sample_recurrence
@@ -1075,6 +1073,8 @@ class VisionParcae(eqx.Module):
 
         self.prelude_norm = norm_layer(dim, eps=eps) if prelude_norm else None
         self.norm = norm_layer(dim, eps=eps)
+        # WARNING: This has no effect in the code.
+        # This norm layer is created to hold some training-only norm layer of Dinov3
         self.local_cls_norm = (
             norm_layer(dim, eps=eps) if untie_global_and_local_cls_norm else None
         )
