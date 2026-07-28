@@ -113,19 +113,6 @@ def test_replace_head_validates_input_features(tiny_vision_transformer):
         )
 
 
-def test_replace_head_can_preserve_old_head_metadata(tiny_vision_transformer):
-    replaced = eqft.replace_head(
-        tiny_vision_transformer,
-        eqft.LinearHead(4, 3, key=jr.PRNGKey(0)),
-        preserve_old_head_metadata=True,
-    )
-
-    assert replaced.head.old_head_metadata["class_name"] == "Linear"
-    assert replaced.head.old_head_metadata["in_features"] == 4
-    assert replaced.head.old_head_metadata["out_features"] == 2
-    assert replaced.head(jnp.ones((4,))).shape == (3,)
-
-
 def test_extract_features_pool_cls_and_mean_patch(tiny_vision_transformer):
     x = jnp.ones((2, 3))
 

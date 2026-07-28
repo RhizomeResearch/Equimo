@@ -7,13 +7,12 @@ from typing import cast
 import jax
 
 from .._typing import PyTree
-from ..feature_extraction import LinearProbe
+from ..feature_extraction import LinearProbe, make_linear_probe
 from ..heads import CTCHead, MultiLabelHead
 from ..config import TargetSpec
 from ..peft.lora import LoRAConfig, apply_lora
 from ..peft.adapters import AdapterConfig, AdapterPlacement, apply_adapters
 from ..pooling import MeanFramePool, PoolName
-from ..recipes import linear_probe
 
 
 def linear_probe_ast(
@@ -26,7 +25,7 @@ def linear_probe_ast(
 ) -> LinearProbe:
     """Build an AST-style linear-probe wrapper."""
 
-    return linear_probe(
+    return make_linear_probe(
         model,
         in_features=in_features,
         out_features=out_features,

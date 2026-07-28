@@ -102,13 +102,6 @@ def is_linear(path: Path, node: Any) -> bool:
     return isinstance(node, eqx.nn.Linear)
 
 
-def is_layer_norm(path: Path, node: Any) -> bool:
-    """Return whether ``node`` is an Equinox LayerNorm module."""
-
-    del path
-    return isinstance(node, eqx.nn.LayerNorm)
-
-
 def _resolve_predicate_paths(
     model: PyTree,
     infos: tuple[ParamInfo, ...],
@@ -215,7 +208,6 @@ _SELECTOR_MODULE_TYPES = _selector_module_types()
 
 __all__ = (
     "SelectorPredicate",
-    "is_layer_norm",
     "is_linear",
     "resolve_target",
     "resolve_target_paths",

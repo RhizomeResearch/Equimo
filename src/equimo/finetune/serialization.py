@@ -289,30 +289,6 @@ def load_finetune_bundle(
     return load_delta(base_model, bundle)
 
 
-def merge_and_save(
-    path: str | Path,
-    model: PyTree,
-    *,
-    method: str = "lora",
-    metadata: dict[str, Any] | None = None,
-    model_state: Any | None = None,
-    recalibration_required: bool | None = None,
-    feature_spec: FeatureSpec | None = None,
-) -> FineTuneBundle:
-    """Merge mergeable method weights where safe, then save a delta bundle."""
-
-    model = _codec_for_save(method).merge_for_save(model)
-    return save_delta(
-        model,
-        path,
-        method=method,
-        metadata=metadata,
-        model_state=model_state,
-        recalibration_required=recalibration_required,
-        feature_spec=feature_spec,
-    )
-
-
 def _read_bundle(path: str | Path) -> FineTuneBundle:
     path = Path(path)
     manifest, arrays_data = _read_archive(path, label="Delta file")
@@ -1998,7 +1974,6 @@ __all__ = (
     "load_calibration_artifacts",
     "load_delta",
     "load_finetune_bundle",
-    "merge_and_save",
     "save_delta",
     "save_calibration_artifacts",
     "save_finetune_bundle",

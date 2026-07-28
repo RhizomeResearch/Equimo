@@ -55,50 +55,6 @@ class AdapterConfig:
 
 
 @dataclass(frozen=True)
-class AdapterRecipe:
-    """Recipe metadata for bottleneck adapter fine-tuning."""
-
-    bottleneck: int = 64
-    placement: AdapterPlacement = "after_mlp"
-    activation: ActivationName = "gelu"
-    dropout: float = 0.0
-    train_head: bool = True
-    train_norm: bool = True
-
-    @classmethod
-    def strong(
-        cls,
-        *,
-        bottleneck: int = 64,
-        placement: AdapterPlacement = "both",
-        activation: ActivationName = "gelu",
-        dropout: float = 0.0,
-        train_head: bool = True,
-        train_norm: bool = True,
-    ) -> "AdapterRecipe":
-        """Return the stronger two-placement adapter recipe preset."""
-
-        return cls(
-            bottleneck=bottleneck,
-            placement=placement,
-            activation=activation,
-            dropout=dropout,
-            train_head=train_head,
-            train_norm=train_norm,
-        )
-
-    def to_config(self) -> AdapterConfig:
-        """Convert recipe metadata to an adapter module config."""
-
-        return AdapterConfig(
-            bottleneck=self.bottleneck,
-            placement=self.placement,
-            activation=self.activation,
-            dropout=self.dropout,
-        )
-
-
-@dataclass(frozen=True)
 class ParallelAdapterConfig(AdapterConfig):
     """Configuration for residual parallel adapters."""
 
@@ -1910,7 +1866,6 @@ __all__ = (
     "AdapterConfig",
     "AdapterFusion",
     "AdapterFusionConfig",
-    "AdapterRecipe",
     "BottleneckAdapter",
     "OrthogonalLinear",
     "OutputAdapterModule",

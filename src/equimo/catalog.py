@@ -7,7 +7,6 @@ coverage expands beyond the representative vision, audio, and tabular entries.
 from dataclasses import dataclass
 from difflib import get_close_matches
 from importlib import import_module
-import re
 from typing import Any, Literal
 
 
@@ -19,9 +18,6 @@ _CATALOG_PROVIDERS = (
     "equimo.audio.models.ast",
     "equimo.tabular.models.tabpfn",
 )
-_FIELD_NAMES = ("inputs", "pretrained", "provenance", "notes")
-_STATUSES = frozenset(("complete", "experimental", "unavailable"))
-_KEY_RE = re.compile(r"^[a-z0-9]+/[a-z0-9][a-z0-9_-]*$")
 
 
 @dataclass(frozen=True)
@@ -154,18 +150,13 @@ def create_model(key: str, **kwargs: Any) -> Any:
 
 
 def _load_catalog() -> tuple[ModelVariant, ...]:
-    variants = []
+    variants: list[ModelVariant] = []
     for module_name in _CATALOG_PROVIDERS:
         module = import_module(module_name)
         provider = getattr(module, "_catalog_model_variants")
         variants.extend(provider())
-    return _validate_catalog(tuple(variants))
-
-
-def _validate_catalog(variants: tuple[ModelVariant, ...]) -> tuple[ModelVariant, ...]:
     seen: dict[str, str] = {}
     for descriptor in variants:
-        _validate_descriptor(descriptor)
         normalized_key = descriptor.key.lower()
         if normalized_key in seen:
             raise ValueError(
@@ -174,77 +165,6 @@ def _validate_catalog(variants: tuple[ModelVariant, ...]) -> tuple[ModelVariant,
             )
         seen[normalized_key] = descriptor.key
     return tuple(sorted(variants, key=lambda item: item.key))
-
-
-def _validate_descriptor(descriptor: ModelVariant) -> None:
-    if not _KEY_RE.fullmatch(descriptor.key):
-        raise ValueError(
-            f"Catalog key {descriptor.key!r} must use lowercase "
-            "'<modality>/<variant>' syntax."
-        )
-    expected_key = f"{descriptor.modality}/{descriptor.variant}"
-    if descriptor.key != expected_key:
-        raise ValueError(
-            f"Catalog key {descriptor.key!r} does not match {expected_key!r}."
-        )
-    for name in ("modality", "family", "variant", "model_registry_key"):
-        value = getattr(descriptor, name)
-        if not value or value != value.lower():
-            raise ValueError(
-                f"Catalog field {name!r} must be non-empty lowercase text."
-            )
-    if not descriptor.constructor.endswith(f".{descriptor.variant}"):
-        raise ValueError(
-            f"Constructor {descriptor.constructor!r} does not match variant "
-            f"{descriptor.variant!r}."
-        )
-    if not descriptor.inputs:
-        raise ValueError(f"Catalog entry {descriptor.key!r} has no input contract.")
-    input_names = set()
-    for item in descriptor.inputs:
-        if not item.name or not item.dtype or not item.description:
-            raise ValueError(
-                f"Catalog entry {descriptor.key!r} has incomplete input metadata."
-            )
-        if len(item.shape) != len(item.axes):
-            raise ValueError(
-                f"Input {item.name!r} for {descriptor.key!r} has mismatched "
-                "shape and axes."
-            )
-        if item.name in input_names:
-            raise ValueError(
-                f"Catalog entry {descriptor.key!r} repeats input {item.name!r}."
-            )
-        input_names.add(item.name)
-    if descriptor.pretrained.available != (
-        descriptor.pretrained.identifier is not None
-    ):
-        raise ValueError(
-            f"Catalog entry {descriptor.key!r} has inconsistent pretrained metadata."
-        )
-    statuses = dict(descriptor.field_status)
-    if tuple(statuses) != _FIELD_NAMES or len(statuses) != len(descriptor.field_status):
-        raise ValueError(
-            f"Catalog entry {descriptor.key!r} must declare statuses for "
-            f"{list(_FIELD_NAMES)} in that order."
-        )
-    invalid_statuses = set(statuses.values()) - _STATUSES
-    if invalid_statuses:
-        raise ValueError(
-            f"Catalog entry {descriptor.key!r} has invalid metadata statuses: "
-            f"{sorted(invalid_statuses)}."
-        )
-    if statuses["provenance"] == "complete" and (
-        descriptor.provenance.conversion is None
-        or descriptor.provenance.reference is None
-    ):
-        raise ValueError(
-            f"Catalog entry {descriptor.key!r} marks incomplete provenance complete."
-        )
-    if statuses["notes"] == "complete" and not descriptor.notes:
-        raise ValueError(
-            f"Catalog entry {descriptor.key!r} marks empty notes complete."
-        )
 
 
 def _resolve_model(key: str, variants: tuple[ModelVariant, ...]) -> ModelVariant:

@@ -43,27 +43,6 @@ class DoRAConfig:
     )
 
 
-@dataclass(frozen=True)
-class DoRARecipe:
-    """Recipe metadata for DoRA fine-tuning."""
-
-    rank: int = 8
-    alpha: float = 16.0
-    dropout: float = 0.05
-    target: tuple[str, ...] = ("attention.qkv", "attention.proj")
-    external_lr_hint: str = "slightly_lower_than_lora"
-
-    def to_config(self) -> DoRAConfig:
-        """Convert recipe metadata to a DoRA module config."""
-
-        return DoRAConfig(
-            rank=self.rank,
-            alpha=self.alpha,
-            dropout=self.dropout,
-            target=TargetSpec(tags_any=self.target),
-        )
-
-
 class DoRALinear(eqx.Module):
     """Weight-decomposed low-rank adaptation for linear modules."""
 
@@ -330,7 +309,6 @@ __all__ = (
     "DoRAConfig",
     "DoRALinear",
     "DoRAMergedLinear",
-    "DoRARecipe",
     "apply_dora",
     "iter_dora_modules",
     "merge_dora",

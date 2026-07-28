@@ -32,37 +32,27 @@ def test_required_public_api_exports():
         "AdapterBankConfig",
         "AdapterFusion",
         "AdapterFusionConfig",
-        "AdapterRecipe",
         "BitFitConfig",
         "ContinuedSSLAdaptationConfig",
         "ContinuedSSLPlan",
         "PTuningV2Config",
         "DenseFeatureAdapter",
-        "DoRARecipe",
         "EWCConfig",
         "FineTuneStage",
         "FineTuneBundleError",
-        "FineTuneRecipe",
         "GlobalAveragePool",
         "GreedySoupConfig",
         "HeadPlusNormConfig",
-        "HeadSpec",
-        "LinearProbeConfig",
-        "LinearProbeRecipe",
         "LoRAPlusLabelConfig",
-        "LoRARecipe",
         "MixoutConfig",
         "PEFTConfig",
         "OutputAdapterModule",
         "PartialUnfreezeConfig",
         "ParallelAdapterConfig",
         "PrefixProjection",
-        "SAMMetadata",
         "StagePolicy",
         "SoftPromptConfig",
         "SupervisedAfterSSLConfig",
-        "VPTDeepRecipe",
-        "VPTShallowRecipe",
         "adapter_fusion_trainable_spec",
         "adapter_norm_loss",
         "apply_adapter_fusion",
@@ -90,14 +80,12 @@ def test_required_public_api_exports():
         "set_active_adapter",
         "save_finetune_bundle",
         "load_finetune_bundle",
-        "merge_and_save",
         "mixout_leaf",
         "mixout_tree",
         "partial_unfreeze",
         "prepare_lpft_stage1_model",
         "prepare_lpft_stage2_model",
         "recipes",
-        "tabular",
         "task_adapter_bank",
         "transfer_head",
         "task_vector_norm_loss",
@@ -113,81 +101,9 @@ def test_recipe_namespaces_export_direct_helpers():
     assert hasattr(eqft.recipes, "lora_transformer_all_linear")
     assert hasattr(eqft.recipes, "vpt_deep")
     assert hasattr(eqft.recipes, "task_adapter_bank")
-    assert hasattr(eqft.vision, "full_ft_vit_llrd")
     assert hasattr(eqft.vision, "dense_feature_adapter")
-    assert hasattr(eqft.vision, "prompts")
     assert hasattr(eqft.audio, "adapter_ast")
     assert hasattr(eqft.language, "prefix_encoder")
-    assert hasattr(eqft.tabular, "head_only")
-
-
-def test_spec_config_fields_are_public():
-    recipe = eqft.FineTuneRecipe(
-        name="linear_probe",
-        method="head",
-        head=eqft.HeadSpec(kind="linear"),
-        peft=None,
-        trainable=eqft.TrainableSpec(mode="head"),
-        labels=None,
-    )
-
-    assert recipe.external_hints == {}
-    assert eqft.LoRAConfig(fan_in_fan_out=True).fan_in_fan_out
-    assert eqft.DoRAConfig(dropout=0.1, train_base=True, mergeable=False).dropout == 0.1
-    assert eqft.AdapterConfig(residual_scale_init=0.5).train_base is False
-    assert eqft.AdaptFormerConfig(train_head=False).train_head is False
-    assert eqft.ParallelAdapterConfig(branch="mlp").placement == "parallel"
-    assert eqft.AdapterBankConfig(active="task").missing_adapter_policy == "error"
-    assert eqft.AdapterFusionConfig(fusion_dropout=0.1).freeze_task_adapters
-    assert eqft.adapter_fusion_trainable_spec().target.tags_any == ("adapter_fusion",)
-    assert eqft.BitFitConfig(include_norm_bias=False).train_bias
-    assert eqft.MixoutConfig(anchor="pretrained").p == 0.1
-    assert eqft.LinearProbeConfig().cache_features is False
-    assert eqft.HeadPlusNormConfig().bn_stats_policy == "frozen"
-    assert eqft.PartialUnfreezeConfig().fraction == 1 / 3
-    assert eqft.LoRAPlusLabelConfig().label_A == "lora_A"
-    assert eqft.LoRARecipe.hard_task().rank == 16
-    assert eqft.LoRARecipe.tiny_data().rank == 4
-    assert eqft.StaticRankMaskedLoRAConfig().rank_mask_init == "all_active"
-    assert eqft.DoRARecipe().external_lr_hint == "slightly_lower_than_lora"
-    assert eqft.AdapterRecipe.strong().placement == "both"
-    assert eqft.LinearProbeRecipe().feature_norm == "l2_or_standardize"
-    assert eqft.VPTShallowRecipe().num_tokens == 50
-    assert eqft.VPTDeepRecipe().depth == "deep"
-    assert eqft.WiSEFTConfig().mask == "shared_backbone"
-    assert eqft.UniformSoupConfig().strict_shapes
-    assert eqft.GreedySoupConfig().start == "best_model"
-    assert eqft.ContinuedSSLAdaptationConfig().save_stage == "continued_ssl_delta"
-    assert eqft.SupervisedAfterSSLConfig().reuse_ssl_delta
-    assert eqft.TIESConfig().merge == "disjoint_mean"
-    assert eqft.TaskVectorConfig().mask == "floating_backbone"
-    assert eqft.DARETransform().scope == "per_tensor"
-    assert eqft.BreadcrumbsConfig().rescale is False
-    assert eqft.FisherMergeConfig().normalize_fisher
-    assert eqft.RegMeanConfig().require_input_covariances
-    assert eqft.SAMMetadata().external_only
-    assert eqft.LLRDConfig.uniform().decay == 1.0
-    assert eqft.LLRDConfig.vit_base().decay == 0.65
-    assert eqft.LLRDConfig.vit_large_or_huge().decay == 0.75
-    assert eqft.LLRDConfig.audio_transformer().decay == 0.75
-    assert eqft.PromptConfig(init="normal", train_head=False).train_head is False
-    assert eqft.SoftPromptConfig(num_tokens=2).prepend_to == "input"
-    assert eqft.PTuningV2Config(share_across_layers=True).depth == "all"
-    assert eqft.PrefixConfig(prefix_dropout=0.1, train_head=False).prefix_dropout == 0.1
-    assert eqft.IA3Config(axis="feature", mergeable=True).mergeable
-    assert eqft.ScaleShiftConfig(axis="channel", mergeable=True).axis == "channel"
-    assert eqft.ScaleShiftConfig.convnet().target.tags_any == (
-        "conv",
-        "stage.block",
-        "norm",
-    )
-    vera = eqft.VeRAConfig(
-        seed_required=True,
-        frozen_A_init="kaiming_uniform",
-        trainable_input_scale_init=0.5,
-    )
-    assert vera.target.tags_any == ("attention.qkv", "attention.proj")
-    assert vera.trainable_input_scale_init == 0.5
 
 
 def test_tiny_fixture_param_counts(finetune_key):

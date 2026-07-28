@@ -11,7 +11,6 @@ Fine-tuning bundle and delta persistence helpers.
 - [`load_calibration_artifacts`](#equimo-finetune-load-calibration-artifacts)
 - [`load_delta`](#equimo-finetune-load-delta)
 - [`load_finetune_bundle`](#equimo-finetune-load-finetune-bundle)
-- [`merge_and_save`](#equimo-finetune-merge-and-save)
 - [`save_calibration_artifacts`](#equimo-finetune-save-calibration-artifacts)
 - [`save_delta`](#equimo-finetune-save-delta)
 - [`save_finetune_bundle`](#equimo-finetune-save-finetune-bundle)
@@ -54,18 +53,6 @@ equimo.finetune.load_finetune_bundle(path: 'str | Path', base_model: 'PyTree | N
 Defined in `equimo.finetune.serialization`.
 
 > Load a bundle, or apply it immediately when ``base_model`` is provided.
-
-<!-- equimo.finetune:merge_and_save -->
-<a id="equimo-finetune-merge-and-save"></a>
-## `merge_and_save`
-
-```python
-equimo.finetune.merge_and_save(path: 'str | Path', model: 'PyTree', *, method: 'str' = 'lora', metadata: 'dict[str, Any] | None' = None, model_state: 'Any | None' = None, recalibration_required: 'bool | None' = None, feature_spec: 'FeatureSpec | None' = None) -> 'FineTuneBundle'
-```
-
-Defined in `equimo.finetune.serialization`.
-
-> Merge mergeable method weights where safe, then save a delta bundle.
 
 <!-- equimo.finetune:save_calibration_artifacts -->
 <a id="equimo-finetune-save-calibration-artifacts"></a>

@@ -66,24 +66,6 @@ class PTuningV2Config(PromptConfig):
     reparameterizer: Literal["none", "mlp"] = "none"
 
 
-@dataclass(frozen=True)
-class VPTShallowRecipe(VPTShallowConfig):
-    """Visual prompt tuning shallow recipe metadata."""
-
-    num_tokens: int = 50
-    depth: Literal["shallow"] = "shallow"
-    prompt_dropout: float = 0.0
-
-
-@dataclass(frozen=True)
-class VPTDeepRecipe(VPTDeepConfig):
-    """Visual prompt tuning deep recipe metadata."""
-
-    num_tokens: int = 10
-    depth: Literal["deep"] = "deep"
-    prompt_dropout: float = 0.0
-
-
 class PromptedModel(eqx.Module):
     """Model wrapper that inserts trainable prompt tokens into feature sequences."""
 
@@ -579,8 +561,6 @@ __all__ = (
     "PromptedModel",
     "SoftPromptConfig",
     "VPTDeepConfig",
-    "VPTDeepRecipe",
     "VPTShallowConfig",
-    "VPTShallowRecipe",
     "apply_prompts",
 )

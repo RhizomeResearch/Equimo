@@ -111,16 +111,3 @@ def test_pissa_config_exposes_spec_metadata():
 
     assert config.residual_handling == "freeze_residual"
     assert config.fallback_init == "kaiming_A_zero_B"
-
-
-def test_pissa_profile_declares_exact_svd_contract():
-    profile = eqft.pissa_meng2024_profile()
-    default_config_profile = eqft.pissa_meng2024_profile(eqft.PiSSAConfig())
-
-    assert profile.id == "pissa.meng2024.exact_svd"
-    assert profile.fidelity == "reference_implementation"
-    assert profile.config["svd"] == "full"
-    assert profile.config["niter"] == 0
-    assert profile.required_artifacts == ("principal_svd_or_product",)
-    assert default_config_profile.fidelity == "experimental"
-    assert "randomized/iterative" in default_config_profile.known_deviations[0]

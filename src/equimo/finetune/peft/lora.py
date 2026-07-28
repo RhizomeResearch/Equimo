@@ -65,72 +65,6 @@ class LoRAConfig:
 
 
 @dataclass(frozen=True)
-class LoRARecipe:
-    """Recipe metadata for LoRA fine-tuning."""
-
-    rank: int = 8
-    alpha: float = 16.0
-    dropout: float = 0.05
-    target: tuple[str, ...] = ("attention.qkv", "attention.proj")
-    train_head: bool = True
-
-    @classmethod
-    def hard_task(
-        cls,
-        *,
-        rank: int = 16,
-        alpha: float = 32.0,
-        dropout: float = 0.05,
-        target: tuple[str, ...] = (
-            "attention.qkv",
-            "attention.proj",
-            "mlp.fc1",
-            "mlp.fc2",
-        ),
-        train_head: bool = True,
-    ) -> "LoRARecipe":
-        """Return the hard-task LoRA recipe preset."""
-
-        return cls(
-            rank=rank,
-            alpha=alpha,
-            dropout=dropout,
-            target=target,
-            train_head=train_head,
-        )
-
-    @classmethod
-    def tiny_data(
-        cls,
-        *,
-        rank: int = 4,
-        alpha: float = 8.0,
-        dropout: float = 0.0,
-        target: tuple[str, ...] = ("attention.qkv", "attention.proj"),
-        train_head: bool = True,
-    ) -> "LoRARecipe":
-        """Return the tiny-data LoRA recipe preset."""
-
-        return cls(
-            rank=rank,
-            alpha=alpha,
-            dropout=dropout,
-            target=target,
-            train_head=train_head,
-        )
-
-    def to_config(self) -> LoRAConfig:
-        """Convert recipe metadata to a LoRA module config."""
-
-        return LoRAConfig(
-            rank=self.rank,
-            alpha=self.alpha,
-            dropout=self.dropout,
-            target=TargetSpec(tags_any=self.target),
-        )
-
-
-@dataclass(frozen=True)
 class RsLoRAConfig(LoRAConfig):
     """Rank-stabilized LoRA configuration."""
 
@@ -2699,7 +2633,6 @@ __all__ = (
     "LoRALinear",
     "LoRAMergedLinear",
     "LoRAPlusLabelConfig",
-    "LoRARecipe",
     "PiSSAConfig",
     "StaticRankMaskedLoRAConfig",
     "RsLoRAConfig",

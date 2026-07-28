@@ -422,28 +422,6 @@ class CTCHead(eqx.Module):
         return self.head(x)
 
 
-class TokenClassificationHead(eqx.Module):
-    """Token-level classification head that returns raw logits."""
-
-    head: LinearHead
-
-    def __init__(
-        self,
-        in_features: int,
-        out_features: int,
-        *,
-        key: jax.Array,
-        bias: bool = True,
-    ):
-        self.head = cast(
-            LinearHead,
-            LinearHead(in_features, out_features, key=key, bias=bias),
-        )
-
-    def __call__(self, x: jax.Array) -> jax.Array:
-        return self.head(x)
-
-
 class DenseFeatureAdapter(eqx.Module):
     """Project dense or token features along the last axis."""
 
@@ -589,5 +567,4 @@ __all__ = (
     "MLPHead",
     "MultiLabelHead",
     "ProjectionHead",
-    "TokenClassificationHead",
 )
