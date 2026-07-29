@@ -2,8 +2,12 @@
   "format_version": 1,
   "locked_environment": {
     "command": "uv sync --locked --group dev --group reference --extra audio",
+    "huggingface_hub": "1.8.0",
     "numpy": "2.4.4",
+    "rotary_embedding_torch": "0.8.9",
+    "safetensors": "0.8.0",
     "tabpfn": "8.1.0",
+    "tfc-t0": "0.2.1",
     "timm": "1.0.26",
     "torch": "2.11.0",
     "torchaudio": "2.11.0",
@@ -150,6 +154,28 @@
       "arrays": {
         "patch_tokens": {"dtype": "float32", "shape": [256, 768]},
         "img": {"dtype": "float32", "shape": [3, 256, 256]}
+      }
+    },
+    "t0_alpha_reference.npz": {
+      "generator": "uv run --group reference python models/t0.py --references-only --checkpoint /path/to/t0-alpha/model.safetensors --revision f8727c2357e0d81f1d9f56fe3aaac43068b5fc72 --checkpoint-sha256 16c030d3fd70f06dc4238e9a8356e9b5a631d07f80f1bc76ba539991aed5897f --output-dir /tmp/equimo-references",
+      "upstream": {
+        "repository": "theforecastingcompany/t0-alpha",
+        "revision": "f8727c2357e0d81f1d9f56fe3aaac43068b5fc72",
+        "checkpoint": "model.safetensors",
+        "checkpoint_sha256": "16c030d3fd70f06dc4238e9a8356e9b5a631d07f80f1bc76ba539991aed5897f"
+      },
+      "seed": 42,
+      "input_shape": [6, 97],
+      "context_shape": [2, 2, 64],
+      "future_covariates_shape": [2, 1, 97],
+      "tolerance": 0.0002,
+      "sha256": "ab5cc140cb601473ce519f420ad18965fe72bc5d087ff5825b6b7762b5b1c1d7",
+      "arrays": {
+        "values": {"dtype": "float32", "shape": [6, 97]},
+        "mask": {"dtype": "int8", "shape": [6, 97]},
+        "group_ids": {"dtype": "int64", "shape": [6, 97]},
+        "variate_type": {"dtype": "int64", "shape": [6, 97]},
+        "output": {"dtype": "float32", "shape": [6, 4, 32, 5]}
       }
     },
     "tabpfn_v3_classifier_default_reference.npz": {

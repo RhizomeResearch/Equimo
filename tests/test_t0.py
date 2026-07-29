@@ -5,7 +5,7 @@ import pytest
 from equimo.core.layers import Attention, BlockChunk, Mlp, SwiGluFused
 from equimo.registry import get_model_cls
 from equimo.time_series import layers
-from equimo.time_series.models import T0, load_t0_weights, t0, t0_alpha
+from equimo.time_series.models import T0, t0, t0_alpha
 from equimo.time_series.models.t0 import _T0_REGISTRY
 
 
@@ -72,8 +72,8 @@ def test_factory_and_registry():
     assert isinstance(t0(**kwargs), T0)
     assert isinstance(t0_alpha(**kwargs), T0)
     assert get_model_cls("t0", modality="time_series") is T0
-    assert _T0_REGISTRY["t0_alpha"] == (_T0_REGISTRY["t0"][0], {})
-    assert _T0_REGISTRY["t0_alpha"][0] == {
+    base_cfg, variant_cfg = _T0_REGISTRY["t0_alpha"]
+    assert base_cfg | variant_cfg == {
         "embed_dim": 512,
         "num_layers": 24,
         "num_heads": 8,
@@ -85,40 +85,16 @@ def test_factory_and_registry():
     }
 
 
-@pytest.mark.parametrize("factory", [t0, t0_alpha])
-def test_pretrained_factory_uses_equimo_loader(monkeypatch, factory):
-    loaded = {}
-
-    def fake_load_weights(model, identifier, inference_mode):
-        loaded.update(identifier=identifier, inference_mode=inference_mode)
-        return model
-
-    monkeypatch.setattr("equimo.serialization.load_weights", fake_load_weights)
-    model = factory(
-        pretrained=True,
-        inference_mode=False,
-        embed_dim=16,
-        num_layers=3,
-        num_heads=2,
-        mlp_hidden_dim=32,
-        patch_size=4,
-        key=KEY,
-    )
-
-    assert isinstance(model, T0)
-    assert loaded == {"identifier": "t0_alpha", "inference_mode": False}
-
-
-def test_lfs_pointer_is_rejected(tmp_path):
-    pointer = tmp_path / "model.safetensors"
-    pointer.write_text("version https://git-lfs.github.com/spec/v1\n")
-    with pytest.raises(ValueError, match="Git LFS pointer"):
-        load_t0_weights(_tiny(), pointer)
+def test_pretrained_variants_reject_unsupported_or_overridden_configs():
+    with pytest.raises(ValueError, match="Supported T0 pretrained variants: t0_alpha"):
+        t0(pretrained=True)
+    with pytest.raises(ValueError, match="do not accept configuration overrides"):
+        t0_alpha(pretrained=True, embed_dim=16)
 
 
 def test_time_series_layer_registry():
     assert layers.get_layer("axisattention") is layers.AxisAttention
-    assert layers.get_layer("patche1ncoder") is layers.PatchEncoder
+    assert layers.get_layer("patchencoder") is layers.PatchEncoder
     assert layers.get_layer("residualmlp") is layers.ResidualMlp
     assert layers.get_layer("t0block") is layers.T0Block
     assert layers.get_layer("mlp") is Mlp

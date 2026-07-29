@@ -29,7 +29,8 @@ def _xpos(q: Array, k: Array) -> tuple[Array, Array]:
     angles = jnp.repeat(jnp.outer(positions, frequencies), 2, axis=-1)
     base = (jnp.arange(0, dim, 2) + 0.4 * dim) / (1.4 * dim)
     power = (positions - (seq_len - 1) // 2) / 512.0
-    scale = jnp.repeat(base[None] ** power[:, None], 2, axis=-1)
+    half_scale = base[None] ** power[:, None]
+    scale = jnp.concatenate((half_scale, half_scale), axis=-1)
     cos, sin = jnp.cos(angles), jnp.sin(angles)
     return (
         (q * cos + _rotate_half(q) * sin) * scale,

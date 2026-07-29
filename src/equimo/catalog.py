@@ -17,6 +17,7 @@ _CATALOG_PROVIDERS = (
     "equimo.vision.models.vit",
     "equimo.audio.models.ast",
     "equimo.tabular.models.tabpfn",
+    "equimo.time_series.models.t0",
 )
 
 
@@ -112,7 +113,7 @@ def list_models(
     """List covered variants in deterministic key order.
 
     This experimental catalog is intentionally incomplete. It currently
-    covers one representative ViT, AST, and TabPFN variant.
+    covers one representative ViT, AST, TabPFN, and T0 variant.
     """
     variants = _load_catalog()
     if modality is not None:
