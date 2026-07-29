@@ -44,6 +44,9 @@ Versioning from version 2.0.0 onward.
   drivers, feature-forward mixins, and shared ViT/Parcae embedding builders.
   Saved-checkpoint compatibility is guarded by a new structure-signature
   test (`tests/test_checkpoint_signature_stability.py`).
+- Core attention accepts leading batch axes and optional Q/K transforms.
+  Nonzero masks identify allowed pairs, and fully masked query rows now
+  contribute zero attention probability mass.
 
 ## [2.0.0] - 2026-07-15
 

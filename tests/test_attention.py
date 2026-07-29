@@ -15,8 +15,10 @@ from equimo.core.layers import DropPath, Mamba2Mixer, Mlp
 from equimo.core.layers import get_layer as get_core_layer
 from equimo.core.layers.attention import (
     rope_apply as core_rope_apply,
+    rope_apply_interleaved,
     rope_apply_qk_last_hw as core_rope_apply_qk_last_hw,
     rope_rotate_half as core_rope_rotate_half,
+    rope_rotate_interleaved,
 )
 from equimo.core.layers.norm import LayerScale
 from equimo.vision.layers import get_layer as get_vision_layer
@@ -237,6 +239,95 @@ class TestAttentionLayers:
         assert jnp.all(jnp.isfinite(inference_output))
         assert jnp.all(jnp.isfinite(training_output))
         assert not jnp.array_equal(inference_output, training_output)
+
+    def test_standard_attention_batched_matches_vmap(self):
+        model = Attention(DIM, NUM_HEADS, qk_norm=True, key=KEY)
+        x = jr.normal(jr.PRNGKey(1), (3, SEQLEN, DIM))
+        mask = jnp.broadcast_to(
+            jnp.tril(jnp.ones((SEQLEN, SEQLEN), dtype=bool)),
+            (x.shape[0], SEQLEN, SEQLEN),
+        )
+
+        batched = model(x, mask=mask, key=KEY, inference=True)
+        vmapped = jax.vmap(
+            lambda sample, sample_mask: model(
+                sample,
+                mask=sample_mask,
+                key=KEY,
+                inference=True,
+            )
+        )(x, mask)
+
+        assert batched.shape == x.shape
+        assert jnp.allclose(batched, vmapped, rtol=1e-5, atol=1e-6)
+
+    def test_standard_attention_fully_masked_rows_have_zero_contribution(self):
+        model = Attention(DIM, NUM_HEADS, proj_bias=False, key=KEY)
+        x = jr.normal(jr.PRNGKey(1), (2, SEQLEN, DIM))
+        mask = jnp.ones((2, SEQLEN, SEQLEN), dtype=bool)
+        mask = mask.at[0, 3].set(False)
+
+        batch_mask_output = model(x, mask=mask, key=KEY, inference=True)
+        head_mask_output = model(
+            x,
+            mask=mask[..., None, :, :],
+            key=KEY,
+            inference=True,
+        )
+
+        assert jnp.all(jnp.isfinite(batch_mask_output))
+        assert jnp.array_equal(batch_mask_output[0, 3], jnp.zeros((DIM,)))
+        assert jnp.array_equal(batch_mask_output, head_mask_output)
+
+    def test_standard_attention_accepts_qk_transform(self):
+        model = Attention(DIM, NUM_HEADS, key=KEY)
+        x = jr.normal(jr.PRNGKey(1), (2, SEQLEN, DIM))
+
+        baseline = model(x, key=KEY, inference=True)
+        transformed = model(
+            x,
+            qk_transform=lambda q, k: (jnp.zeros_like(q), k),
+            key=KEY,
+            inference=True,
+        )
+
+        assert transformed.shape == x.shape
+        assert not jnp.allclose(transformed, baseline)
+
+        angles = jnp.zeros((SEQLEN, DIM // NUM_HEADS))
+        with pytest.raises(ValueError, match="mutually exclusive"):
+            model(
+                x,
+                rope_sincos=(jnp.sin(angles), jnp.cos(angles)),
+                qk_transform=lambda q, k: (q, k),
+                key=KEY,
+                inference=True,
+            )
+        with pytest.raises(ValueError, match="must preserve Q/K shapes"):
+            model(
+                x,
+                qk_transform=lambda q, k: (q[..., :-1], k),
+                key=KEY,
+                inference=True,
+            )
+
+    def test_interleaved_rope_helpers_preserve_adjacent_pair_layout(self):
+        x = jnp.arange(8, dtype=jnp.float32).reshape(2, 4)
+        expected_rotation = jnp.array(
+            [
+                [-1.0, 0.0, -3.0, 2.0],
+                [-5.0, 4.0, -7.0, 6.0],
+            ]
+        )
+        sin = jnp.full_like(x, 0.25)
+        cos = jnp.full_like(x, 0.75)
+
+        assert jnp.array_equal(rope_rotate_interleaved(x), expected_rotation)
+        assert jnp.allclose(
+            rope_apply_interleaved(x, sin, cos),
+            x * cos + expected_rotation * sin,
+        )
+        assert not jnp.array_equal(rope_rotate_interleaved(x), core_rope_rotate_half(x))
 
     def test_reexported_rope_helper_preserves_shape_validation(self):
         q = jnp.zeros((NUM_HEADS, SEQLEN, DIM // NUM_HEADS))

@@ -8,7 +8,6 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import jax.random as jr
-from einops import rearrange
 from jaxtyping import Array, Float, PRNGKeyArray
 
 from equimo.core.layers.activation import get_act
@@ -44,6 +43,23 @@ def rope_apply(x: jax.Array, sin: jax.Array, cos: jax.Array) -> jax.Array:
     """Apply precomputed rotary sine/cosine factors to an array."""
 
     return (x * cos) + (rope_rotate_half(x) * sin)
+
+
+def rope_rotate_interleaved(x: jax.Array) -> jax.Array:
+    """Rotate adjacent last-dimension pairs used by interleaved RoPE."""
+
+    pairs = x.reshape(*x.shape[:-1], -1, 2)
+    return jnp.stack((-pairs[..., 1], pairs[..., 0]), axis=-1).reshape(x.shape)
+
+
+def rope_apply_interleaved(
+    x: jax.Array,
+    sin: jax.Array,
+    cos: jax.Array,
+) -> jax.Array:
+    """Apply interleaved rotary sine/cosine factors to an array."""
+
+    return (x * cos) + (rope_rotate_interleaved(x) * sin)
 
 
 def rope_apply_qk_last_hw(
@@ -83,9 +99,44 @@ def rope_apply_qk_last_hw(
     )
 
 
+def _apply_module_last_dim(module: eqx.Module, x: jax.Array) -> jax.Array:
+    """Apply a vector module independently over every leading dimension."""
+
+    leading_shape = x.shape[:-1]
+    flat = x.reshape(-1, x.shape[-1])
+    output = jax.vmap(module)(flat)
+    return output.reshape(*leading_shape, output.shape[-1])
+
+
+def _broadcast_attention_mask(
+    mask: jax.Array,
+    *,
+    x_ndim: int,
+    shape: tuple[int, ...],
+) -> jax.Array:
+    """Broadcast a nonzero-is-allowed mask to attention score shape."""
+
+    mask = jnp.asarray(mask) != 0
+    if mask.ndim == x_ndim:
+        mask = mask[..., None, :, :]
+    try:
+        return jnp.broadcast_to(mask, shape)
+    except ValueError as error:
+        raise ValueError(
+            f"Attention mask shape {mask.shape} is not broadcastable to "
+            f"attention scores with shape {shape}."
+        ) from error
+
+
 @register_attn()
 class Attention(eqx.Module):
-    """Multi-head self attention for sequence tensors of shape ``(seq, dim)``."""
+    """Multi-head self attention over tensors shaped ``(..., seq, dim)``.
+
+    Masks use nonzero/``True`` entries for allowed query-key pairs. They may be
+    batch-aligned with shape ``(..., query, key)`` or directly broadcastable to
+    ``(..., heads, query, key)``. Fully masked query rows receive zero attention
+    probability mass.
+    """
 
     dim: int = eqx.field(static=True)
     num_heads: int = eqx.field(static=True)
@@ -133,19 +184,31 @@ class Attention(eqx.Module):
 
     def __call__(
         self,
-        x: Float[Array, "seqlen dim"],
+        x: Float[Array, "... seqlen dim"],
         key: PRNGKeyArray,
         inference: Optional[bool] = None,
-        mask: Optional[Float[Array, ""]] = None,
+        mask: Optional[Array] = None,
         rope_sincos: Optional[Tuple[jax.Array, jax.Array]] = None,
-    ) -> Float[Array, "seqlen dim"]:
+        *,
+        qk_transform: Optional[
+            Callable[
+                [jax.Array, jax.Array],
+                Tuple[jax.Array, jax.Array],
+            ]
+        ] = None,
+    ) -> Float[Array, "... seqlen dim"]:
+        if rope_sincos is not None and qk_transform is not None:
+            raise ValueError("rope_sincos and qk_transform are mutually exclusive.")
+
         key1, key2 = jr.split(key, 2)
 
-        qkv = jax.vmap(self.qkv)(x)
-        qkv = rearrange(qkv, "s (n h d) -> n h s d", n=3, h=self.num_heads)
-        q, k, v = qkv
-        q = jax.vmap(jax.vmap(self.q_norm))(q)
-        k = jax.vmap(jax.vmap(self.k_norm))(k)
+        qkv = _apply_module_last_dim(self.qkv, x).reshape(
+            *x.shape[:-1], 3, self.num_heads, self.head_dim
+        )
+        q, k, v = jnp.moveaxis(qkv, -3, 0)
+        q, k, v = (jnp.swapaxes(value, -3, -2) for value in (q, k, v))
+        q = _apply_module_last_dim(self.q_norm, q)
+        k = _apply_module_last_dim(self.k_norm, k)
 
         if rope_sincos is not None:
             sin, cos = rope_sincos
@@ -155,20 +218,34 @@ class Attention(eqx.Module):
                     f"head_dim ({self.head_dim})."
                 )
             q, k = rope_apply_qk_last_hw(q, k, sin, cos)
+        elif qk_transform is not None:
+            q_shape, k_shape = q.shape, k.shape
+            q, k = qk_transform(q, k)
+            if q.shape != q_shape or k.shape != k_shape:
+                raise ValueError(
+                    "qk_transform must preserve Q/K shapes; got "
+                    f"{q.shape} and {k.shape}, expected {q_shape} and {k_shape}."
+                )
 
-        attn = jnp.einsum("hqd,hkd->hqk", q, k) / jnp.sqrt(self.head_dim)
+        attn = (
+            jnp.einsum("...hqd,...hkd->...hqk", q, k) / jnp.sqrt(self.head_dim)
+        ).astype(jnp.float32)
         if mask is not None:
-            attn = jnp.where(
-                mask == 0, jnp.finfo(jnp.float32).min, attn.astype(jnp.float32)
+            allowed = _broadcast_attention_mask(
+                mask,
+                x_ndim=x.ndim,
+                shape=attn.shape,
             )
-        else:
-            attn = attn.astype(jnp.float32)
-        attn = jax.nn.softmax(attn, axis=-1).astype(x.dtype)
+            attn = jnp.where(allowed, attn, -jnp.inf)
+        attn = jax.nn.softmax(attn, axis=-1)
+        if mask is not None:
+            attn = jnp.where(jnp.any(allowed, axis=-1, keepdims=True), attn, 0)
+        attn = attn.astype(x.dtype)
         attn = self.attn_drop(attn, inference=inference, key=key1)
 
-        x = jnp.einsum("hqk,hkd->hqd", attn, v)
-        x = rearrange(x, "h s d -> s (h d)")
-        x = jax.vmap(self.proj)(x)
+        x = jnp.einsum("...hqk,...hkd->...hqd", attn, v)
+        x = jnp.swapaxes(x, -3, -2).reshape(*x.shape[:-3], x.shape[-2], self.dim)
+        x = _apply_module_last_dim(self.proj, x)
         return self.proj_drop(x, inference=inference, key=key2)
 
 
