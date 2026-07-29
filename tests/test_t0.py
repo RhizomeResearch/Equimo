@@ -41,6 +41,12 @@ def test_forward_shape_finite_and_monotonic():
     assert bool(jnp.all(jnp.diff(output, axis=-1) >= 0))
 
 
+def test_features_flatten_variates_and_patches():
+    features = _tiny().features(*_inputs(), key=KEY, inference=True)
+    assert features.shape == (4, 16)
+    assert bool(jnp.all(jnp.isfinite(features)))
+
+
 def test_reuses_equimo_blocks_and_t0_pattern():
     model = _tiny()
     assert isinstance(model.blocks[0], BlockChunk)

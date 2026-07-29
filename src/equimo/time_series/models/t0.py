@@ -132,20 +132,20 @@ class T0(eqx.Module):
         )
         return time_mask, group_mask
 
-    def __call__(
+    def _encode(
         self,
-        values: Float[Array, "variates time"],
-        mask: Int[Array, "variates time"],
-        group_ids: Int[Array, "variates time"],
-        variate_type: Int[Array, "variates time"],
+        values,
+        mask,
+        group_ids,
+        variate_type,
         *,
-        key: PRNGKeyArray = jr.PRNGKey(42),
-        inference: Optional[bool] = None,
-    ) -> Float[Array, "variates patches patch_size quantiles"]:
+        key_encoder,
+        key_blocks,
+        inference,
+    ):
         values, mask, group_ids, variate_type = self._patch(
             values, mask, group_ids, variate_type
         )
-        key_encoder, key_blocks, key_decoder = jr.split(key, 3)
         x = self.patch_encoder(
             values, mask, variate_type, key=key_encoder, inference=inference
         )
@@ -157,7 +157,57 @@ class T0(eqx.Module):
             key=key_blocks,
             inference=inference,
         )
-        x = self.out_norm(x)
+        return self.out_norm(x)
+
+    def features(
+        self,
+        values: Float[Array, "variates time"],
+        mask: Int[Array, "variates time"],
+        group_ids: Int[Array, "variates time"],
+        variate_type: Int[Array, "variates time"],
+        *,
+        key: PRNGKeyArray,
+        inference: Optional[bool] = None,
+    ) -> Float[Array, "tokens embed_dim"]:
+        """Return post-normalization latent tokens before quantile decoding.
+
+        Tokens are flattened in variate-major, patch-minor order. The patch axis
+        includes the left-padded leading patch when the input length is not
+        divisible by ``patch_size``.
+        """
+
+        key_encoder, key_blocks, _ = jr.split(key, 3)
+        x = self._encode(
+            values,
+            mask,
+            group_ids,
+            variate_type,
+            key_encoder=key_encoder,
+            key_blocks=key_blocks,
+            inference=inference,
+        )
+        return x.reshape(-1, self.embed_dim)
+
+    def __call__(
+        self,
+        values: Float[Array, "variates time"],
+        mask: Int[Array, "variates time"],
+        group_ids: Int[Array, "variates time"],
+        variate_type: Int[Array, "variates time"],
+        *,
+        key: PRNGKeyArray = jr.PRNGKey(42),
+        inference: Optional[bool] = None,
+    ) -> Float[Array, "variates patches patch_size quantiles"]:
+        key_encoder, key_blocks, key_decoder = jr.split(key, 3)
+        x = self._encode(
+            values,
+            mask,
+            group_ids,
+            variate_type,
+            key_encoder=key_encoder,
+            key_blocks=key_blocks,
+            inference=inference,
+        )
         x = self.decoder(x, key=key_decoder, inference=inference)
         x = x.reshape(*x.shape[:-1], self.patch_size, len(self.quantile_levels))
         first = x[..., :1]
