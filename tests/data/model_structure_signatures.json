@@ -1,0 +1,86 @@
+{
+  "ast_tiny": {
+    "model_class": "equimo.audio.models.ast.AudioSpectrogramTransformer",
+    "model_signature": "sha256:518451d663dba67ef0beab9a35eebb552c7d3195fc2d9777ad40f9898ad7493f"
+  },
+  "attnet_xxs": {
+    "model_class": "equimo.vision.models.attnet.AttNet",
+    "model_signature": "sha256:ed225bf9a301c21ebfc2bd7650f9ce693aa570d3c45ba44e7160108f131fa834"
+  },
+  "convnext_tiny_2stage": {
+    "model_class": "equimo.vision.models.convnext.ConvNeXt",
+    "model_signature": "sha256:19ee75364dcc4699c247b14ac38f66565758fb6e740e9bc6d9dda1cb1daae66c"
+  },
+  "deq_convnext_t": {
+    "model_class": "equimo.vision.models.deq.DEQ",
+    "model_signature": "sha256:3d902e4d8c5660671b6ed8c117596509c0927234e596c38bd1d0fb008bea5a43"
+  },
+  "fastervit_tiny": {
+    "model_class": "equimo.vision.models.fastervit.FasterViT",
+    "model_signature": "sha256:7170414cba7da2700948504890348b0aa936151545797f9b943cc4958f122798"
+  },
+  "generic_ghost_module": {
+    "model_class": "equimo.vision.layers.convolution.GenericGhostModule",
+    "model_signature": "sha256:5c912dac2f2af1671823271c744b3e62b9a3969e59a41877a6e83df61121a636"
+  },
+  "ghost_bottleneck": {
+    "model_class": "equimo.vision.layers.convolution.GhostBottleneck",
+    "model_signature": "sha256:4eb45d60d76ff8dade8287ebbe6db44dea6a55a2dd963346b782bda991d91b3b"
+  },
+  "hat_block": {
+    "model_class": "equimo.vision.layers.attention.HATBlock",
+    "model_signature": "sha256:46c8b66cf51e699439b3de91048aff5007efe93ba291a9744a4870ccf92f6a00"
+  },
+  "iformer_t": {
+    "model_class": "equimo.vision.models.iformer.IFormer",
+    "model_signature": "sha256:7535dae199cdbe27b7d219955865cb2553555f89c63619d0b49f57bbea93fa0c"
+  },
+  "lowformer_b0": {
+    "model_class": "equimo.vision.models.lowformer.LowFormer",
+    "model_signature": "sha256:f615920fbd9671ca31af57db3285eeaacb2b197ea0ec4a87b4e528fdddb907f6"
+  },
+  "mlla_tiny": {
+    "model_class": "equimo.vision.models.mlla.Mlla",
+    "model_signature": "sha256:1d75588db207b17d6f3f0cd080e6f8dc26cbd6f7c69185ef6721aa8af485b953"
+  },
+  "mobilenetv3_small": {
+    "model_class": "equimo.vision.models.mobilenet.MobileNetv3",
+    "model_signature": "sha256:3624fd1646d79f7ab585ebf2ef47a2800d07bc37e1850166e744a175e6b69ec3"
+  },
+  "parcae_tiny": {
+    "model_class": "equimo.vision.models.parcae.VisionParcae",
+    "model_signature": "sha256:be8a77e1b0afc8e6ca0df35116a2cc0c4f02f9de69b0027d379a5d04995ca3b7"
+  },
+  "parcae_tiny_untied_cls_norm": {
+    "model_class": "equimo.vision.models.parcae.VisionParcae",
+    "model_signature": "sha256:2f3682d7f85f4368362b3c5f43389b07ac288e3bbba533dc2507862a1a0b17b4"
+  },
+  "partialformer_tiny": {
+    "model_class": "equimo.vision.models.partialformer.PartialFormer",
+    "model_signature": "sha256:288aabf3192344e2f00c559e19edeea12f469a4de570757ef9b0348079adb730"
+  },
+  "reduceformer_b1": {
+    "model_class": "equimo.vision.models.reduceformer.ReduceFormer",
+    "model_signature": "sha256:e727dd69354dfb5a5d73276f3e7ffe698afe97c554a83060be902e178d04a909"
+  },
+  "shvit_tiny": {
+    "model_class": "equimo.vision.models.shvit.SHViT",
+    "model_signature": "sha256:1418a6e6ed18058adbd6948ce5096a46fb0deb830df8d8bb522477b3b325de2a"
+  },
+  "tabpfn_tiny": {
+    "model_class": "equimo.tabular.models.tabpfn.TabPFN",
+    "model_signature": "sha256:715c6d36a496f59583030120c7f41fffd23d22d4bbe187c85f48e3b89ad3ea12"
+  },
+  "vit_tiny": {
+    "model_class": "equimo.vision.models.vit.VisionTransformer",
+    "model_signature": "sha256:08862d7fcacbfc2833a37a2c031676149c6b6a53d4a335d9b04a8d0984794a3a"
+  },
+  "vit_tiny_untied_cls_norm": {
+    "model_class": "equimo.vision.models.vit.VisionTransformer",
+    "model_signature": "sha256:162a282c0d5447196afa7009ee886b8a1373e59479cd43adec61b533acb0070e"
+  },
+  "vssd_tiny": {
+    "model_class": "equimo.vision.models.vssd.Vssd",
+    "model_signature": "sha256:f40af0f49320a0638b13c69d4159d9e6e0216b922d0109816be5e5a493f22c99"
+  }
+}

@@ -37,8 +37,6 @@ Task heads, pooling modules, probes, and feature-extraction helpers.
 - [`MultiLabelHead`](#equimo-finetune-multilabelhead)
 - [`pool_features`](#equimo-finetune-pool-features)
 - [`ProjectionHead`](#equimo-finetune-projectionhead)
-- [`TokenClassificationHead`](#equimo-finetune-tokenclassificationhead)
-- [`TokenIndexPool`](#equimo-finetune-tokenindexpool)
 
 <!-- equimo.finetune:AttentionPool -->
 <a id="equimo-finetune-attentionpool"></a>
@@ -395,27 +393,3 @@ class equimo.finetune.ProjectionHead(in_features: 'int', out_features: 'int', *,
 Defined in `equimo.finetune.heads`.
 
 > Projection MLP used by contrastive or embedding tasks.
-
-<!-- equimo.finetune:TokenClassificationHead -->
-<a id="equimo-finetune-tokenclassificationhead"></a>
-## `TokenClassificationHead`
-
-```python
-class equimo.finetune.TokenClassificationHead(in_features: 'int', out_features: 'int', *, key: 'jax.Array', bias: 'bool' = True)
-```
-
-Defined in `equimo.finetune.heads`.
-
-> Token-level classification head that returns raw logits.
-
-<!-- equimo.finetune:TokenIndexPool -->
-<a id="equimo-finetune-tokenindexpool"></a>
-## `TokenIndexPool`
-
-```python
-class equimo.finetune.TokenIndexPool(index: 'int')
-```
-
-Defined in `equimo.finetune.pooling`.
-
-> Return a token at a fixed index.

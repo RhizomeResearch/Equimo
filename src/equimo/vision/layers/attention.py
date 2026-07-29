@@ -21,10 +21,10 @@ from equimo.core.layers.attention import (
     rope_apply_qk_last_hw as rope_apply_qk_last_hw,
     rope_rotate_half as rope_rotate_half,
 )
-from equimo.core.layers.dropout import DropPathAdd
+from equimo.core.layers.dropout import DropPathAdd, split_drop_path
 from equimo.core.layers.ffn import get_ffn
 from equimo.core.layers.mamba import Mamba2Mixer
-from equimo.core.layers.norm import LayerScale, get_norm
+from equimo.core.layers.norm import LayerScale, get_norm, maybe_layer_scale
 from equimo.vision.layers.convolution import (
     DoubleConvBlock,
     MBConv,
@@ -37,101 +37,22 @@ from equimo.vision.layers.posemb import (
     RoPE,
 )
 from equimo.utils import nearest_power_of_2_divisor
+from equimo.core.layers._registry import make_get, make_register
 
 _ATTN_REGISTRY: dict[str, type[eqx.Module]] = {}
 _ATTN_BLOCK_REGISTRY: dict[str, type[eqx.Module]] = {}
 
 
-def register_attn(
-    name: Optional[str] = None,
-    force: bool = False,
-) -> Callable[[type[eqx.Module]], type[eqx.Module]]:
-    """Decorator to dynamically register new attention modules.
-
-    Args:
-        name: Registry key. Defaults to the lowercase class name.
-        force: If True, allow overwriting an existing entry. Default False.
-    """
-
-    def decorator(cls: type[eqx.Module]) -> type[eqx.Module]:
-        if not issubclass(cls, eqx.Module):
-            raise TypeError(
-                f"Registered class must be a subclass of eqx.Module, got {type(cls)}"
-            )
-
-        registry_name = name.lower() if name else cls.__name__.lower()
-
-        if registry_name in _ATTN_REGISTRY and not force:
-            raise ValueError(
-                f"Cannot register '{registry_name}'. It is already registered "
-                f"to {_ATTN_REGISTRY[registry_name]}."
-            )
-
-        _ATTN_REGISTRY[registry_name] = cls
-        return cls
-
-    return decorator
+register_attn = make_register(_ATTN_REGISTRY)
 
 
-def get_attn(module: str | type[eqx.Module]) -> type[eqx.Module]:
-    """Get an `eqx.Module` class from its common name."""
-    if not isinstance(module, str):
-        return module
-
-    module_lower = module.lower()
-    if module_lower not in _ATTN_REGISTRY:
-        raise ValueError(
-            f"Got an unknown module string: '{module}'. "
-            f"Available modules: {list(_ATTN_REGISTRY.keys())}"
-        )
-
-    return _ATTN_REGISTRY[module_lower]
+get_attn = make_get(_ATTN_REGISTRY)
 
 
-def register_attn_block(
-    name: Optional[str] = None,
-    force: bool = False,
-) -> Callable[[type[eqx.Module]], type[eqx.Module]]:
-    """Decorator to dynamically register new attention blocks.
-
-    Args:
-        name: Registry key. Defaults to the lowercase class name.
-        force: If True, allow overwriting an existing entry. Default False.
-    """
-
-    def decorator(cls: type[eqx.Module]) -> type[eqx.Module]:
-        if not issubclass(cls, eqx.Module):
-            raise TypeError(
-                f"Registered class must be a subclass of eqx.Module, got {type(cls)}"
-            )
-
-        registry_name = name.lower() if name else cls.__name__.lower()
-
-        if registry_name in _ATTN_BLOCK_REGISTRY and not force:
-            raise ValueError(
-                f"Cannot register '{registry_name}'. It is already registered "
-                f"to {_ATTN_BLOCK_REGISTRY[registry_name]}."
-            )
-
-        _ATTN_BLOCK_REGISTRY[registry_name] = cls
-        return cls
-
-    return decorator
+register_attn_block = make_register(_ATTN_BLOCK_REGISTRY)
 
 
-def get_attn_block(module: str | type[eqx.Module]) -> type[eqx.Module]:
-    """Get an `eqx.Module` class from its common name."""
-    if not isinstance(module, str):
-        return module
-
-    module_lower = module.lower()
-    if module_lower not in _ATTN_BLOCK_REGISTRY:
-        raise ValueError(
-            f"Got an unknown module string: '{module}'. "
-            f"Available modules: {list(_ATTN_BLOCK_REGISTRY.keys())}"
-        )
-
-    return _ATTN_BLOCK_REGISTRY[module_lower]
+get_attn_block = make_get(_ATTN_BLOCK_REGISTRY)
 
 
 register_attn()(Attention)
@@ -281,7 +202,6 @@ class HATBlock(eqx.Module):
 
     hat_norm1: Optional[eqx.Module] = eqx.field(default=None)
     hat_norm2: Optional[eqx.Module] = eqx.field(default=None)
-    hat_norm3: Optional[eqx.Module] = eqx.field(default=None)
     hat_attn: Optional[eqx.Module] = eqx.field(default=None)
     hat_mlp: Optional[eqx.Module] = eqx.field(default=None)
     hat_drop_path: Optional[DropPathAdd] = eqx.field(default=None)
@@ -329,19 +249,7 @@ class HATBlock(eqx.Module):
         self.ct_size = ct_size
         self.last = last
 
-        if isinstance(drop_path, list):
-            if (_l := len(drop_path)) == 1:
-                dr1 = dr2 = drop_path[0]
-            elif _l == 2:
-                dr1, dr2 = drop_path
-                dr1 = float(dr1)
-                dr2 = float(dr2)
-            else:
-                raise AssertionError(
-                    f"`drop_path` needs to have 1 or 2 elements, got {_l} ({drop_path})."
-                )
-        else:
-            dr1 = dr2 = float(drop_path)
+        dr1, dr2 = split_drop_path(drop_path)
 
         self.pos_embed = PosEmbMLPSwinv1D(
             dim, rank=2, seq_len=window_size**2, key=key_posemb
@@ -349,11 +257,8 @@ class HATBlock(eqx.Module):
         self.norm1 = norm_layer(dim, eps=eps)
         self.norm2 = norm_layer(dim, eps=eps)
 
-        if init_values:
-            self.ls1 = LayerScale(dim, axis=1, init_values=init_values)
-            self.ls2 = LayerScale(dim, axis=1, init_values=init_values)
-        else:
-            self.ls1 = self.ls2 = eqx.nn.Identity()
+        self.ls1 = maybe_layer_scale(dim, axis=1, init_values=init_values)
+        self.ls2 = maybe_layer_scale(dim, axis=1, init_values=init_values)
 
         # number of carrier tokens per every window
         cr_tokens_per_window = self.ct_size**2 if self.sr_ratio > 1 else 0
@@ -423,21 +328,9 @@ class HATBlock(eqx.Module):
             self.hat_pos_embed = PosEmbMLPSwinv1D(
                 dim, rank=2, seq_len=cr_tokens_total, key=key_hatposemb
             )
-            self.hat_ls1 = (
-                LayerScale(dim, axis=1, init_values=init_values)
-                if init_values
-                else eqx.nn.Identity()
-            )
-            self.hat_ls2 = (
-                LayerScale(dim, axis=1, init_values=init_values)
-                if init_values
-                else eqx.nn.Identity()
-            )
-            self.hat_ls3 = (
-                LayerScale(dim, axis=1, init_values=init_values)
-                if init_values
-                else eqx.nn.Identity()
-            )
+            self.hat_ls1 = maybe_layer_scale(dim, axis=1, init_values=init_values)
+            self.hat_ls2 = maybe_layer_scale(dim, axis=1, init_values=init_values)
+            self.hat_ls3 = maybe_layer_scale(dim, axis=1, init_values=init_values)
 
     def ct_window(self, ct, H, W, window_size):
         return rearrange(
@@ -878,19 +771,7 @@ class SHMABlock(eqx.Module):
         act_layer = get_act(act_layer)
         norm_layer = get_norm(norm_layer)
 
-        if isinstance(drop_path, list):
-            if (_l := len(drop_path)) == 1:
-                dr1 = dr2 = drop_path[0]
-            elif _l == 2:
-                dr1, dr2 = drop_path
-                dr1 = float(dr1)
-                dr2 = float(dr2)
-            else:
-                raise AssertionError(
-                    f"`drop_path` needs to have 1 or 2 elements, got {_l} ({drop_path})."
-                )
-        else:
-            dr1 = dr2 = float(drop_path)
+        dr1, dr2 = split_drop_path(drop_path)
 
         self.posemb = PosCNN2D(dim, key=key_pe)
         self.attn = SHMA(
@@ -919,16 +800,8 @@ class SHMABlock(eqx.Module):
             key=key_ffn,
         )
 
-        self.ls1 = (
-            LayerScale(dim, axis=0, init_values=init_values)
-            if init_values is not None
-            else eqx.nn.Identity()
-        )
-        self.ls2 = (
-            LayerScale(dim, axis=0, init_values=init_values)
-            if init_values is not None
-            else eqx.nn.Identity()
-        )
+        self.ls1 = maybe_layer_scale(dim, axis=0, init_values=init_values)
+        self.ls2 = maybe_layer_scale(dim, axis=0, init_values=init_values)
         self.drop_path1 = DropPathAdd(dr1)
         self.drop_path2 = DropPathAdd(dr2)
 
@@ -1169,19 +1042,7 @@ class MllaBlock(eqx.Module):
             key=key_attn,
         )
 
-        if isinstance(drop_path, list):
-            if (_l := len(drop_path)) == 1:
-                dr1 = dr2 = drop_path[0]
-            elif _l == 2:
-                dr1, dr2 = drop_path
-                dr1 = float(dr1)
-                dr2 = float(dr2)
-            else:
-                raise AssertionError(
-                    f"`drop_path` needs to have 1 or 2 elements, got {_l} ({drop_path})."
-                )
-        else:
-            dr1 = dr2 = float(drop_path)
+        dr1, dr2 = split_drop_path(drop_path)
 
         self.cpe2 = eqx.nn.Conv2d(
             in_channels=dim,
@@ -1206,16 +1067,8 @@ class MllaBlock(eqx.Module):
 
         self.drop_path1 = DropPathAdd(dr1)
         self.drop_path2 = DropPathAdd(dr2)
-        self.ls1 = (
-            LayerScale(dim, axis=1, init_values=init_values)
-            if init_values is not None
-            else eqx.nn.Identity()
-        )
-        self.ls2 = (
-            LayerScale(dim, axis=1, init_values=init_values)
-            if init_values is not None
-            else eqx.nn.Identity()
-        )
+        self.ls1 = maybe_layer_scale(dim, axis=1, init_values=init_values)
+        self.ls2 = maybe_layer_scale(dim, axis=1, init_values=init_values)
 
     def __call__(
         self,
@@ -1561,28 +1414,13 @@ class PartialFormerBlock(eqx.Module):
         self.foreground_ratio = foreground_ratio
         self.patch_size = patch_size
 
-        if isinstance(drop_path, list):
-            if (_l := len(drop_path)) == 1:
-                dr1 = dr2 = drop_path[0]
-            elif _l == 2:
-                dr1, dr2 = drop_path
-                dr1 = float(dr1)
-                dr2 = float(dr2)
-            else:
-                raise AssertionError(
-                    f"`drop_path` needs to have 1 or 2 elements, got {_l} ({drop_path})."
-                )
-        else:
-            dr1 = dr2 = float(drop_path)
+        dr1, dr2 = split_drop_path(drop_path)
 
         self.norm1 = norm_layer(dim, eps=eps)
         self.norm2 = norm_layer(dim, eps=eps)
 
-        if init_values:
-            self.ls1 = LayerScale(dim, axis=1, init_values=init_values)
-            self.ls2 = LayerScale(dim, axis=1, init_values=init_values)
-        else:
-            self.ls1 = self.ls2 = eqx.nn.Identity()
+        self.ls1 = maybe_layer_scale(dim, axis=1, init_values=init_values)
+        self.ls2 = maybe_layer_scale(dim, axis=1, init_values=init_values)
 
         self.posemb = PosCNN2D(dim, norm_layer=None, key=key_posemb)
 
@@ -1745,7 +1583,6 @@ class LinearAngularAttention(eqx.Module):
         sparsity_threshold: float = 0.2,
         qkv_bias: bool = True,
         proj_bias: bool = True,
-        qk_norm: bool = False,
         attn_drop: float = 0.0,
         proj_drop: float = 0.0,
         res_kernel_size: int = 9,
@@ -1985,7 +1822,6 @@ class RFAttentionBlock(eqx.Module):
         context_drop: float = 0.0,
         local_drop: float = 0.0,
         drop_path: float | List[float] = 0.0,
-        residual_mbconv: bool = False,
         init_values: float | None = None,
         residual: bool = True,
         **kwargs,
@@ -1993,19 +1829,7 @@ class RFAttentionBlock(eqx.Module):
         key_context, key_local = jr.split(key, 2)
         self.residual = residual
 
-        if isinstance(drop_path, list):
-            if (_l := len(drop_path)) == 1:
-                dr1 = dr2 = drop_path[0]
-            elif _l == 2:
-                dr1, dr2 = drop_path
-                dr1 = float(dr1)
-                dr2 = float(dr2)
-            else:
-                raise AssertionError(
-                    f"`drop_path` needs to have 1 or 2 elements, got {_l} ({drop_path})."
-                )
-        else:
-            dr1 = dr2 = float(drop_path)
+        dr1, dr2 = split_drop_path(drop_path)
 
         self.context_module = RFAttention(
             in_channels=in_channels,
@@ -2032,16 +1856,8 @@ class RFAttentionBlock(eqx.Module):
             key=key_local,
         )
 
-        self.ls1 = (
-            LayerScale(in_channels, axis=0, init_values=init_values)
-            if init_values is not None
-            else eqx.nn.Identity()
-        )
-        self.ls2 = (
-            LayerScale(in_channels, axis=0, init_values=init_values)
-            if init_values is not None
-            else eqx.nn.Identity()
-        )
+        self.ls1 = maybe_layer_scale(in_channels, axis=0, init_values=init_values)
+        self.ls2 = maybe_layer_scale(in_channels, axis=0, init_values=init_values)
         self.drop_path1 = DropPathAdd(dr1)
         self.drop_path2 = DropPathAdd(dr2)
 
@@ -2087,7 +1903,6 @@ class ConvAttention(eqx.Module):
         fuse: bool = True,
         attention_type: Literal["softmax", "sigmoid"] = "softmax",
         norm_layer: str | type[eqx.Module] | None = "groupnorm",
-        norm_kwargs: dict = {},
         **kwargs,
     ):
         key_qkv1, key_qkv2, key_oproj, key_upsampling = jr.split(key, 4)
@@ -2221,19 +2036,7 @@ class ConvAttentionBlock(eqx.Module):
         act_layer = get_act(act_layer)
         norm_layer = get_norm(norm_layer)
 
-        if isinstance(drop_path, list):
-            if (_l := len(drop_path)) == 1:
-                dr1 = dr2 = drop_path[0]
-            elif _l == 2:
-                dr1, dr2 = drop_path
-                dr1 = float(dr1)
-                dr2 = float(dr2)
-            else:
-                raise AssertionError(
-                    f"`drop_path` needs to have 1 or 2 elements, got {_l} ({drop_path})."
-                )
-        else:
-            dr1 = dr2 = float(drop_path)
+        dr1, dr2 = split_drop_path(drop_path)
 
         num_groups = nearest_power_of_2_divisor(dim, norm_max_group)
         self.prenorm = norm_layer(num_groups, dim, eps=eps)
@@ -2266,16 +2069,8 @@ class ConvAttentionBlock(eqx.Module):
 
         self.drop_path1 = DropPathAdd(dr1)
         self.drop_path2 = DropPathAdd(dr2)
-        self.ls1 = (
-            LayerScale(dim, axis=0, init_values=init_values)
-            if init_values is not None
-            else eqx.nn.Identity()
-        )
-        self.ls2 = (
-            LayerScale(dim, axis=0, init_values=init_values)
-            if init_values is not None
-            else eqx.nn.Identity()
-        )
+        self.ls1 = maybe_layer_scale(dim, axis=0, init_values=init_values)
+        self.ls2 = maybe_layer_scale(dim, axis=0, init_values=init_values)
 
     def __call__(
         self,
@@ -2349,19 +2144,7 @@ class LowFormerBlock(eqx.Module):
         act_layer = get_act(act_layer)
         norm_layer = get_norm(norm_layer)
 
-        if isinstance(drop_path, list):
-            if (_l := len(drop_path)) == 1:
-                dr1 = dr2 = drop_path[0]
-            elif _l == 2:
-                dr1, dr2 = drop_path
-                dr1 = float(dr1)
-                dr2 = float(dr2)
-            else:
-                raise AssertionError(
-                    f"`drop_path` needs to have 1 or 2 elements, got {_l} ({drop_path})."
-                )
-        else:
-            dr1 = dr2 = float(drop_path)
+        dr1, dr2 = split_drop_path(drop_path)
 
         self.context_module = ConvAttentionBlock(
             dim=dim,
@@ -2387,16 +2170,8 @@ class LowFormerBlock(eqx.Module):
 
         self.drop_path1 = DropPathAdd(dr1)
         self.drop_path2 = DropPathAdd(dr2)
-        self.ls1 = (
-            LayerScale(dim, axis=0, init_values=init_values)
-            if init_values is not None
-            else eqx.nn.Identity()
-        )
-        self.ls2 = (
-            LayerScale(dim, axis=0, init_values=init_values)
-            if init_values is not None
-            else eqx.nn.Identity()
-        )
+        self.ls1 = maybe_layer_scale(dim, axis=0, init_values=init_values)
+        self.ls2 = maybe_layer_scale(dim, axis=0, init_values=init_values)
 
     def __call__(
         self,

@@ -10,7 +10,6 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import jax.random as jr
-import jax.tree_util as jtu
 
 from .._typing import Path, PyTree
 from ..config import (
@@ -21,7 +20,7 @@ from ..config import (
     TargetSpec,
     WeightLayout,
 )
-from ..paths import key_path_to_path, path_to_str, str_to_path
+from ..paths import path_to_str, str_to_path
 from ..selectors import resolve_target
 from ..tags import Tagger, canonical_tags_for_path
 from ._compat import (
@@ -31,7 +30,8 @@ from ._compat import (
     linear_bias as _linear_bias,
     linear_weight as _linear_weight,
 )
-from .base import get_path
+from .base import get_path, iter_wrappers, map_wrappers
+from . import _common
 
 
 ScalingMode = Literal["alpha_over_r", "alpha_over_sqrt_r"]
@@ -62,72 +62,6 @@ class LoRAConfig:
     mergeable: bool = True
     fan_in_fan_out: bool = False
     weight_layout: WeightLayout | None = None
-
-
-@dataclass(frozen=True)
-class LoRARecipe:
-    """Recipe metadata for LoRA fine-tuning."""
-
-    rank: int = 8
-    alpha: float = 16.0
-    dropout: float = 0.05
-    target: tuple[str, ...] = ("attention.qkv", "attention.proj")
-    train_head: bool = True
-
-    @classmethod
-    def hard_task(
-        cls,
-        *,
-        rank: int = 16,
-        alpha: float = 32.0,
-        dropout: float = 0.05,
-        target: tuple[str, ...] = (
-            "attention.qkv",
-            "attention.proj",
-            "mlp.fc1",
-            "mlp.fc2",
-        ),
-        train_head: bool = True,
-    ) -> "LoRARecipe":
-        """Return the hard-task LoRA recipe preset."""
-
-        return cls(
-            rank=rank,
-            alpha=alpha,
-            dropout=dropout,
-            target=target,
-            train_head=train_head,
-        )
-
-    @classmethod
-    def tiny_data(
-        cls,
-        *,
-        rank: int = 4,
-        alpha: float = 8.0,
-        dropout: float = 0.0,
-        target: tuple[str, ...] = ("attention.qkv", "attention.proj"),
-        train_head: bool = True,
-    ) -> "LoRARecipe":
-        """Return the tiny-data LoRA recipe preset."""
-
-        return cls(
-            rank=rank,
-            alpha=alpha,
-            dropout=dropout,
-            target=target,
-            train_head=train_head,
-        )
-
-    def to_config(self) -> LoRAConfig:
-        """Convert recipe metadata to a LoRA module config."""
-
-        return LoRAConfig(
-            rank=self.rank,
-            alpha=self.alpha,
-            dropout=self.dropout,
-            target=TargetSpec(tags_any=self.target),
-        )
 
 
 @dataclass(frozen=True)
@@ -342,7 +276,7 @@ class LoRALinear(eqx.Module):
         if self.merged:
             return y
         x_drop = (
-            _dropout(x, self.dropout, key)
+            _common.dropout(x, self.dropout, key)
             if self.dropout > 0.0 and not inference
             else x
         )
@@ -1784,66 +1718,31 @@ def strip_lora(model: PyTree) -> PyTree:
 def iter_lora_modules(model: PyTree) -> tuple[tuple[Path, LoRALinear], ...]:
     """Return path/module pairs for LoRA wrappers in ``model``."""
 
-    return tuple(
-        (key_path_to_path(key_path), leaf)
-        for key_path, leaf in jtu.tree_leaves_with_path(
-            model,
-            is_leaf=lambda x: isinstance(x, LoRALinear),
-        )
-        if isinstance(leaf, LoRALinear)
-    )
+    return iter_wrappers(model, LoRALinear)
 
 
 def iter_adalora_modules(model: PyTree) -> tuple[tuple[Path, AdaLoRAModule], ...]:
     """Return path/module pairs for AdaLoRA wrappers in ``model``."""
 
-    return tuple(
-        (key_path_to_path(key_path), leaf)
-        for key_path, leaf in jtu.tree_leaves_with_path(
-            model,
-            is_leaf=lambda x: isinstance(x, AdaLoRAModule),
-        )
-        if isinstance(leaf, AdaLoRAModule)
-    )
+    return iter_wrappers(model, AdaLoRAModule)
 
 
 def iter_lora_fa_modules(model: PyTree) -> tuple[tuple[Path, LoRAFALinear], ...]:
     """Return path/module pairs for LoRA-FA wrappers in ``model``."""
 
-    return tuple(
-        (key_path_to_path(key_path), leaf)
-        for key_path, leaf in jtu.tree_leaves_with_path(
-            model,
-            is_leaf=lambda x: isinstance(x, LoRAFALinear),
-        )
-        if isinstance(leaf, LoRAFALinear)
-    )
+    return iter_wrappers(model, LoRAFALinear)
 
 
 def iter_fourierft_modules(model: PyTree) -> tuple[tuple[Path, FourierFTLinear], ...]:
     """Return path/module pairs for FourierFT wrappers in ``model``."""
 
-    return tuple(
-        (key_path_to_path(key_path), leaf)
-        for key_path, leaf in jtu.tree_leaves_with_path(
-            model,
-            is_leaf=lambda x: isinstance(x, FourierFTLinear),
-        )
-        if isinstance(leaf, FourierFTLinear)
-    )
+    return iter_wrappers(model, FourierFTLinear)
 
 
 def iter_randlora_modules(model: PyTree) -> tuple[tuple[Path, RandLoRALinear], ...]:
     """Return path/module pairs for RandLoRA wrappers in ``model``."""
 
-    return tuple(
-        (key_path_to_path(key_path), leaf)
-        for key_path, leaf in jtu.tree_leaves_with_path(
-            model,
-            is_leaf=lambda x: isinstance(x, RandLoRALinear),
-        )
-        if isinstance(leaf, RandLoRALinear)
-    )
+    return iter_wrappers(model, RandLoRALinear)
 
 
 def lora_rank_groups(model: PyTree) -> dict[str, int]:
@@ -1953,8 +1852,8 @@ def _target_linear_module_paths(
         allow_empty=target.target_kind == "projection_segment",
         tagger=tagger,
     )
-    paths.update(_linear_module_path(info.path) for info in resolved)
-    if _target_mentions_qkv_segment(target):
+    paths.update(_common.linear_module_path(info.path) for info in resolved)
+    if _common.target_mentions_qkv_segment(target):
         fused = resolve_target(
             model,
             TargetSpec(
@@ -1964,7 +1863,7 @@ def _target_linear_module_paths(
             allow_empty=True,
             tagger=tagger,
         )
-        paths.update(_linear_module_path(info.path) for info in fused)
+        paths.update(_common.linear_module_path(info.path) for info in fused)
     if not paths and not target.allow_empty:
         raise ValueError("TargetSpec resolved no LoRA linear modules.")
     return tuple(sorted(paths, key=path_to_str))
@@ -1977,23 +1876,8 @@ def _entry_metadata(entry: Mapping[str, Any]) -> dict[str, str]:
     return {str(key): str(value) for key, value in tuple(metadata)}
 
 
-def _linear_module_path(path: Path) -> Path:
-    if path[-1:] in (("weight",), ("bias",)):
-        return path[:-1]
-    return path
-
-
 def _is_fused_qkv_path(path: Path) -> bool:
     return "qkv" in {str(part) for part in path}
-
-
-def _target_mentions_qkv_segment(target: TargetSpec) -> bool:
-    tags = set(target.tags_all) | set(target.tags_any)
-    suffixes = (".q", ".k", ".v")
-    return any(
-        tag in {"attention.q", "attention.k", "attention.v"} or tag.endswith(suffixes)
-        for tag in tags
-    )
 
 
 def _projection_segments_for_target(
@@ -2002,7 +1886,7 @@ def _projection_segments_for_target(
 ) -> tuple[ProjectionSegment, ...]:
     if target.target_kind != "projection_segment":
         return ()
-    selected = _selected_qkv_segment_names(target)
+    selected = _common.selected_qkv_segment_names(target)
     if not selected:
         return ()
     weight = _linear_weight(module)
@@ -2019,15 +1903,6 @@ def _projection_segments_for_target(
         for name in ("q", "k", "v")
         if name in selected
     )
-
-
-def _selected_qkv_segment_names(target: TargetSpec) -> frozenset[str]:
-    names: set[str] = set()
-    for tag in (*target.tags_all, *target.tags_any):
-        last = tag.rsplit(".", maxsplit=1)[-1]
-        if last in {"q", "k", "v"}:
-            names.add(last)
-    return frozenset(names)
 
 
 def _mask_projection_segments(
@@ -2212,14 +2087,6 @@ def _rank_mask(config: LoRAConfig, dtype) -> jax.Array | None:
         raise ValueError("rank_mask_init must be either 'all_active' or 'target_rank'.")
     values = jnp.arange(config.rank) < active_rank
     return values.astype(jnp.bool_)
-
-
-def _dropout(x: jax.Array, rate: float, key: jax.Array | None) -> jax.Array:
-    if key is None:
-        raise ValueError("A PRNG key is required when LoRA dropout is active.")
-    keep_prob = 1.0 - rate
-    mask = jr.bernoulli(key, keep_prob, shape=x.shape)
-    return jnp.where(mask, x / keep_prob, 0)
 
 
 def _init_lora_fa_A(
@@ -2578,48 +2445,23 @@ def _eva_lora_A(
 
 
 def _map_lora_modules(model: PyTree, fn) -> PyTree:
-    updated = model
-    for path, module in iter_lora_modules(updated):
-        updated = eqx.tree_at(
-            lambda tree, p=path: get_path(tree, p), updated, fn(module)
-        )
-    return updated
+    return map_wrappers(model, LoRALinear, fn)
 
 
 def _map_lora_fa_modules(model: PyTree, fn) -> PyTree:
-    updated = model
-    for path, module in iter_lora_fa_modules(updated):
-        updated = eqx.tree_at(
-            lambda tree, p=path: get_path(tree, p), updated, fn(module)
-        )
-    return updated
+    return map_wrappers(model, LoRAFALinear, fn)
 
 
 def _map_adalora_modules(model: PyTree, fn) -> PyTree:
-    updated = model
-    for path, module in iter_adalora_modules(updated):
-        updated = eqx.tree_at(
-            lambda tree, p=path: get_path(tree, p), updated, fn(module)
-        )
-    return updated
+    return map_wrappers(model, AdaLoRAModule, fn)
 
 
 def _map_fourierft_modules(model: PyTree, fn) -> PyTree:
-    updated = model
-    for path, module in iter_fourierft_modules(updated):
-        updated = eqx.tree_at(
-            lambda tree, p=path: get_path(tree, p), updated, fn(module)
-        )
-    return updated
+    return map_wrappers(model, FourierFTLinear, fn)
 
 
 def _map_randlora_modules(model: PyTree, fn) -> PyTree:
-    updated = model
-    for path, module in iter_randlora_modules(updated):
-        updated = eqx.tree_at(
-            lambda tree, p=path: get_path(tree, p), updated, fn(module)
-        )
-    return updated
+    return map_wrappers(model, RandLoRALinear, fn)
 
 
 def _replace_lora_rank_mask(
@@ -2699,7 +2541,6 @@ __all__ = (
     "LoRALinear",
     "LoRAMergedLinear",
     "LoRAPlusLabelConfig",
-    "LoRARecipe",
     "PiSSAConfig",
     "StaticRankMaskedLoRAConfig",
     "RsLoRAConfig",

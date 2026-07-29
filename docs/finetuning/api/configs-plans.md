@@ -12,28 +12,23 @@ Configuration records, plan metadata, and the core public typing aliases.
 - [`CalibrationArtifact`](#equimo-finetune-calibrationartifact)
 - [`CalibrationCollectorState`](#equimo-finetune-calibrationcollectorstate)
 - [`combine_calibration_collectors`](#equimo-finetune-combine-calibration-collectors)
-- [`CompactLeafMap`](#equimo-finetune-compactleafmap)
 - [`FeatureSpec`](#equimo-finetune-featurespec)
 - [`FilterSpec`](#equimo-finetune-filterspec)
 - [`finalize_calibration_collector`](#equimo-finetune-finalize-calibration-collector)
 - [`FineTuneBundle`](#equimo-finetune-finetunebundle)
 - [`FineTuneBundleError`](#equimo-finetune-finetunebundleerror)
 - [`FineTunePlan`](#equimo-finetune-finetuneplan)
-- [`FineTuneRecipe`](#equimo-finetune-finetunerecipe)
 - [`GroupSpec`](#equimo-finetune-groupspec)
-- [`HeadSpec`](#equimo-finetune-headspec)
 - [`initialize_calibration_collector`](#equimo-finetune-initialize-calibration-collector)
 - [`input_covariance_from_artifact`](#equimo-finetune-input-covariance-from-artifact)
 - [`LeafPredicate`](#equimo-finetune-leafpredicate)
 - [`LLRDConfig`](#equimo-finetune-llrdconfig)
-- [`MethodProfile`](#equimo-finetune-methodprofile)
 - [`ModelLineage`](#equimo-finetune-modellineage)
 - [`ParamIdentity`](#equimo-finetune-paramidentity)
 - [`ParamInfo`](#equimo-finetune-paraminfo)
 - [`Path`](#equimo-finetune-path)
 - [`ProjectionSegment`](#equimo-finetune-projectionsegment)
 - [`PyTree`](#equimo-finetune-pytree)
-- [`SAMMetadata`](#equimo-finetune-sammetadata)
 - [`StatePolicy`](#equimo-finetune-statepolicy)
 - [`TargetSpec`](#equimo-finetune-targetspec)
 - [`TrainableReport`](#equimo-finetune-trainablereport)
@@ -89,18 +84,6 @@ equimo.finetune.combine_calibration_collectors(left: 'CalibrationCollectorState'
 Defined in `equimo.finetune.calibration`.
 
 > Associatively combine compatible streaming states using Chan's update.
-
-<!-- equimo.finetune:CompactLeafMap -->
-<a id="equimo-finetune-compactleafmap"></a>
-## `CompactLeafMap`
-
-```python
-class equimo.finetune.CompactLeafMap(logical_ids: 'tuple[str, ...]', physical_paths: 'tuple[Path, ...]', treedef_fingerprint: 'str') -> None
-```
-
-Defined in `equimo.finetune.config`.
-
-> Reversible compact-leaf mapping keyed by logical parameter ID.
 
 <!-- equimo.finetune:FeatureSpec -->
 <a id="equimo-finetune-featurespec"></a>
@@ -163,27 +146,12 @@ Defined in `equimo.finetune.config`.
 ## `FineTunePlan`
 
 ```python
-class equimo.finetune.FineTunePlan(trainable: 'PyTree', frozen: 'PyTree', labels: 'PyTree', group_specs: 'Mapping[str, GroupSpec]', trainable_mask: 'PyTree', param_info: 'PyTree', identities: 'PyTree', model_state: 'eqx.nn.State | None', state_policy: 'StatePolicy', feature_spec: 'FeatureSpec | None', aux_losses: 'tuple[AuxLossSpec, ...]', profile: 'MethodProfile | None', lineage: 'ModelLineage', report: 'TrainableReport') -> None
+class equimo.finetune.FineTunePlan(trainable: 'PyTree', frozen: 'PyTree', labels: 'PyTree', group_specs: 'Mapping[str, GroupSpec]', trainable_mask: 'PyTree', param_info: 'PyTree', identities: 'PyTree', model_state: 'eqx.nn.State | None', state_policy: 'StatePolicy', feature_spec: 'FeatureSpec | None', aux_losses: 'tuple[AuxLossSpec, ...]', lineage: 'ModelLineage', report: 'TrainableReport') -> None
 ```
 
 Defined in `equimo.finetune.config`.
 
 > Partitioned model state and metadata prepared for external optimizers.
-
-<!-- equimo.finetune:FineTuneRecipe -->
-<a id="equimo-finetune-finetunerecipe"></a>
-## `FineTuneRecipe`
-
-```python
-class equimo.finetune.FineTuneRecipe(name: 'str', method: 'str', head: 'HeadSpec | None', peft: 'Any | None', trainable: 'TrainableSpec', labels: "'LLRDConfig | None'", notes: 'tuple[str, ...]' = (), external_hints: 'Mapping[str, Any]' = <factory>) -> None
-```
-
-Defined in `equimo.finetune.config`.
-
-> Declarative fine-tuning preset metadata.
->
-> Recipes describe model-side changes and planning metadata. Optimizers,
-> schedules, dataloaders, and training loops stay external.
 
 <!-- equimo.finetune:GroupSpec -->
 <a id="equimo-finetune-groupspec"></a>
@@ -196,18 +164,6 @@ class equimo.finetune.GroupSpec(label: 'str', role: 'str', depth: 'int | None', 
 Defined in `equimo.finetune.config`.
 
 > Metadata for one optimizer group label.
-
-<!-- equimo.finetune:HeadSpec -->
-<a id="equimo-finetune-headspec"></a>
-## `HeadSpec`
-
-```python
-class equimo.finetune.HeadSpec(kind: 'str' = 'linear', in_features: 'int | None' = None, out_features: 'int | None' = None, hidden_dim: 'int | None' = None, num_layers: 'int' = 1, bias: 'bool' = True, metadata: 'Mapping[str, Any]' = <factory>) -> None
-```
-
-Defined in `equimo.finetune.config`.
-
-> Declarative task-head metadata for recipe presets.
 
 <!-- equimo.finetune:initialize_calibration_collector -->
 <a id="equimo-finetune-initialize-calibration-collector"></a>
@@ -256,18 +212,6 @@ class equimo.finetune.LLRDConfig(decay: 'float' = 0.75, depth_axis: 'DepthAxis' 
 Defined in `equimo.finetune.config`.
 
 > Layer-wise learning-rate decay metadata.
-
-<!-- equimo.finetune:MethodProfile -->
-<a id="equimo-finetune-methodprofile"></a>
-## `MethodProfile`
-
-```python
-class equimo.finetune.MethodProfile(id: 'str', method: 'str', fidelity: 'ProfileFidelity', reference_ids: 'tuple[str, ...]', config: 'Mapping[str, Any]', target_spec: 'Mapping[str, Any]', known_deviations: 'tuple[str, ...]' = (), required_artifacts: 'tuple[str, ...]' = ()) -> None
-```
-
-Defined in `equimo.finetune.config`.
-
-> Declared fidelity profile for a model-side fine-tuning method.
 
 <!-- equimo.finetune:ModelLineage -->
 <a id="equimo-finetune-modellineage"></a>
@@ -332,18 +276,6 @@ Defined in `equimo.finetune.config`.
 ```python
 type equimo.finetune.PyTree = Any
 ```
-
-<!-- equimo.finetune:SAMMetadata -->
-<a id="equimo-finetune-sammetadata"></a>
-## `SAMMetadata`
-
-```python
-class equimo.finetune.SAMMetadata(external_only: 'bool' = True, rho_hint: 'float' = 0.05) -> None
-```
-
-Defined in `equimo.finetune.config`.
-
-> Metadata marker for external SAM/ASAM optimizer wrappers.
 
 <!-- equimo.finetune:StatePolicy -->
 <a id="equimo-finetune-statepolicy"></a>

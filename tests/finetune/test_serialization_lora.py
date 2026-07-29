@@ -154,8 +154,8 @@ def test_delta_roundtrip_preserves_trainable_head_and_base_weight(tmp_path):
     )
     path = tmp_path / "trained-base-and-head.eqft"
 
-    bundle = eqft.save_delta(path, adapted, base, spec, method="lora")
-    loaded = eqft.load_delta(path, base)
+    bundle = eqft.save_delta(adapted, path, base_model=base, spec=spec, method="lora")
+    loaded = eqft.load_delta(base, path)
 
     assert bundle.delta_tree
     assert jnp.array_equal(loaded.head.weight, adapted.head.weight)

@@ -31,8 +31,12 @@ from jaxtyping import PRNGKeyArray
 from equimo.utils import nearest_power_of_2_divisor
 
 from ._base import AbstractStabilizer, InputContext
+from equimo.core.layers._registry import make_get, make_register
 
 _STABILIZER_REGISTRY: dict[str, type[AbstractStabilizer]] = {}
+
+
+_typed_register_stabilizer = make_register(_STABILIZER_REGISTRY)
 
 
 def register_stabilizer(
@@ -41,39 +45,18 @@ def register_stabilizer(
 ) -> Callable[[type[AbstractStabilizer]], type[AbstractStabilizer]]:
     """Decorator to register a new stabilizer class under ``name``."""
 
-    def decorator(cls: type[AbstractStabilizer]) -> type[AbstractStabilizer]:
-        if not issubclass(cls, eqx.Module):
-            raise TypeError(
-                f"Registered class must be a subclass of eqx.Module, got {type(cls)}"
-            )
+    return _typed_register_stabilizer(name=name, force=force)
 
-        registry_name = name.lower() if name else cls.__name__.lower()
 
-        if registry_name in _STABILIZER_REGISTRY and not force:
-            raise ValueError(
-                f"Cannot register '{registry_name}'. It is already registered "
-                f"to {_STABILIZER_REGISTRY[registry_name]}."
-            )
-
-        _STABILIZER_REGISTRY[registry_name] = cls
-        return cls
-
-    return decorator
+_untyped_get_stabilizer = make_get(
+    _STABILIZER_REGISTRY, kind="stabilizer", plural="stabilizers"
+)
 
 
 def get_stabilizer(module: str | type[AbstractStabilizer]) -> type[AbstractStabilizer]:
-    """Resolve a stabilizer class from its registry name (or pass through)."""
-    if not isinstance(module, str):
-        return module
+    """Resolve a stabilizer class from its registry name (or pass through a class)."""
 
-    module_lower = module.lower()
-    if module_lower not in _STABILIZER_REGISTRY:
-        raise ValueError(
-            f"Got an unknown stabilizer string: '{module}'. "
-            f"Available stabilizers: {list(_STABILIZER_REGISTRY.keys())}"
-        )
-
-    return _STABILIZER_REGISTRY[module_lower]
+    return _untyped_get_stabilizer(module)
 
 
 @register_stabilizer(name="identity")

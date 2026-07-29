@@ -27,7 +27,6 @@ def register_attn(
             cls,
             registry_name,
             force,
-            "tabular attention",
             add_to_layer_registry=True,
         )
 

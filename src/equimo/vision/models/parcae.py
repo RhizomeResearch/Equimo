@@ -1,6 +1,5 @@
 # ty: ignore[call-non-callable]
 # ty: ignore[invalid-assignment]
-# ty: ignore[invalid-return-type]
 # ty: ignore[too-many-positional-arguments]
 # ty: ignore[unknown-argument]
 # ty: ignore[unresolved-attribute]
@@ -48,12 +47,14 @@ from equimo.core.intermediates import intermediate_indices
 from equimo.core.layers.activation import get_act
 from equimo.vision.layers.attention import get_attn, get_attn_block
 from equimo.core.layers.ffn import get_ffn
-from equimo.core.layers.generic import BlockChunk
+from equimo.core.layers.generic import BlockChunk, make_transformer_block_chunk
 from equimo.core.layers.norm import get_norm
 from equimo.vision.layers.patch import PatchEmbedding
-from equimo.vision.layers.posemb import CompositeVisionRoPE, LearnedPosEmbed, VisionRoPE
+from equimo.vision.models._embedding import build_local_rope, build_token_embeddings
+from equimo.vision.layers.posemb import CompositeVisionRoPE, LearnedPosEmbed
 from equimo.registry import register_model
 from equimo.utils import pool_sd
+from equimo.core.factory import build_model_variant
 
 InjectionKind = Literal["diagonal", "diagonal_exact_zoh", "linear", "add"]
 BInitMode = Literal["raw", "fixed_point", "target_depth", "one_step"]
@@ -245,60 +246,6 @@ def _apply_norm_sequence(
     x: Float[Array, "seq dim"],
 ) -> Float[Array, "seq dim"]:
     return jax.vmap(norm)(x)
-
-
-def _make_block_chunk(
-    *,
-    depth: int,
-    dim: int,
-    num_heads: int,
-    block: type[eqx.Module],
-    attn_layer: type[eqx.Module],
-    ffn_layer: type[eqx.Module],
-    mlp_ratio: float,
-    qkv_bias: bool,
-    proj_bias: bool,
-    qk_norm: bool,
-    attn_drop: float,
-    proj_drop: float,
-    act_layer: Callable,
-    ffn_bias: bool,
-    ffn_kwargs: dict,
-    norm_layer: type[eqx.Module],
-    eps: float,
-    drop_path: list[float],
-    init_values: float | None,
-    key: PRNGKeyArray,
-) -> BlockChunk | None:
-    """Build a ViT-style Equimo ``BlockChunk`` or return ``None`` for depth 0."""
-
-    if depth <= 0:
-        return None
-
-    return BlockChunk(
-        depth=depth,
-        module=block,
-        module_kwargs={
-            "dim": dim,
-            "num_heads": num_heads,
-            "mlp_ratio": mlp_ratio,
-            "qkv_bias": qkv_bias,
-            "proj_bias": proj_bias,
-            "qk_norm": qk_norm,
-            "attn_drop": attn_drop,
-            "proj_drop": proj_drop,
-            "act_layer": act_layer,
-            "attn_layer": attn_layer,
-            "ffn_layer": ffn_layer,
-            "ffn_bias": ffn_bias,
-            "ffn_kwargs": ffn_kwargs,
-            "norm_layer": norm_layer,
-            "eps": eps,
-        },
-        drop_path=drop_path,
-        init_values=init_values,
-        key=key,
-    )
 
 
 class VisionParcaeDiagonalInjection(eqx.Module):
@@ -613,7 +560,6 @@ class VisionParcae(eqx.Module):
     injection_type: InjectionKind = eqx.field(static=True)
     B_init_mode: BInitMode = eqx.field(static=True)
     B_init_target_depth: int | None = eqx.field(static=True)
-    B_init_target_scale: float = eqx.field(static=True)
     state_init: StateInitKind = eqx.field(static=True)
     state_init_scale: float | None = eqx.field(static=True)
     sample_recurrence: bool = eqx.field(static=True)
@@ -842,7 +788,6 @@ class VisionParcae(eqx.Module):
         self.num_prefix_tokens = 1 if class_token else 0
         self.num_prefix_tokens += reg_tokens
         self.num_reg_tokens = reg_tokens
-        self.num_embedded_prefix_tokens = 0
         self.dynamic_img_size = dynamic_img_size
         self.antialias = interpolate_antialias
         self.global_pos_embed_cls = global_pos_embed_cls
@@ -859,7 +804,6 @@ class VisionParcae(eqx.Module):
         self.injection_type = injection_type
         self.B_init_mode = resolved_B_init_mode
         self.B_init_target_depth = B_init_target_depth
-        self.B_init_target_scale = B_init_target_scale
         self.state_init = state_init
         self.state_init_scale = state_init_scale
         self.sample_recurrence = sample_recurrence
@@ -874,80 +818,51 @@ class VisionParcae(eqx.Module):
         norm_layer = get_norm(norm_layer)
         act_layer = get_act(act_layer)
 
-        self.patch_embed = PatchEmbedding(
-            in_channels=in_channels,
-            embed_dim=dim,
-            patch_size=patch_size,
+        embeddings = build_token_embeddings(
             img_size=img_size,
-            flatten=not dynamic_img_size,
+            in_channels=in_channels,
+            dim=dim,
+            patch_size=patch_size,
+            class_token=class_token,
+            reg_tokens=reg_tokens,
+            use_mask_token=use_mask_token,
             dynamic_img_size=dynamic_img_size,
             dynamic_img_pad=dynamic_img_pad,
-            key=key_patchemb,
+            global_pos_embed_cls=global_pos_embed_cls,
+            global_pos_embed_reg=global_pos_embed_reg,
+            use_global_pos_embed=use_global_pos_embed,
+            interpolate_antialias=interpolate_antialias,
+            embed_size=self.embed_size,
+            key_patchemb=key_patchemb,
+            key_posemb=key_posemb,
+            key_cls=key_cls,
+            key_reg=key_reg,
         )
-        self.num_patches = self.patch_embed.num_patches
-        self.cls_token = jr.normal(key_cls, (1, dim)) if class_token else None
-        self.reg_tokens = (
-            jr.normal(key_reg, (reg_tokens, dim)) if reg_tokens > 0 else None
-        )
-        self.mask_token = jnp.zeros((1, dim)) if use_mask_token else None
-
-        if not global_pos_embed_cls:
-            self.embed_len = self.num_patches
-        elif global_pos_embed_reg:
-            self.embed_len = self.num_patches + self.num_prefix_tokens
-            self.num_embedded_prefix_tokens += self.num_prefix_tokens
-        else:
-            self.num_embedded_prefix_tokens += 1
-            self.embed_len = self.num_patches + 1
-
-        if use_global_pos_embed:
-            self.global_pos_embed = LearnedPosEmbed(
-                weight=jr.normal(key_posemb, (self.embed_len, dim)),
-                dim=dim,
-                embed_size=self.embed_size,
-                num_prefix_tokens=self.num_prefix_tokens,
-                num_embedded_prefix_tokens=self.num_embedded_prefix_tokens,
-                global_pos_embed_cls=global_pos_embed_cls,
-                global_pos_embed_reg=global_pos_embed_reg,
-                antialias=interpolate_antialias,
-            )
-        else:
-            self.global_pos_embed = None
+        self.patch_embed = embeddings.patch_embed
+        self.num_patches = embeddings.num_patches
+        self.cls_token = embeddings.cls_token
+        self.reg_tokens = embeddings.reg_tokens
+        self.mask_token = embeddings.mask_token
+        self.num_embedded_prefix_tokens = embeddings.num_embedded_prefix_tokens
+        self.embed_len = embeddings.embed_len
+        self.global_pos_embed = embeddings.global_pos_embed
 
         def build_local_pos_embed(
             *, dim_: int, num_heads_: int
         ) -> CompositeVisionRoPE | None:
-            if not use_local_pos_embed:
-                return None
-            if not isinstance(num_heads_, int):
-                raise ValueError(
-                    "VisionParcae local RoPE requires static integer heads."
-                )
-            patch_rope = VisionRoPE(
+            return build_local_rope(
                 dim=dim_,
                 num_heads=num_heads_,
-                **local_pos_embed_config_patch,
-            )
-            n_prefix = (
-                (1 if class_token else 0)
-                if local_pos_embed_reg
-                else self.num_prefix_tokens
-            )
-            n_reg = self.num_reg_tokens if local_pos_embed_reg else 0
-            reg_rope = (
-                VisionRoPE(
-                    dim=dim_,
-                    num_heads=num_heads_,
-                    **local_pos_embed_config_reg,
-                )
-                if n_reg > 0
-                else None
-            )
-            return CompositeVisionRoPE(
-                patch_rope,
-                reg_rope=reg_rope,
-                num_prefix_tokens=n_prefix,
-                num_registers=n_reg,
+                use_local_pos_embed=use_local_pos_embed,
+                class_token=class_token,
+                local_pos_embed_reg=local_pos_embed_reg,
+                num_prefix_tokens=self.num_prefix_tokens,
+                num_reg_tokens=self.num_reg_tokens,
+                config_patch=local_pos_embed_config_patch,
+                config_reg=local_pos_embed_config_reg,
+                static_heads_error=(
+                    "VisionParcae local RoPE requires static integer heads."
+                ),
             )
 
         self.local_pos_embed = build_local_pos_embed(dim_=dim, num_heads_=num_heads)
@@ -976,7 +891,7 @@ class VisionParcae(eqx.Module):
         core_dpr = dpr[core_start:core_end]
         coda_dpr = dpr[core_end:]
 
-        self.prelude = _make_block_chunk(
+        self.prelude = make_transformer_block_chunk(
             depth=n_layers_in_prelude,
             dim=dim,
             num_heads=num_heads,
@@ -1011,7 +926,7 @@ class VisionParcae(eqx.Module):
             key=key_adapter,
         )
 
-        self.core_block = _make_block_chunk(
+        self.core_block = make_transformer_block_chunk(
             depth=n_layers_in_recurrent_block,
             dim=recurrent_dim,
             num_heads=recurrent_num_heads,
@@ -1050,7 +965,7 @@ class VisionParcae(eqx.Module):
                 std=C_init_std,
             )
 
-        self.coda = _make_block_chunk(
+        self.coda = make_transformer_block_chunk(
             depth=n_layers_in_coda,
             dim=dim,
             num_heads=num_heads,
@@ -1075,6 +990,8 @@ class VisionParcae(eqx.Module):
 
         self.prelude_norm = norm_layer(dim, eps=eps) if prelude_norm else None
         self.norm = norm_layer(dim, eps=eps)
+        # WARNING: This has no effect in the code.
+        # This norm layer is created to hold some training-only norm layer of Dinov3
         self.local_cls_norm = (
             norm_layer(dim, eps=eps) if untie_global_and_local_cls_norm else None
         )
@@ -1879,25 +1796,15 @@ def _build_vision_parcae(
 ) -> VisionParcae:
     """Build a VisionParcae variant from the local registry."""
 
-    if key is None:
-        key = jax.random.PRNGKey(42)
-    if variant not in _VISION_PARCAE_REGISTRY:
-        raise KeyError(f"Unknown VisionParcae variant: {variant!r}.")
-
-    base_cfg, variant_cfg = _VISION_PARCAE_REGISTRY[variant]
-    cfg = base_cfg | variant_cfg | overrides
-    model = VisionParcae(**cfg, key=key)
-
-    if pretrained:
-        from equimo.serialization import load_weights
-
-        model = load_weights(
-            model,
-            identifier=variant,
-            inference_mode=inference_mode,
-        )
-
-    return model
+    return build_model_variant(
+        VisionParcae,
+        _VISION_PARCAE_REGISTRY,
+        variant,
+        pretrained=pretrained,
+        inference_mode=inference_mode,
+        key=key,
+        **overrides,
+    )
 
 
 def vision_parcae_tiny_patch16_224(**kwargs) -> VisionParcae:

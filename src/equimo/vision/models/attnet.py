@@ -1,6 +1,5 @@
 # ty: ignore[call-non-callable]
 # ty: ignore[invalid-assignment]
-# ty: ignore[invalid-return-type]
 # ty: ignore[too-many-positional-arguments]
 # ty: ignore[unknown-argument]
 __all__ = [
@@ -17,7 +16,6 @@ __all__ = [
 from typing import Callable, Optional, Sequence, Tuple
 
 import equinox as eqx
-import jax
 import jax.random as jr
 import numpy as np
 from jaxtyping import Array, Float, PRNGKeyArray
@@ -28,6 +26,7 @@ from equimo.core.layers.generic import BlockChunk
 from equimo.core.layers.norm import get_norm
 from equimo.registry import register_model
 from equimo.vision.layers import get_layer
+from equimo.core.factory import build_model_variant
 
 
 @register_model("attnet", modality="vision")
@@ -238,23 +237,15 @@ def _build_attnet(
     key: PRNGKeyArray | None = None,
     **overrides,
 ) -> AttNet:
-    if key is None:
-        key = jax.random.PRNGKey(42)
-
-    base_cfg, variant_cfg = _ATTNET_REGISTRY[variant]
-    cfg = base_cfg | variant_cfg | overrides
-    model = AttNet(**cfg, key=key)
-
-    if pretrained:
-        from equimo.serialization import load_weights
-
-        model = load_weights(
-            model,
-            identifier=variant,
-            inference_mode=inference_mode,
-        )
-
-    return model
+    return build_model_variant(
+        AttNet,
+        _ATTNET_REGISTRY,
+        variant,
+        pretrained=pretrained,
+        inference_mode=inference_mode,
+        key=key,
+        **overrides,
+    )
 
 
 def attnet_xxs(**kwargs) -> AttNet:

@@ -9,7 +9,6 @@ import jax.numpy as jnp
 import jax.random as jr
 from equimo.finetune.audio import selectors as audio_selectors
 from equimo.finetune.language import selectors as language_selectors
-from equimo.finetune.vision import selectors as vision_selectors
 from equimo.vision.models.vit import dinov2_vits14, dinov2_vits14_reg
 
 from fixtures import TinyVisionTransformer
@@ -175,7 +174,7 @@ def test_special_token_roles_are_inferred():
 
 
 def test_model_family_tag_adapters(tiny_ast_like_encoder, tiny_text_encoder):
-    assert "embedding.patch" in vision_selectors.vision_tags_for_path(
+    assert "embedding.patch" in eqft.canonical_tags_for_path(
         ("patch_embed", "proj", "weight")
     )
 

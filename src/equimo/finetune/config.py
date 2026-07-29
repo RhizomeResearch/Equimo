@@ -25,13 +25,6 @@ TrainableMode = Literal[
 DepthAxis = Literal["block", "stage", "module"]
 TargetKind = Literal["module", "leaf", "projection_segment"]
 IdentityStability = Literal["model_owned", "path_derived"]
-ProfileFidelity = Literal[
-    "safe_default",
-    "paper_exact",
-    "reference_implementation",
-    "model_family_recipe",
-    "experimental",
-]
 
 
 @dataclass(frozen=True)
@@ -61,20 +54,6 @@ class TrainableSpec:
     train_bias: bool = False
     depth_range: tuple[int, int] | None = None
     method_name: str | None = None
-
-
-@dataclass(frozen=True)
-class MethodProfile:
-    """Declared fidelity profile for a model-side fine-tuning method."""
-
-    id: str
-    method: str
-    fidelity: ProfileFidelity
-    reference_ids: tuple[str, ...]
-    config: Mapping[str, Any]
-    target_spec: Mapping[str, Any]
-    known_deviations: tuple[str, ...] = ()
-    required_artifacts: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -317,54 +296,6 @@ class ModelLineage:
 
 
 @dataclass(frozen=True)
-class CompactLeafMap:
-    """Reversible compact-leaf mapping keyed by logical parameter ID."""
-
-    logical_ids: tuple[str, ...]
-    physical_paths: tuple[Path, ...]
-    treedef_fingerprint: str
-
-
-@dataclass(frozen=True)
-class HeadSpec:
-    """Declarative task-head metadata for recipe presets."""
-
-    kind: str = "linear"
-    in_features: int | None = None
-    out_features: int | None = None
-    hidden_dim: int | None = None
-    num_layers: int = 1
-    bias: bool = True
-    metadata: Mapping[str, Any] = field(default_factory=dict)
-
-
-@dataclass(frozen=True)
-class FineTuneRecipe:
-    """Declarative fine-tuning preset metadata.
-
-    Recipes describe model-side changes and planning metadata. Optimizers,
-    schedules, dataloaders, and training loops stay external.
-    """
-
-    name: str
-    method: str
-    head: HeadSpec | None
-    peft: Any | None
-    trainable: TrainableSpec
-    labels: "LLRDConfig | None"
-    notes: tuple[str, ...] = ()
-    external_hints: Mapping[str, Any] = field(default_factory=dict)
-
-
-@dataclass(frozen=True)
-class SAMMetadata:
-    """Metadata marker for external SAM/ASAM optimizer wrappers."""
-
-    external_only: bool = True
-    rho_hint: float = 0.05
-
-
-@dataclass(frozen=True)
 class LLRDConfig:
     """Layer-wise learning-rate decay metadata."""
 
@@ -485,7 +416,6 @@ class FineTunePlan:
     state_policy: StatePolicy
     feature_spec: FeatureSpec | None
     aux_losses: tuple[AuxLossSpec, ...]
-    profile: MethodProfile | None
     lineage: ModelLineage
     report: TrainableReport
 
@@ -525,22 +455,17 @@ class FineTuneBundleError(ValueError):
 __all__ = (
     "AuxLossSpec",
     "CalibrationArtifact",
-    "CompactLeafMap",
     "DepthAxis",
     "FeatureSpec",
     "FineTuneBundle",
     "FineTuneBundleError",
     "FineTunePlan",
-    "FineTuneRecipe",
     "GroupSpec",
-    "HeadSpec",
     "LLRDConfig",
-    "MethodProfile",
     "ModelLineage",
     "ParamIdentity",
     "ParamInfo",
     "ProjectionSegment",
-    "SAMMetadata",
     "StatePolicy",
     "TargetSpec",
     "TargetKind",

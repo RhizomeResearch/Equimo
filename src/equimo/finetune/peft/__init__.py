@@ -1,6 +1,5 @@
 """Parameter-efficient fine-tuning modules."""
 
-from .base import PEFTModuleMixin
 from .adapters import (
     AdaptFormerAdapter,
     AdaptFormerBlock,
@@ -9,7 +8,6 @@ from .adapters import (
     AdapterConfig,
     AdapterFusion,
     AdapterFusionConfig,
-    AdapterRecipe,
     BottleneckAdapter,
     OrthogonalLinear,
     OrthogonalAdapterConfig,
@@ -38,7 +36,6 @@ from .dora import (
     DoRAConfig,
     DoRALinear,
     DoRAMergedLinear,
-    DoRARecipe,
     apply_dora,
     merge_dora,
 )
@@ -57,7 +54,6 @@ from .lora import (
     LoRALinear,
     LoRAMergedLinear,
     LoRAPlusLabelConfig,
-    LoRARecipe,
     PiSSAConfig,
     RandLoRAConfig,
     RandLoRALinear,
@@ -101,9 +97,7 @@ from .prompts import (
     PromptedModel,
     SoftPromptConfig,
     VPTDeepConfig,
-    VPTDeepRecipe,
     VPTShallowConfig,
-    VPTShallowRecipe,
     apply_prompts,
 )
 from .scale_shift import (
@@ -144,7 +138,6 @@ __all__ = (
     "AdapterConfig",
     "AdapterFusion",
     "AdapterFusionConfig",
-    "AdapterRecipe",
     "AdaLoRAConfig",
     "AdaLoRAMetadata",
     "AdaLoRAModule",
@@ -154,7 +147,6 @@ __all__ = (
     "DoRAConfig",
     "DoRALinear",
     "DoRAMergedLinear",
-    "DoRARecipe",
     "IA3Config",
     "IA3Linear",
     "EVAInitializerConfig",
@@ -166,8 +158,6 @@ __all__ = (
     "LoRALinear",
     "LoRAMergedLinear",
     "LoRAPlusLabelConfig",
-    "LoRARecipe",
-    "PEFTModuleMixin",
     "PEFTConfig",
     "PTuningV2Config",
     "PiSSAConfig",
@@ -192,9 +182,7 @@ __all__ = (
     "SerialAdapterBlock",
     "SoftPromptConfig",
     "VPTDeepConfig",
-    "VPTDeepRecipe",
     "VPTShallowConfig",
-    "VPTShallowRecipe",
     "VeRAConfig",
     "VeRALinear",
     "add_adapter",

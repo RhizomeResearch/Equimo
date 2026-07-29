@@ -20,6 +20,8 @@ from .attention import (
     SoftmaxScaling,
 )
 from .mlp import Mlp, _call_mlp
+from equimo.core.layers.dropout import split_drop_path
+
 from .registry import (
     _register_module,
     _registry_name,
@@ -43,7 +45,6 @@ def register_attn_block(
             cls,
             registry_name,
             force,
-            "tabular attention block",
             add_to_layer_registry=True,
         )
 
@@ -55,18 +56,6 @@ def get_attn_block(module: str | type[eqx.Module]) -> type[eqx.Module]:
     return _resolve_from_registry(
         module, _ATTN_BLOCK_REGISTRY, "tabular attention block"
     )
-
-
-def _split_drop_path(drop_path: float | list[float]) -> tuple[float, float]:
-    if isinstance(drop_path, list):
-        if len(drop_path) == 1:
-            return float(drop_path[0]), float(drop_path[0])
-        if len(drop_path) == 2:
-            return float(drop_path[0]), float(drop_path[1])
-        raise AssertionError(
-            f"`drop_path` needs 1 or 2 elements, got {len(drop_path)}."
-        )
-    return float(drop_path), float(drop_path)
 
 
 def _split_optional_key(
@@ -133,7 +122,7 @@ class CrossAttentionBlock(eqx.Module):
         self.norm_q = norm_layer(dim, eps=eps)
         self.norm_kv = norm_layer(dim, eps=eps)
         self.norm_mlp = norm_layer(dim, eps=eps)
-        dr1, dr2 = _split_drop_path(drop_path)
+        dr1, dr2 = split_drop_path(drop_path)
         self.drop_path1 = DropPathAdd(dr1)
         self.drop_path2 = DropPathAdd(dr2)
 
@@ -205,7 +194,7 @@ class AttentionBlock(eqx.Module):
         )
         self.norm = norm_layer(dim, eps=eps)
         self.norm_mlp = norm_layer(dim, eps=eps)
-        dr1, dr2 = _split_drop_path(drop_path)
+        dr1, dr2 = split_drop_path(drop_path)
         self.drop_path1 = DropPathAdd(dr1)
         self.drop_path2 = DropPathAdd(dr2)
 
@@ -328,7 +317,7 @@ class InContextAttentionBlock(eqx.Module):
         )
         self.norm = norm_layer(dim, eps=eps)
         self.norm_mlp = norm_layer(dim, eps=eps)
-        dr1, dr2 = _split_drop_path(drop_path)
+        dr1, dr2 = split_drop_path(drop_path)
         self.drop_path1 = DropPathAdd(dr1)
         self.drop_path2 = DropPathAdd(dr2)
 

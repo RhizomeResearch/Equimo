@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
-from typing import Any, cast
+from collections.abc import Mapping
+from typing import Any
 
 import equinox as eqx
 import jax
@@ -18,7 +18,6 @@ from .config import (
     FeatureSpec,
     FineTunePlan,
     LLRDConfig,
-    MethodProfile,
     ModelLineage,
     StatePolicy,
     TargetSpec,
@@ -32,16 +31,6 @@ from .selectors import resolve_target
 from .tags import Tagger, canonical_tags_for_path
 
 
-class _HeadWithMetadata(eqx.Module):
-    head: eqx.Module
-    old_head_metadata: Mapping[str, Any] = eqx.field(static=True)
-
-    def __call__(self, *args, **kwargs):
-        if not callable(self.head):
-            raise TypeError(f"{type(self.head).__name__} is not callable.")
-        return cast(Callable[..., object], self.head)(*args, **kwargs)
-
-
 def prepare_finetune(
     model: PyTree,
     *,
@@ -51,7 +40,6 @@ def prepare_finetune(
     state_policy: StatePolicy | None = None,
     feature_spec: FeatureSpec | None = None,
     aux_losses: tuple[AuxLossSpec, ...] = (),
-    profile: MethodProfile | None = None,
     lineage: ModelLineage | None = None,
     tagger: Tagger = canonical_tags_for_path,
 ) -> FineTunePlan:
@@ -82,38 +70,8 @@ def prepare_finetune(
         state_policy=StatePolicy() if state_policy is None else state_policy,
         feature_spec=feature_spec,
         aux_losses=aux_losses,
-        profile=profile,
         lineage=ModelLineage() if lineage is None else lineage,
         report=report,
-    )
-
-
-def partition_for_training(
-    model: PyTree,
-    trainable: TrainableSpec,
-    *,
-    labels: LLRDConfig | None = None,
-    model_state: eqx.nn.State | None = None,
-    state_policy: StatePolicy | None = None,
-    feature_spec: FeatureSpec | None = None,
-    aux_losses: tuple[AuxLossSpec, ...] = (),
-    profile: MethodProfile | None = None,
-    lineage: ModelLineage | None = None,
-    tagger: Tagger = canonical_tags_for_path,
-) -> FineTunePlan:
-    """Alias for ``prepare_finetune``."""
-
-    return prepare_finetune(
-        model,
-        trainable=trainable,
-        labels=labels,
-        model_state=model_state,
-        state_policy=state_policy,
-        feature_spec=feature_spec,
-        aux_losses=aux_losses,
-        profile=profile,
-        lineage=lineage,
-        tagger=tagger,
     )
 
 
@@ -123,8 +81,6 @@ def replace_head(
     *,
     selector: str | TargetSpec = "head",
     sample_features: jax.Array | None = None,
-    validate_shape: bool = True,
-    preserve_old_head_metadata: bool = False,
     tagger: Tagger = canonical_tags_for_path,
 ) -> PyTree:
     """Return ``model`` with one selected head module replaced."""
@@ -133,14 +89,8 @@ def replace_head(
     if not path:
         raise ValueError("replace_head cannot replace the model root.")
     old_head = _get_path(model, path)
-    if validate_shape:
-        _validate_head_replacement(old_head, head, sample_features)
-    replacement = (
-        _HeadWithMetadata(head, _head_metadata(old_head))
-        if preserve_old_head_metadata
-        else head
-    )
-    return eqx.tree_at(lambda m: _get_path(m, path), model, replacement)
+    _validate_head_replacement(old_head, head, sample_features)
+    return eqx.tree_at(lambda m: _get_path(m, path), model, head)
 
 
 def transfer_head(
@@ -376,8 +326,6 @@ def _validate_head_call(head: Any, sample_features: jax.Array) -> None:
 
 
 def _head_in_features(head: Any) -> int | None:
-    if isinstance(head, _HeadWithMetadata):
-        return _head_in_features(head.head)
     if isinstance(head, eqx.nn.Linear):
         return int(head.in_features)
     linear = getattr(head, "linear", None)
@@ -400,8 +348,6 @@ def _head_in_features(head: Any) -> int | None:
 
 
 def _head_out_features(head: Any) -> int | None:
-    if isinstance(head, _HeadWithMetadata):
-        return _head_out_features(head.head)
     if isinstance(head, eqx.nn.Linear):
         return int(head.out_features)
     linear = getattr(head, "linear", None)
@@ -421,15 +367,6 @@ def _head_out_features(head: Any) -> int | None:
         if isinstance(last, eqx.nn.Linear):
             return int(last.out_features)
     return None
-
-
-def _head_metadata(head: Any) -> dict[str, Any]:
-    return {
-        "class_name": head.__class__.__name__,
-        "module": head.__class__.__module__,
-        "in_features": _head_in_features(head),
-        "out_features": _head_out_features(head),
-    }
 
 
 def _labels_from_param_info(param_info: PyTree) -> PyTree:
@@ -493,7 +430,6 @@ __all__ = (
     "disable_dropout",
     "disable_stochastic_depth",
     "extract_subtree",
-    "partition_for_training",
     "prepare_finetune",
     "replace_head",
     "set_dropout_rate",

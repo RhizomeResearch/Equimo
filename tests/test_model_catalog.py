@@ -8,12 +8,47 @@ import sys
 import pytest
 
 from equimo.catalog import (
+    ModelVariant,
+    _load_catalog,
     _resolve_model,
-    _validate_catalog,
     create_model,
     list_models,
     model_info,
 )
+
+KEY_RE = re.compile(r"^[a-z0-9]+/[a-z0-9][a-z0-9_-]*$")
+FIELD_NAMES = ("inputs", "pretrained", "provenance", "notes")
+STATUSES = frozenset(("complete", "experimental", "unavailable"))
+
+
+def validate_descriptor(descriptor: ModelVariant) -> None:
+    """Enforce the authoring contract for in-repo catalog descriptors."""
+
+    assert KEY_RE.fullmatch(descriptor.key), descriptor.key
+    assert descriptor.key == f"{descriptor.modality}/{descriptor.variant}"
+    for name in ("modality", "family", "variant", "model_registry_key"):
+        value = getattr(descriptor, name)
+        assert value and value == value.lower(), (descriptor.key, name)
+    assert descriptor.constructor.endswith(f".{descriptor.variant}")
+    assert descriptor.inputs, f"{descriptor.key} has no input contract"
+    input_names = set()
+    for item in descriptor.inputs:
+        assert item.name and item.dtype and item.description
+        assert len(item.shape) == len(item.axes), (descriptor.key, item.name)
+        assert item.name not in input_names, (descriptor.key, item.name)
+        input_names.add(item.name)
+    assert descriptor.pretrained.available == (
+        descriptor.pretrained.identifier is not None
+    )
+    statuses = dict(descriptor.field_status)
+    assert tuple(statuses) == FIELD_NAMES
+    assert len(statuses) == len(descriptor.field_status)
+    assert set(statuses.values()) <= STATUSES
+    if statuses["provenance"] == "complete":
+        assert descriptor.provenance.conversion is not None
+        assert descriptor.provenance.reference is not None
+    if statuses["notes"] == "complete":
+        assert descriptor.notes
 
 
 ROOT = Path(__file__).parents[1]
@@ -123,12 +158,15 @@ def test_ambiguous_bare_variant_requires_full_key():
         _resolve_model(descriptor.variant, (collision, descriptor))
 
 
-def test_duplicate_and_incomplete_descriptors_fail_validation():
+def test_all_descriptors_satisfy_authoring_contract():
+    for descriptor in _load_catalog():
+        validate_descriptor(descriptor)
+
+
+def test_incomplete_descriptor_fails_authoring_contract():
     descriptor = model_info("dinov2_vits14_reg")
-    with pytest.raises(ValueError, match="Duplicate catalog key"):
-        _validate_catalog((descriptor, descriptor))
-    with pytest.raises(ValueError, match="has no input contract"):
-        _validate_catalog((replace(descriptor, inputs=()),))
+    with pytest.raises(AssertionError, match="has no input contract"):
+        validate_descriptor(replace(descriptor, inputs=()))
 
 
 def test_query_does_not_import_conversion_only_dependencies():

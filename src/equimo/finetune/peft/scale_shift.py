@@ -9,14 +9,13 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import jax.random as jr
-import jax.tree_util as jtu
 
 from .._typing import Path, PyTree
 from ..config import TargetSpec
-from ..paths import key_path_to_path, path_to_str
+from ..paths import path_to_str
 from ..selectors import resolve_target
 from ..tags import Tagger, canonical_tags_for_path
-from .base import get_path
+from .base import get_path, iter_wrappers
 
 
 @dataclass(frozen=True)
@@ -345,14 +344,7 @@ def iter_scale_shift_wrappers(
 ) -> tuple[tuple[Path, ScaleShiftWrapper], ...]:
     """Return path/module pairs for scale/shift wrappers in ``model``."""
 
-    return tuple(
-        (key_path_to_path(key_path), leaf)
-        for key_path, leaf in jtu.tree_leaves_with_path(
-            model,
-            is_leaf=lambda x: isinstance(x, ScaleShiftWrapper),
-        )
-        if isinstance(leaf, ScaleShiftWrapper)
-    )
+    return iter_wrappers(model, ScaleShiftWrapper)
 
 
 def _target_module_paths(

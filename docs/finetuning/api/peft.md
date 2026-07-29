@@ -16,7 +16,6 @@ Public adapters, LoRA-family methods, prompts, prefixes, and related surgery.
 - [`AdapterConfig`](#equimo-finetune-adapterconfig)
 - [`AdapterFusion`](#equimo-finetune-adapterfusion)
 - [`AdapterFusionConfig`](#equimo-finetune-adapterfusionconfig)
-- [`AdapterRecipe`](#equimo-finetune-adapterrecipe)
 - [`AdaptFormerAdapter`](#equimo-finetune-adaptformeradapter)
 - [`AdaptFormerBlock`](#equimo-finetune-adaptformerblock)
 - [`AdaptFormerConfig`](#equimo-finetune-adaptformerconfig)
@@ -46,7 +45,6 @@ Public adapters, LoRA-family methods, prompts, prefixes, and related surgery.
 - [`DoRAConfig`](#equimo-finetune-doraconfig)
 - [`DoRALinear`](#equimo-finetune-doralinear)
 - [`DoRAMergedLinear`](#equimo-finetune-doramergedlinear)
-- [`DoRARecipe`](#equimo-finetune-dorarecipe)
 - [`EVAInitializerConfig`](#equimo-finetune-evainitializerconfig)
 - [`extract_adapter_delta`](#equimo-finetune-extract-adapter-delta)
 - [`extract_lora_delta`](#equimo-finetune-extract-lora-delta)
@@ -73,7 +71,6 @@ Public adapters, LoRA-family methods, prompts, prefixes, and related surgery.
 - [`LoRALinear`](#equimo-finetune-loralinear)
 - [`LoRAMergedLinear`](#equimo-finetune-loramergedlinear)
 - [`LoRAPlusLabelConfig`](#equimo-finetune-lorapluslabelconfig)
-- [`LoRARecipe`](#equimo-finetune-lorarecipe)
 - [`merge_dora`](#equimo-finetune-merge-dora)
 - [`merge_fourierft`](#equimo-finetune-merge-fourierft)
 - [`merge_ia3`](#equimo-finetune-merge-ia3)
@@ -118,9 +115,7 @@ Public adapters, LoRA-family methods, prompts, prefixes, and related surgery.
 - [`VeRAConfig`](#equimo-finetune-veraconfig)
 - [`VeRALinear`](#equimo-finetune-veralinear)
 - [`VPTDeepConfig`](#equimo-finetune-vptdeepconfig)
-- [`VPTDeepRecipe`](#equimo-finetune-vptdeeprecipe)
 - [`VPTShallowConfig`](#equimo-finetune-vptshallowconfig)
-- [`VPTShallowRecipe`](#equimo-finetune-vptshallowrecipe)
 
 <!-- equimo.finetune:AdaLoRAConfig -->
 <a id="equimo-finetune-adaloraconfig"></a>
@@ -217,18 +212,6 @@ class equimo.finetune.AdapterFusionConfig(fusion: "Literal['attention']" = 'atte
 Defined in `equimo.finetune.peft.adapters`.
 
 > Metadata for AdapterFusion-style adapter composition.
-
-<!-- equimo.finetune:AdapterRecipe -->
-<a id="equimo-finetune-adapterrecipe"></a>
-## `AdapterRecipe`
-
-```python
-class equimo.finetune.AdapterRecipe(bottleneck: 'int' = 64, placement: 'AdapterPlacement' = 'after_mlp', activation: 'ActivationName' = 'gelu', dropout: 'float' = 0.0, train_head: 'bool' = True, train_norm: 'bool' = True) -> None
-```
-
-Defined in `equimo.finetune.peft.adapters`.
-
-> Recipe metadata for bottleneck adapter fine-tuning.
 
 <!-- equimo.finetune:AdaptFormerAdapter -->
 <a id="equimo-finetune-adaptformeradapter"></a>
@@ -582,18 +565,6 @@ Defined in `equimo.finetune.peft.dora`.
 
 > DoRA wrapper for fused projections such as QKV linears.
 
-<!-- equimo.finetune:DoRARecipe -->
-<a id="equimo-finetune-dorarecipe"></a>
-## `DoRARecipe`
-
-```python
-class equimo.finetune.DoRARecipe(rank: 'int' = 8, alpha: 'float' = 16.0, dropout: 'float' = 0.05, target: 'tuple[str, ...]' = ('attention.qkv', 'attention.proj'), external_lr_hint: 'str' = 'slightly_lower_than_lora') -> None
-```
-
-Defined in `equimo.finetune.peft.dora`.
-
-> Recipe metadata for DoRA fine-tuning.
-
 <!-- equimo.finetune:EVAInitializerConfig -->
 <a id="equimo-finetune-evainitializerconfig"></a>
 ## `EVAInitializerConfig`
@@ -905,18 +876,6 @@ class equimo.finetune.LoRAPlusLabelConfig(label_A: 'str' = 'lora_A', label_B: 's
 Defined in `equimo.finetune.peft.lora`.
 
 > Label metadata for LoRA+ A/B learning-rate groups.
-
-<!-- equimo.finetune:LoRARecipe -->
-<a id="equimo-finetune-lorarecipe"></a>
-## `LoRARecipe`
-
-```python
-class equimo.finetune.LoRARecipe(rank: 'int' = 8, alpha: 'float' = 16.0, dropout: 'float' = 0.05, target: 'tuple[str, ...]' = ('attention.qkv', 'attention.proj'), train_head: 'bool' = True) -> None
-```
-
-Defined in `equimo.finetune.peft.lora`.
-
-> Recipe metadata for LoRA fine-tuning.
 
 <!-- equimo.finetune:merge_dora -->
 <a id="equimo-finetune-merge-dora"></a>
@@ -1442,18 +1401,6 @@ Defined in `equimo.finetune.peft.prompts`.
 
 > Visual Prompt Tuning deep configuration.
 
-<!-- equimo.finetune:VPTDeepRecipe -->
-<a id="equimo-finetune-vptdeeprecipe"></a>
-## `VPTDeepRecipe`
-
-```python
-class equimo.finetune.VPTDeepRecipe(num_tokens: 'int' = 10, depth: "Literal['deep']" = 'deep', init: 'str' = 'normal', init_std: 'float' = 0.02, prepend_to: "Literal['after_cls']" = 'after_cls', prompt_dropout: 'float' = 0.0, exclude_prompt_tokens_from_pool: 'bool' = True, train_head: 'bool' = True) -> None
-```
-
-Defined in `equimo.finetune.peft.prompts`.
-
-> Visual prompt tuning deep recipe metadata.
-
 <!-- equimo.finetune:VPTShallowConfig -->
 <a id="equimo-finetune-vptshallowconfig"></a>
 ## `VPTShallowConfig`
@@ -1465,15 +1412,3 @@ class equimo.finetune.VPTShallowConfig(num_tokens: 'int' = 50, depth: "Literal['
 Defined in `equimo.finetune.peft.prompts`.
 
 > Visual Prompt Tuning shallow configuration.
-
-<!-- equimo.finetune:VPTShallowRecipe -->
-<a id="equimo-finetune-vptshallowrecipe"></a>
-## `VPTShallowRecipe`
-
-```python
-class equimo.finetune.VPTShallowRecipe(num_tokens: 'int' = 50, depth: "Literal['shallow']" = 'shallow', init: 'str' = 'normal', init_std: 'float' = 0.02, prepend_to: "Literal['after_cls', 'before_all', 'input']" = 'after_cls', prompt_dropout: 'float' = 0.0, exclude_prompt_tokens_from_pool: 'bool' = True, train_head: 'bool' = True) -> None
-```
-
-Defined in `equimo.finetune.peft.prompts`.
-
-> Visual prompt tuning shallow recipe metadata.

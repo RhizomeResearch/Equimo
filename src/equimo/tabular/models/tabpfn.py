@@ -2,7 +2,6 @@
 # ty: ignore[call-non-callable]
 # ty: ignore[too-many-positional-arguments]
 # ty: ignore[unknown-argument]
-# ty: ignore[invalid-return-type]
 __all__ = [
     "TabPFN",
     "tabpfn",
@@ -27,7 +26,7 @@ from jaxtyping import Array, Float, PRNGKeyArray
 
 from equimo.core.intermediates import intermediate_indices
 from equimo.core.layers.activation import get_act
-from equimo.core.layers.generic import BlockChunk
+from equimo.core.layers.generic import BlockChunk, count_chunk_blocks
 from equimo.core.layers.norm import get_norm
 from equimo.registry import register_model
 from equimo.tabular.layers import (
@@ -39,6 +38,7 @@ from equimo.tabular.layers import (
     get_preprocessor,
 )
 from equimo.utils import make_drop_path_schedule, to_list
+from equimo.core.factory import build_model_variant
 
 
 @register_model("tabpfn", modality="tabular")
@@ -265,7 +265,7 @@ class TabPFN(eqx.Module):
     ) -> tuple[Float[Array, "rows dim"], ...]:
         """Return selected native context block outputs."""
 
-        total = _count_chunk_blocks(self.blocks)
+        total = count_chunk_blocks(self.blocks)
         wanted = intermediate_indices(
             total, indices=indices, n_last_blocks=n_last_blocks
         )
@@ -345,10 +345,6 @@ class TabPFN(eqx.Module):
         x = self.features(x, y, n_train, key=key, inference=inference, **kwargs)
         x = jax.vmap(self.norm)(x)
         return self.head(x[:n_train], x[n_train:], y[:n_train], n_train)
-
-
-def _count_chunk_blocks(blocks: Tuple[BlockChunk, ...]) -> int:
-    return sum(0 if chunk.blocks is None else len(chunk.blocks) for chunk in blocks)
 
 
 _TABPFN_BASE_CFG: dict = {
@@ -480,24 +476,16 @@ def _build_tabpfn(
     key: PRNGKeyArray | None = None,
     **overrides,
 ) -> TabPFN:
-    if key is None:
-        key = jax.random.PRNGKey(42)
-
-    base_cfg, variant_cfg = _TABPFN_REGISTRY[variant]
-    cfg = base_cfg | variant_cfg | overrides
-    model = TabPFN(**cfg, key=key)
-
-    if pretrained:
-        from equimo.serialization import load_weights
-
-        identifier = _TABPFN_PRETRAINED_IDENTIFIERS.get(variant, variant)
-        model = load_weights(
-            model,
-            identifier=identifier,
-            inference_mode=inference_mode,
-        )
-
-    return model
+    return build_model_variant(
+        TabPFN,
+        _TABPFN_REGISTRY,
+        variant,
+        pretrained=pretrained,
+        inference_mode=inference_mode,
+        key=key,
+        pretrained_identifiers=_TABPFN_PRETRAINED_IDENTIFIERS,
+        **overrides,
+    )
 
 
 def tabpfn(

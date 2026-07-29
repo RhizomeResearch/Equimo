@@ -9,7 +9,6 @@ import pytest
 
 import equimo.finetune as eqft
 from equimo.core.layers.dropout import DropPathAdd
-from equimo.finetune.vision import recipes as vision_recipes
 
 from fixtures import assert_tree_allclose
 
@@ -292,9 +291,9 @@ def test_lpft_stage_plans_accept_custom_tagger(tiny_vision_transformer):
 
 
 def test_vision_partial_recipe_uses_last_blocks(tiny_vision_transformer):
-    plan = vision_recipes.partial_ft_vit_llrd(
+    plan = eqft.recipes.partial_ft_last_k_blocks(
         tiny_vision_transformer,
-        last_k_blocks=1,
+        k=1,
     )
 
     assert plan.trainable.blocks[0].attn.qkv.weight is None

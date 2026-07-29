@@ -12,7 +12,7 @@ __all__ = [
     "ast_base_patch16_speechcommands_v2_10_10_0_9812",
 ]
 
-from typing import Callable, Literal, Optional, Sequence, Tuple, cast
+from typing import Callable, Literal, Optional, Sequence, Tuple
 
 import equinox as eqx
 import jax
@@ -26,10 +26,15 @@ from equimo.core.intermediates import intermediate_indices
 from equimo.core.layers.activation import get_act
 from equimo.core.layers.attention import get_attn, get_attn_block
 from equimo.core.layers.ffn import get_ffn
-from equimo.core.layers.generic import BlockChunk
+from equimo.core.layers.generic import (
+    BlockChunk,
+    count_chunk_blocks,
+    make_transformer_block_chunk,
+)
 from equimo.core.layers.norm import get_norm
 from equimo.registry import register_model
 from equimo.utils import pool_sd, to_list
+from equimo.core.factory import build_model_variant
 
 
 @register_model("ast", modality="audio")
@@ -145,31 +150,33 @@ class AudioSpectrogramTransformer(eqx.Module):
         num_heads = to_list(num_heads, n_chunks)
         attn_layer = to_list(attn_layer, n_chunks)
         self.blocks = tuple(
-            BlockChunk(
-                depth=depths[i],
-                module=block,
-                module_kwargs={
-                    "dim": dim,
-                    "num_heads": num_heads[i],
-                    "mlp_ratio": mlp_ratio,
-                    "qkv_bias": qkv_bias,
-                    "proj_bias": proj_bias,
-                    "qk_norm": qk_norm,
-                    "attn_drop": attn_drop,
-                    "proj_drop": proj_drop,
-                    "act_layer": act_layer,
-                    "attn_layer": attn_layer[i],
-                    "ffn_layer": ffn_layer,
-                    "ffn_bias": ffn_bias,
-                    "ffn_kwargs": ffn_kwargs,
-                    "norm_layer": norm_layer,
-                    "eps": eps,
-                },
-                drop_path=dpr[sum(depths[:i]) : sum(depths[: i + 1])],
-                init_values=init_values,
-                key=block_subkeys[i],
-            )
+            chunk
             for i in range(n_chunks)
+            if (
+                chunk := make_transformer_block_chunk(
+                    depth=depths[i],
+                    dim=dim,
+                    num_heads=num_heads[i],
+                    block=block,
+                    attn_layer=attn_layer[i],
+                    ffn_layer=ffn_layer,
+                    mlp_ratio=mlp_ratio,
+                    qkv_bias=qkv_bias,
+                    proj_bias=proj_bias,
+                    qk_norm=qk_norm,
+                    attn_drop=attn_drop,
+                    proj_drop=proj_drop,
+                    act_layer=act_layer,
+                    ffn_bias=ffn_bias,
+                    ffn_kwargs=ffn_kwargs,
+                    norm_layer=norm_layer,
+                    eps=eps,
+                    drop_path=dpr[sum(depths[:i]) : sum(depths[: i + 1])],
+                    init_values=init_values,
+                    key=block_subkeys[i],
+                )
+            )
+            is not None
         )
 
         self.norm = norm_layer(dim, eps=eps)
@@ -211,7 +218,7 @@ class AudioSpectrogramTransformer(eqx.Module):
     ) -> tuple[Float[Array, "seqlen dim"], ...]:
         """Return selected native token outputs after transformer blocks."""
 
-        total = _count_chunk_blocks(self.blocks)
+        total = count_chunk_blocks(self.blocks)
         wanted = intermediate_indices(
             total, indices=indices, n_last_blocks=n_last_blocks
         )
@@ -296,10 +303,6 @@ class AudioSpectrogramTransformer(eqx.Module):
 
         x = self.head_norm(x)
         return self.head(x)
-
-
-def _count_chunk_blocks(blocks: Tuple[BlockChunk, ...]) -> int:
-    return sum(0 if chunk.blocks is None else len(chunk.blocks) for chunk in blocks)
 
 
 _AST_BASE_CFG: dict = {
@@ -422,35 +425,17 @@ def _build_ast(
     key: PRNGKeyArray | None = None,
     **overrides,
 ) -> AudioSpectrogramTransformer:
-    if key is None:
-        key = jax.random.PRNGKey(42)
-
-    base_cfg, variant_cfg = _AST_REGISTRY[variant]
-    cfg = base_cfg | variant_cfg | overrides
-    model = cast(
-        AudioSpectrogramTransformer, AudioSpectrogramTransformer(**cfg, key=key)
+    return build_model_variant(
+        AudioSpectrogramTransformer,
+        _AST_REGISTRY,
+        variant,
+        pretrained=pretrained,
+        inference_mode=inference_mode,
+        key=key,
+        pretrained_variants=frozenset(_AST_PRETRAINED_VARIANTS),
+        pretrained_label="AST",
+        **overrides,
     )
-
-    if pretrained:
-        if variant not in _AST_PRETRAINED_VARIANTS:
-            supported = ", ".join(sorted(_AST_PRETRAINED_VARIANTS))
-            raise ValueError(
-                f"No pretrained weights are available for {variant!r}. "
-                f"Supported AST pretrained variants: {supported}."
-            )
-
-        from equimo.serialization import load_weights
-
-        return cast(
-            AudioSpectrogramTransformer,
-            load_weights(
-                model,
-                identifier=variant,
-                inference_mode=inference_mode,
-            ),
-        )
-
-    return model
 
 
 def ast_tiny_patch16_224(**kwargs) -> AudioSpectrogramTransformer:

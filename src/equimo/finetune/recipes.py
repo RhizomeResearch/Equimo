@@ -11,12 +11,6 @@ import jax
 
 from ._typing import Path, PyTree
 from .config import FineTunePlan, LLRDConfig, TargetSpec, TrainableSpec
-from .feature_extraction import (
-    AttentionPoolingProbe,
-    LinearProbe,
-    make_attention_pool_probe,
-    make_linear_probe,
-)
 from .peft.adapters import (
     AdaptFormerConfig,
     AdapterConfig,
@@ -27,7 +21,6 @@ from .peft.adapters import (
 )
 from .peft.lora import LoRAConfig, apply_lora
 from .peft.prompts import PromptedModel, VPTDeepConfig, apply_prompts
-from .pooling import PoolName
 from .selectors import is_linear
 from .surgery import (
     disable_dropout,
@@ -36,29 +29,6 @@ from .surgery import (
     transfer_head,
 )
 from .tags import Tagger, canonical_tags_for_path, infer_depth, iter_param_infos
-
-
-@dataclass(frozen=True)
-class LinearProbeConfig:
-    """Configuration metadata for linear probing."""
-
-    pool: str = "auto"
-    feature_norm: str | None = None
-    head: str = "linear"
-    head_bias: bool = True
-    head_init: str = "trunc_normal_0.02"
-    train_backbone: bool = False
-    train_head: bool = True
-    cache_features: bool = False
-
-
-@dataclass(frozen=True)
-class LinearProbeRecipe:
-    """Recipe metadata for linear probing."""
-
-    pool: str = "auto"
-    feature_norm: str = "l2_or_standardize"
-    head: str = "linear"
 
 
 @dataclass(frozen=True)
@@ -292,54 +262,6 @@ def prepare_lpft_stage2_model(
     )
 
 
-def linear_probe(
-    backbone: PyTree,
-    *,
-    in_features: int,
-    out_features: int,
-    key: jax.Array,
-    pool: PoolName = "auto",
-) -> LinearProbe:
-    """Create a linear-probe model wrapper."""
-
-    return make_linear_probe(
-        backbone,
-        in_features=in_features,
-        out_features=out_features,
-        key=key,
-        pool=pool,
-    )
-
-
-def attention_pool_probe(
-    backbone: PyTree,
-    *,
-    in_features: int,
-    out_features: int,
-    key: jax.Array,
-    n_last_blocks: int | None = None,
-    embed_dim: int = 512,
-    num_heads: int = 8,
-    dropout: float = 0.0,
-    prepend_cls_token: bool = False,
-    l2_normalize_cls: bool = False,
-) -> AttentionPoolingProbe:
-    """Create a FINO-style attention-pooling probe wrapper."""
-
-    return make_attention_pool_probe(
-        backbone,
-        in_features=in_features,
-        out_features=out_features,
-        key=key,
-        n_last_blocks=n_last_blocks,
-        embed_dim=embed_dim,
-        num_heads=num_heads,
-        dropout=dropout,
-        prepend_cls_token=prepend_cls_token,
-        l2_normalize_cls=l2_normalize_cls,
-    )
-
-
 def head_plus_norm(
     model: PyTree,
     config: HeadPlusNormConfig | None = None,
@@ -502,21 +424,6 @@ def adapter_transformer(
     )
 
 
-def adapter_transformer_strong(
-    model: PyTree,
-    *,
-    key: jax.Array,
-    bottleneck: int = 64,
-) -> PyTree:
-    """Apply a stronger two-placement adapter configuration."""
-
-    return apply_adapters(
-        model,
-        AdapterConfig(bottleneck=bottleneck, placement="both"),
-        key=key,
-    )
-
-
 def adaptformer_transformer(
     model: PyTree,
     *,
@@ -644,17 +551,12 @@ __all__ = (
     "FineTuneStage",
     "LPFTRecipe",
     "HeadPlusNormConfig",
-    "LinearProbeConfig",
-    "LinearProbeRecipe",
     "PartialUnfreezeConfig",
     "StagePolicy",
     "adapter_transformer",
-    "adapter_transformer_strong",
     "adaptformer_transformer",
-    "attention_pool_probe",
     "full_ft_llrd",
     "head_plus_norm",
-    "linear_probe",
     "lora_transformer",
     "lora_transformer_all_linear",
     "lpft",

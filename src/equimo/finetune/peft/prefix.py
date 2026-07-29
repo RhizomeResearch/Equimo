@@ -16,7 +16,8 @@ from equimo.core.layers.attention import rope_apply_qk_last_hw
 
 from .._typing import Path, PyTree
 from ..paths import key_path_to_path
-from .base import get_path
+from .base import get_path, iter_wrappers
+from . import _common
 
 
 @dataclass(frozen=True)
@@ -151,8 +152,8 @@ class PrefixAttention(eqx.Module):
                     "A PRNG key is required when prefix dropout is active."
                 )
             key_k, key_v = jr.split(key_prefix, 2)
-            prefix_k = _dropout(prefix_k, self.prefix_dropout, key_k)
-            prefix_v = _dropout(prefix_v, self.prefix_dropout, key_v)
+            prefix_k = _common.dropout(prefix_k, self.prefix_dropout, key_k)
+            prefix_v = _common.dropout(prefix_v, self.prefix_dropout, key_v)
         k = jnp.concatenate([prefix_k, k], axis=1)
         v = jnp.concatenate([prefix_v, v], axis=1)
         mask = _extend_mask(mask, self.state.shape[2])
@@ -290,14 +291,7 @@ def strip_prefixes(model: PyTree) -> PyTree:
 def iter_prefix_attentions(model: PyTree) -> tuple[tuple[Path, PrefixAttention], ...]:
     """Return path/module pairs for prefix-attention wrappers."""
 
-    return tuple(
-        (key_path_to_path(key_path), leaf)
-        for key_path, leaf in jtu.tree_leaves_with_path(
-            model,
-            is_leaf=lambda x: isinstance(x, PrefixAttention),
-        )
-        if isinstance(leaf, PrefixAttention)
-    )
+    return iter_wrappers(model, PrefixAttention)
 
 
 def _ensure_prefix_wrapped(
@@ -533,12 +527,6 @@ def _validate_prefix_config(config: PrefixConfig) -> None:
             "PrefixConfig.direct_kv=True is declared but not implemented; "
             "use projected prefix tokens instead."
         )
-
-
-def _dropout(x: jax.Array, rate: float, key: jax.Array) -> jax.Array:
-    keep_prob = 1.0 - rate
-    mask = jr.bernoulli(key, keep_prob, shape=x.shape)
-    return jnp.where(mask, x / keep_prob, 0)
 
 
 def _call_with_optional_key(fn, *args, key, inference, **kwargs):

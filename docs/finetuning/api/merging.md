@@ -20,9 +20,6 @@ Model soups, task vectors, and modern model-merging methods.
 - [`interpolate_models`](#equimo-finetune-interpolate-models)
 - [`knots_task_vector`](#equimo-finetune-knots-task-vector)
 - [`KnOTSConfig`](#equimo-finetune-knotsconfig)
-- [`KnOTSMerging`](#equimo-finetune-knotsmerging)
-- [`MergeMethod`](#equimo-finetune-mergemethod)
-- [`MergePlan`](#equimo-finetune-mergeplan)
 - [`regmean_merge`](#equimo-finetune-regmean-merge)
 - [`RegMeanConfig`](#equimo-finetune-regmeanconfig)
 - [`task_vector`](#equimo-finetune-task-vector)
@@ -178,42 +175,6 @@ class equimo.finetune.KnOTSConfig(rank: 'int | None' = None, orientation: 'str' 
 Defined in `equimo.finetune.merging`.
 
 > KnOTS shared-left-basis merge metadata.
-
-<!-- equimo.finetune:KnOTSMerging -->
-<a id="equimo-finetune-knotsmerging"></a>
-## `KnOTSMerging`
-
-```python
-class equimo.finetune.KnOTSMerging(config: 'KnOTSConfig' = <factory>) -> None
-```
-
-Defined in `equimo.finetune.merging`.
-
-> KnOTS method wrapper for the common merge interface.
-
-<!-- equimo.finetune:MergeMethod -->
-<a id="equimo-finetune-mergemethod"></a>
-## `MergeMethod`
-
-```python
-class equimo.finetune.MergeMethod(*args, **kwargs)
-```
-
-Defined in `equimo.finetune.merging`.
-
-> Common interface for data-aware or subspace-aware model mergers.
-
-<!-- equimo.finetune:MergePlan -->
-<a id="equimo-finetune-mergeplan"></a>
-## `MergePlan`
-
-```python
-class equimo.finetune.MergePlan(method: 'str', task_vectors: 'tuple[TaskVector, ...]', method_config: 'Mapping[str, Any]' = <factory>, metadata: 'Mapping[str, Any]' = <factory>) -> None
-```
-
-Defined in `equimo.finetune.merging`.
-
-> Prepared modern merge operation.
 
 <!-- equimo.finetune:regmean_merge -->
 <a id="equimo-finetune-regmean-merge"></a>
