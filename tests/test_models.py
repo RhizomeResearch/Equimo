@@ -988,6 +988,7 @@ def test_tabpfn_v3_classifier_default_matches_torch():
 
 
 def test_t0_alpha_matches_torch():
+    _require_cached_checkpoint("t0_alpha")
     model = t0_alpha(pretrained=True, key=KEY)
     reference = np.load(Path(__file__).parent / "data/t0_alpha_reference.npz")
     output = model(
