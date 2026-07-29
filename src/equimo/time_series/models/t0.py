@@ -17,6 +17,7 @@ import numpy as np
 from jaxtyping import Array, Float, Int, PRNGKeyArray
 
 from equimo.conversion.utils import stringify_name
+from equimo.core.factory import build_model_variant
 from equimo.core.layers import BlockChunk, RMSNormGated
 from equimo.registry import register_model
 from equimo.time_series.layers import (
@@ -216,19 +217,23 @@ class T0(eqx.Module):
         )
 
 
-_T0_REGISTRY = {
-    "t0": {},
-    "t0_alpha": {
-        "embed_dim": 512,
-        "num_layers": 24,
-        "num_heads": 8,
-        "mlp_hidden_dim": 2048,
-        "patch_size": 32,
-        "group_every_n": 3,
-        "dropout": 0.1,
-        "quantile_levels": (0.1, 0.25, 0.5, 0.75, 0.9),
-    },
+_T0_BASE_CFG = {
+    "embed_dim": 512,
+    "num_layers": 24,
+    "num_heads": 8,
+    "mlp_hidden_dim": 2048,
+    "patch_size": 32,
+    "group_every_n": 3,
+    "dropout": 0.1,
+    "quantile_levels": (0.1, 0.25, 0.5, 0.75, 0.9),
 }
+
+_T0_REGISTRY: dict[str, tuple[dict, dict]] = {
+    "t0": (_T0_BASE_CFG, {}),
+    "t0_alpha": (_T0_BASE_CFG, {}),
+}
+
+_T0_PRETRAINED_IDENTIFIERS = {"t0": "t0_alpha"}
 
 
 def _checkpoint_name(name: str) -> str:
@@ -311,22 +316,50 @@ def load_t0_weights(model: T0, path: str | Path) -> T0:
     return eqx.nn.inference_mode(eqx.combine(tree, static), value=True)
 
 
-def _build_t0(variant, *, pretrained=False, weights=None, key=None, **overrides):
-    if key is None:
-        key = jr.PRNGKey(42)
-    model = T0(**(_T0_REGISTRY[variant] | overrides), key=key)
-    if pretrained:
-        if weights is None:
-            raise ValueError(
-                "pretrained=True requires weights=path/to/model.safetensors"
-            )
-        model = load_t0_weights(cast(T0, model), weights)
-    return model
+def _build_t0(
+    variant: str,
+    pretrained: bool = False,
+    inference_mode: bool = True,
+    key: PRNGKeyArray | None = None,
+    **overrides,
+) -> T0:
+    return build_model_variant(
+        T0,
+        _T0_REGISTRY,
+        variant,
+        pretrained=pretrained,
+        inference_mode=inference_mode,
+        key=key,
+        pretrained_identifiers=_T0_PRETRAINED_IDENTIFIERS,
+        **overrides,
+    )
 
 
-def t0(**kwargs) -> T0:
-    return _build_t0("t0", **kwargs)
+def t0(
+    pretrained: bool = False,
+    inference_mode: bool = True,
+    key: PRNGKeyArray | None = None,
+    **kwargs,
+) -> T0:
+    return _build_t0(
+        "t0",
+        pretrained=pretrained,
+        inference_mode=inference_mode,
+        key=key,
+        **kwargs,
+    )
 
 
-def t0_alpha(**kwargs) -> T0:
-    return _build_t0("t0_alpha", **kwargs)
+def t0_alpha(
+    pretrained: bool = False,
+    inference_mode: bool = True,
+    key: PRNGKeyArray | None = None,
+    **kwargs,
+) -> T0:
+    return _build_t0(
+        "t0_alpha",
+        pretrained=pretrained,
+        inference_mode=inference_mode,
+        key=key,
+        **kwargs,
+    )
