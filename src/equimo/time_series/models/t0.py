@@ -1,7 +1,7 @@
 # ty: ignore[invalid-assignment]
 """T0 patch-transformer time-series foundation model."""
 
-__all__ = ["T0", "t0", "t0_alpha"]
+__all__ = ["T0", "t0_alpha"]
 
 from collections.abc import Sequence
 from typing import Optional, cast
@@ -224,7 +224,6 @@ _T0_BASE_CFG = {
 }
 
 _T0_REGISTRY: dict[str, tuple[dict, dict]] = {
-    "t0": (_T0_BASE_CFG, {}),
     "t0_alpha": (_T0_BASE_CFG, {}),
 }
 
@@ -312,11 +311,6 @@ def _build_t0(
             "Pretrained T0 variants do not accept configuration overrides; "
             f"got: {names}."
         )
-    if pretrained and variant != "t0_alpha":
-        raise ValueError(
-            "No pretrained weights are available for 't0'. "
-            "Supported T0 pretrained variants: t0_alpha."
-        )
     return build_model_variant(
         T0,
         _T0_REGISTRY,
@@ -327,19 +321,6 @@ def _build_t0(
         pretrained_variants=frozenset({"t0_alpha"}),
         pretrained_label="T0",
         **overrides,
-    )
-
-
-def t0(
-    pretrained: bool = False,
-    inference_mode: bool = True,
-    **kwargs,
-) -> T0:
-    return _build_t0(
-        "t0",
-        pretrained=pretrained,
-        inference_mode=inference_mode,
-        **kwargs,
     )
 
 

@@ -5,7 +5,7 @@ import pytest
 from equimo.core.layers import Attention, BlockChunk, Mlp, SwiGluFused
 from equimo.registry import get_model_cls
 from equimo.time_series import layers
-from equimo.time_series.models import T0, t0, t0_alpha
+from equimo.time_series.models import T0, t0_alpha
 from equimo.time_series.models.t0 import _T0_REGISTRY
 
 
@@ -69,7 +69,6 @@ def test_factory_and_registry():
         patch_size=4,
         key=KEY,
     )
-    assert isinstance(t0(**kwargs), T0)
     assert isinstance(t0_alpha(**kwargs), T0)
     assert get_model_cls("t0", modality="time_series") is T0
     base_cfg, variant_cfg = _T0_REGISTRY["t0_alpha"]
@@ -85,9 +84,7 @@ def test_factory_and_registry():
     }
 
 
-def test_pretrained_variants_reject_unsupported_or_overridden_configs():
-    with pytest.raises(ValueError, match="Supported T0 pretrained variants: t0_alpha"):
-        t0(pretrained=True)
+def test_pretrained_variant_rejects_overridden_config():
     with pytest.raises(ValueError, match="do not accept configuration overrides"):
         t0_alpha(pretrained=True, embed_dim=16)
 
