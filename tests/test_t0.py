@@ -57,6 +57,27 @@ def test_xpos_matches_upstream_split_scale_layout():
     assert jnp.allclose(rotated_q[0, 0, 0], expected)
 
 
+def test_constructor_rejects_odd_head_dimension():
+    with pytest.raises(ValueError, match="embed_dim / num_heads must be even"):
+        _tiny(embed_dim=6, num_heads=2)
+
+
+def test_constructor_rejects_empty_quantile_levels():
+    with pytest.raises(ValueError, match="quantile_levels must be a non-empty"):
+        _tiny(quantile_levels=())
+
+
+@pytest.mark.parametrize("quantile", [0.0, 1.0, -0.1, 1.1, float("nan")])
+def test_constructor_rejects_invalid_quantile_levels(quantile):
+    with pytest.raises(ValueError, match="each quantile must be in"):
+        _tiny(quantile_levels=(0.5, quantile))
+
+
+def test_constructor_sorts_valid_quantile_levels():
+    model = _tiny(quantile_levels=(0.9, 0.1, 0.5))
+    assert model.quantile_levels == (0.1, 0.5, 0.9)
+
+
 def test_reuses_equimo_blocks_and_t0_pattern():
     model = _tiny()
     assert isinstance(model.blocks[0], BlockChunk)

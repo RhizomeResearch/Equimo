@@ -55,10 +55,20 @@ class T0(eqx.Module):
     ):
         if embed_dim % num_heads:
             raise ValueError("embed_dim must be divisible by num_heads")
+        if (embed_dim // num_heads) % 2:
+            raise ValueError("embed_dim / num_heads must be even for XPos")
         if group_every_n > 0 and num_layers % group_every_n:
             raise ValueError("group_every_n must divide num_layers")
         if patch_size < 1:
             raise ValueError("patch_size must be >= 1")
+        quantile_levels = tuple(sorted(float(q) for q in quantile_levels))
+        if not quantile_levels:
+            raise ValueError(
+                "quantile_levels must be a non-empty sequence of floats in (0, 1)"
+            )
+        for quantile in quantile_levels:
+            if not 0.0 < quantile < 1.0:
+                raise ValueError(f"each quantile must be in (0, 1); got {quantile}")
         patch_encoder_layer = cast(type[PatchEncoder], get_layer(patch_encoder_layer))
         block_layer = cast(type[T0Block], get_layer(block_layer))
         decoder_layer = cast(type[ResidualMlp], get_layer(decoder_layer))
@@ -83,7 +93,7 @@ class T0(eqx.Module):
             ),
         )
         self.out_norm = RMSNormGated(embed_dim, eps=1e-8)
-        self.quantile_levels = tuple(sorted(float(q) for q in quantile_levels))
+        self.quantile_levels = quantile_levels
         self.decoder = decoder_layer(
             embed_dim,
             embed_dim,
