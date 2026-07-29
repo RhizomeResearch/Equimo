@@ -72,6 +72,7 @@ dev = [
 ]
 reference = [
     "tabpfn>=8.1.0",
+    "tfc-t0==0.2.1",
     "timm>=1.0.15",
     "torch>=2.6.0",
     "transformers>=5.13.1",

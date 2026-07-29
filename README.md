@@ -742,8 +742,9 @@ The following models have pretrained weights available in Equimo:
 - [EUPE](https://arxiv.org/abs/2603.22387) (both ViT and ConvNeXt variants)
 - [AST](https://arxiv.org/abs/2104.01778)
 - [TabPFN-3](https://arxiv.org/abs/2605.13986)
+- [T0-alpha](https://huggingface.co/theforecastingcompany/t0-alpha)
 
-Model identifiers map to filenames in Equimo's [Hugging Face repository](https://huggingface.co/poiretclement/equimo/tree/bdf43d88f504d6fc3fc7850eb053df0bd762989c/models/default).
+Model identifiers map to filenames in Equimo's [Hugging Face repository](https://huggingface.co/poiretclement/equimo/tree/b64abf98322dd4a9e3f01dc661bae817eb781e3f/models/default).
 
 The experimental catalog currently covers one representative model per
 modality. Catalog keys use an explicit `<modality>/<variant>` namespace:
@@ -765,6 +766,7 @@ Catalog-covered pretrained identifiers (validated against catalog data):
 <!-- model-catalog:begin -->
 - `ast_base_patch16_audioset_10_10_0_4593`
 - `tabpfn_v3_classifier_default`
+- `t0_alpha`
 - `dinov2_vits14_reg`
 <!-- model-catalog:end -->
 

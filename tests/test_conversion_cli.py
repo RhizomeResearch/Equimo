@@ -14,6 +14,7 @@ HELP_SCRIPTS = (
     "dinov3.py",
     "eupe.py",
     "siglip2.py",
+    "t0.py",
     "tabpfn3.py",
     "tips.py",
     "tips_text.py",
@@ -261,6 +262,26 @@ def test_ast_dry_run_uses_output_dir_and_revision(tmp_path):
         str(tmp_path / "ast_base_patch16_speechcommands_v2_10_10_0_9812_reference.npz")
         in result.stdout
     )
+
+
+def test_t0_dry_run_uses_output_dir_and_pinned_revision(tmp_path):
+    result = run_script(
+        "t0.py",
+        "--references-only",
+        "--output-dir",
+        str(tmp_path),
+        "--dry-run",
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "revision=f8727c2357e0d81f1d9f56fe3aaac43068b5fc72" in result.stdout
+    assert (
+        "checkpoint_sha256="
+        "16c030d3fd70f06dc4238e9a8356e9b5a631d07f80f1bc76ba539991aed5897f"
+        in result.stdout
+    )
+    assert str(tmp_path / "t0_alpha_reference.npz") in result.stdout
+    assert "t0_alpha.tar.lz4" in result.stdout
 
 
 def test_tabpfn_dry_run_resolves_checkpoint(tmp_path):

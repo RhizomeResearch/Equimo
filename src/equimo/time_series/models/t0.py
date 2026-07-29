@@ -1,22 +1,18 @@
 # ty: ignore[invalid-assignment]
 """T0 patch-transformer time-series foundation model."""
 
-__all__ = ["T0", "load_t0_weights", "t0", "t0_alpha"]
+__all__ = ["T0", "t0", "t0_alpha"]
 
-import json
-import struct
 from collections.abc import Sequence
-from pathlib import Path
 from typing import Optional, cast
 
 import equinox as eqx
 import jax
 import jax.numpy as jnp
 import jax.random as jr
-import numpy as np
 from jaxtyping import Array, Float, Int, PRNGKeyArray
 
-from equimo.conversion.utils import stringify_name
+from equimo.core.factory import build_model_variant
 from equimo.core.layers import BlockChunk, RMSNormGated
 from equimo.registry import register_model
 from equimo.time_series.layers import (
@@ -216,117 +212,145 @@ class T0(eqx.Module):
         )
 
 
+_T0_BASE_CFG = {
+    "embed_dim": 512,
+    "num_layers": 24,
+    "num_heads": 8,
+    "mlp_hidden_dim": 2048,
+    "patch_size": 32,
+    "group_every_n": 3,
+    "dropout": 0.1,
+    "quantile_levels": (0.1, 0.25, 0.5, 0.75, 0.9),
+}
+
 _T0_REGISTRY = {
-    "t0": {},
-    "t0_alpha": {
-        "embed_dim": 512,
-        "num_layers": 24,
-        "num_heads": 8,
-        "mlp_hidden_dim": 2048,
-        "patch_size": 32,
-        "group_every_n": 3,
-        "dropout": 0.1,
-        "quantile_levels": (0.1, 0.25, 0.5, 0.75, 0.9),
-    },
+    "t0": (_T0_BASE_CFG, {}),
+    "t0_alpha": (_T0_BASE_CFG, {}),
 }
 
 
-def _checkpoint_name(name: str) -> str:
-    name = name.replace("blocks.0.blocks.", "transformer.layers.")
-    name = name.replace(
-        "patch_encoder.projection.mlp.fc1.",
-        "patch_encoder.projection.mlp.hidden_layer.",
+def _catalog_model_variants():
+    """Return catalog metadata for the published T0-alpha backbone."""
+    from equimo.catalog import (
+        ModelInput,
+        ModelProvenance,
+        ModelVariant,
+        PretrainedWeights,
     )
-    name = name.replace(
-        "patch_encoder.projection.mlp.fc2.",
-        "patch_encoder.projection.mlp.output_layer.",
+
+    variant = "t0_alpha"
+    return (
+        ModelVariant(
+            key=f"time_series/{variant}",
+            modality="time_series",
+            family="t0",
+            variant=variant,
+            model_registry_key="t0",
+            constructor=f"{__name__}.{variant}",
+            inputs=(
+                ModelInput(
+                    name="values",
+                    shape=("variates", "time"),
+                    axes=("variates", "time"),
+                    dtype="float32",
+                    description="Flattened, preprocessed variate values.",
+                ),
+                ModelInput(
+                    name="mask",
+                    shape=("variates", "time"),
+                    axes=("variates", "time"),
+                    dtype="int8",
+                    description="Per-cell T0 mask reason.",
+                ),
+                ModelInput(
+                    name="group_ids",
+                    shape=("variates", "time"),
+                    axes=("variates", "time"),
+                    dtype="int64",
+                    description="Per-cell sample grouping identifiers.",
+                ),
+                ModelInput(
+                    name="variate_type",
+                    shape=("variates", "time"),
+                    axes=("variates", "time"),
+                    dtype="int64",
+                    description="Per-cell target, historical, or future role.",
+                ),
+            ),
+            pretrained=PretrainedWeights(available=True, identifier=variant),
+            provenance=ModelProvenance(
+                conversion="models/t0.py",
+                reference=(
+                    "tests/data/reference_provenance.json#t0_alpha_reference.npz"
+                ),
+            ),
+            notes=(
+                "This entry exposes the raw T0 backbone, not the upstream "
+                "scaling and rollout predict API.",
+            ),
+            field_status=(
+                ("inputs", "complete"),
+                ("pretrained", "complete"),
+                ("provenance", "complete"),
+                ("notes", "complete"),
+            ),
+        ),
     )
-    name = name.replace("decoder.mlp.fc1.", "decoder.mlp.hidden_layer.")
-    name = name.replace("decoder.mlp.fc2.", "decoder.mlp.output_layer.")
-    name = name.replace(".attn_norm.w", ".attention_block.norm.scale")
-    name = name.replace(".attn.attention.qkv.", ".attention_block.attention.wQKV.")
-    name = name.replace(".attn.attention.proj.", ".attention_block.attention.wO.")
-    name = name.replace(
-        ".attn.attention.q_norm.w", ".attention_block.attention.q_norm.scale"
-    )
-    name = name.replace(
-        ".attn.attention.k_norm.w", ".attention_block.attention.k_norm.scale"
-    )
-    name = name.replace(".ffn_norm.w", ".norm.scale")
-    name = name.replace(".ffn.w12.", ".mlp.0.")
-    name = name.replace(".ffn.w3.", ".mlp.2.")
-    return name.replace("out_norm.w", "transformer.out_norm.scale")
 
 
-def _safetensors(path: Path) -> dict[str, np.ndarray]:
-    with path.open("rb") as file:
-        if file.read(7) == b"version":
-            raise ValueError(f"{path} is a Git LFS pointer, not a safetensors file")
-        file.seek(0)
-        header_size = struct.unpack("<Q", file.read(8))[0]
-        header = json.loads(file.read(header_size))
-    data_start = 8 + header_size
-    arrays = {}
-    for name, info in header.items():
-        if name == "__metadata__":
-            continue
-        if info["dtype"] != "F32":
-            raise ValueError(
-                f"Unsupported safetensors dtype {info['dtype']} for {name}"
-            )
-        start, stop = info["data_offsets"]
-        arrays[name] = np.memmap(
-            path,
-            dtype="<f4",
-            mode="r",
-            offset=data_start + start,
-            shape=tuple(info["shape"]),
+def _build_t0(
+    variant: str,
+    *,
+    pretrained: bool = False,
+    inference_mode: bool = True,
+    key: PRNGKeyArray | None = None,
+    **overrides,
+) -> T0:
+    if pretrained and overrides:
+        names = ", ".join(sorted(overrides))
+        raise ValueError(
+            "Pretrained T0 variants do not accept configuration overrides; "
+            f"got: {names}."
         )
-        if arrays[name].nbytes != stop - start:
-            raise ValueError(f"Invalid safetensors offsets for {name}")
-    return arrays
+    if pretrained and variant != "t0_alpha":
+        raise ValueError(
+            "No pretrained weights are available for 't0'. "
+            "Supported T0 pretrained variants: t0_alpha."
+        )
+    return build_model_variant(
+        T0,
+        _T0_REGISTRY,
+        variant,
+        pretrained=pretrained,
+        inference_mode=inference_mode,
+        key=key,
+        pretrained_variants=frozenset({"t0_alpha"}),
+        pretrained_label="T0",
+        **overrides,
+    )
 
 
-def load_t0_weights(model: T0, path: str | Path) -> T0:
-    """Load a native TFC T0 ``model.safetensors`` checkpoint strictly."""
-    state = _safetensors(Path(path))
-    dynamic, static = eqx.partition(model, eqx.is_array)
-    flat, treedef = jax.tree_util.tree_flatten_with_path(dynamic)
-    converted, used = [], set()
-    for tree_path, leaf in flat:
-        name = _checkpoint_name(stringify_name(tree_path))
-        if name not in state:
-            raise KeyError(f"No T0 checkpoint tensor for {name!r}")
-        array = state[name]
-        if tuple(array.shape) != tuple(leaf.shape):
-            raise ValueError(
-                f"{name}: expected {tuple(leaf.shape)}, got {tuple(array.shape)}"
-            )
-        converted.append(jnp.asarray(np.asarray(array)))
-        used.add(name)
-    leftover = set(state) - used - {"head.quantile_levels"}
-    if leftover:
-        raise KeyError(f"Unused T0 checkpoint tensors: {sorted(leftover)}")
-    tree = jax.tree_util.tree_unflatten(treedef, converted)
-    return eqx.nn.inference_mode(eqx.combine(tree, static), value=True)
+def t0(
+    pretrained: bool = False,
+    inference_mode: bool = True,
+    **kwargs,
+) -> T0:
+    return _build_t0(
+        "t0",
+        pretrained=pretrained,
+        inference_mode=inference_mode,
+        **kwargs,
+    )
 
 
-def _build_t0(variant, *, pretrained=False, weights=None, key=None, **overrides):
-    if key is None:
-        key = jr.PRNGKey(42)
-    model = T0(**(_T0_REGISTRY[variant] | overrides), key=key)
-    if pretrained:
-        if weights is None:
-            raise ValueError(
-                "pretrained=True requires weights=path/to/model.safetensors"
-            )
-        model = load_t0_weights(cast(T0, model), weights)
-    return model
-
-
-def t0(**kwargs) -> T0:
-    return _build_t0("t0", **kwargs)
-
-
-def t0_alpha(**kwargs) -> T0:
-    return _build_t0("t0_alpha", **kwargs)
+def t0_alpha(
+    pretrained: bool = False,
+    inference_mode: bool = True,
+    **kwargs,
+) -> T0:
+    return _build_t0(
+        "t0_alpha",
+        pretrained=pretrained,
+        inference_mode=inference_mode,
+        **kwargs,
+    )

@@ -5,7 +5,8 @@ import pytest
 from equimo.core.layers import Attention, BlockChunk, Mlp, SwiGluFused
 from equimo.registry import get_model_cls
 from equimo.time_series import layers
-from equimo.time_series.models import T0, load_t0_weights, t0, t0_alpha
+from equimo.time_series.models import T0, t0, t0_alpha
+from equimo.time_series.layers.axis_attn import _xpos
 from equimo.time_series.models.t0 import _T0_REGISTRY
 
 
@@ -47,6 +48,15 @@ def test_features_flatten_variates_and_patches():
     assert bool(jnp.all(jnp.isfinite(features)))
 
 
+def test_xpos_matches_upstream_split_scale_layout():
+    q = jnp.ones((1, 1, 3, 4), dtype=jnp.float32)
+    rotated_q, _ = _xpos(q, q)
+    base = (jnp.arange(0, 4, 2) + 0.4 * 4) / (1.4 * 4)
+    half_scale = base ** (-1 / 512)
+    expected = jnp.concatenate((half_scale, half_scale))
+    assert jnp.allclose(rotated_q[0, 0, 0], expected)
+
+
 def test_reuses_equimo_blocks_and_t0_pattern():
     model = _tiny()
     assert isinstance(model.blocks[0], BlockChunk)
@@ -72,7 +82,8 @@ def test_factory_and_registry():
     assert isinstance(t0(**kwargs), T0)
     assert isinstance(t0_alpha(**kwargs), T0)
     assert get_model_cls("t0", modality="time_series") is T0
-    assert _T0_REGISTRY["t0_alpha"] == {
+    base_cfg, variant_cfg = _T0_REGISTRY["t0_alpha"]
+    assert base_cfg | variant_cfg == {
         "embed_dim": 512,
         "num_layers": 24,
         "num_heads": 8,
@@ -84,11 +95,11 @@ def test_factory_and_registry():
     }
 
 
-def test_lfs_pointer_is_rejected(tmp_path):
-    pointer = tmp_path / "model.safetensors"
-    pointer.write_text("version https://git-lfs.github.com/spec/v1\n")
-    with pytest.raises(ValueError, match="Git LFS pointer"):
-        load_t0_weights(_tiny(), pointer)
+def test_pretrained_variants_reject_unsupported_or_overridden_configs():
+    with pytest.raises(ValueError, match="Supported T0 pretrained variants: t0_alpha"):
+        t0(pretrained=True)
+    with pytest.raises(ValueError, match="do not accept configuration overrides"):
+        t0_alpha(pretrained=True, embed_dim=16)
 
 
 def test_time_series_layer_registry():
