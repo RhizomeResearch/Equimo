@@ -238,6 +238,11 @@ _T0_REGISTRY = {
     "t0_alpha": (_T0_BASE_CFG, {}),
 }
 
+_T0_PRETRAINED_IDENTIFIERS = {
+    "t0": "t0_alpha",
+    "t0_alpha": "t0_alpha",
+}
+
 
 def _catalog_model_variants():
     """Return catalog metadata for the published T0-alpha backbone."""
@@ -316,17 +321,6 @@ def _build_t0(
     key: PRNGKeyArray | None = None,
     **overrides,
 ) -> T0:
-    if pretrained and overrides:
-        names = ", ".join(sorted(overrides))
-        raise ValueError(
-            "Pretrained T0 variants do not accept configuration overrides; "
-            f"got: {names}."
-        )
-    if pretrained and variant != "t0_alpha":
-        raise ValueError(
-            "No pretrained weights are available for 't0'. "
-            "Supported T0 pretrained variants: t0_alpha."
-        )
     return build_model_variant(
         T0,
         _T0_REGISTRY,
@@ -334,8 +328,10 @@ def _build_t0(
         pretrained=pretrained,
         inference_mode=inference_mode,
         key=key,
-        pretrained_variants=frozenset({"t0_alpha"}),
+        pretrained_variants=frozenset(_T0_PRETRAINED_IDENTIFIERS),
+        pretrained_identifiers=_T0_PRETRAINED_IDENTIFIERS,
         pretrained_label="T0",
+        allow_pretrained_overrides=False,
         **overrides,
     )
 
@@ -345,6 +341,7 @@ def t0(
     inference_mode: bool = True,
     **kwargs,
 ) -> T0:
+    """Build the default T0 model, loading T0-alpha when pretrained."""
     return _build_t0(
         "t0",
         pretrained=pretrained,
@@ -358,6 +355,7 @@ def t0_alpha(
     inference_mode: bool = True,
     **kwargs,
 ) -> T0:
+    """Build the published T0-alpha model."""
     return _build_t0(
         "t0_alpha",
         pretrained=pretrained,

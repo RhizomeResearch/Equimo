@@ -2,6 +2,7 @@ import jax.numpy as jnp
 import jax.random as jr
 import pytest
 
+import equimo.serialization as serialization
 from equimo.core.layers import Attention, BlockChunk, Mlp, SwiGluFused
 from equimo.registry import get_model_cls
 from equimo.time_series import layers
@@ -117,11 +118,35 @@ def test_factory_and_registry():
     }
 
 
-def test_pretrained_variants_reject_unsupported_or_overridden_configs():
-    with pytest.raises(ValueError, match="Supported T0 pretrained variants: t0_alpha"):
-        t0(pretrained=True)
+def test_t0_pretrained_alias_loads_t0_alpha(monkeypatch):
+    cfg = {
+        "embed_dim": 16,
+        "num_layers": 3,
+        "num_heads": 2,
+        "mlp_hidden_dim": 32,
+        "patch_size": 4,
+        "group_every_n": 3,
+        "dropout": 0.0,
+    }
+    loaded = {}
+
+    def fake_load_weights(model, *, identifier, inference_mode):
+        loaded.update(identifier=identifier, inference_mode=inference_mode)
+        return model
+
+    monkeypatch.setitem(_T0_REGISTRY, "t0", (cfg, {}))
+    monkeypatch.setattr(serialization, "load_weights", fake_load_weights)
+
+    model = t0(pretrained=True, key=KEY)
+
+    assert isinstance(model, T0)
+    assert loaded == {"identifier": "t0_alpha", "inference_mode": True}
+
+
+@pytest.mark.parametrize("factory", [t0, t0_alpha])
+def test_pretrained_variants_reject_overridden_configs(factory):
     with pytest.raises(ValueError, match="do not accept configuration overrides"):
-        t0_alpha(pretrained=True, embed_dim=16)
+        factory(pretrained=True, embed_dim=16)
 
 
 def test_time_series_layer_registry(monkeypatch):
