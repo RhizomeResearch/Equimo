@@ -5,8 +5,9 @@ import pytest
 from equimo.core.layers import Attention, BlockChunk, Mlp, SwiGluFused
 from equimo.registry import get_model_cls
 from equimo.time_series import layers
-from equimo.time_series.models import T0, t0, t0_alpha
 from equimo.time_series.layers.axis_attn import _xpos
+from equimo.time_series.layers import registry as time_series_registry
+from equimo.time_series.models import T0, t0, t0_alpha
 from equimo.time_series.models.t0 import _T0_REGISTRY
 
 
@@ -123,12 +124,14 @@ def test_pretrained_variants_reject_unsupported_or_overridden_configs():
         t0_alpha(pretrained=True, embed_dim=16)
 
 
-def test_time_series_layer_registry():
+def test_time_series_layer_registry(monkeypatch):
     assert layers.get_layer("axisattention") is layers.AxisAttention
+    assert layers.get_layer("AXISATTENTION") is layers.AxisAttention
     assert layers.get_layer("patchencoder") is layers.PatchEncoder
     assert layers.get_layer("residualmlp") is layers.ResidualMlp
     assert layers.get_layer("t0block") is layers.T0Block
     assert layers.get_layer("mlp") is Mlp
+    assert layers.get_layer(layers.AxisAttention) is layers.AxisAttention
 
     class CustomLayer(layers.ResidualMlp):
         pass
@@ -137,3 +140,23 @@ def test_time_series_layer_registry():
     assert layers.get_layer("custom_t0_layer") is CustomLayer
     with pytest.raises(ValueError):
         layers.register_layer("custom_t0_layer")(CustomLayer)
+
+    class ReplacementLayer(layers.ResidualMlp):
+        pass
+
+    layers.register_layer("custom_t0_layer", force=True)(ReplacementLayer)
+    assert layers.get_layer("custom_t0_layer") is ReplacementLayer
+
+    with pytest.raises(
+        ValueError,
+        match="not found in the time-series layer scope",
+    ) as error:
+        layers.get_layer("__missing_time_series_layer__")
+    assert "axisattention" in str(error.value)
+    assert "mlp" in str(error.value)
+
+    class LocalMlp(layers.ResidualMlp):
+        pass
+
+    monkeypatch.setitem(time_series_registry._LAYER_REGISTRY, "mlp", LocalMlp)
+    assert layers.get_layer("mlp") is LocalMlp
