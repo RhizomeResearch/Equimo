@@ -5,6 +5,12 @@ Versioning from version 2.0.0 onward.
 
 ## [Unreleased]
 
+### Added
+
+- An experimental `equimo.time_series` namespace with the raw T0/T0-alpha
+  patch-transformer backbone, converted pretrained weights, and a documented
+  tensor, scaling, padding, and output contract.
+
 ### Removed
 
 - **Breaking:** unused fine-tuning API surface identified by a code audit

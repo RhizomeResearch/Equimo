@@ -61,6 +61,7 @@ source-include = [
   "CHANGELOG.md",
   "docs/migration-v2.md",
   "docs/stability.md",
+  "docs/time_series.md",
 ]
 
 [dependency-groups]

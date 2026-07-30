@@ -49,6 +49,7 @@ def test_stable_release_metadata_and_documents_are_present():
         "CHANGELOG.md",
         "docs/migration-v2.md",
         "docs/stability.md",
+        "docs/time_series.md",
         "LICENSE.md",
     ):
         assert (root / relative_path).is_file()
@@ -56,4 +57,5 @@ def test_stable_release_metadata_and_documents_are_present():
     readme = (root / "README.md").read_text()
     assert "[v2 migration guide](docs/migration-v2.md)" in readme
     assert "[stability policy](docs/stability.md)" in readme
+    assert "[time-series guide](docs/time_series.md)" in readme
     assert "[LICENSE.md](LICENSE.md)" in readme

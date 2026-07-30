@@ -14,11 +14,14 @@ import equimo.vision.models as vision_models
 from equimo.language import TextTransformerEncoder
 from equimo.audio.models import AudioSpectrogramTransformer
 import equimo.tabular.models as tabular_models
+import equimo.time_series.models as time_series_models
 ```
 
 Shared layers live under `equimo.core.layers`; vision-specific layers live under
-`equimo.vision.layers`. Generic checkpoint helpers are exported from
-`equimo.serialization`.
+`equimo.vision.layers`; other modality-specific layers live under their
+respective namespaces. Generic checkpoint helpers are exported from
+`equimo.serialization`. The entire `equimo.time_series` namespace is
+experimental.
 
 ## Vision Models
 
@@ -103,6 +106,43 @@ log_probs = predict(x, y, n_train)
 ```
 
 Use pretrained TabPFN weights only after reviewing the upstream TabPFN-3 license.
+
+## T0 Raw Backbone
+
+T0 constructors expose the direct patch-transformer forward pass, not the
+upstream forecasting `predict` API. Inputs are unbatched arrays shaped
+`(variates, time)`:
+
+```python
+import jax.numpy as jnp
+import jax.random as jr
+import equimo.time_series.models as tm
+
+key = jr.PRNGKey(0)
+model = tm.t0_alpha(pretrained=True, key=key)
+
+values_scaled = jnp.zeros((1, 96), dtype=jnp.float32)
+mask = jnp.zeros((1, 96), dtype=jnp.int8)
+group_ids = jnp.zeros((1, 96), dtype=jnp.int32)
+variate_type = jnp.zeros((1, 96), dtype=jnp.int32)
+
+raw_quantiles = model(
+    values_scaled,
+    mask,
+    group_ids,
+    variate_type,
+    key=key,
+    inference=True,
+)
+```
+
+The output has shape
+`(variates, ceil(time / patch_size), patch_size, quantiles)` and remains in the
+input's transformed domain. Equimo does not currently implement the upstream
+scaling, inverse scaling, quantile interpolation, forecast selection, or
+long-horizon rollout. See the [time-series guide](./time_series.md) for the mask
+and variate vocabularies, grouping rules, padding alignment, feature shape, and
+full experimental compatibility boundary.
 
 ## Serialization
 

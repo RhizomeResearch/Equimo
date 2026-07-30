@@ -2,7 +2,7 @@
 
 **WARNING**: This is a research library implementing recent model architectures. The implementations are based on paper descriptions and may not be exact replicas of the original implementations. Use with caution in production environments.
 
-Equimo provides JAX/Equinox implementations of recent architectures across modalities. Vision is the most complete modality today; language has first-class text encoders/tokenizers, audio includes AST spectrogram models, and tabular includes TabPFN-3 core models.
+Equimo provides JAX/Equinox implementations of recent architectures across modalities. Vision is the most complete modality today; language has first-class text encoders/tokenizers, audio includes AST spectrogram models, tabular includes TabPFN-3 core models, and the experimental time-series namespace includes the raw T0 backbone.
 
 ## Features
 
@@ -13,7 +13,7 @@ Equimo provides JAX/Equinox implementations of recent architectures across modal
 - String-based layer resolution everywhere — pass `"layernorm"` instead of `eqx.nn.LayerNorm`
 - Modular design for easy experimentation
 - Extensive documentation and type hints
-- Modality-specific namespaces: `equimo.vision`, `equimo.language`, `equimo.audio`, `equimo.tabular`
+- Modality-specific namespaces: `equimo.vision`, `equimo.language`, `equimo.audio`, `equimo.tabular`, `equimo.time_series`
 - Generic serialization utilities in `equimo.serialization`
 - Equinox-native fine-tuning utilities in `equimo.finetune`
 
@@ -55,6 +55,7 @@ modality-specific code:
 | `equimo.language` | Text encoders and tokenizers |
 | `equimo.audio` | Audio models, layers, and checkpoint-linked AST waveform preprocessing |
 | `equimo.tabular` | Tabular models and tabular layers |
+| `equimo.time_series` | Experimental time-series models and layers, currently the raw T0 backbone |
 | `equimo.finetune` | Trainability plans, heads, PEFT modules, deltas, model merging, and fine-tuning recipes |
 | `equimo.serialization` | Checkpoint save/load, weight loading, archive download/decompression |
 | `equimo.registry` | Modality-aware model registry |
@@ -142,6 +143,18 @@ regressor, and a time-series regressor. Upstream TabPFN-3 weights are released
 under `tabpfn-3-license-v1.0`; review that license before using pretrained
 weights outside research or internal evaluation.
 
+## Implemented Time-Series Models
+
+| Model | Source | Status |
+| ----- | ------ | ------ |
+| T0-alpha | [The Forecasting Company](https://huggingface.co/theforecastingcompany/t0-alpha) | ✅ Experimental |
+
+`equimo.time_series` exposes T0's raw patch-transformer forward pass and
+converted T0-alpha weights. It does not provide the upstream scaling,
+inverse-scaling, quantile interpolation, forecast selection, or long-horizon
+rollout API. See the [time-series guide](docs/time_series.md) for the complete
+input, mask, padding, and output contract.
+
 ## Vision Usage
 
 ```python
@@ -173,7 +186,7 @@ features = model.features(x, key=key, inference=True)
 
 See [`docs/usage.md`](./docs/usage.md) for a compact non-fine-tuning usage
 guide covering model construction, feature extraction, text encoders, TabPFN,
-serialization, and registries.
+the experimental T0 backbone, serialization, and registries.
 
 Runnable examples live under [`examples/`](./examples):
 
@@ -328,6 +341,7 @@ model = em.dinov2_vitb14(pretrained=True)
 | `MobileNetv3`       | `mobilenetv3_{small,large}`                                                                                                                                    |
 | `AudioSpectrogramTransformer` | `ast_{tiny,small,base}_patch16_224`, `ast_base_patch16_384`, `ast_base_patch16_audioset_10_10_0_4593`, `ast_base_patch16_speechcommands_v2_10_10_0_9812` |
 | `TabPFN`            | `tabpfn`, `tabpfn_v3_classifier_*`, `tabpfn_regressor`, `tabpfn_v3_regressor_*`                                                                                |
+| `T0`                | `t0`, `t0_alpha`                                                                                                                                               |
 
 > `LowFormer` requires `attention_type` (`"softmax"` or `"sigmoid"`) which has
 > no sensible default and must be supplied by the caller.
@@ -877,6 +891,43 @@ For regression, use `tm.tabpfn_v3_regressor_default(pretrained=True)` or one of
 the specialized regressor variants. The regressor returns raw bucket logits; any
 post-processing to scalar predictions should follow the chosen downstream
 regression decoding strategy.
+
+## Time Series
+
+`equimo.time_series` is experimental and currently exposes the raw T0
+patch-transformer backbone. Calls accept four arrays shaped `(variates, time)`
+and return native quantiles shaped
+`(variates, ceil(time / patch_size), patch_size, quantiles)`.
+
+```python
+import jax.numpy as jnp
+import jax.random as jr
+
+import equimo.time_series.models as tm
+
+key = jr.PRNGKey(0)
+model = tm.t0_alpha(pretrained=True, key=key)
+
+values_scaled = jnp.zeros((1, 96), dtype=jnp.float32)
+mask = jnp.zeros((1, 96), dtype=jnp.int8)
+group_ids = jnp.zeros((1, 96), dtype=jnp.int32)
+variate_type = jnp.zeros((1, 96), dtype=jnp.int32)
+
+raw_quantiles = model(
+    values_scaled,
+    mask,
+    group_ids,
+    variate_type,
+    key=key,
+    inference=True,
+)
+```
+
+The model consumes values as supplied and does not implement upstream
+preprocessing, inverse scaling, forecast extraction, quantile interpolation,
+or rollout. The [time-series guide](docs/time_series.md) defines mask and
+variate vocabularies, grouping, padding alignment, feature shapes, and the
+checkpoint-faithful scaling boundary.
 
 ## Mixed Precision
 

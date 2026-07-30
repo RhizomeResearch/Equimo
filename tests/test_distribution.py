@@ -93,6 +93,7 @@ def test_built_distributions_contain_all_package_modules(built_distributions):
         f"{sdist_root}/README.md",
         f"{sdist_root}/docs/migration-v2.md",
         f"{sdist_root}/docs/stability.md",
+        f"{sdist_root}/docs/time_series.md",
         f"{sdist_root}/pyproject.toml",
     } <= sdist_contents
 
@@ -125,7 +126,14 @@ expected_version = sys.argv[1]
 assert equimo.__version__ == importlib.metadata.version("Equimo") == expected_version
 
 environment = Path(sys.prefix).resolve()
-for name in ("equimo", "equimo.vision", "equimo.language", "equimo.audio", "equimo.tabular"):
+for name in (
+    "equimo",
+    "equimo.vision",
+    "equimo.language",
+    "equimo.audio",
+    "equimo.tabular",
+    "equimo.time_series",
+):
     module = importlib.import_module(name)
     assert Path(module.__file__).resolve().is_relative_to(environment)
 """
