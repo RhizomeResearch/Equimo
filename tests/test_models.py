@@ -941,7 +941,7 @@ def test_eupe_vitt16_matches_torch():
     Comparison:
     - PyTorch model.forward_features(x)["x_prenorm"]
     - equimo model.features(x)
-    Tolerance: mean absolute error < 5e-4.
+    Tolerance: mean absolute error < 1e-4.
     """
     _require_cached_checkpoint("eupe_vitt16")
     key = jr.PRNGKey(42)
@@ -953,7 +953,7 @@ def test_eupe_vitt16_matches_torch():
     eq_features = np.array(model.features(x, key=key, inference=True))  # (201, 192)
 
     mae = float(np.mean(np.abs(eq_features - ref["features"][0])))
-    assert mae < 5e-4, f"EUPE features MAE vs PyTorch: {mae:.2e}"
+    assert mae < 1e-4, f"EUPE features MAE vs PyTorch: {mae:.2e}"
 
 
 def test_tabpfn_v3_classifier_default_matches_torch():
@@ -1000,7 +1000,7 @@ def test_t0_alpha_matches_torch():
         inference=True,
     )
     np.testing.assert_allclose(
-        np.asarray(output), reference["output"], rtol=2e-4, atol=2e-4
+        np.asarray(output), reference["output"], rtol=1e-5, atol=1e-5
     )
 
 
