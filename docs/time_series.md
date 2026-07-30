@@ -132,3 +132,11 @@ For the user-facing forecasting and preprocessing behavior that Equimo does
 not yet implement, consult the upstream
 [`tfc-t0`](https://github.com/theforecastingcompany/tfc-t0) project and
 [`t0-alpha`](https://huggingface.co/theforecastingcompany/t0-alpha) model card.
+
+## License and Attribution
+
+Equimo's T0 implementation is a modified JAX/Equinox adaptation of
+Apache-2.0-licensed upstream work. The distributed
+[`NOTICE`](../NOTICE) preserves the TFC, Datadog, and Chronos-2 attributions;
+the corresponding license is distributed at
+[`LICENSES/tfc-t0-APACHE-2.0.txt`](../LICENSES/tfc-t0-APACHE-2.0.txt).

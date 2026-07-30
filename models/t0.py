@@ -1,4 +1,5 @@
 """Convert and numerically validate the official T0-alpha checkpoint."""
+# Adapted from tfc-t0 and modified for JAX/Equinox; see NOTICE.
 
 from __future__ import annotations
 

@@ -10,6 +10,8 @@ Versioning from version 2.0.0 onward.
 - An experimental `equimo.time_series` namespace with the raw T0/T0-alpha
   patch-transformer backbone, converted pretrained weights, and a documented
   tensor, scaling, padding, and output contract.
+- Apache-2.0 licensing and upstream attribution for the T0-derived modules,
+  alongside Equimo's MIT-licensed original code.
 
 ### Removed
 

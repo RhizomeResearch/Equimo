@@ -957,7 +957,11 @@ change.
 
 ## License
 
-This project is licensed under the MIT License; see [LICENSE.md](LICENSE.md).
+Equimo's original code is licensed under the [MIT License](LICENSE.md).
+T0-derived modules incorporate Apache-2.0-licensed upstream work; see
+[NOTICE](NOTICE) and the
+[T0 Apache-2.0 license](LICENSES/tfc-t0-APACHE-2.0.txt). The package metadata
+reports the combined expression `MIT AND Apache-2.0`.
 
 ## Citation
 
