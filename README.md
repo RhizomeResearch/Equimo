@@ -149,11 +149,10 @@ weights outside research or internal evaluation.
 | ----- | ------ | ------ |
 | T0-alpha | [The Forecasting Company](https://huggingface.co/theforecastingcompany/t0-alpha) | ✅ Experimental |
 
-`equimo.time_series` exposes T0's raw patch-transformer forward pass and
-converted T0-alpha weights. It does not provide the upstream scaling,
-inverse-scaling, quantile interpolation, forecast selection, or long-horizon
-rollout API. See the [time-series guide](docs/time_series.md) for the complete
-input, mask, padding, and output contract.
+`equimo.time_series` exposes T0's raw patch-transformer forward pass,
+converted T0-alpha weights, and a JAX-native `predict()` adapter with upstream
+scaling, quantile interpolation, forecast selection, and long-horizon rollout.
+See the [time-series guide](docs/time_series.md) for the complete contract.
 
 ## Vision Usage
 
@@ -894,9 +893,9 @@ regression decoding strategy.
 
 ## Time Series
 
-`equimo.time_series` is experimental and currently exposes the raw T0
-patch-transformer backbone. Calls accept four arrays shaped `(variates, time)`
-and return native quantiles shaped
+`equimo.time_series` is experimental and exposes the raw T0 patch-transformer
+backbone plus `model.predict()` for upstream-style forecasting. Direct calls
+accept four arrays shaped `(variates, time)` and return native quantiles shaped
 `(variates, ceil(time / patch_size), patch_size, quantiles)`.
 
 ```python
@@ -923,11 +922,10 @@ raw_quantiles = model(
 )
 ```
 
-The model consumes values as supplied and does not implement upstream
-preprocessing, inverse scaling, forecast extraction, quantile interpolation,
-or rollout. The [time-series guide](docs/time_series.md) defines mask and
-variate vocabularies, grouping, padding alignment, feature shapes, and the
-checkpoint-faithful scaling boundary.
+Direct backbone calls consume values as supplied. Use `model.predict(context,
+horizon, quantiles)` for preprocessing, inverse scaling, forecast extraction,
+quantile interpolation, and rollout. The [time-series guide](docs/time_series.md)
+defines the input and output contracts.
 
 ## Mixed Precision
 

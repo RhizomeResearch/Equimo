@@ -107,11 +107,18 @@ log_probs = predict(x, y, n_train)
 
 Use pretrained TabPFN weights only after reviewing the upstream TabPFN-3 license.
 
-## T0 Raw Backbone
+## T0 Forecasting
 
-T0 constructors expose the direct patch-transformer forward pass, not the
-upstream forecasting `predict` API. Inputs are unbatched arrays shaped
-`(variates, time)`:
+T0 constructors expose the direct patch-transformer forward pass. The
+`predict()` method also accepts raw contexts shaped `(T)`, `(batch, T)`, or
+`(batch, variates, T)` and returns a quantile forecast:
+
+```python
+forecast = model.predict(context, horizon=32, quantiles=(0.1, 0.5, 0.9))
+forecast.quantiles  # (batch, horizon, quantiles)
+```
+
+For direct backbone calls, inputs are unbatched arrays shaped `(variates, time)`:
 
 ```python
 import jax.numpy as jnp
@@ -136,13 +143,13 @@ raw_quantiles = model(
 )
 ```
 
-The output has shape
+The direct output has shape
 `(variates, ceil(time / patch_size), patch_size, quantiles)` and remains in the
-input's transformed domain. Equimo does not currently implement the upstream
-scaling, inverse scaling, quantile interpolation, forecast selection, or
-long-horizon rollout. See the [time-series guide](./time_series.md) for the mask
-and variate vocabularies, grouping rules, padding alignment, feature shape, and
-full experimental compatibility boundary.
+input's transformed domain. Use `model.predict(...)` for upstream scaling,
+inverse scaling, quantile interpolation, forecast selection, and long-horizon
+rollout. See the [time-series guide](./time_series.md) for the mask and variate
+vocabularies, grouping rules, padding alignment, feature shape, and full
+experimental compatibility boundary.
 
 ## Serialization
 

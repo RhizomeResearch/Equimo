@@ -1,4 +1,5 @@
 import hashlib
+import os
 import tempfile
 from pathlib import Path
 
@@ -1001,6 +1002,46 @@ def test_t0_alpha_matches_torch():
     )
     np.testing.assert_allclose(
         np.asarray(output), reference["output"], rtol=1e-5, atol=1e-5
+    )
+
+
+def test_predict_matches_tfc_t0_alpha():
+    checkpoint = os.environ.get("T0_ALPHA_CHECKPOINT")
+    if not checkpoint:
+        pytest.skip("set T0_ALPHA_CHECKPOINT to the upstream T0 snapshot")
+    checkpoint_path = Path(checkpoint).expanduser()
+    snapshot = checkpoint_path if checkpoint_path.is_dir() else checkpoint_path.parent
+    if not (snapshot / "model.safetensors").is_file():
+        pytest.skip(f"upstream T0 checkpoint is missing from {snapshot}")
+    if not Path("~/.cache/equimo/t0/t0_alpha.tar.lz4").expanduser().is_file():
+        pytest.skip("converted T0-alpha weights are not cached locally")
+
+    torch = pytest.importorskip("torch")
+    upstream = pytest.importorskip("t0")
+    rng = np.random.default_rng(7)
+    context = rng.standard_normal((1, 64)).astype(np.float32)
+    context[0, 5] = np.nan
+    horizon = 17
+    quantiles = (0.1, 0.25, 0.9)
+
+    reference = upstream.T0Forecaster.from_pretrained(str(snapshot)).eval()
+    with torch.inference_mode():
+        expected = reference.predict(context, horizon=horizon, quantiles=quantiles)
+    actual = t0_alpha(pretrained=True, key=KEY).predict(
+        context, horizon=horizon, quantiles=quantiles
+    )
+
+    np.testing.assert_allclose(
+        np.asarray(actual.quantiles),
+        expected.quantiles.numpy(),
+        rtol=2e-5,
+        atol=2e-5,
+    )
+    np.testing.assert_allclose(
+        np.asarray(actual.median),
+        expected.median.numpy(),
+        rtol=2e-5,
+        atol=2e-5,
     )
 
 

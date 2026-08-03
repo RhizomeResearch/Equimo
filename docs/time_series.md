@@ -6,8 +6,8 @@
 > forecasting adapter is developed.
 
 Equimo currently provides the T0 and T0-alpha patch-transformer backbones. The
-`T0`, `t0()`, and `t0_alpha()` interfaces expose the model's direct forward
-pass; they are not equivalents of the upstream `T0Forecaster.predict` API.
+`T0`, `t0()`, and `t0_alpha()` interfaces expose the direct raw forward pass;
+`T0.predict()` additionally provides the upstream-style forecasting adapter.
 
 ## Raw Input Contract
 
@@ -43,8 +43,9 @@ outside Equimo:
 - target/withheld horizon cells are selected from the raw output; and
 - horizons longer than the direct prediction window use autoregressive rollout.
 
-Equimo performs none of those operations today. `values` are consumed as-is,
-and the returned quantiles remain in the same transformed domain. The native
+`T0.predict()` performs those operations for raw context arrays and returns
+finite forecasts in the original value domain. Direct `model(...)` calls still
+consume values as-is and return quantiles in the supplied domain. The native
 quantile levels are available as `model.quantile_levels`.
 
 ## Padding, Outputs, and Features
@@ -128,8 +129,7 @@ aligned = raw_quantiles.reshape(
 forecast_scaled = aligned[mask == 4]
 ```
 
-For the user-facing forecasting and preprocessing behavior that Equimo does
-not yet implement, consult the upstream
+For additional forecasting and preprocessing details, consult the upstream
 [`tfc-t0`](https://github.com/theforecastingcompany/tfc-t0) project and
 [`t0-alpha`](https://huggingface.co/theforecastingcompany/t0-alpha) model card.
 
