@@ -49,6 +49,7 @@ from equimo.core.implicit.strategies import (
     ScheduledInjection,
     get_strategy,
 )
+from _jaxpr_utils import assert_prng_free_jaxpr
 
 
 KEY = jr.PRNGKey(0)
@@ -522,6 +523,34 @@ def test_deqblock_aux_contains_required_keys():
     _, aux = block(x, inference=True, key=KEY)
     for k in ("z_star", "trajectory", "depth", "error", "key", "x_context", "z0"):
         assert k in aux
+    assert jnp.array_equal(aux["key"], KEY)
+
+
+def test_deqblock_static_inference_is_prng_free_and_replayable():
+    block = _make_block()
+    x = jr.normal(KEY, (DIM, H, W))
+
+    assert_prng_free_jaxpr(
+        lambda value, runtime_key: block(value, inference=True, key=runtime_key),
+        x,
+        KEY,
+    )
+    z_star, aux = block(x, inference=True, key=KEY)
+    replayed = block.cell(
+        z_star,
+        aux["x_context"],
+        inference=True,
+        key=aux["key"],
+    )
+    assert replayed.shape == z_star.shape
+
+
+def test_deqblock_training_aux_retains_solver_subkey_schedule():
+    block = _make_block()
+    x = jr.normal(KEY, (DIM, H, W))
+    _, aux = block(x, inference=False, key=KEY)
+
+    assert jnp.array_equal(aux["key"], jr.split(KEY, 3)[1])
 
 
 def test_deqblock_solver_converges_within_budget():

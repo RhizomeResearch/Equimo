@@ -16,6 +16,7 @@ import numpy as np
 from einops import reduce
 from jaxtyping import Array, Float, PRNGKeyArray
 
+from equimo.core._prng import split_for_mode
 from equimo.core.intermediates import intermediate_indices
 from equimo.core.layers.activation import get_act
 from equimo.vision.layers.attention import get_attn_block
@@ -146,7 +147,9 @@ class BlockChunk(eqx.Module):
         Returns:
             Tuple of (processed features, updated query attention token)
         """
-        key_qadrop, *keys = jr.split(key, len(self.blocks) + 1)
+        key_qadrop, *keys = split_for_mode(
+            key, len(self.blocks) + 1, inference=inference
+        )
 
         x = self.posemb(x)
 
@@ -323,7 +326,9 @@ class PartialFormer(eqx.Module):
         Returns:
             Tuple of (processed features, final query attention token)
         """
-        key_posdrop, *block_subkeys = jr.split(key, len(self.blocks) + 1)
+        key_posdrop, *block_subkeys = split_for_mode(
+            key, len(self.blocks) + 1, inference=inference
+        )
         x = self.patch_embed(x)
         x = self.pos_drop(x, inference=inference, key=key_posdrop)
 
@@ -354,7 +359,9 @@ class PartialFormer(eqx.Module):
         wanted = intermediate_indices(
             total, indices=indices, n_last_blocks=n_last_blocks
         )
-        key_posdrop, *block_subkeys = jr.split(key, len(self.blocks) + 1)
+        key_posdrop, *block_subkeys = split_for_mode(
+            key, len(self.blocks) + 1, inference=inference
+        )
         outputs = []
 
         x = self.patch_embed(x)

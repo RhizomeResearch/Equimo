@@ -15,12 +15,21 @@ from equimo.core.layers.ffn import (
     WeightNormLinear,
     get_ffn,
 )
+from _jaxpr_utils import assert_prng_free_jaxpr
 
 # Shared fixtures
 
 KEY = jr.PRNGKey(0)
 SEQLEN = 16
 DIM = 64
+
+
+@pytest.mark.parametrize("ffn_cls", [Mlp, SwiGlu, SwiGluFused])
+def test_stochastic_ffns_have_prng_free_static_inference(ffn_cls):
+    layer = ffn_cls(DIM, dropout_rate=0.5, key=KEY)
+    x = jr.normal(KEY, (SEQLEN, DIM))
+
+    assert_prng_free_jaxpr(lambda value: layer(value, key=KEY, inference=True), x)
 
 
 @pytest.mark.parametrize("ffn_cls", [Mlp, SwiGlu, SwiGluFused])

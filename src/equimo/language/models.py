@@ -7,6 +7,7 @@ import jax.numpy as jnp
 import jax.random as jr
 from jaxtyping import Array, Float, Int, PRNGKeyArray
 
+from equimo.core._prng import split_for_mode
 from equimo.core.intermediates import intermediate_indices
 from equimo.core.layers.activation import get_act
 from equimo.core.layers.attention import AttentionBlock
@@ -75,7 +76,7 @@ class TransformerEncoderStack(eqx.Module):
         attn_mask: Optional[Float[Array, ""]] = None,
         ffn_mask: Optional[Float[Array, ""]] = None,
     ) -> Float[Array, "seqlen dim"]:
-        keys = jr.split(key, len(self.blocks))
+        keys = split_for_mode(key, len(self.blocks), inference=inference)
         for block, block_key in zip(self.blocks, keys):
             x = block(
                 x,
@@ -106,7 +107,7 @@ class TransformerEncoderStack(eqx.Module):
             indices=indices,
             n_last_blocks=n_last_blocks,
         )
-        keys = jr.split(key, len(self.blocks))
+        keys = split_for_mode(key, len(self.blocks), inference=inference)
         outputs = []
         for i, (block, block_key) in enumerate(zip(self.blocks, keys)):
             x = block(

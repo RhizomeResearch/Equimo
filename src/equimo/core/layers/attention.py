@@ -11,6 +11,7 @@ import jax.random as jr
 from einops import rearrange
 from jaxtyping import Array, Float, PRNGKeyArray
 
+from equimo.core._prng import split_for_mode
 from equimo.core.layers.activation import get_act
 from equimo.core.layers.dropout import DropPathAdd, split_drop_path
 from equimo.core.layers.ffn import get_ffn
@@ -139,7 +140,7 @@ class Attention(eqx.Module):
         mask: Optional[Float[Array, ""]] = None,
         rope_sincos: Optional[Tuple[jax.Array, jax.Array]] = None,
     ) -> Float[Array, "seqlen dim"]:
-        key1, key2 = jr.split(key, 2)
+        key1, key2 = split_for_mode(key, 2, inference=inference)
 
         qkv = jax.vmap(self.qkv)(x)
         qkv = rearrange(qkv, "s (n h d) -> n h s d", n=3, h=self.num_heads)
@@ -268,7 +269,9 @@ class AttentionBlock(eqx.Module):
         ffn_mask: Optional[Float[Array, ""]] = None,
         **kwargs,
     ) -> Float[Array, "seqlen dim"]:
-        key_attn, key_mlp, key_dr1, key_dr2 = jr.split(key, 4)
+        key_attn, key_mlp, key_dr1, key_dr2 = split_for_mode(
+            key, 4, inference=inference
+        )
         attn_mask = mask if attn_mask is None else attn_mask
         ffn_mask = mask if ffn_mask is None else ffn_mask
         attn_kwargs = {"mask": attn_mask} if attn_mask is not None else {}

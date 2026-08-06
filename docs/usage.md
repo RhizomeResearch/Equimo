@@ -50,6 +50,35 @@ Most vision models accept channel-first arrays shaped `(channels, height,
 width)`. Pass `num_classes=None` or `num_classes=0` when you want a feature
 backbone without a classification head.
 
+## Deterministic Inference and PRNG Keys
+
+Pass the Python value `inference=True` to make deterministic built-in model and
+layer paths PRNG-free. Equimo continues to accept a key for API consistency,
+but reuses it instead of staging `jax.random.split`, `jax.random.fold_in`, or a
+fallback key when every stochastic operation on that path is disabled. This is
+useful for ahead-of-time export systems such as ONNX converters that do not
+lower JAX randomness primitives. Training and non-static inference values
+(`False` or `None`) retain their existing key schedules exactly.
+
+The branch is intentionally Python-static: passing a traced boolean does not
+provide this export guarantee. Custom registered layers remain responsible for
+their own inference semantics.
+
+`VisionParcae` is the one built-in family whose default inference remains
+key-dependent. Its default `state_init="like-init"`, and the `"normal"`,
+`"embed"`, and `"unit"` alternatives, intentionally sample the recurrent
+initial state at inference. Set `state_init="zero"` when deterministic,
+PRNG-free inference is required:
+
+```python
+model = em.VisionParcae(
+    # architecture arguments ...
+    state_init="zero",
+    key=key,
+)
+logits = model(image, key=key, inference=True)
+```
+
 ## Text Encoders
 
 `TextTransformerEncoder` operates on token IDs and padding masks. Tokenizers are

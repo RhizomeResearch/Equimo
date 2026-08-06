@@ -10,6 +10,7 @@ import jax.random as jr
 import pytest
 
 import equimo.finetune as eqft
+from _jaxpr_utils import assert_prng_free_jaxpr
 
 
 def test_projection_head_signatures_use_feature_vocabulary():
@@ -115,6 +116,24 @@ def test_attention_pooling_classifier_head_shapes_and_mask():
     assert logits.shape == (3,)
     assert jnp.all(jnp.isfinite(logits))
     assert jnp.all(jnp.isfinite(all_masked))
+
+
+def test_mlp_head_static_inference_is_prng_free():
+    head = eqft.MLPHead(
+        in_features=4,
+        out_features=3,
+        hidden_dim=8,
+        num_layers=2,
+        dropout=0.5,
+        key=jr.PRNGKey(7),
+    )
+    x = jnp.ones((4,), dtype=jnp.float32)
+
+    assert_prng_free_jaxpr(
+        lambda value, key: head(value, key=key, inference=True),
+        x,
+        jr.PRNGKey(8),
+    )
 
 
 def test_attention_pooling_classifier_head_validates_inputs():

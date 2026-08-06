@@ -23,8 +23,9 @@ from typing import Callable, Optional, Sequence
 
 import equinox as eqx
 import jax
-import jax.random as jr
 from jaxtyping import PRNGKeyArray
+
+from equimo.core._prng import split_for_mode
 
 from ._base import AbstractInjector, AbstractStackStrategy, InputContext
 from equimo.core.layers._registry import make_get, make_register
@@ -94,7 +95,7 @@ class EntryInjection(AbstractStackStrategy):
         inference: bool = False,
         key: PRNGKeyArray,
     ) -> jax.Array:
-        k_inj, *k_blocks = jr.split(key, len(blocks) + 1)
+        k_inj, *k_blocks = split_for_mode(key, len(blocks) + 1, inference=inference)
         h = injector(z, x_ctx, inference=inference, key=k_inj)
         for blk, kb in zip(blocks, k_blocks):
             h = blk(h, inference=inference, key=kb)
@@ -135,7 +136,7 @@ class PerBlockInjection(AbstractStackStrategy):
         inference: bool = False,
         key: PRNGKeyArray,
     ) -> jax.Array:
-        keys = jr.split(key, 2 * len(blocks))
+        keys = split_for_mode(key, 2 * len(blocks), inference=inference)
         h = z
         for i, blk in enumerate(blocks):
             k_inj, k_blk = keys[2 * i], keys[2 * i + 1]
@@ -185,7 +186,7 @@ class ScheduledInjection(AbstractStackStrategy):
             valid_idx = (0,)
 
         n_inj = len(valid_idx)
-        keys = jr.split(key, n_inj + n)
+        keys = split_for_mode(key, n_inj + n, inference=inference)
         inj_keys, blk_keys = keys[:n_inj], keys[n_inj:]
 
         inj_map: dict[int, PRNGKeyArray] = dict(zip(valid_idx, inj_keys))

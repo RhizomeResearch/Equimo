@@ -8,6 +8,7 @@ import jax.random as jr
 import pytest
 
 import equimo.finetune as eqft
+from _jaxpr_utils import assert_prng_free_jaxpr
 
 
 def test_prefix_trainable_only_prefixes(tiny_vision_transformer):
@@ -97,6 +98,12 @@ def test_prefix_attention_extends_key_value_mask(tiny_vision_transformer):
     mask = jnp.ones((1, 2, 2), dtype=jnp.int32)
 
     y = attention(x, mask=mask, inference=True)
+
+    assert_prng_free_jaxpr(
+        lambda value, key: attention(value, mask=mask, key=key, inference=True),
+        x,
+        jr.PRNGKey(1),
+    )
 
     assert attention.state.shape[2] == 2
     assert y.shape == x.shape

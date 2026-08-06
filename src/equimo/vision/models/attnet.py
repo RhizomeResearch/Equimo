@@ -20,6 +20,7 @@ import jax.random as jr
 import numpy as np
 from jaxtyping import Array, Float, PRNGKeyArray
 
+from equimo.core._prng import split_for_mode
 from equimo.core.intermediates import intermediate_indices
 from equimo.core.layers.activation import get_act
 from equimo.core.layers.generic import BlockChunk
@@ -114,7 +115,7 @@ class AttNet(eqx.Module):
         inference: Optional[bool] = None,
         **kwargs,
     ) -> Float[Array, "num_classes"]:  # noqa: F821
-        key_blocks = jr.split(key, len(self.blocks))
+        key_blocks = split_for_mode(key, len(self.blocks), inference=inference)
         for blk, key_blk in zip(self.blocks, key_blocks):
             x = blk(x, inference=inference, key=key_blk)
         return x
@@ -135,7 +136,7 @@ class AttNet(eqx.Module):
             indices=indices,
             n_last_blocks=n_last_blocks,
         )
-        key_blocks = jr.split(key, len(self.blocks))
+        key_blocks = split_for_mode(key, len(self.blocks), inference=inference)
         outputs = []
         for i, (blk, key_blk) in enumerate(zip(self.blocks, key_blocks)):
             x = blk(x, inference=inference, key=key_blk)

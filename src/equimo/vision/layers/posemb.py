@@ -11,6 +11,7 @@ import jax.random as jr
 from einops import rearrange
 from jaxtyping import Array, Float, Integer, PRNGKeyArray
 
+from equimo.core._prng import default_key_for_mode, split_for_mode
 from equimo.vision.layers.convolution import SingleConvBlock
 from equimo.core.layers._registry import make_get, make_register
 
@@ -615,7 +616,7 @@ class DinoRoPE(eqx.Module):
         depending on configuration. If `inference is True`, no augmentations
         are applied.
         """
-        k_shift, k_jitter, k_rescale = jax.random.split(key, 3)
+        k_shift, k_jitter, k_rescale = split_for_mode(key, 3, inference=inference)
 
         dtype = self.dtype
         D_head = self.D_head
@@ -893,8 +894,7 @@ class VisionRoPE(eqx.Module):
                 raise ValueError(
                     "A PRNG key is required for period-based RoPE during training."
                 )
-            if key is None:
-                key = jax.random.PRNGKey(0)
+            key = default_key_for_mode(key, inference=inference)
             D_quarter = self.D_head // 4
 
             coords = self._coords_period(H, W, key=key, inference=inference)

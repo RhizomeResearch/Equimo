@@ -17,6 +17,7 @@ import numpy as np
 from einops import reduce
 from jaxtyping import Array, Float, PRNGKeyArray
 
+from equimo.core._prng import split_for_mode
 from equimo.core.intermediates import intermediate_indices
 from equimo.core.layers.activation import get_act
 from equimo.vision.layers.attention import LowFormerBlock
@@ -231,9 +232,15 @@ class LowFormer(eqx.Module):
         Returns:
             Processed feature tensor
         """
-        key_stem, *key_blocks = jr.split(key, len(self.blocks) + 1)
+        key_stem, *key_blocks = split_for_mode(
+            key, len(self.blocks) + 1, inference=inference
+        )
 
-        x = self.input_stem(x, key=key_stem)
+        if inference is True:
+            for layer in self.input_stem.layers:
+                x = layer(x, key=key_stem, inference=True)
+        else:
+            x = self.input_stem(x, key=key_stem)
 
         for i, blk in enumerate(self.blocks):
             x = blk(x, inference=inference, key=key_blocks[i])
@@ -255,10 +262,16 @@ class LowFormer(eqx.Module):
         wanted = intermediate_indices(
             total, indices=indices, n_last_blocks=n_last_blocks
         )
-        key_stem, *key_blocks = jr.split(key, len(self.blocks) + 1)
+        key_stem, *key_blocks = split_for_mode(
+            key, len(self.blocks) + 1, inference=inference
+        )
         outputs = []
 
-        x = self.input_stem(x, key=key_stem)
+        if inference is True:
+            for layer in self.input_stem.layers:
+                x = layer(x, key=key_stem, inference=True)
+        else:
+            x = self.input_stem(x, key=key_stem)
         if 0 in wanted:
             outputs.append(x)
 

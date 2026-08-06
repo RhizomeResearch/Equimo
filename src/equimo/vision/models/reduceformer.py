@@ -16,6 +16,7 @@ import numpy as np
 from einops import reduce
 from jaxtyping import Array, Float, PRNGKeyArray
 
+from equimo.core._prng import split_for_mode
 from equimo.core.intermediates import intermediate_indices
 from equimo.core.layers.activation import get_act
 from equimo.vision.layers.attention import RFAttentionBlock
@@ -222,7 +223,9 @@ class ReduceFormer(eqx.Module):
         inference: Optional[bool] = None,
         **kwargs,
     ):
-        key_stem, *key_blocks = jr.split(key, len(self.blocks) + 1)
+        key_stem, *key_blocks = split_for_mode(
+            key, len(self.blocks) + 1, inference=inference
+        )
 
         intermediates = []
 
@@ -274,7 +277,9 @@ class ReduceFormer(eqx.Module):
         Returns:
             Processed feature tensor
         """
-        key_stem, *key_blocks = jr.split(key, len(self.blocks) + 1)
+        key_stem, *key_blocks = split_for_mode(
+            key, len(self.blocks) + 1, inference=inference
+        )
 
         x = self.conv_stem(x, inference=inference, key=key_stem)
         x = self.block_stem(x, inference=inference, key=key_stem)

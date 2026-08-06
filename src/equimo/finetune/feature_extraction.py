@@ -12,6 +12,8 @@ import jax
 import jax.numpy as jnp
 import jax.random as jr
 
+from equimo.core._prng import split_for_mode
+
 from ._typing import PyTree
 from .config import FeatureSpec
 from .heads import AttentionPoolingClassifierHead, IdentityHead, LinearHead
@@ -157,7 +159,7 @@ class AttentionPoolingProbe(eqx.Module):
         mask: jax.Array | None = None,
         **kwargs,
     ) -> jax.Array:
-        key_backbone, key_head = _split_optional_key(key)
+        key_backbone, key_head = _split_optional_key(key, inference=inference)
         if self.n_last_blocks is None:
             features = _call_forward_features(
                 self.backbone,
@@ -1100,10 +1102,12 @@ def _call_forward_features(model: PyTree, *args, key, inference, **kwargs):
 
 def _split_optional_key(
     key: jax.Array | None,
+    *,
+    inference: bool | None,
 ) -> tuple[jax.Array | None, jax.Array | None]:
     if key is None:
         return None, None
-    key_backbone, key_head = jr.split(key, 2)
+    key_backbone, key_head = split_for_mode(key, 2, inference=inference)
     return key_backbone, key_head
 
 

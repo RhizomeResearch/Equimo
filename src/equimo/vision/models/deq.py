@@ -32,6 +32,7 @@ import jax
 import jax.random as jr
 from jaxtyping import Array, Float, PRNGKeyArray
 
+from equimo.core._prng import split_for_mode
 from equimo.core.intermediates import intermediate_indices
 from equimo.core.implicit import (
     DEQBlock,
@@ -235,7 +236,9 @@ class BlockChunk(eqx.Module):
         inference: bool = False,
         **kwargs,
     ) -> Tuple[Float[Array, "..."], list]:
-        key_down, key_z0, *keys = jr.split(key, self.n_blocks)
+        key_down, key_z0, *keys = split_for_mode(
+            key, self.n_blocks, inference=inference
+        )
 
         auxs = []
 
@@ -368,7 +371,9 @@ class DEQ(eqx.Module):
         inference: Optional[bool] = None,
         **kwargs,
     ) -> Tuple[Float[Array, "num_classes"], list]:  # noqa: F821
-        key_drop, *key_blocks = jr.split(key, len(self.blocks) + 1)
+        key_drop, *key_blocks = split_for_mode(
+            key, len(self.blocks) + 1, inference=inference
+        )
         auxs = []
         for blk, key_blk in zip(self.blocks, key_blocks):
             x, aux = blk(x, inference=inference, key=key_blk)
@@ -393,7 +398,7 @@ class DEQ(eqx.Module):
             indices=indices,
             n_last_blocks=n_last_blocks,
         )
-        _, *key_blocks = jr.split(key, len(self.blocks) + 1)
+        _, *key_blocks = split_for_mode(key, len(self.blocks) + 1, inference=inference)
         outputs = []
         for i, (blk, key_blk) in enumerate(zip(self.blocks, key_blocks)):
             x, _ = blk(x, inference=inference, key=key_blk)

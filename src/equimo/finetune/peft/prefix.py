@@ -12,6 +12,7 @@ import jax.numpy as jnp
 import jax.random as jr
 import jax.tree_util as jtu
 
+from equimo.core._prng import split_for_mode
 from equimo.core.layers.attention import rope_apply_qk_last_hw
 
 from .._typing import Path, PyTree
@@ -137,7 +138,7 @@ class PrefixAttention(eqx.Module):
         mask: jax.Array | None = None,
         rope_sincos=None,
     ) -> jax.Array:
-        key_prefix, key1, key2 = _split_three(key)
+        key_prefix, key1, key2 = _split_three(key, inference=inference)
         q, k, v = _project_qkv(self.base, x, self.num_heads, self.head_dim)
         q = _apply_nested_norm(getattr(self.base, "q_norm", None), q)
         k = _apply_nested_norm(getattr(self.base, "k_norm", None), k)
@@ -548,10 +549,12 @@ def _call_with_optional_key(fn, *args, key, inference, **kwargs):
 
 def _split_three(
     key: jax.Array | None,
+    *,
+    inference: bool | None,
 ) -> tuple[jax.Array | None, jax.Array | None, jax.Array | None]:
     if key is None:
         return None, None, None
-    key_a, key_b, key_c = jr.split(key, 3)
+    key_a, key_b, key_c = split_for_mode(key, 3, inference=inference)
     return key_a, key_b, key_c
 
 

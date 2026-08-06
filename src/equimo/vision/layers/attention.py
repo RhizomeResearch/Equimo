@@ -13,6 +13,7 @@ import jax.random as jr
 from einops import rearrange, reduce
 from jaxtyping import Array, Float, PRNGKeyArray
 
+from equimo.core._prng import split_for_mode
 from equimo.core.layers.activation import get_act
 from equimo.core.layers.attention import (
     Attention,
@@ -139,7 +140,7 @@ class WindowedAttention(eqx.Module):
         key: PRNGKeyArray,
         inference: Optional[bool] = None,
     ) -> Float[Array, "seqlen dim"]:
-        key1, key2 = jr.split(key, 2)
+        key1, key2 = split_for_mode(key, 2, inference=inference)
 
         qkv = jax.vmap(self.qkv)(x)
         qkv = rearrange(
@@ -360,7 +361,7 @@ class HATBlock(eqx.Module):
         inference: Optional[bool] = None,
     ) -> Float[Array, "seqlen dim"]:
         key_attn, key_hattn, key_dr1, key_hdr1, key_dr2, key_hdr2, key_mlp, key_hmlp = (
-            jr.split(key, 8)
+            split_for_mode(key, 8, inference=inference)
         )
 
         s, n = x.shape
@@ -656,7 +657,7 @@ class SHMA(eqx.Module):
         Args:
             x: Input tensor of shape (C, H, W)
         """
-        key_q, key_kvg, key_drop, key_proj = jr.split(key, 4)
+        key_q, key_kvg, key_drop, key_proj = split_for_mode(key, 4, inference=inference)
         C, H, W = x.shape
 
         q = self.q(x, inference=inference, key=key_q)
@@ -715,7 +716,8 @@ class SHMA(eqx.Module):
                 w, inference=inference, key=k
             )
             x_windows = eqx.filter_vmap(attn_fn)(
-                x_windows, jr.split(key, x_windows.shape[0])
+                x_windows,
+                jnp.stack(split_for_mode(key, x_windows.shape[0], inference=inference)),
             )
 
             x_out = rearrange(
@@ -811,7 +813,9 @@ class SHMABlock(eqx.Module):
         key: PRNGKeyArray,
         inference: Optional[bool] = None,
     ) -> Float[Array, "channels height width"]:
-        key_pe, key_attn, key_ffn, key_dr1, key_dr2 = jr.split(key, 5)
+        key_pe, key_attn, key_ffn, key_dr1, key_dr2 = split_for_mode(
+            key, 5, inference=inference
+        )
 
         x = self.posemb(x, inference=inference, key=key_pe)
 
@@ -1076,7 +1080,9 @@ class MllaBlock(eqx.Module):
         inference: Optional[bool] = None,
         key: Optional[PRNGKeyArray] = None,
     ) -> Float[Array, "seqlen dim"]:
-        key_attn, key_dr1, key_dr2, key_mlp = jr.split(key, 4)
+        key_attn, key_dr1, key_dr2, key_mlp = split_for_mode(
+            key, 4, inference=inference
+        )
         l, _ = x.shape
         h = w = int(l**0.5)
 
@@ -1197,7 +1203,7 @@ class MMSA(eqx.Module):
         key: PRNGKeyArray,
         inference: Optional[bool] = None,
     ) -> Float[Array, "seqlen dim"]:
-        key1, key2 = jr.split(key, 2)
+        key1, key2 = split_for_mode(key, 2, inference=inference)
 
         qkv = jax.vmap(self.qkv)(x)
         qkv = rearrange(
@@ -1310,7 +1316,7 @@ class SQA(eqx.Module):
         key: PRNGKeyArray,
         inference: Optional[bool] = None,
     ) -> Float[Array, "seqlen_x dim"]:
-        key1, key2 = jr.split(key, 2)
+        key1, key2 = split_for_mode(key, 2, inference=inference)
 
         q = rearrange(
             q,
@@ -1471,7 +1477,9 @@ class PartialFormerBlock(eqx.Module):
         inference: Optional[bool] = None,
         key: Optional[PRNGKeyArray] = None,
     ) -> Tuple[Float[Array, "seqlen dim"], Float[Array, "1 dim"]]:
-        key_mmsa, key_sqa, key_dr1, key_dr2, key_mlp = jr.split(key, 5)
+        key_mmsa, key_sqa, key_dr1, key_dr2, key_mlp = split_for_mode(
+            key, 5, inference=inference
+        )
         l, _ = x.shape
         h = w = int(l**0.5)
 
@@ -1621,7 +1629,7 @@ class LinearAngularAttention(eqx.Module):
         key: PRNGKeyArray,
         inference: Optional[bool] = None,
     ) -> Float[Array, "seqlen dim"]:
-        key1, key2 = jr.split(key, 2)
+        key1, key2 = split_for_mode(key, 2, inference=inference)
 
         qkv = jax.vmap(self.qkv)(x)
         qkv = rearrange(
@@ -1867,7 +1875,9 @@ class RFAttentionBlock(eqx.Module):
         key: PRNGKeyArray,
         inference: Optional[bool] = None,
     ):
-        key_context, key_local, key_dr1, key_dr2 = jr.split(key, 4)
+        key_context, key_local, key_dr1, key_dr2 = split_for_mode(
+            key, 4, inference=inference
+        )
 
         # TODO: some prenorm?
         x1 = self.context_module(x, inference=inference, key=key_context)
@@ -2078,7 +2088,9 @@ class ConvAttentionBlock(eqx.Module):
         key: PRNGKeyArray,
         inference: Optional[bool] = None,
     ) -> Float[Array, "dim height width"]:
-        key_attn, key_mlp, key_dr1, key_dr2 = jr.split(key, 4)
+        key_attn, key_mlp, key_dr1, key_dr2 = split_for_mode(
+            key, 4, inference=inference
+        )
 
         x = self.drop_path1(
             x,
@@ -2179,7 +2191,9 @@ class LowFormerBlock(eqx.Module):
         key: PRNGKeyArray,
         inference: Optional[bool] = None,
     ):
-        key_context, key_local, key_dr1, key_dr2 = jr.split(key, 4)
+        key_context, key_local, key_dr1, key_dr2 = split_for_mode(
+            key, 4, inference=inference
+        )
 
         x = self.drop_path1(
             x,

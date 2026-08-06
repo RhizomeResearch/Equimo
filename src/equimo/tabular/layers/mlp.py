@@ -1,6 +1,6 @@
-import jax.random as jr
 from jaxtyping import Array, Float, PRNGKeyArray
 
+from equimo.core._prng import default_key_for_mode
 from equimo.core.layers.ffn import Mlp
 
 
@@ -13,7 +13,6 @@ def _call_mlp(
 ) -> Float[Array, "... out_dim"]:
     in_shape = x.shape[:-1]
     x_flat = x.reshape((-1, x.shape[-1]))
-    if key is None:
-        key = jr.PRNGKey(0)
+    key = default_key_for_mode(key, inference=inference)
     out = mlp(x_flat, key=key, inference=inference)
     return out.reshape((*in_shape, out.shape[-1]))

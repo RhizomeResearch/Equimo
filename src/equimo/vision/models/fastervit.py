@@ -13,6 +13,7 @@ import numpy as np
 from einops import rearrange
 from jaxtyping import Array, Float, PRNGKeyArray
 
+from equimo.core._prng import split_for_mode
 from equimo.core.intermediates import intermediate_indices
 from equimo.core.layers.activation import get_act
 from equimo.vision.layers.attention import HATBlock
@@ -249,7 +250,7 @@ class BlockChunk(eqx.Module):
         key: PRNGKeyArray,
         inference: Optional[bool] = None,
     ) -> Float[Array, "..."]:
-        keys = jr.split(key, len(self.blocks))
+        keys = split_for_mode(key, len(self.blocks), inference=inference)
         ct = self.global_tokenizer(x) if self.do_gt else None
         c, h, w = x.shape
 
@@ -412,7 +413,9 @@ class FasterViT(eqx.Module):
         Returns:
             Processed feature tensor
         """
-        key_posdrop, *block_subkeys = jr.split(key, len(self.blocks) + 1)
+        key_posdrop, *block_subkeys = split_for_mode(
+            key, len(self.blocks) + 1, inference=inference
+        )
         x = self.patch_embed(x)
 
         for blk, key_block in zip(self.blocks, block_subkeys):
@@ -436,7 +439,9 @@ class FasterViT(eqx.Module):
         wanted = intermediate_indices(
             total, indices=indices, n_last_blocks=n_last_blocks
         )
-        _, *block_subkeys = jr.split(key, len(self.blocks) + 1)
+        _, *block_subkeys = split_for_mode(
+            key, len(self.blocks) + 1, inference=inference
+        )
         outputs = []
 
         x = self.patch_embed(x)

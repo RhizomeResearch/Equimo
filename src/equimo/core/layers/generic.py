@@ -10,6 +10,7 @@ import jax.random as jr
 from einops import rearrange
 from jaxtyping import Array, Float, PRNGKeyArray
 
+from equimo.core._prng import split_for_mode
 from equimo.core.intermediates import intermediate_indices
 from equimo.core.layers._registry import _resolve_from_registries
 from equimo.core.layers.dropout import DropPathAdd
@@ -196,10 +197,10 @@ class WindowedSequence(eqx.Module):
         )
 
         num_windows = x_windows.shape[0]
-        window_keys = jr.split(key, num_windows)
+        window_keys = jnp.stack(split_for_mode(key, num_windows, inference=inference))
 
         def serial_blocks(x_win, k_seq):
-            ks = jr.split(k_seq, len(self.blocks))
+            ks = split_for_mode(k_seq, len(self.blocks), inference=inference)
             for block, k_blk in zip(self.blocks, ks):
                 x_win = block(x_win, key=k_blk, inference=inference)
             return x_win
@@ -380,7 +381,7 @@ class BlockChunk(eqx.Module):
         **kwargs,
     ) -> Float[Array, "..."]:
         n_blocks = len(self.blocks) if self.blocks is not None else 0
-        key_down, *keys = jr.split(key, n_blocks + 2)
+        key_down, *keys = split_for_mode(key, n_blocks + 2, inference=inference)
 
         x = self.posemb(x)
 
@@ -420,7 +421,7 @@ class BlockChunk(eqx.Module):
             indices=indices,
             n_last_blocks=n_last_blocks,
         )
-        key_down, *keys = jr.split(key, n_blocks + 2)
+        key_down, *keys = split_for_mode(key, n_blocks + 2, inference=inference)
         outputs = []
 
         x = self.posemb(x)

@@ -133,6 +133,7 @@ def _build_vision_parcae(key: jax.Array) -> _Invocation:
         mean_recurrence=1,
         mean_backprop_depth=1,
         max_recurrence=1,
+        state_init="zero",
         num_classes=0,
         key=model_key,
     )

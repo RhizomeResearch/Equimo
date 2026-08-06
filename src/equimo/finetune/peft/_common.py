@@ -8,6 +8,8 @@ import jax
 import jax.numpy as jnp
 import jax.random as jr
 
+from equimo.core._prng import split_for_mode
+
 from .._typing import Path, PyTree
 from ..config import TargetSpec
 from ..paths import path_to_str
@@ -50,11 +52,14 @@ def activation(name: str) -> Callable[[jax.Array], jax.Array]:
 
 
 def split_optional_key(
-    key: jax.Array | None, count: int
+    key: jax.Array | None,
+    count: int,
+    *,
+    inference: bool | None,
 ) -> tuple[jax.Array | None, ...]:
     if key is None:
         return (None,) * count
-    return tuple(jr.split(key, count))
+    return split_for_mode(key, count, inference=inference)
 
 
 def linear_module_path(path: Path) -> Path:

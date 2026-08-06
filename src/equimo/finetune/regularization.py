@@ -12,6 +12,8 @@ import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
 
+from equimo.core._prng import split_for_mode
+
 from ._typing import Path, PyTree
 from .config import AuxLossSpec
 from .paths import key_path_to_path, path_to_str
@@ -454,7 +456,7 @@ def mixout_tree(
     anchor_leaves, anchor_treedef = jtu.tree_flatten(anchor)
     if treedef != anchor_treedef:
         raise ValueError("Mixout requires tree and anchor to have the same structure.")
-    keys = iter(jax.random.split(key, len(leaves)))
+    keys = iter(split_for_mode(key, len(leaves), inference=inference))
     mixed = [
         mixout_leaf(
             leaf,

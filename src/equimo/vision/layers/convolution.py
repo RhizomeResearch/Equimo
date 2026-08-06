@@ -15,6 +15,11 @@ import jax.random as jr
 from einops import rearrange
 from jaxtyping import Array, Float, PRNGKeyArray
 
+from equimo.core._prng import (
+    default_key_for_mode,
+    fold_in_for_mode,
+    split_for_mode,
+)
 from equimo.core.layers.activation import get_act
 from equimo.core.layers.dropout import DropPathAdd, split_drop_path
 from equimo.core.layers.norm import (
@@ -120,8 +125,8 @@ class SingleConvBlock(eqx.Module):
         key: Optional[PRNGKeyArray] = None,
         inference: Optional[bool] = None,
     ) -> Float[Array, "channels height width"]:
-        if key is None:
-            key = jr.PRNGKey(0)
+        if key is None and self.dropout.p > 0:
+            key = default_key_for_mode(key, inference=inference)
         return self.dropout(
             self.act(self.norm(self.conv(x))), inference=inference, key=key
         )
@@ -228,8 +233,8 @@ class DoubleConvBlock(eqx.Module):
         inference: Optional[bool] = None,
     ) -> Float[Array, "channels height width"]:
         if key is None:
-            key = jr.PRNGKey(0)
-        key_conv1, key_conv2 = jr.split(key, 2)
+            key = default_key_for_mode(key, inference=inference)
+        key_conv1, key_conv2 = split_for_mode(key, 2, inference=inference)
 
         out = self.conv1(x, inference=inference, key=key_conv1)
         out = self.conv2(out, inference=inference, key=key_conv2)
@@ -366,7 +371,7 @@ class Stem(eqx.Module):
         key: Optional[PRNGKeyArray] = None,
         inference: Optional[bool] = None,
     ) -> Float[Array, "seqlen dim"]:
-        key_conv1 = jr.fold_in(key, 0) if key is not None else None
+        key_conv1 = fold_in_for_mode(key, 0, inference=inference)
         x = self.conv1(x, key=key_conv1, inference=inference)
         x = self.conv2(x) + x
         x = self.conv3(x)
@@ -427,8 +432,8 @@ class ConvBottleneck(eqx.Module):
         inference: Optional[bool] = None,
     ) -> Float[Array, "channels height width"]:
         if key is None:
-            key = jr.PRNGKey(0)
-        k1, k2 = jr.split(key, 2)
+            key = default_key_for_mode(key, inference=inference)
+        k1, k2 = split_for_mode(key, 2, inference=inference)
 
         x1 = self.conv2(
             self.conv1(x, key=k1, inference=inference), key=k2, inference=inference
@@ -503,8 +508,10 @@ class C2f(eqx.Module):
         inference: Optional[bool] = None,
     ) -> Float[Array, "channels height width"]:
         if key is None:
-            key = jr.PRNGKey(0)
-        k1, k2, *k_blocks = jr.split(key, 2 + len(self.blocks))
+            key = default_key_for_mode(key, inference=inference)
+        k1, k2, *k_blocks = split_for_mode(
+            key, 2 + len(self.blocks), inference=inference
+        )
 
         y = list(jnp.split(self.conv1(x, key=k1, inference=inference), 2, axis=0))
         for i, blk in enumerate(self.blocks):
@@ -586,8 +593,10 @@ class C3k(eqx.Module):
         inference: Optional[bool] = None,
     ) -> Float[Array, "channels height width"]:
         if key is None:
-            key = jr.PRNGKey(0)
-        k1, k2, k3, *k_blocks = jr.split(key, 3 + len(self.blocks))
+            key = default_key_for_mode(key, inference=inference)
+        k1, k2, k3, *k_blocks = split_for_mode(
+            key, 3 + len(self.blocks), inference=inference
+        )
 
         y = self.conv1(x, key=k1, inference=inference)
         for i, blk in enumerate(self.blocks):
@@ -708,8 +717,10 @@ class C3k2(eqx.Module):
         inference: Optional[bool] = None,
     ) -> Float[Array, "channels height width"]:
         if key is None:
-            key = jr.PRNGKey(0)
-        k1, k2, *k_blocks = jr.split(key, 2 + len(self.blocks))
+            key = default_key_for_mode(key, inference=inference)
+        k1, k2, *k_blocks = split_for_mode(
+            key, 2 + len(self.blocks), inference=inference
+        )
 
         y = list(jnp.split(self.conv1(x, key=k1, inference=inference), 2, axis=0))
         for i, blk in enumerate(self.blocks):
@@ -895,8 +906,10 @@ class MBConv(eqx.Module):
         inference: Optional[bool] = None,
     ) -> Float[Array, "channels height width"]:
         if key is None:
-            key = jr.PRNGKey(0)
-        key_spatial, key_inverted, key_depth, key_point, key_droppath = jr.split(key, 5)
+            key = default_key_for_mode(key, inference=inference)
+        key_spatial, key_inverted, key_depth, key_point, key_droppath = split_for_mode(
+            key, 5, inference=inference
+        )
         if self.fused:
             out = self.spatial_conv(x, inference=inference, key=key_spatial)
         else:
@@ -1013,8 +1026,10 @@ class DSConv(eqx.Module):
         inference: Optional[bool] = None,
     ) -> Float[Array, "channels height width"]:
         if key is None:
-            key = jr.PRNGKey(0)
-        key_depth, key_point, key_dropout, key_droppath = jr.split(key, 4)
+            key = default_key_for_mode(key, inference=inference)
+        key_depth, key_point, key_dropout, key_droppath = split_for_mode(
+            key, 4, inference=inference
+        )
 
         out = self.depth_conv(x, inference=inference, key=key_depth)
         out = self.point_conv(out, inference=inference, key=key_point)
@@ -1148,9 +1163,9 @@ class UIB(eqx.Module):
         inference: Optional[bool] = None,
     ) -> Float[Array, "channels height width"]:
         if key is None:
-            key = jr.PRNGKey(0)
-        key_sdwc, key_ec, key_mdwc, key_proj, key_dropout, key_droppath = jr.split(
-            key, 6
+            key = default_key_for_mode(key, inference=inference)
+        key_sdwc, key_ec, key_mdwc, key_proj, key_dropout, key_droppath = (
+            split_for_mode(key, 6, inference=inference)
         )
 
         out = x
@@ -1221,8 +1236,8 @@ class IFormerStem(eqx.Module):
         inference: Optional[bool] = None,
     ) -> Float[Array, "nc nh nw"]:
         if key is None:
-            key = jr.PRNGKey(0)
-        key_conv1, key_fusedib = jr.split(key, 2)
+            key = default_key_for_mode(key, inference=inference)
+        key_conv1, key_fusedib = split_for_mode(key, 2, inference=inference)
 
         x = self.conv1(x, inference=inference, key=key_conv1)
         x = self.fused_ib(x, inference=inference, key=key_fusedib)
@@ -1302,8 +1317,10 @@ class IFormerBlock(eqx.Module):
         inference: Optional[bool] = None,
     ) -> Float[Array, "channels height width"]:
         if key is None:
-            key = jr.PRNGKey(0)
-        key_conv1, key_conv2, key_conv3, key_dropout, key_droppath = jr.split(key, 5)
+            key = default_key_for_mode(key, inference=inference)
+        key_conv1, key_conv2, key_conv3, key_dropout, key_droppath = split_for_mode(
+            key, 5, inference=inference
+        )
 
         out = self.conv1(x, inference=inference, key=key_conv1)
         out = self.conv2(out, inference=inference, key=key_conv2)
@@ -1384,7 +1401,7 @@ class ConvNeXtBlock(eqx.Module):
         **kwargs,
     ) -> Float[Array, "channels height width"]:
         if key is None:
-            key = jr.PRNGKey(0)
+            key = default_key_for_mode(key, inference=inference)
 
         out = self.dwconv(x)
         out = self.norm(out)
@@ -1863,8 +1880,8 @@ class GhostBottleneck(eqx.Module):
         use_inference = self.inference if inference is None else inference
 
         if key is None:
-            key = jr.PRNGKey(0)
-        k_g1, k_g2 = jr.split(key, 2)
+            key = default_key_for_mode(key, inference=inference)
+        k_g1, k_g2 = split_for_mode(key, 2, inference=inference)
         residual = x
 
         x = self.ghost1(x, key=k_g1, inference=use_inference)
@@ -2378,8 +2395,8 @@ class FasterNetBlock(eqx.Module):
         inference: Optional[bool] = None,
     ) -> Float[Array, "channels height width"]:
         if key is None:
-            key = jr.PRNGKey(0)
-        key_dropout, key_droppath = jr.split(key, 2)
+            key = default_key_for_mode(key, inference=inference)
+        key_dropout, key_droppath = split_for_mode(key, 2, inference=inference)
         x1 = self.spatial_mixing(x, key=key, inference=inference)
         out = self.dropout(
             self.pw_conv2(self.act(self.norm(self.pw_conv1(x1)))),
@@ -2465,8 +2482,8 @@ class GLUConv(eqx.Module):
         inference: Optional[bool] = None,
     ) -> Float[Array, "channels height width"]:
         if key is None:
-            key = jr.PRNGKey(0)
-        key_dr1, key_dr2 = jr.split(key, 2)
+            key = default_key_for_mode(key, inference=inference)
+        key_dr1, key_dr2 = split_for_mode(key, 2, inference=inference)
 
         x, v = jnp.split(self.conv1(x), 2)
 
@@ -2677,8 +2694,8 @@ class ATConvBlock(eqx.Module):
         inference: Optional[bool] = None,
     ) -> Float[Array, "channels height width"]:
         if key is None:
-            key = jr.PRNGKey(0)
-        key_tm, key_cm, key_dr1, key_dr2 = jr.split(key, 4)
+            key = default_key_for_mode(key, inference=inference)
+        key_tm, key_cm, key_dr1, key_dr2 = split_for_mode(key, 4, inference=inference)
 
         x1 = self.token_mixer(self.norm1(x), inference=inference, key=key_tm)
         if self.residual:
@@ -3014,8 +3031,8 @@ class FreeNetBlock(eqx.Module):
         inference: Optional[bool] = None,
     ) -> Float[Array, "channels height width"]:
         if key is None:
-            key = jr.PRNGKey(0)
-        key_mix, key_ffn, key_dp = jr.split(key, 3)
+            key = default_key_for_mode(key, inference=inference)
+        key_mix, key_ffn, key_dp = split_for_mode(key, 3, inference=inference)
 
         out = self.ffn(
             self.norm(self.mixer(x, key=key_mix, inference=inference)),

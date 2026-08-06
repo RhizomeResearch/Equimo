@@ -6,6 +6,7 @@ import equinox as eqx
 import jax.random as jr
 from jaxtyping import Array, Float, PRNGKeyArray
 
+from equimo.core._prng import split_for_mode
 from equimo.core.layers.activation import get_act
 from equimo.vision.layers.convolution import DoubleConvBlock, SingleConvBlock
 from equimo.core.layers.generic import Residual
@@ -261,7 +262,9 @@ class PWSEDownsampler(eqx.Module):
             Downsampled feature tensor with halved spatial dimensions and
             increased channel count.
         """
-        key_conv1, key_conv2, key_conv3, key_conv4 = jr.split(key, 4)
+        key_conv1, key_conv2, key_conv3, key_conv4 = split_for_mode(
+            key, 4, inference=inference
+        )
         x = self.conv2(
             self.conv1(x, inference=inference, key=key_conv1),
             inference=inference,

@@ -26,6 +26,8 @@ import jax.random as jr
 from einops import repeat
 from jaxtyping import PRNGKeyArray
 
+from equimo.core._prng import split_for_mode
+
 from ._base import (
     AbstractInjector,
     AbstractStabilizer,
@@ -128,13 +130,17 @@ class DEQCell(eqx.Module):
         self.blocks = tuple(module(**module_kwargs, key=k) for k in keys)
 
     def prepare(
-        self, x: jax.Array, key: PRNGKeyArray
+        self,
+        x: jax.Array,
+        key: PRNGKeyArray,
+        *,
+        inference: bool = False,
     ) -> tuple[InputContext, InputContext]:
         """Precompute (injector_ctx, stabilizer_ctx) from ``x``.
 
         Called **once per outer forward**, before the fixed-point solver loop.
         """
-        k_i, k_s = jr.split(key)
+        k_i, k_s = split_for_mode(key, inference=inference)
         return (
             self.injector.prepare(x, k_i),
             self.stabilizer.prepare(x, k_s),
@@ -149,7 +155,7 @@ class DEQCell(eqx.Module):
         key: PRNGKeyArray,
     ) -> jax.Array:
         inj_ctx, stab_ctx = x
-        k_stack, k_stab = jr.split(key)
+        k_stack, k_stab = split_for_mode(key, inference=inference)
 
         h = self.strategy(
             blocks=self.blocks,
@@ -218,10 +224,10 @@ class DEQBlock(eqx.Module):
         inference: bool = False,
         key: PRNGKeyArray,
     ):
-        key_prep, key_solve, key_init = jr.split(key, 3)
+        key_prep, key_solve, key_init = split_for_mode(key, 3, inference=inference)
 
         # Static precomputations on x (shared across all Picard iterations).
-        x_context = self.cell.prepare(x, key_prep)
+        x_context = self.cell.prepare(x, key_prep, inference=inference)
 
         z0_val = _init_z0(x, z0, mode="mixed", inference=inference, key=key_init)
         z0_sg = jax.lax.stop_gradient(z0_val)

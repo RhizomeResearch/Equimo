@@ -9,6 +9,7 @@ import jax.random as jr
 from einops import reduce
 from jaxtyping import Array, Float, PRNGKeyArray
 
+from equimo.core._prng import fold_in_for_mode, split_for_mode
 from equimo.core.intermediates import intermediate_indices
 from equimo.core.layers.activation import get_act
 from equimo.vision.layers.convolution import MBConv, SingleConvBlock
@@ -78,11 +79,15 @@ class MobileNetv3(eqx.Module):
         key: PRNGKeyArray,
         inference: Optional[bool] = None,
     ) -> Float[Array, "..."]:
-        key_conv1, key_layers = jr.split(key, 2)
+        key_conv1, key_layers = split_for_mode(key, 2, inference=inference)
 
         x = self.conv1(x, inference=inference, key=key_conv1)
         for i, layer in enumerate(self.layers):
-            x = layer(x, inference=inference, key=jr.fold_in(key_layers, i))
+            x = layer(
+                x,
+                inference=inference,
+                key=fold_in_for_mode(key_layers, i, inference=inference),
+            )
 
         return x
 
@@ -100,14 +105,18 @@ class MobileNetv3(eqx.Module):
         wanted = intermediate_indices(
             total, indices=indices, n_last_blocks=n_last_blocks
         )
-        key_conv1, key_layers = jr.split(key, 2)
+        key_conv1, key_layers = split_for_mode(key, 2, inference=inference)
         outputs = []
 
         x = self.conv1(x, inference=inference, key=key_conv1)
         if 0 in wanted:
             outputs.append(x)
         for i, layer in enumerate(self.layers, start=1):
-            x = layer(x, inference=inference, key=jr.fold_in(key_layers, i - 1))
+            x = layer(
+                x,
+                inference=inference,
+                key=fold_in_for_mode(key_layers, i - 1, inference=inference),
+            )
             if i in wanted:
                 outputs.append(x)
 
@@ -119,7 +128,7 @@ class MobileNetv3(eqx.Module):
         key: PRNGKeyArray,
         inference: Optional[bool] = None,
     ) -> Float[Array, "..."]:
-        key_f, key_d = jr.split(key, 2)
+        key_f, key_d = split_for_mode(key, 2, inference=inference)
 
         x = self.features(x, inference=inference, key=key_f)
         x = reduce(x, "c h w -> c", "mean")

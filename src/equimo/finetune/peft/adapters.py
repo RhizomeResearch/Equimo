@@ -12,6 +12,8 @@ import jax.numpy as jnp
 import jax.random as jr
 import jax.tree_util as jtu
 
+from equimo.core._prng import split_for_mode
+
 from .._typing import Path, PyTree
 from ..config import FineTuneBundle, FineTuneBundleError, TargetSpec, TrainableSpec
 from ..heads import ActivationName
@@ -399,7 +401,9 @@ class SerialAdapterBlock(eqx.Module):
         y = _call_base(self.base, x, *args, key=key, inference=inference, **kwargs)
         adapters = _active_adapters(self)
         if self.adapter_fusion is not None:
-            keys = _common.split_optional_key(key, len(adapters) + 1)
+            keys = _common.split_optional_key(
+                key, len(adapters) + 1, inference=inference
+            )
             adapter_outputs = tuple(
                 adapter(y, key=adapter_key, inference=inference)
                 for adapter, adapter_key in zip(adapters, keys[:-1], strict=True)
@@ -410,7 +414,7 @@ class SerialAdapterBlock(eqx.Module):
                 key=keys[-1],
                 inference=inference,
             )
-        keys = _common.split_optional_key(key, len(adapters))
+        keys = _common.split_optional_key(key, len(adapters), inference=inference)
         for adapter, adapter_key in zip(adapters, keys, strict=True):
             y = y + adapter(y, key=adapter_key, inference=inference)
         return y
@@ -437,7 +441,9 @@ class OutputAdapterModule(eqx.Module):
         y = _call_base(self.base, x, *args, key=key, inference=inference, **kwargs)
         adapters = _active_adapters(self)
         if self.adapter_fusion is not None:
-            keys = _common.split_optional_key(key, len(adapters) + 1)
+            keys = _common.split_optional_key(
+                key, len(adapters) + 1, inference=inference
+            )
             adapter_outputs = tuple(
                 adapter(y, key=adapter_key, inference=inference)
                 for adapter, adapter_key in zip(adapters, keys[:-1], strict=True)
@@ -448,7 +454,7 @@ class OutputAdapterModule(eqx.Module):
                 key=keys[-1],
                 inference=inference,
             )
-        keys = _common.split_optional_key(key, len(adapters))
+        keys = _common.split_optional_key(key, len(adapters), inference=inference)
         for adapter, adapter_key in zip(adapters, keys, strict=True):
             y = y + adapter(y, key=adapter_key, inference=inference)
         return y
@@ -469,7 +475,7 @@ class ParallelAdapterBlock(eqx.Module):
         inference: bool | None = None,
         **kwargs,
     ):
-        key_base, key_adapter = _split_pair(key)
+        key_base, key_adapter = _split_pair(key, inference=inference)
         y = _call_base(self.base, x, *args, key=key_base, inference=inference, **kwargs)
         return y + self.adapter(x, key=key_adapter, inference=inference)
 
@@ -488,7 +494,7 @@ class AdaptFormerBlock(eqx.Module):
         inference: bool | None = None,
         **kwargs,
     ):
-        key_base, key_adapter = _split_pair(key)
+        key_base, key_adapter = _split_pair(key, inference=inference)
         y = _call_base(self.base, x, *args, key=key_base, inference=inference, **kwargs)
         return y + self.adapter(x, key=key_adapter, inference=inference)
 
@@ -1784,10 +1790,14 @@ def _call_base(base, x, *args, key, inference, **kwargs):
         return base(x, *args, **call_kwargs)
 
 
-def _split_pair(key: jax.Array | None) -> tuple[jax.Array | None, jax.Array | None]:
+def _split_pair(
+    key: jax.Array | None,
+    *,
+    inference: bool | None,
+) -> tuple[jax.Array | None, jax.Array | None]:
     if key is None:
         return None, None
-    key_a, key_b = jr.split(key, 2)
+    key_a, key_b = split_for_mode(key, 2, inference=inference)
     return key_a, key_b
 
 

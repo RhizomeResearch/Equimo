@@ -9,6 +9,7 @@ import jax.numpy as jnp
 import jax.random as jr
 from jaxtyping import Array, Float, PRNGKeyArray
 
+from equimo.core._prng import split_for_mode
 from equimo.core.layers.dropout import DropPathAdd
 from equimo.core.layers.generic import BlockChunk
 from equimo.core.layers.norm import get_norm
@@ -61,10 +62,12 @@ def get_attn_block(module: str | type[eqx.Module]) -> type[eqx.Module]:
 def _split_optional_key(
     key: PRNGKeyArray | None,
     num: int,
+    *,
+    inference: bool | None,
 ) -> tuple[PRNGKeyArray | None, ...]:
     if key is None:
         return (None,) * num
-    return tuple(jr.split(key, num))
+    return split_for_mode(key, num, inference=inference)
 
 
 @register_attn_block()
@@ -134,7 +137,7 @@ class CrossAttentionBlock(eqx.Module):
         key: PRNGKeyArray | None = None,
         inference: bool | None = None,
     ) -> Float[Array, "q_len dim"]:
-        key_attn, key_mlp = _split_optional_key(key, 2)
+        key_attn, key_mlp = _split_optional_key(key, 2, inference=inference)
         x = self.drop_path1(
             q_tokens,
             self.attn(
@@ -207,7 +210,7 @@ class AttentionBlock(eqx.Module):
         rope: eqx.Module | None = None,
         **kwargs,
     ) -> Float[Array, "seqlen dim"]:
-        key_attn, key_mlp = _split_optional_key(key, 2)
+        key_attn, key_mlp = _split_optional_key(key, 2, inference=inference)
         x = self.drop_path1(
             x,
             self.attn(jax.vmap(self.norm)(x), rope=rope),
@@ -235,7 +238,7 @@ class AttentionBlock(eqx.Module):
         key: PRNGKeyArray | None = None,
         inference: bool | None = None,
     ) -> Float[Array, "q_len dim"]:
-        key_attn, key_mlp = _split_optional_key(key, 2)
+        key_attn, key_mlp = _split_optional_key(key, 2, inference=inference)
         x = self.drop_path1(
             q_tokens,
             self.attn.cross(
@@ -330,7 +333,7 @@ class InContextAttentionBlock(eqx.Module):
         n_train: int,
         **kwargs,
     ) -> Float[Array, "rows dim"]:
-        key_attn, key_mlp = _split_optional_key(key, 2)
+        key_attn, key_mlp = _split_optional_key(key, 2, inference=inference)
         x = self.drop_path1(
             x,
             self.attn(jax.vmap(self.norm)(x), n_train),
@@ -408,7 +411,7 @@ class InducedAttentionBlock(eqx.Module):
         n_train: int,
         **kwargs,
     ) -> Float[Array, "rows dim"]:
-        key_attn1, key_attn2 = _split_optional_key(key, 2)
+        key_attn1, key_attn2 = _split_optional_key(key, 2, inference=inference)
         hidden = self.attn1(
             self.inducing_vectors,
             x[:n_train],
@@ -553,7 +556,7 @@ class ColumnAggregator(eqx.Module):
         key: PRNGKeyArray,
         inference: bool | None = None,
     ) -> Float[Array, "cls dim"]:
-        key_blocks, key_readout = jr.split(key, 2)
+        key_blocks, key_readout = split_for_mode(key, 2, inference=inference)
         x = jnp.concatenate([self.cls_tokens, x], axis=0)
         if self.blocks is not None:
             x = self.blocks(

@@ -12,6 +12,7 @@ import jax.random as jr
 from einops import reduce
 from jaxtyping import Array, Float, PRNGKeyArray
 
+from equimo.core._prng import split_for_mode
 from equimo.core.intermediates import intermediate_indices
 
 
@@ -36,7 +37,9 @@ class DenseStageFeatures:
         inference: Optional[bool] = None,
         **kwargs,
     ) -> Float[Array, "dim height width"]:
-        key_drop, *key_blocks = jr.split(key, len(self.blocks) + 1)
+        key_drop, *key_blocks = split_for_mode(
+            key, len(self.blocks) + 1, inference=inference
+        )
 
         for blk, key_blk in zip(self.blocks, key_blocks):
             x = blk(x, inference=inference, key=key_blk)
@@ -60,7 +63,7 @@ class DenseStageFeatures:
             indices=indices,
             n_last_blocks=n_last_blocks,
         )
-        _, *key_blocks = jr.split(key, len(self.blocks) + 1)
+        _, *key_blocks = split_for_mode(key, len(self.blocks) + 1, inference=inference)
         outputs = []
         for i, (blk, key_blk) in enumerate(zip(self.blocks, key_blocks)):
             x = blk(x, inference=inference, key=key_blk)
@@ -102,7 +105,7 @@ class TokenStemFeatures:
         key: PRNGKeyArray = jr.PRNGKey(42),
         inference: Optional[bool] = None,
     ) -> Float[Array, "..."]:
-        key_pd, *keys = jr.split(key, 1 + len(self.blocks))
+        key_pd, *keys = split_for_mode(key, 1 + len(self.blocks), inference=inference)
 
         x = self.patch_embed(x)
         x = self.pos_drop(x, inference=inference, key=key_pd)
@@ -126,7 +129,7 @@ class TokenStemFeatures:
             indices=indices,
             n_last_blocks=n_last_blocks,
         )
-        key_pd, *keys = jr.split(key, 1 + len(self.blocks))
+        key_pd, *keys = split_for_mode(key, 1 + len(self.blocks), inference=inference)
         x = self.patch_embed(x)
         x = self.pos_drop(x, inference=inference, key=key_pd)
         outputs = []

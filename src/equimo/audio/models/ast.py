@@ -21,6 +21,7 @@ import jax.random as jr
 import numpy as np
 from jaxtyping import Array, Float, PRNGKeyArray
 
+from equimo.core._prng import split_for_mode
 from equimo.audio.layers.patch import SpectrogramPatchEmbedding
 from equimo.core.intermediates import intermediate_indices
 from equimo.core.layers.activation import get_act
@@ -199,7 +200,9 @@ class AudioSpectrogramTransformer(eqx.Module):
         inference: Optional[bool] = None,
         **kwargs,
     ) -> Float[Array, "seqlen dim"]:
-        key_pos, *block_subkeys = jr.split(key, len(self.blocks) + 1)
+        key_pos, *block_subkeys = split_for_mode(
+            key, len(self.blocks) + 1, inference=inference
+        )
         x = self._prepare_tokens(x, key=key_pos, inference=inference)
 
         for blk, key_block in zip(self.blocks, block_subkeys):
@@ -222,7 +225,9 @@ class AudioSpectrogramTransformer(eqx.Module):
         wanted = intermediate_indices(
             total, indices=indices, n_last_blocks=n_last_blocks
         )
-        key_pos, *block_subkeys = jr.split(key, len(self.blocks) + 1)
+        key_pos, *block_subkeys = split_for_mode(
+            key, len(self.blocks) + 1, inference=inference
+        )
         x = self._prepare_tokens(x, key=key_pos, inference=inference)
 
         outputs = []

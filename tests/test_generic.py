@@ -11,6 +11,7 @@ from equimo.core.layers.generic import BlockChunk, Residual, WindowedSequence
 from equimo.core.layers.norm import LayerScale
 from equimo.vision.layers import get_layer as get_vision_layer
 from equimo.vision.layers.attention import AttentionBlock as VisionAttentionBlock
+from _jaxpr_utils import assert_prng_free_jaxpr
 
 KEY = jr.PRNGKey(0)
 DIM = 16
@@ -252,6 +253,7 @@ class TestWindowedSequence:
             key=KEY,
         )
         x = jr.normal(KEY, (DIM, 8, 8))
+        assert_prng_free_jaxpr(lambda value: layer(value, KEY, inference=True), x)
         assert layer(x, KEY, inference=True).shape == (DIM, 8, 8)
 
 
@@ -396,6 +398,7 @@ class TestBlockChunk:
             key=KEY,
         )
         x = jr.normal(KEY, SHAPE)
+        assert_prng_free_jaxpr(lambda value: chunk(value, key=KEY, inference=True), x)
         out = chunk(x, key=KEY, inference=True)
         assert out.shape == SHAPE
 

@@ -7,6 +7,7 @@ import pytest
 from equimo.core.layers.ffn import Mlp as CoreMlp
 from equimo.tabular import layers
 from equimo.tabular.layers.mlp import _call_mlp
+from _jaxpr_utils import assert_prng_free_jaxpr
 
 
 def test_default_tabular_layer_registries():
@@ -90,6 +91,12 @@ def test_drop_path_zero_block_is_deterministic_without_key():
     out_inference = block(x, inference=True)
     out_training = block(x, inference=False)
 
+    assert_prng_free_jaxpr(
+        lambda value, key: block(value, key=key, inference=True),
+        x,
+        jr.PRNGKey(2),
+    )
+
     assert jnp.allclose(out_inference, out_training)
 
 
@@ -159,3 +166,8 @@ def test_tabular_mlp_helper_preserves_leading_dimensions():
     ).reshape(2, 3, 6)
 
     assert jnp.allclose(out, expected)
+    assert_prng_free_jaxpr(
+        lambda value, key: _call_mlp(mlp, value, key=key, inference=True),
+        x,
+        jr.PRNGKey(2),
+    )

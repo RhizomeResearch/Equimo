@@ -43,6 +43,7 @@ import numpy as np
 from einops import rearrange
 from jaxtyping import Array, Float, Int, PRNGKeyArray
 
+from equimo.core._prng import split_for_mode
 from equimo.core.intermediates import intermediate_indices
 from equimo.core.layers.activation import get_act
 from equimo.vision.layers.attention import get_attn, get_attn_block
@@ -492,6 +493,12 @@ class VisionParcae(eqx.Module):
     be done by ``jax.vmap`` outside the module.  With ``sample_recurrence=True``,
     a vmapped call samples a different depth for each image while using one
     static ``lax.scan`` bound, so the recurrent path remains JIT-compatible.
+
+    Inference is key-dependent by default because ``state_init="like-init"``
+    samples the recurrent initial state. The ``"normal"``, ``"embed"``, and
+    ``"unit"`` modes are stochastic for the same reason. Use
+    ``state_init="zero"`` for deterministic, PRNG-free static inference and
+    model export.
 
     A few deliberate-but-non-obvious properties of this implementation:
 
@@ -1074,7 +1081,7 @@ class VisionParcae(eqx.Module):
     ):
         if chunk is None:
             return x
-        key_rope, key_chunk = jr.split(key, 2)
+        key_rope, key_chunk = split_for_mode(key, 2, inference=inference)
         if rope_sincos is None:
             rope_sincos = self._rope_sincos(
                 pos_embed,
@@ -1323,7 +1330,10 @@ class VisionParcae(eqx.Module):
         | None = None,
         **kwargs,
     ) -> tuple[Float[Array, "seq recurrent_dim"], dict]:
-        key_state, key_steps, key_loop, key_rope = jr.split(key, 4)
+        deterministic_inference = inference is True and self.state_init == "zero"
+        key_state, key_steps, key_loop, key_rope = split_for_mode(
+            key, 4, inference=deterministic_inference
+        )
         h = self._initialize_state(e, key=key_state)
         no_grad_steps, grad_steps = self._resolve_num_steps(
             num_steps=num_steps,
@@ -1341,7 +1351,13 @@ class VisionParcae(eqx.Module):
             key=key_rope,
         )
 
-        keys = jr.split(key_loop, self.max_recurrence)
+        keys = jnp.stack(
+            split_for_mode(
+                key_loop,
+                self.max_recurrence,
+                inference=deterministic_inference,
+            )
+        )
 
         # Keep the detached prefix out of the reverse-mode scan. With batched
         # stochastic depths, masking no-grad steps inside one scan still makes
@@ -1464,7 +1480,10 @@ class VisionParcae(eqx.Module):
         | None = None,
         **kwargs,
     ) -> tuple[Float[Array, "seq dim"], dict]:
-        key_embed, key_prelude, key_loop, key_coda = jr.split(key, 4)
+        deterministic_inference = inference is True and self.state_init == "zero"
+        key_embed, key_prelude, key_loop, key_coda = split_for_mode(
+            key, 4, inference=deterministic_inference
+        )
 
         x, H, W = self._embed_image(x, key=key_embed, mask=mask, inference=inference)
         x = self._run_chunk(

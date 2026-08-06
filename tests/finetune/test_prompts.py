@@ -9,6 +9,7 @@ import pytest
 
 import equimo.finetune as eqft
 from equimo.vision.models.vit import VisionTransformer
+from _jaxpr_utils import assert_prng_free_jaxpr
 
 from fixtures import TinyVisionTransformer
 
@@ -66,6 +67,11 @@ def test_prompt_dropout_is_disabled_during_inference(config):
     second = prompted.features(x, key=jr.PRNGKey(2), inference=True)
 
     assert jnp.array_equal(first, second)
+    assert_prng_free_jaxpr(
+        lambda value, key: prompted.features(value, key=key, inference=True),
+        x,
+        jr.PRNGKey(3),
+    )
 
 
 @pytest.mark.parametrize(

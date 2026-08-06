@@ -13,6 +13,7 @@ import numpy as np
 from einops import reduce
 from jaxtyping import Array, Float, PRNGKeyArray
 
+from equimo.core._prng import split_for_mode
 from equimo.core.intermediates import intermediate_indices
 from equimo.core.layers.activation import get_act
 from equimo.vision.layers.attention import SHSA
@@ -105,7 +106,7 @@ class BasicBlock(eqx.Module):
         key: PRNGKeyArray,
         inference: Optional[bool] = None,
     ) -> Float[Array, "seqlen dim"]:
-        key_conv, key_mixer, key_ffn = jr.split(key, 3)
+        key_conv, key_mixer, key_ffn = split_for_mode(key, 3, inference=inference)
         return self.ffn(
             self.mixer(
                 self.conv(x, inference=inference, key=key_conv),
@@ -255,7 +256,7 @@ class SHViT(eqx.Module):
         key: PRNGKeyArray = jr.PRNGKey(42),
         inference: Optional[bool] = None,
     ) -> Float[Array, "..."]:
-        keys = jr.split(key, len(self.blocks))
+        keys = split_for_mode(key, len(self.blocks), inference=inference)
 
         x = self.patch_embed(x)
         for i, blk in enumerate(self.blocks):
@@ -277,7 +278,7 @@ class SHViT(eqx.Module):
         wanted = intermediate_indices(
             total, indices=indices, n_last_blocks=n_last_blocks
         )
-        keys = jr.split(key, len(self.blocks))
+        keys = split_for_mode(key, len(self.blocks), inference=inference)
         outputs = []
 
         x = self.patch_embed(x)

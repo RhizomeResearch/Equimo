@@ -45,6 +45,14 @@ Versioning from version 2.0.0 onward.
   Saved-checkpoint compatibility is guarded by a new structure-signature
   test (`tests/test_checkpoint_signature_stability.py`).
 
+### Fixed
+
+- Deterministic built-in model and layer paths no longer stage dead JAX PRNG
+  operations when `inference=True`, enabling direct export through converters
+  that do not lower randomness primitives while preserving training key
+  schedules. VisionParcae's explicitly stochastic state initializers remain
+  key-dependent; `state_init="zero"` provides its PRNG-free export path.
+
 ## [2.0.0] - 2026-07-15
 
 ### Added

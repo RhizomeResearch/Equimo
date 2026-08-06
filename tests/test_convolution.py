@@ -33,6 +33,7 @@ from equimo.vision.layers.convolution import (
     FreeNetBlock,
     get_conv,
 )
+from _jaxpr_utils import assert_prng_free_jaxpr
 
 KEY = jr.PRNGKey(0)
 IN_CHANNELS = 16
@@ -117,6 +118,7 @@ class TestConvolutionLayers:
             )
             x = jr.normal(key, (in_c, H, W))
 
+        assert_prng_free_jaxpr(lambda value: model(value, key=key, inference=True), x)
         out = model(x, key=key, inference=True)
 
         if cls == Stem:

@@ -8,6 +8,7 @@ import pytest
 import equinox as eqx
 
 import equimo.finetune as eqft
+from _jaxpr_utils import assert_prng_free_jaxpr
 
 
 def test_l2_sp_zero_for_identical_models(tiny_vision_transformer):
@@ -153,6 +154,17 @@ def test_mixout_tree_inference_and_probability_validation():
 
     assert jnp.array_equal(mixed["weight"], tree["weight"])
     assert mixed["name"] == "leaf"
+    assert_prng_free_jaxpr(
+        lambda weight, key: eqft.mixout_tree(
+            {"weight": weight},
+            {"weight": jnp.zeros_like(weight)},
+            key=key,
+            p=0.5,
+            inference=True,
+        )["weight"],
+        tree["weight"],
+        jax.random.PRNGKey(0),
+    )
     with pytest.raises(ValueError, match="0 <= p < 1"):
         eqft.mixout_leaf(
             jnp.array([1.0]),

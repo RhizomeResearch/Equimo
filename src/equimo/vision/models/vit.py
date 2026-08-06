@@ -78,6 +78,7 @@ import numpy as np
 from einops import rearrange
 from jaxtyping import Array, Float, Int, PRNGKeyArray
 
+from equimo.core._prng import split_for_mode
 from equimo.core.intermediates import intermediate_indices
 from equimo.core.layers.activation import get_act
 from equimo.vision.layers.attention import (
@@ -356,7 +357,7 @@ class VisionTransformer(eqx.Module):
         Returns:
             Processed feature tensor
         """
-        key_pos = jr.split(key, len(self.blocks) + 1)[0]
+        key_pos = split_for_mode(key, len(self.blocks) + 1, inference=inference)[0]
         x, H, W, rope_sincos = self._prepare_tokens(
             x,
             key=key_pos,
@@ -386,7 +387,9 @@ class VisionTransformer(eqx.Module):
         wanted = intermediate_indices(
             total, indices=indices, n_last_blocks=n_last_blocks
         )
-        key_pos, *block_subkeys = jr.split(key, len(self.blocks) + 1)
+        key_pos, *block_subkeys = split_for_mode(
+            key, len(self.blocks) + 1, inference=inference
+        )
         x, H, W, rope_sincos = self._prepare_tokens(
             x,
             key=key_pos,
@@ -488,7 +491,9 @@ class VisionTransformer(eqx.Module):
         """Run prepared tokens, optionally transforming them before each layer."""
 
         x, H, W, rope_sincos = prepared
-        key_pos, *block_subkeys = jr.split(key, len(self.blocks) + 1)
+        key_pos, *block_subkeys = split_for_mode(
+            key, len(self.blocks) + 1, inference=inference
+        )
         num_transform_keys = max(self._num_block_layers(), 1)
         transform_subkeys = (
             (None,) * num_transform_keys
@@ -528,7 +533,9 @@ class VisionTransformer(eqx.Module):
 
             blocks = blk.blocks
             num_blocks = 0 if blocks is None else len(blocks)
-            key_down, *layer_subkeys = jr.split(key_block, num_blocks + 2)
+            key_down, *layer_subkeys = split_for_mode(
+                key_block, num_blocks + 2, inference=inference
+            )
             x = blk.posemb(x)
             if not blk.downsample_last and blk.downsample is not None:
                 x = (

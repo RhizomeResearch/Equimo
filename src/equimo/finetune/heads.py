@@ -9,6 +9,9 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import jax.random as jr
+
+from equimo.core._prng import split_for_mode
+
 from .peft import _common
 
 
@@ -159,7 +162,13 @@ class MLPHead(eqx.Module):
         inference: bool | None = True,
     ) -> jax.Array:
         dropout_keys = (
-            jr.split(key, max(len(self.layers) - 1, 1)) if key is not None else ()
+            split_for_mode(
+                key,
+                max(len(self.layers) - 1, 1),
+                inference=inference,
+            )
+            if key is not None
+            else ()
         )
         for index, layer in enumerate(self.layers):
             x = _common.apply_last_axis(layer, x)

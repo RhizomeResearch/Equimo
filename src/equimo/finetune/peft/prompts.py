@@ -10,6 +10,8 @@ import jax
 import jax.numpy as jnp
 import jax.random as jr
 
+from equimo.core._prng import default_key_for_mode, split_for_mode
+
 from .._typing import PyTree
 from . import _common
 
@@ -233,12 +235,12 @@ def _equimo_vit_features(
     **kwargs,
 ) -> jax.Array:
     if key is None:
-        model_key = jr.PRNGKey(0)
+        model_key = default_key_for_mode(key, inference=inference)
         prompt_key = None
     else:
-        model_key, prompt_key = jr.split(key, 2)
+        model_key, prompt_key = split_for_mode(key, 2, inference=inference)
     mask = kwargs.pop("mask", None)
-    key_pos = jr.split(model_key, len(model.blocks) + 1)[0]
+    key_pos = split_for_mode(model_key, len(model.blocks) + 1, inference=inference)[0]
     prepared = model._prepare_tokens(
         x,
         key=key_pos,
@@ -324,7 +326,7 @@ def _simple_token_features(
         prompt_keys = (None,) * num_prompt_keys
         block_keys = (None,) * num_blocks
     else:
-        subkeys = jr.split(key, num_prompt_keys + num_blocks)
+        subkeys = split_for_mode(key, num_prompt_keys + num_blocks, inference=inference)
         prompt_keys = subkeys[:num_prompt_keys]
         block_keys = subkeys[num_prompt_keys:]
     x = _run_prompted_blocks(

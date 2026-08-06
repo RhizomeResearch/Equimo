@@ -11,6 +11,7 @@ import jax.numpy as jnp
 import jax.random as jr
 from jaxtyping import Array, Float, PRNGKeyArray
 
+from equimo.core._prng import split_for_mode
 from equimo.core.layers.activation import get_act
 from equimo.core.layers.norm import get_norm
 from equimo.core.layers._registry import make_get, make_register
@@ -238,7 +239,7 @@ class Mlp(eqx.Module):
         mask: Optional[Float[Array, "seqlen 1"]] = None,
         inference: Optional[bool] = None,
     ) -> Float[Array, "seqlen out_dim"]:
-        key_dr1, key_dr2 = jr.split(key, 2)
+        key_dr1, key_dr2 = split_for_mode(key, 2, inference=inference)
 
         x = self.drop1(
             jax.vmap(self.norm)(self.act_layer(jax.vmap(self.fc1)(x))),
@@ -330,7 +331,7 @@ class SwiGlu(eqx.Module):
         key: PRNGKeyArray,
         inference: Optional[bool] = None,
     ) -> Float[Array, "seqlen out_dim"]:
-        key_dr1, key_dr2 = jr.split(key, 2)
+        key_dr1, key_dr2 = split_for_mode(key, 2, inference=inference)
 
         x1 = jax.vmap(self.w1)(x)
         x2 = jax.vmap(self.w2)(x)
@@ -426,7 +427,7 @@ class SwiGluFused(eqx.Module):
         key: PRNGKeyArray,
         inference: Optional[bool] = None,
     ) -> Float[Array, "seqlen out_dim"]:
-        key_dr1, key_dr2 = jr.split(key, 2)
+        key_dr1, key_dr2 = split_for_mode(key, 2, inference=inference)
 
         x12 = jax.vmap(self.w12)(x)
         x1, x2 = jnp.split(x12, 2, axis=-1)

@@ -24,6 +24,7 @@ import jax
 import jax.random as jr
 from jaxtyping import Array, Float, PRNGKeyArray
 
+from equimo.core._prng import split_for_mode
 from equimo.core.intermediates import intermediate_indices
 from equimo.core.layers.activation import get_act
 from equimo.core.layers.generic import BlockChunk, count_chunk_blocks
@@ -224,7 +225,9 @@ class TabPFN(eqx.Module):
         inference: Optional[bool] = None,
         **kwargs,
     ) -> Float[Array, "rows dim"]:
-        key_feature, key_column, *block_keys = jr.split(key, len(self.blocks) + 2)
+        key_feature, key_column, *block_keys = split_for_mode(
+            key, len(self.blocks) + 2, inference=inference
+        )
 
         x = self.preprocessor(x, n_train)
         x = jax.vmap(jax.vmap(self.x_embed))(x)
@@ -269,7 +272,9 @@ class TabPFN(eqx.Module):
         wanted = intermediate_indices(
             total, indices=indices, n_last_blocks=n_last_blocks
         )
-        key_feature, key_column, *block_keys = jr.split(key, len(self.blocks) + 2)
+        key_feature, key_column, *block_keys = split_for_mode(
+            key, len(self.blocks) + 2, inference=inference
+        )
 
         x = self.preprocessor(x, n_train)
         x = jax.vmap(jax.vmap(self.x_embed))(x)

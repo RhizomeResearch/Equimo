@@ -8,6 +8,13 @@ import jax.random as jr
 import pytest
 
 import equimo.finetune as eqft
+from _jaxpr_utils import assert_prng_free_jaxpr
+
+
+class _KeyAwareIdentity(eqx.Module):
+    def __call__(self, x, *, key=None, inference=None):
+        del key, inference
+        return x
 
 
 def test_adapter_zero_up_identity(tiny_vision_transformer):
@@ -115,6 +122,16 @@ def test_parallel_adapter_config_uses_parallel_wrapper(tiny_vision_transformer):
 
     assert isinstance(adapted.blocks[0], eqft.ParallelAdapterBlock)
     assert adapted.blocks[0].adapter.down.out_features == 3
+    wrapper = eqx.tree_at(
+        lambda block: block.base,
+        adapted.blocks[0],
+        _KeyAwareIdentity(),
+    )
+    assert_prng_free_jaxpr(
+        lambda value, key: wrapper(value, key=key, inference=True),
+        jnp.ones((2, 4)),
+        jr.PRNGKey(1),
+    )
 
 
 def test_parallel_adapter_train_base_includes_wrapped_base_leaves(
@@ -193,6 +210,16 @@ def test_adaptformer_parallel_mlp_identity(tiny_vision_transformer):
 
     assert isinstance(adapted.blocks[0], eqft.AdaptFormerBlock)
     assert jnp.allclose(tiny_vision_transformer(x), adapted(x), atol=1e-6)
+    wrapper = eqx.tree_at(
+        lambda block: block.base,
+        adapted.blocks[0],
+        _KeyAwareIdentity(),
+    )
+    assert_prng_free_jaxpr(
+        lambda value, key: wrapper(value, key=key, inference=True),
+        jnp.ones((2, 4)),
+        jr.PRNGKey(1),
+    )
     plan = eqft.prepare_finetune(
         adapted,
         trainable=eqft.TrainableSpec(mode="peft", method_name="adaptformer"),

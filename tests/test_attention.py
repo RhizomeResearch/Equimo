@@ -45,6 +45,7 @@ from equimo.vision.layers.attention import (
     rope_apply_qk_last_hw,
     rope_rotate_half,
 )
+from _jaxpr_utils import assert_prng_free_jaxpr
 
 KEY = jr.PRNGKey(0)
 DIM = 32
@@ -87,8 +88,14 @@ class TestAttentionLayers:
 
         if cls is (SQA):
             q = jr.normal(key, (1, DIM))
+            assert_prng_free_jaxpr(
+                lambda value: model(value, q, key=key, inference=True), x
+            )
             out = model(x, q, key=key, inference=True)
         else:
+            assert_prng_free_jaxpr(
+                lambda value: model(value, key=key, inference=True), x
+            )
             out = model(x, key=key, inference=True)
         assert out.shape == x.shape
         assert jnp.all(jnp.isfinite(out))
@@ -134,15 +141,24 @@ class TestAttentionLayers:
             ct_size = kwargs.get("ct_size", 1)
             ct_total = ct_size**2 * sr_ratio**2
             ct = jr.normal(key, (ct_total, DIM))
+            assert_prng_free_jaxpr(
+                lambda value: model(value, ct, key=key, inference=True), x
+            )
             out, ct_out = model(x, ct, key=key, inference=True)
             assert out.shape == x.shape
             assert ct_out.shape == ct.shape
         elif cls == PartialFormerBlock:
             qa = jr.normal(key, (1, DIM))
+            assert_prng_free_jaxpr(
+                lambda value: model(value, qa, key=key, inference=True), x
+            )
             out, qa_out = model(x, qa, key=key, inference=True)
             assert out.shape == x.shape
             assert qa_out.shape == qa.shape
         else:
+            assert_prng_free_jaxpr(
+                lambda value: model(value, key=key, inference=True), x
+            )
             out = model(x, key=key, inference=True)
             assert out.shape == x.shape
 

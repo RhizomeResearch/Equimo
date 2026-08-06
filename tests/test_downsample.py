@@ -13,6 +13,7 @@ from equimo.vision.layers.downsample import (
     get_downsampler,
     register_downsampler,
 )
+from _jaxpr_utils import assert_prng_free_jaxpr
 
 KEY = jr.PRNGKey(0)
 IN_CHANNELS = 32
@@ -110,6 +111,7 @@ class TestPWSEDownsampler:
     def test_deterministic_in_inference_mode(self):
         ds = PWSEDownsampler(IN_CHANNELS, OUT_CHANNELS, drop_path=0.5, key=KEY)
         x = jr.normal(KEY, (IN_CHANNELS, H, W))
+        assert_prng_free_jaxpr(lambda value: ds(value, KEY, inference=True), x)
         out1 = ds(x, jr.PRNGKey(1), inference=True)
         out2 = ds(x, jr.PRNGKey(2), inference=True)
         assert jnp.allclose(out1, out2)
