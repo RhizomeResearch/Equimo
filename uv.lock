@@ -479,7 +479,7 @@ provides-extras = ["audio", "torch", "language", "extras"]
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "jax2onnx", git = "https://github.com/clementpoiret/jax2onnx.git?rev=e9a2146e63a23ae29aad5736d8237e400576c3cd" },
+    { name = "jax2onnx", url = "https://github.com/clementpoiret/jax2onnx/archive/e9a2146e63a23ae29aad5736d8237e400576c3cd.tar.gz" },
     { name = "onnxruntime", specifier = ">=1.28.0" },
     { name = "pre-commit", specifier = ">=4.5.1" },
     { name = "pytest", specifier = ">=9.0.2" },
@@ -865,7 +865,7 @@ wheels = [
 [[package]]
 name = "jax2onnx"
 version = "0.15.0"
-source = { git = "https://github.com/clementpoiret/jax2onnx.git?rev=e9a2146e63a23ae29aad5736d8237e400576c3cd#e9a2146e63a23ae29aad5736d8237e400576c3cd" }
+source = { url = "https://github.com/clementpoiret/jax2onnx/archive/e9a2146e63a23ae29aad5736d8237e400576c3cd.tar.gz" }
 dependencies = [
     { name = "dm-pix" },
     { name = "einops" },
@@ -881,6 +881,25 @@ dependencies = [
     { name = "optax" },
     { name = "orbax-checkpoint" },
     { name = "orbax-export" },
+]
+sdist = { hash = "sha256:6cf736317ebb358357f61f7fb572b23f959518746a5a04bd0585ec691bb27fec" }
+
+[package.metadata]
+requires-dist = [
+    { name = "dm-pix", specifier = ">=0.4.4" },
+    { name = "einops", specifier = ">=0.8.1" },
+    { name = "equinox", specifier = ">=0.13.1" },
+    { name = "flax", specifier = ">=0.12.1" },
+    { name = "huggingface-hub", specifier = ">=0.26.0" },
+    { name = "jax", specifier = ">=0.8.1" },
+    { name = "ml-dtypes", specifier = ">=0.5.1" },
+    { name = "netron", specifier = ">=8.2.9" },
+    { name = "onnx", specifier = ">=1.20.1" },
+    { name = "onnx-ir", specifier = ">=0.2.1" },
+    { name = "onnxruntime", specifier = ">=1.24.1" },
+    { name = "optax", specifier = ">=0.2.4" },
+    { name = "orbax-checkpoint", specifier = ">=0.11.6,<0.11.37" },
+    { name = "orbax-export", specifier = ">=0.0.6" },
 ]
 
 [[package]]
