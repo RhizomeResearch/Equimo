@@ -479,7 +479,7 @@ provides-extras = ["audio", "torch", "language", "extras"]
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "jax2onnx", url = "https://github.com/clementpoiret/jax2onnx/archive/e9a2146e63a23ae29aad5736d8237e400576c3cd.tar.gz" },
+    { name = "jax2onnx", specifier = ">=0.15.1" },
     { name = "onnxruntime", specifier = ">=1.28.0" },
     { name = "pre-commit", specifier = ">=4.5.1" },
     { name = "pytest", specifier = ">=9.0.2" },
@@ -864,8 +864,8 @@ wheels = [
 
 [[package]]
 name = "jax2onnx"
-version = "0.15.0"
-source = { url = "https://github.com/clementpoiret/jax2onnx/archive/e9a2146e63a23ae29aad5736d8237e400576c3cd.tar.gz" }
+version = "0.15.1"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "dm-pix" },
     { name = "einops" },
@@ -882,24 +882,9 @@ dependencies = [
     { name = "orbax-checkpoint" },
     { name = "orbax-export" },
 ]
-sdist = { hash = "sha256:6cf736317ebb358357f61f7fb572b23f959518746a5a04bd0585ec691bb27fec" }
-
-[package.metadata]
-requires-dist = [
-    { name = "dm-pix", specifier = ">=0.4.4" },
-    { name = "einops", specifier = ">=0.8.1" },
-    { name = "equinox", specifier = ">=0.13.1" },
-    { name = "flax", specifier = ">=0.12.1" },
-    { name = "huggingface-hub", specifier = ">=0.26.0" },
-    { name = "jax", specifier = ">=0.8.1" },
-    { name = "ml-dtypes", specifier = ">=0.5.1" },
-    { name = "netron", specifier = ">=8.2.9" },
-    { name = "onnx", specifier = ">=1.20.1" },
-    { name = "onnx-ir", specifier = ">=0.2.1" },
-    { name = "onnxruntime", specifier = ">=1.24.1" },
-    { name = "optax", specifier = ">=0.2.4" },
-    { name = "orbax-checkpoint", specifier = ">=0.11.6,<0.11.37" },
-    { name = "orbax-export", specifier = ">=0.0.6" },
+sdist = { url = "https://files.pythonhosted.org/packages/26/b0/e7a8eb40d901973905c30399732f39dbbc83aebbafe809eb1b580fd6eed1/jax2onnx-0.15.1.tar.gz", hash = "sha256:6cf29df65f0445a3f0fda4b578c8459a8b690f18f1934d3dc4238f73fd3de5ee", size = 777069, upload-time = "2026-08-07T10:56:43.399Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/cb/89/7e86ee0c4aed684f8fd8d2f5a45fab8ee04b8d8b8233089330c52a88540a/jax2onnx-0.15.1-py3-none-any.whl", hash = "sha256:dd4fcdf39925fc2003115a32b2e1d00cb2da5dc17490e986f4eda1c3cf30d38d", size = 1333437, upload-time = "2026-08-07T10:56:41.625Z" },
 ]
 
 [[package]]

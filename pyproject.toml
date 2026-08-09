@@ -65,7 +65,7 @@ source-include = [
 
 [dependency-groups]
 dev = [
-    "jax2onnx @ https://github.com/clementpoiret/jax2onnx/archive/e9a2146e63a23ae29aad5736d8237e400576c3cd.tar.gz",
+    "jax2onnx>=0.15.1",
     "onnxruntime>=1.28.0",
     "pre-commit>=4.5.1",
     "pytest>=9.0.2",
