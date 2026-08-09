@@ -12,8 +12,9 @@ from einops import rearrange
 from jaxtyping import Array, Float, Integer, PRNGKeyArray
 
 from equimo.core._prng import default_key_for_mode, split_for_mode
-from equimo.vision.layers.convolution import SingleConvBlock
 from equimo.core.layers._registry import make_get, make_register
+from equimo.core.layers.attention import rope_apply_interleaved
+from equimo.vision.layers.convolution import SingleConvBlock
 
 _POSEMB_REGISTRY: dict[str, type[eqx.Module]] = {}
 
@@ -22,12 +23,6 @@ register_posemb = make_register(_POSEMB_REGISTRY)
 
 
 get_posemb = make_get(_POSEMB_REGISTRY)
-
-
-def _rotate_half(x: jax.Array) -> jax.Array:
-    x_paired = x.reshape(*x.shape[:-1], -1, 2)
-    x1, x2 = x_paired[..., 0], x_paired[..., 1]
-    return jnp.stack([-x2, x1], axis=-1).reshape(x.shape)
 
 
 @register_posemb()
@@ -950,7 +945,7 @@ class VisionRoPE(eqx.Module):
         )
         cos = cos[:, None, :]
         sin = sin[:, None, :]
-        return x * cos + _rotate_half(x) * sin
+        return rope_apply_interleaved(x, sin, cos)
 
 
 @register_posemb()
@@ -1089,7 +1084,7 @@ class CompositeVisionRoPE(eqx.Module):
         sin, cos = self.get_sincos(H=H, W=W, key=key, inference=inference)
         cos = cos[:, None, :]
         sin = sin[:, None, :]
-        return x * cos + _rotate_half(x) * sin
+        return rope_apply_interleaved(x, sin, cos)
 
 
 @register_posemb()

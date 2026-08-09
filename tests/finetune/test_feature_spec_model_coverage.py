@@ -16,6 +16,7 @@ from equimo.audio.models import AudioSpectrogramTransformer
 from equimo.language.models import TextTransformerEncoder
 from equimo.registry import _MODEL_REGISTRY
 from equimo.tabular.models import TabPFN
+from equimo.timeseries.models import T0
 from equimo.vision.models import (
     AttNet,
     ConvNeXt,
@@ -451,6 +452,43 @@ def _build_tabpfn(key: jax.Array) -> _Invocation:
     )
 
 
+def _build_t0(key: jax.Array) -> _Invocation:
+    model_key, sample_key = _keys(key)
+    model = T0(
+        embed_dim=8,
+        num_layers=2,
+        num_heads=2,
+        mlp_hidden_dim=16,
+        patch_size=4,
+        group_every_n=2,
+        dropout=0.0,
+        key=model_key,
+    )
+    values = jr.normal(sample_key, (2, 8))
+    mask = jnp.zeros(values.shape, dtype=jnp.int8)
+    group_ids = jnp.broadcast_to(
+        jnp.arange(values.shape[0], dtype=jnp.int32)[:, None],
+        values.shape,
+    )
+    variate_type = jnp.zeros(values.shape, dtype=jnp.int32)
+    tokens = model.features(
+        values,
+        mask,
+        group_ids,
+        variate_type,
+        key=model_key,
+        inference=True,
+    )
+    return _Invocation(
+        model=model,
+        args=(values, mask, group_ids, variate_type),
+        kwargs={},
+        spec=eqft.FeatureSpec("features", "BNC", "all", "mean_token"),
+        expected=jnp.mean(tokens, axis=0),
+        key=model_key,
+    )
+
+
 def _build_deq(key: jax.Array) -> _Invocation:
     model_key, sample_key = _keys(key)
     model = DEQ(
@@ -496,6 +534,7 @@ CASES = (
     _FeatureCase("audio", "ast", _build_ast),
     _FeatureCase("language", "text_transformer_encoder", _build_text_transformer),
     _FeatureCase("tabular", "tabpfn", _build_tabpfn),
+    _FeatureCase("timeseries", "t0", _build_t0),
     _FeatureCase("vision", "attnet", _build_attnet),
     _FeatureCase("vision", "convnext", _build_convnext),
     _FeatureCase("vision", "deq", _build_deq),
@@ -550,7 +589,7 @@ def test_every_builtin_model_family_has_a_conformance_case():
     }
     covered = {(case.modality, case.registry_name) for case in CASES}
 
-    assert len(CASES) == 17
+    assert len(CASES) == 18
     assert covered == registered
 
 
@@ -621,6 +660,7 @@ def test_classless_vit_supports_patch_features_and_rejects_cls_selection():
         pytest.param(_build_convnext, id="spatial-map"),
         pytest.param(_build_text_transformer, id="masked-sequence"),
         pytest.param(_build_tabpfn, id="structured-output"),
+        pytest.param(_build_t0, id="time-series-tokens"),
         pytest.param(_build_deq, id="layer-aggregation"),
     ),
 )

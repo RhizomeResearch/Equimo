@@ -450,6 +450,7 @@ dev = [
 ]
 reference = [
     { name = "tabpfn" },
+    { name = "tfc-t0" },
     { name = "timm" },
     { name = "torch" },
     { name = "transformers" },
@@ -488,6 +489,7 @@ dev = [
 ]
 reference = [
     { name = "tabpfn", specifier = ">=8.1.0" },
+    { name = "tfc-t0", specifier = "==0.2.1" },
     { name = "timm", specifier = ">=1.0.15" },
     { name = "torch", specifier = ">=2.6.0" },
     { name = "transformers", specifier = ">=5.13.1" },
@@ -2448,6 +2450,19 @@ wheels = [
 ]
 
 [[package]]
+name = "rotary-embedding-torch"
+version = "0.8.9"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "einops" },
+    { name = "torch" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/71/38/74783585b1f0282fddd3faf1abd6dd20977255c27e31737eced2d7ec05f1/rotary_embedding_torch-0.8.9.tar.gz", hash = "sha256:b213f153cad1d108064d930544fb3af678d56515893d3f869a7a146f87997e3f", size = 7497, upload-time = "2025-07-27T01:26:14.675Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/94/21/05e319ebef4a8194f9c4cc09f9c3213ab846da200fa6e88699cdb7e9679a/rotary_embedding_torch-0.8.9-py3-none-any.whl", hash = "sha256:700e8de9dfbefba5f9117a66652a2520648dcc60136895f0068b6a85347cab02", size = 5872, upload-time = "2025-07-27T01:26:13.496Z" },
+]
+
+[[package]]
 name = "ruff"
 version = "0.15.13"
 source = { registry = "https://pypi.org/simple" }
@@ -2842,6 +2857,24 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/46/79/cf31d7a93a8fdc6aa0fbb665be84426a8c5a557d9240b6239e9e11e35fc5/termcolor-3.3.0.tar.gz", hash = "sha256:348871ca648ec6a9a983a13ab626c0acce02f515b9e1983332b17af7979521c5", size = 14434, upload-time = "2025-12-29T12:55:21.882Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/33/d1/8bb87d21e9aeb323cc03034f5eaf2c8f69841e40e4853c2627edf8111ed3/termcolor-3.3.0-py3-none-any.whl", hash = "sha256:cf642efadaf0a8ebbbf4bc7a31cec2f9b5f21a9f726f4ccbb08192c9c26f43a5", size = 7734, upload-time = "2025-12-29T12:55:20.718Z" },
+]
+
+[[package]]
+name = "tfc-t0"
+version = "0.2.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "einops" },
+    { name = "huggingface-hub" },
+    { name = "jaxtyping" },
+    { name = "numpy" },
+    { name = "rotary-embedding-torch" },
+    { name = "safetensors" },
+    { name = "torch" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/63/c8/5b9f0d3a2beddf2fcdddccfbaf761f683def5bbaf16ce4a2d64cff3fbc17/tfc_t0-0.2.1.tar.gz", hash = "sha256:7e02b1d3b8da778139fd2471f698ab9b2d2fb094c6345c75df6f8ce3900286d2", size = 326106, upload-time = "2026-07-01T20:05:28.915Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/85/73/541bd6e884ee0dc81b250c4a736e812ff1f6ab9a97fa0151c942dc57b78b/tfc_t0-0.2.1-py3-none-any.whl", hash = "sha256:1f4010228005f5fad788390ab782bfbb46d9a85de999c1e8dbadfc2a800486c8", size = 44467, upload-time = "2026-07-01T20:05:27.405Z" },
 ]
 
 [[package]]

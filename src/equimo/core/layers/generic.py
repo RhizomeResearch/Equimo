@@ -12,9 +12,30 @@ from jaxtyping import Array, Float, PRNGKeyArray
 
 from equimo.core._prng import split_for_mode
 from equimo.core.intermediates import intermediate_indices
-from equimo.core.layers._registry import _resolve_from_registries
+from equimo.core.layers._registry import NamedLayerRegistry, _resolve_from_registries
 from equimo.core.layers.dropout import DropPathAdd
 from equimo.core.layers.norm import LayerScale
+
+
+def _core_layer_registries() -> tuple[NamedLayerRegistry, ...]:
+    """Return the registries that make up the shared core layer scope."""
+    from equimo.core.layers.attention import (
+        _ATTN_BLOCK_REGISTRY,
+        _ATTN_REGISTRY,
+    )
+    from equimo.core.layers.dropout import _DROPOUT_REGISTRY
+    from equimo.core.layers.ffn import _FFN_REGISTRY
+    from equimo.core.layers.mamba import _MIXER_REGISTRY
+    from equimo.core.layers.norm import _NORM_REGISTRY
+
+    return (
+        ("attention block", _ATTN_BLOCK_REGISTRY),
+        ("mixer", _MIXER_REGISTRY),
+        ("attention", _ATTN_REGISTRY),
+        ("normalization", _NORM_REGISTRY),
+        ("feed-forward", _FFN_REGISTRY),
+        ("dropout", _DROPOUT_REGISTRY),
+    )
 
 
 def get_layer(name_or_cls: str | type[eqx.Module]) -> type[eqx.Module]:
@@ -32,25 +53,9 @@ def get_layer(name_or_cls: str | type[eqx.Module]) -> type[eqx.Module]:
     if not isinstance(name_or_cls, str):
         return name_or_cls
 
-    from equimo.core.layers.attention import (
-        _ATTN_BLOCK_REGISTRY,
-        _ATTN_REGISTRY,
-    )
-    from equimo.core.layers.dropout import _DROPOUT_REGISTRY
-    from equimo.core.layers.ffn import _FFN_REGISTRY
-    from equimo.core.layers.mamba import _MIXER_REGISTRY
-    from equimo.core.layers.norm import _NORM_REGISTRY
-
     return _resolve_from_registries(
         name_or_cls,
-        (
-            ("attention block", _ATTN_BLOCK_REGISTRY),
-            ("mixer", _MIXER_REGISTRY),
-            ("attention", _ATTN_REGISTRY),
-            ("normalization", _NORM_REGISTRY),
-            ("feed-forward", _FFN_REGISTRY),
-            ("dropout", _DROPOUT_REGISTRY),
-        ),
+        _core_layer_registries(),
         scope="core layer",
     )
 

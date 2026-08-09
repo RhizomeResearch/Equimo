@@ -50,7 +50,11 @@ def test_wheel_metadata_matches_project(built_distributions):
         project["requires-python"]
     )
     assert metadata["License-Expression"] == project["license"]
-    assert metadata.get_all("License-File") == ["LICENSE.md"]
+    assert metadata.get_all("License-File") == [
+        "LICENSE.md",
+        "LICENSES/tfc-t0-APACHE-2.0.txt",
+        "NOTICE",
+    ]
     assert metadata["Description-Content-Type"] == "text/markdown"
     assert (
         metadata.get_payload(decode=True).decode()
@@ -83,16 +87,22 @@ def test_built_distributions_contain_all_package_modules(built_distributions):
         }
 
     assert wheel_modules == source_modules
-    assert len(wheel_licenses) == 1
-    assert next(iter(wheel_licenses)).endswith(".dist-info/licenses/LICENSE.md")
+    assert {path.split(".dist-info/licenses/", 1)[1] for path in wheel_licenses} == {
+        "LICENSE.md",
+        "LICENSES/tfc-t0-APACHE-2.0.txt",
+        "NOTICE",
+    }
     assert sdist_modules == source_modules
     assert {
         f"{sdist_root}/PKG-INFO",
         f"{sdist_root}/CHANGELOG.md",
         f"{sdist_root}/LICENSE.md",
+        f"{sdist_root}/LICENSES/tfc-t0-APACHE-2.0.txt",
+        f"{sdist_root}/NOTICE",
         f"{sdist_root}/README.md",
         f"{sdist_root}/docs/migration-v2.md",
         f"{sdist_root}/docs/stability.md",
+        f"{sdist_root}/docs/timeseries.md",
         f"{sdist_root}/pyproject.toml",
     } <= sdist_contents
 
@@ -125,7 +135,14 @@ expected_version = sys.argv[1]
 assert equimo.__version__ == importlib.metadata.version("Equimo") == expected_version
 
 environment = Path(sys.prefix).resolve()
-for name in ("equimo", "equimo.vision", "equimo.language", "equimo.audio", "equimo.tabular"):
+for name in (
+    "equimo",
+    "equimo.vision",
+    "equimo.language",
+    "equimo.audio",
+    "equimo.tabular",
+    "equimo.timeseries",
+):
     module = importlib.import_module(name)
     assert Path(module.__file__).resolve().is_relative_to(environment)
 """

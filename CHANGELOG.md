@@ -5,6 +5,14 @@ Versioning from version 2.0.0 onward.
 
 ## [Unreleased]
 
+### Added
+
+- An experimental `equimo.timeseries` namespace with the raw T0/T0-alpha
+  patch-transformer backbone, converted pretrained weights, and a documented
+  tensor, scaling, padding, and output contract.
+- Apache-2.0 licensing and upstream attribution for the T0-derived modules,
+  alongside Equimo's MIT-licensed original code.
+
 ### Removed
 
 - **Breaking:** unused fine-tuning API surface identified by a code audit
@@ -44,6 +52,9 @@ Versioning from version 2.0.0 onward.
   drivers, feature-forward mixins, and shared ViT/Parcae embedding builders.
   Saved-checkpoint compatibility is guarded by a new structure-signature
   test (`tests/test_checkpoint_signature_stability.py`).
+- Core attention accepts leading batch axes and optional Q/K transforms.
+  Nonzero masks identify allowed pairs, and fully masked query rows now
+  contribute zero attention probability mass.
 
 ### Fixed
 

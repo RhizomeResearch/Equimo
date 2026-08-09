@@ -41,6 +41,7 @@ def test_stable_release_metadata_and_documents_are_present():
 
     assert pyproject["version"] == "2.0.0"
     assert package_metadata["Version"] == "2.0.0"
+    assert package_metadata["License-Expression"] == "MIT AND Apache-2.0"
     assert "Development Status :: 5 - Production/Stable" in pyproject["classifiers"]
     assert "Development Status :: 5 - Production/Stable" in package_metadata.get_all(
         "Classifier"
@@ -49,11 +50,17 @@ def test_stable_release_metadata_and_documents_are_present():
         "CHANGELOG.md",
         "docs/migration-v2.md",
         "docs/stability.md",
+        "docs/timeseries.md",
         "LICENSE.md",
+        "LICENSES/tfc-t0-APACHE-2.0.txt",
+        "NOTICE",
     ):
         assert (root / relative_path).is_file()
 
     readme = (root / "README.md").read_text()
     assert "[v2 migration guide](docs/migration-v2.md)" in readme
     assert "[stability policy](docs/stability.md)" in readme
-    assert "[LICENSE.md](LICENSE.md)" in readme
+    assert "[time-series guide](docs/timeseries.md)" in readme
+    assert "[MIT License](LICENSE.md)" in readme
+    assert "[NOTICE](NOTICE)" in readme
+    assert "[T0 Apache-2.0 license](LICENSES/tfc-t0-APACHE-2.0.txt)" in readme
