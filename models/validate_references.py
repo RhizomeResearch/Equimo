@@ -15,6 +15,8 @@ if __name__ == "__main__":
 
 import numpy as np
 
+from equimo._pretrained import PRETRAINED_ARCHIVE_SHA256
+
 
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_DATA_DIR = ROOT / "tests" / "data"
@@ -45,6 +47,20 @@ def validate_fixture(path: Path, provenance: dict, *, verify_hash: bool) -> None
     for field in ("repository", "revision", "checkpoint"):
         if not upstream.get(field):
             raise ValueError(f"{path.name}: missing upstream field {field!r}")
+
+    comparison = provenance.get("comparison")
+    if comparison is not None:
+        metric = comparison.get("metric")
+        if metric not in {"mean_absolute_error", "allclose"}:
+            raise ValueError(f"{path.name}: unsupported comparison metric {metric!r}")
+        if float(comparison.get("atol", -1.0)) < 0.0:
+            raise ValueError(f"{path.name}: comparison atol must be non-negative")
+        if metric == "allclose" and float(comparison.get("rtol", -1.0)) < 0.0:
+            raise ValueError(f"{path.name}: comparison rtol must be non-negative")
+
+    identifier = provenance.get("identifier")
+    if identifier is not None and identifier not in PRETRAINED_ARCHIVE_SHA256:
+        raise ValueError(f"{path.name}: untrusted pretrained identifier {identifier!r}")
 
     if verify_hash:
         actual = _sha256(path)

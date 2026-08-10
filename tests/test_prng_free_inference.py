@@ -1,14 +1,10 @@
 """Regression coverage for PRNG-free deterministic inference."""
 
-from importlib.metadata import version
-
 import jax
 import jax.numpy as jnp
 import jax.random as jr
-import numpy as np
 import pytest
 
-import equimo.finetune as eqft
 from equimo.core._prng import fold_in_for_mode, split_for_mode
 from equimo.vision.models import (
     VisionParcae,
@@ -16,7 +12,7 @@ from equimo.vision.models import (
     mobilenetv3_small,
 )
 from _jaxpr_utils import assert_prng_free_jaxpr, prng_primitive_names
-from finetune.test_feature_spec_model_coverage import CASES
+from cases.model_cases import MODEL_CASES, extract_features
 
 
 def _legacy_mobilenet_call(model, image, *, key, inference):
@@ -152,20 +148,13 @@ def test_named_dinov3_vits16_static_inference_is_prng_free():
     )
 
 
-@pytest.mark.parametrize("case", CASES, ids=lambda case: case.registry_name)
+@pytest.mark.parametrize("case", MODEL_CASES, ids=lambda case: case.registry_name)
 def test_every_deterministic_builtin_model_family_has_prng_free_inference(case):
     invocation = case.build(jr.PRNGKey(5))
 
     def inference(*args_and_key):
         *args, runtime_key = args_and_key
-        return eqft.extract_features(
-            invocation.model,
-            *args,
-            feature_spec=invocation.spec,
-            key=runtime_key,
-            inference=True,
-            **invocation.kwargs,
-        )
+        return extract_features(invocation, *args, key=runtime_key)
 
     assert_prng_free_jaxpr(
         inference,
@@ -198,118 +187,3 @@ def test_vision_parcae_random_state_modes_remain_explicitly_stochastic(state_ini
     initialize = lambda runtime_key: model._initialize_state(embedded, key=runtime_key)
     assert prng_primitive_names(jax.make_jaxpr(initialize)(key1))
     assert not jnp.array_equal(initialize(key1), initialize(key2))
-
-
-def test_mobilenetv3_exports_to_onnx_without_randomness_plugins(tmp_path):
-    pytest.importorskip("jax2onnx")
-    pytest.importorskip("onnxruntime")
-    if tuple(int(part) for part in version("jax2onnx").split(".")[:2]) < (0, 15):
-        pytest.skip("Jax2Onnx 0.15.0 or newer is required")
-
-    from jax2onnx import to_onnx
-    import onnxruntime as ort
-
-    model = mobilenetv3_small(
-        num_classes=10,
-        dropout=0.0,
-        key=jr.PRNGKey(0),
-    )
-    key = jr.PRNGKey(1)
-    dummy = jnp.zeros((1, 3, 64, 64), dtype=jnp.float32)
-    sample = jr.normal(jr.PRNGKey(2), dummy.shape, dtype=jnp.float32)
-
-    def inference(batch):
-        keys = jnp.broadcast_to(key, (batch.shape[0], *key.shape))
-        return jax.vmap(
-            lambda image, image_key: model(image, key=image_key, inference=True)
-        )(batch, keys).astype(jnp.float32)
-
-    output_path = tmp_path / "mobilenetv3-small.onnx"
-    to_onnx(
-        inference,
-        inputs=[dummy],
-        opset=18,
-        return_mode="file",
-        output_path=str(output_path),
-        input_names=["image"],
-        output_names=["logits"],
-    )
-
-    session = ort.InferenceSession(
-        str(output_path),
-        providers=["CPUExecutionProvider"],
-    )
-    try:
-        (ort_logits,) = session.run(["logits"], {"image": np.asarray(sample)})
-    except Exception as error:
-        message = str(error)
-        if (
-            version("jax2onnx") == "0.15.0"
-            and "Input shape:{1,1,16,32,32}" in message
-            and "requested shape:{1,16,16,16,32,32}" in message
-        ):
-            pytest.xfail("Jax2Onnx 0.15.0 mislowers vmapped equinox.nn.GroupNorm")
-        raise
-    np.testing.assert_allclose(
-        ort_logits,
-        np.asarray(inference(sample)),
-        rtol=1e-4,
-        atol=1e-5,
-    )
-
-
-def test_dinov3_vits16_exports_to_onnx_without_randomness_plugins(tmp_path):
-    pytest.importorskip("jax2onnx")
-    pytest.importorskip("onnxruntime")
-    if tuple(int(part) for part in version("jax2onnx").split(".")[:2]) < (0, 15):
-        pytest.skip("Jax2Onnx 0.15.0 or newer is required")
-
-    from jax2onnx import to_onnx
-    import onnxruntime as ort
-
-    model = dinov3_vits16_pretrain_lvd1689m(
-        pretrained=False,
-        key=jr.PRNGKey(0),
-    )
-    key = jr.PRNGKey(1)
-    dummy = jnp.zeros((1, 3, 64, 64), dtype=jnp.float32)
-
-    def inference(batch):
-        keys = jnp.broadcast_to(key, (batch.shape[0], *key.shape))
-        return jax.vmap(
-            lambda image, image_key: model.forward_features(
-                image,
-                key=image_key,
-                inference=True,
-            )["x_norm_cls_token"]
-        )(batch, keys).astype(jnp.float32)
-
-    output_path = tmp_path / "dinov3-vits16.onnx"
-    try:
-        to_onnx(
-            inference,
-            inputs=[dummy],
-            opset=18,
-            return_mode="file",
-            output_path=str(output_path),
-            input_names=["image"],
-            output_names=["features"],
-        )
-    except ValueError as error:
-        if version("jax2onnx") == "0.15.0" and str(error) == (
-            "split sizes must be positive"
-        ):
-            pytest.xfail("Jax2Onnx 0.15.0 rejects DINOv3's zero-length prefix split")
-        raise
-
-    session = ort.InferenceSession(
-        str(output_path),
-        providers=["CPUExecutionProvider"],
-    )
-    (ort_features,) = session.run(["features"], {"image": np.asarray(dummy)})
-    np.testing.assert_allclose(
-        ort_features,
-        np.asarray(inference(dummy)),
-        rtol=1e-4,
-        atol=1e-5,
-    )

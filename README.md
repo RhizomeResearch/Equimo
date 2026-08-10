@@ -43,6 +43,9 @@ uv sync --locked --group dev
 uv run pre-commit install
 ```
 
+See the [testing strategy](docs/testing.md) for model/layer inventories,
+fine-tuning integration coverage, ONNX checks, and scheduled upstream parity.
+
 ## Package Layout
 
 Equimo is organized by modality, with reusable building blocks separated from

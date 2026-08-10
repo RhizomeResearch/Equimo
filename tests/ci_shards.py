@@ -11,19 +11,30 @@ import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
+MODEL_TESTS = (
+    "tests/test_audio_ast.py",
+    "tests/test_checkpoint_signature_stability.py",
+    "tests/test_model_catalog.py",
+    "tests/test_model_contracts.py",
+    "tests/test_model_factory.py",
+    "tests/test_model_variant_inventory.py",
+    "tests/test_models.py",
+    "tests/test_pretrained_coverage.py",
+    "tests/test_reference_parity.py",
+    "tests/test_tabpfn.py",
+)
+INTEROP_TESTS = (
+    "tests/test_onnx_export.py",
+    "tests/test_prng_free_inference.py",
+)
 SHARDS: dict[str, tuple[str, ...]] = {
     "finetune": ("tests/finetune",),
-    "models": (
-        "tests/test_audio_ast.py",
-        "tests/test_models.py",
-        "tests/test_tabpfn.py",
-    ),
+    "models": MODEL_TESTS,
+    "interop": INTEROP_TESTS,
     "core": (
         "tests",
         "--ignore=tests/finetune",
-        "--ignore=tests/test_audio_ast.py",
-        "--ignore=tests/test_models.py",
-        "--ignore=tests/test_tabpfn.py",
+        *(f"--ignore={path}" for path in (*MODEL_TESTS, *INTEROP_TESTS)),
     ),
 }
 
