@@ -40,6 +40,7 @@ PRETRAINED_ARCHIVE_SHA256 = {
     "siglip2_vitso400m16_256": "134bce3d1e34f3b05160887f067ff10a565e46002831b9bb78d537c817bd1168",
     "siglip2_vitso400m16_384": "b94b26a0ba04695909b5d9ba788aea7aea74f12988c7e56d61cd0c9b8091b6eb",
     "siglip2_vitso400m16_512": "32af619416ef99d134bf905330174421ea918b04e5c8d3cf91e5e1fff7e60614",
+    "t0_alpha": "3810aac7502d3e684ed346b03bb3e2e1eff76d82e6f33ecc5b877f81767d0248",
     "tabpfn_v3_classifier_binary": "fd9262a0a4c5fcc41f71700e68ade82b54a8628b5859fe1f003f67f7ea7aa696",
     "tabpfn_v3_classifier_default": "0cf3bc3c90f893cb5b6ef56b80961fe13dc5eac117841beabc3a4f8fa489c818",
     "tabpfn_v3_classifier_multiclass": "46f2df49b2123a6def347f480be2413cac3bc55e4c0876f518b7ec56b950eee6",

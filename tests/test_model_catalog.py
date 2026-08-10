@@ -16,7 +16,7 @@ from equimo.catalog import (
     model_info,
 )
 
-KEY_RE = re.compile(r"^[a-z0-9]+/[a-z0-9][a-z0-9_-]*$")
+KEY_RE = re.compile(r"^[a-z0-9_]+/[a-z0-9][a-z0-9_-]*$")
 FIELD_NAMES = ("inputs", "pretrained", "provenance", "notes")
 STATUSES = frozenset(("complete", "experimental", "unavailable"))
 
@@ -55,6 +55,7 @@ ROOT = Path(__file__).parents[1]
 EXPECTED_KEYS = (
     "audio/ast_base_patch16_audioset_10_10_0_4593",
     "tabular/tabpfn_v3_classifier_default",
+    "timeseries/t0_alpha",
     "vision/dinov2_vits14_reg",
 )
 
@@ -75,6 +76,7 @@ def test_representative_descriptors_are_complete_and_serializable():
     expected_registry_keys = {
         "audio": "ast",
         "tabular": "tabpfn",
+        "timeseries": "t0",
         "vision": "vit",
     }
     for descriptor in list_models():
@@ -170,7 +172,7 @@ def test_incomplete_descriptor_fails_authoring_contract():
 
 
 def test_query_does_not_import_conversion_only_dependencies():
-    optional_roots = {"tabpfn", "timm", "torch", "transformers"}
+    optional_roots = {"t0", "tabpfn", "timm", "torch", "transformers"}
     before = set(sys.modules)
 
     list_models()

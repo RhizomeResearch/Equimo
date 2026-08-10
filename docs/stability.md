@@ -31,6 +31,13 @@ documentation identify this exception. Private names beginning with an
 underscore, maintainer scripts under `models/`, tests, generated reference
 artifacts, and repository-internal registries are not public API.
 
+The entire `equimo.timeseries` namespace is experimental in v2. Its public
+exports, constructor and call signatures, tensor contract, and Equinox PyTree
+structure may change in a minor release while a checkpoint-faithful forecasting
+adapter is developed. Such changes will be recorded in the changelog. Existing
+T0 archives remain covered by the checkpoint integrity and loading commitments
+below; this exception applies to the Python and raw-array API around them.
+
 Optional integrations remain optional. Their public Equimo wrappers are stable,
 but the supported Python range may be narrower when an upstream dependency does
 not publish wheels. Equimo documents and tests those exceptions explicitly.

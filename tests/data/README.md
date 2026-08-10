@@ -20,6 +20,8 @@ uv sync --locked --group dev --group reference --extra audio
 The reference group covers the tracked generators' published dependencies.
 The `audio` extra supplies the exact TorchAudio filter-bank backend used by the
 pinned AST preprocessing references.
+Generating the T0-alpha reference additionally requires accepting the model's
+Hugging Face access terms and authenticating with `hf auth login` or `HF_TOKEN`.
 TIPS and EUPE still require their separately cloned upstream source trees; local
 paths must never be written into the provenance file.
 

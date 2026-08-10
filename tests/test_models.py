@@ -1,4 +1,5 @@
 import hashlib
+import os
 import tempfile
 from pathlib import Path
 
@@ -11,6 +12,7 @@ import pytest
 import equimo.tabular.models as tm
 import equimo.vision.models as em
 from equimo.serialization import load_weights, save_model
+from equimo.timeseries.models import t0_alpha
 from equimo.core.layers.activation import get_act
 from equimo.vision.models.attnet import attnet_xxs
 from equimo.vision.models.fastervit import FasterViT
@@ -940,7 +942,7 @@ def test_eupe_vitt16_matches_torch():
     Comparison:
     - PyTorch model.forward_features(x)["x_prenorm"]
     - equimo model.features(x)
-    Tolerance: mean absolute error < 5e-4.
+    Tolerance: mean absolute error < 1e-4.
     """
     _require_cached_checkpoint("eupe_vitt16")
     key = jr.PRNGKey(42)
@@ -952,7 +954,7 @@ def test_eupe_vitt16_matches_torch():
     eq_features = np.array(model.features(x, key=key, inference=True))  # (201, 192)
 
     mae = float(np.mean(np.abs(eq_features - ref["features"][0])))
-    assert mae < 5e-4, f"EUPE features MAE vs PyTorch: {mae:.2e}"
+    assert mae < 1e-4, f"EUPE features MAE vs PyTorch: {mae:.2e}"
 
 
 def test_tabpfn_v3_classifier_default_matches_torch():
@@ -984,6 +986,63 @@ def test_tabpfn_v3_classifier_default_matches_torch():
 
     mae = float(np.mean(np.abs(logits - ref["logits"])))
     assert mae < 1e-4, f"TabPFN v3 classifier MAE vs PyTorch: {mae:.2e}"
+
+
+def test_t0_alpha_matches_torch():
+    _require_cached_checkpoint("t0_alpha")
+    model = t0_alpha(pretrained=True, key=KEY)
+    reference = np.load(Path(__file__).parent / "data/t0_alpha_reference.npz")
+    output = model(
+        *(
+            jnp.asarray(reference[name])
+            for name in ("values", "mask", "group_ids", "variate_type")
+        ),
+        key=KEY,
+        inference=True,
+    )
+    np.testing.assert_allclose(
+        np.asarray(output), reference["output"], rtol=1e-5, atol=1e-5
+    )
+
+
+def test_predict_matches_tfc_t0_alpha():
+    checkpoint = os.environ.get("T0_ALPHA_CHECKPOINT")
+    if not checkpoint:
+        pytest.skip("set T0_ALPHA_CHECKPOINT to the upstream T0 snapshot")
+    checkpoint_path = Path(checkpoint).expanduser()
+    snapshot = checkpoint_path if checkpoint_path.is_dir() else checkpoint_path.parent
+    if not (snapshot / "model.safetensors").is_file():
+        pytest.skip(f"upstream T0 checkpoint is missing from {snapshot}")
+    if not Path("~/.cache/equimo/t0/t0_alpha.tar.lz4").expanduser().is_file():
+        pytest.skip("converted T0-alpha weights are not cached locally")
+
+    torch = pytest.importorskip("torch")
+    upstream = pytest.importorskip("t0")
+    rng = np.random.default_rng(7)
+    context = rng.standard_normal((1, 64)).astype(np.float32)
+    context[0, 5] = np.nan
+    horizon = 17
+    quantiles = (0.1, 0.25, 0.9)
+
+    reference = upstream.T0Forecaster.from_pretrained(str(snapshot)).eval()
+    with torch.inference_mode():
+        expected = reference.predict(context, horizon=horizon, quantiles=quantiles)
+    actual = t0_alpha(pretrained=True, key=KEY).predict(
+        context, horizon=horizon, quantiles=quantiles
+    )
+
+    np.testing.assert_allclose(
+        np.asarray(actual.quantiles),
+        expected.quantiles.numpy(),
+        rtol=2e-5,
+        atol=2e-5,
+    )
+    np.testing.assert_allclose(
+        np.asarray(actual.median),
+        expected.median.numpy(),
+        rtol=2e-5,
+        atol=2e-5,
+    )
 
 
 def test_vit5_small_forward():
