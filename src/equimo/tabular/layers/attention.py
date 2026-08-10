@@ -8,10 +8,25 @@ import jax.numpy as jnp
 import jax.random as jr
 from jaxtyping import Array, Float, PRNGKeyArray
 
+from equimo.core.layers.rotary import apply_rotary, make_1d_rotary_factors
+
 from .mlp import Mlp, _call_mlp
 from .registry import _register_module, _registry_name, _resolve_from_registry
 
 _ATTN_REGISTRY: dict[str, type[eqx.Module]] = {}
+
+
+def _apply_rope(rope: eqx.Module, x: jax.Array) -> jax.Array:
+    if isinstance(rope, eqx.nn.RotaryPositionalEmbedding):
+        factors = make_1d_rotary_factors(
+            x.shape[-2],
+            rope.embedding_size,
+            theta=rope.theta,
+            layout="split_half",
+            dtype=rope.dtype,
+        )
+        return apply_rotary(x, factors)
+    return jax.vmap(rope)(x)
 
 
 def register_attn(
@@ -162,8 +177,8 @@ class Attention(eqx.Module):
         k = _to_heads(self.k_proj, kv_tokens, self.num_heads, self.head_dim)
         v = _to_heads(self.v_proj, kv_tokens, self.num_heads, self.head_dim)
         if rope is not None:
-            q = jax.vmap(rope)(q)
-            k = jax.vmap(rope)(k)
+            q = _apply_rope(rope, q)
+            k = _apply_rope(rope, k)
         out = _scaled_dot_product_attention(q, k, v, self.head_dim)
         out = out.transpose(1, 0, 2).reshape(q_tokens.shape[0], -1)
         return jax.vmap(self.proj)(out)

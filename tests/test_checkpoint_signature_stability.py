@@ -24,6 +24,7 @@ import equimo.audio.models as am
 import equimo.vision.models as em
 from equimo.serialization import _model_class, _model_signature
 from equimo.tabular.models.tabpfn import TabPFN
+from equimo.timeseries.models.t0 import T0
 from equimo.vision.layers.attention import HATBlock
 from equimo.vision.layers.convolution import GenericGhostModule, GhostBottleneck
 from equimo.vision.models.fastervit import FasterViT
@@ -74,6 +75,20 @@ def _parcae(**overrides):
 
 BUILDERS = {
     "vit_tiny": _vit,
+    "vit_tiny_rope_mode": lambda: _vit(
+        num_heads=2,
+        use_local_pos_embed=True,
+        local_pos_embed_config_patch={
+            "strategy": "mode",
+            "freqs_for": "lang",
+            "theta": 10_000,
+            "pt_seq_len": 8,
+        },
+    ),
+    "vit_tiny_rope_period": lambda: _vit(
+        num_heads=2,
+        use_local_pos_embed=True,
+    ),
     "vit_tiny_untied_cls_norm": lambda: _vit(untie_global_and_local_cls_norm=True),
     "parcae_tiny": _parcae,
     "parcae_tiny_untied_cls_norm": lambda: _parcae(
@@ -174,6 +189,16 @@ BUILDERS = {
         decoder_head_dim=8,
         decoder_num_heads=2,
         mlp_ratio=2.0,
+        key=KEY,
+    ),
+    "t0_tiny": lambda: T0(
+        embed_dim=16,
+        num_layers=3,
+        num_heads=2,
+        mlp_hidden_dim=32,
+        patch_size=4,
+        group_every_n=3,
+        dropout=0.0,
         key=KEY,
     ),
     "hat_block": lambda: HATBlock(

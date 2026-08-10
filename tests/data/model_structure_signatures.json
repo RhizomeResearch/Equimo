@@ -67,6 +67,10 @@
     "model_class": "equimo.vision.models.shvit.SHViT",
     "model_signature": "sha256:1418a6e6ed18058adbd6948ce5096a46fb0deb830df8d8bb522477b3b325de2a"
   },
+  "t0_tiny": {
+    "model_class": "equimo.timeseries.models.t0.T0",
+    "model_signature": "sha256:87631428966264f415503af321ced4a29a0615b56925f4a82a414e93504619c7"
+  },
   "tabpfn_tiny": {
     "model_class": "equimo.tabular.models.tabpfn.TabPFN",
     "model_signature": "sha256:715c6d36a496f59583030120c7f41fffd23d22d4bbe187c85f48e3b89ad3ea12"
@@ -74,6 +78,14 @@
   "vit_tiny": {
     "model_class": "equimo.vision.models.vit.VisionTransformer",
     "model_signature": "sha256:08862d7fcacbfc2833a37a2c031676149c6b6a53d4a335d9b04a8d0984794a3a"
+  },
+  "vit_tiny_rope_mode": {
+    "model_class": "equimo.vision.models.vit.VisionTransformer",
+    "model_signature": "sha256:f83d08857438a53329124a9693d7dcfa40815babefc3b12b5dea62bec8599b4e"
+  },
+  "vit_tiny_rope_period": {
+    "model_class": "equimo.vision.models.vit.VisionTransformer",
+    "model_signature": "sha256:f83d08857438a53329124a9693d7dcfa40815babefc3b12b5dea62bec8599b4e"
   },
   "vit_tiny_untied_cls_norm": {
     "model_class": "equimo.vision.models.vit.VisionTransformer",

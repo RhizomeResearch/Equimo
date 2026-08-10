@@ -11,15 +11,8 @@ import equinox as eqx
 
 from equimo.core.layers import Attention as CoreAttention
 from equimo.core.layers import AttentionBlock as CoreAttentionBlock
-from equimo.core.layers import DropPath, Mamba2Mixer, Mlp
+from equimo.core.layers import DropPath, Mamba2Mixer, Mlp, RotaryFactors
 from equimo.core.layers import get_layer as get_core_layer
-from equimo.core.layers.attention import (
-    rope_apply as core_rope_apply,
-    rope_apply_interleaved,
-    rope_apply_qk_last_hw as core_rope_apply_qk_last_hw,
-    rope_rotate_half as core_rope_rotate_half,
-    rope_rotate_interleaved,
-)
 from equimo.core.layers.norm import LayerScale
 from equimo.vision.layers import get_layer as get_vision_layer
 from equimo.vision.layers.attention import (
@@ -43,9 +36,6 @@ from equimo.vision.layers.attention import (
     LowFormerBlock,
     get_attn,
     get_attn_block,
-    rope_apply,
-    rope_apply_qk_last_hw,
-    rope_rotate_half,
 )
 from _jaxpr_utils import assert_prng_free_jaxpr
 
@@ -175,9 +165,6 @@ class TestAttentionLayers:
         assert AttentionBlock is CoreAttentionBlock
         assert get_attn("attention") is CoreAttention
         assert get_attn_block("attentionblock") is CoreAttentionBlock
-        assert rope_rotate_half is core_rope_rotate_half
-        assert rope_apply is core_rope_apply
-        assert rope_apply_qk_last_hw is core_rope_apply_qk_last_hw
 
     @pytest.mark.parametrize("init_values", [None, 1e-5])
     def test_standard_attention_block_checkpoint_compatibility(self, init_values):
@@ -239,14 +226,22 @@ class TestAttentionLayers:
         inference_output = model(
             x,
             mask=mask,
-            rope_sincos=(jnp.sin(angles), jnp.cos(angles)),
+            rotary=RotaryFactors(
+                sin=jnp.sin(angles),
+                cos=jnp.cos(angles),
+                layout="split_half",
+            ),
             key=KEY,
             inference=True,
         )
         training_output = model(
             x,
             mask=mask,
-            rope_sincos=(jnp.sin(angles), jnp.cos(angles)),
+            rotary=RotaryFactors(
+                sin=jnp.sin(angles),
+                cos=jnp.cos(angles),
+                layout="split_half",
+            ),
             key=KEY,
             inference=False,
         )
@@ -295,63 +290,27 @@ class TestAttentionLayers:
         assert jnp.array_equal(batch_mask_output[0, 3], jnp.zeros((DIM,)))
         assert jnp.array_equal(batch_mask_output, head_mask_output)
 
-    def test_standard_attention_accepts_qk_transform(self):
+    def test_standard_attention_validates_rotary_sequence_length(self):
         model = Attention(DIM, NUM_HEADS, key=KEY)
         x = jr.normal(jr.PRNGKey(1), (2, SEQLEN, DIM))
-
-        baseline = model(x, key=KEY, inference=True)
-        transformed = model(
-            x,
-            qk_transform=lambda q, k: (jnp.zeros_like(q), k),
-            key=KEY,
-            inference=True,
+        rotary = RotaryFactors(
+            sin=jnp.zeros((SEQLEN - 1, DIM // NUM_HEADS)),
+            cos=jnp.ones((SEQLEN - 1, DIM // NUM_HEADS)),
+            layout="split_half",
         )
 
-        assert transformed.shape == x.shape
-        assert not jnp.allclose(transformed, baseline)
+        with pytest.raises(ValueError, match="sequence length"):
+            model(x, rotary=rotary, key=KEY, inference=True)
 
-        angles = jnp.zeros((SEQLEN, DIM // NUM_HEADS))
-        with pytest.raises(ValueError, match="mutually exclusive"):
-            model(
-                x,
-                rope_sincos=(jnp.sin(angles), jnp.cos(angles)),
-                qk_transform=lambda q, k: (q, k),
-                key=KEY,
-                inference=True,
-            )
-        with pytest.raises(ValueError, match="must preserve Q/K shapes"):
-            model(
-                x,
-                qk_transform=lambda q, k: (q[..., :-1], k),
-                key=KEY,
-                inference=True,
-            )
+    def test_linear_attention_supports_configured_rectangular_grid(self):
+        model = LinearAttention((2, 3), DIM, NUM_HEADS, key=KEY)
+        x = jr.normal(KEY, (6, DIM))
 
-    def test_interleaved_rope_helpers_preserve_adjacent_pair_layout(self):
-        x = jnp.arange(8, dtype=jnp.float32).reshape(2, 4)
-        expected_rotation = jnp.array(
-            [
-                [-1.0, 0.0, -3.0, 2.0],
-                [-5.0, 4.0, -7.0, 6.0],
-            ]
-        )
-        sin = jnp.full_like(x, 0.25)
-        cos = jnp.full_like(x, 0.75)
+        output = model(x, key=KEY, inference=True)
 
-        assert jnp.array_equal(rope_rotate_interleaved(x), expected_rotation)
-        assert jnp.allclose(
-            rope_apply_interleaved(x, sin, cos),
-            x * cos + expected_rotation * sin,
-        )
-        assert not jnp.array_equal(rope_rotate_interleaved(x), core_rope_rotate_half(x))
-
-    def test_reexported_rope_helper_preserves_shape_validation(self):
-        q = jnp.zeros((NUM_HEADS, SEQLEN, DIM // NUM_HEADS))
-        bad_sin = jnp.zeros((H * W, 1))
-        cos = jnp.ones((H * W, DIM // NUM_HEADS))
-
-        with pytest.raises(ValueError, match="head_dim"):
-            rope_apply_qk_last_hw(q, q, bad_sin, cos)
+        assert output.shape == x.shape
+        with pytest.raises(ValueError, match="configured grid"):
+            model(jnp.ones((5, DIM)), key=KEY, inference=True)
 
     def test_layer_registry_is_scoped_by_modality(self):
         assert get_core_layer("attention") is CoreAttention

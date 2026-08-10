@@ -2,7 +2,7 @@
 # ty: ignore[invalid-assignment]
 # ty: ignore[too-many-positional-arguments]
 # ty: ignore[call-non-callable]
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, List, Optional
 
 import equinox as eqx
 import jax
@@ -15,6 +15,7 @@ from equimo.core.layers.activation import get_act
 from equimo.core.layers.dropout import DropPathAdd, split_drop_path
 from equimo.core.layers.ffn import get_ffn
 from equimo.core.layers.norm import LayerScale, get_norm, maybe_layer_scale
+from equimo.core.layers.rotary import RotaryFactors, apply_rotary_qk
 from equimo.core.layers._registry import make_get, make_register
 
 _ATTN_REGISTRY: dict[str, type[eqx.Module]] = {}
@@ -31,73 +32,6 @@ register_attn_block = make_register(_ATTN_BLOCK_REGISTRY)
 
 
 get_attn_block = make_get(_ATTN_BLOCK_REGISTRY)
-
-
-def rope_rotate_half(x: jax.Array) -> jax.Array:
-    """Rotate the last-dimension halves used by rotary embeddings."""
-
-    x1, x2 = jnp.split(x, 2, axis=-1)
-    return jnp.concatenate([-x2, x1], axis=-1)
-
-
-def rope_apply(x: jax.Array, sin: jax.Array, cos: jax.Array) -> jax.Array:
-    """Apply precomputed rotary sine/cosine factors to an array."""
-
-    return (x * cos) + (rope_rotate_half(x) * sin)
-
-
-def rope_rotate_interleaved(x: jax.Array) -> jax.Array:
-    """Rotate adjacent last-dimension pairs used by interleaved RoPE."""
-
-    pairs = x.reshape(*x.shape[:-1], -1, 2)
-    return jnp.stack((-pairs[..., 1], pairs[..., 0]), axis=-1).reshape(x.shape)
-
-
-def rope_apply_interleaved(
-    x: jax.Array,
-    sin: jax.Array,
-    cos: jax.Array,
-) -> jax.Array:
-    """Apply interleaved rotary sine/cosine factors to an array."""
-
-    return (x * cos) + (rope_rotate_interleaved(x) * sin)
-
-
-def rope_apply_qk_last_hw(
-    q: jax.Array,
-    k: jax.Array,
-    sin: jax.Array,
-    cos: jax.Array,
-    prefix: int | None = None,
-) -> Tuple[jax.Array, jax.Array]:
-    """Apply RoPE to the tail tokens while preserving optional prefix tokens."""
-    if sin.shape[-1] != q.shape[-1] or cos.shape[-1] != q.shape[-1]:
-        raise ValueError(
-            "sin/cos last dim must equal head_dim; got "
-            f"{sin.shape[-1]} and {cos.shape[-1]} vs {q.shape[-1]}"
-        )
-    hw = sin.shape[-2]
-    n = q.shape[-2]
-    if prefix is None:
-        prefix = n - hw
-    if prefix < 0:
-        raise ValueError(f"Sequence length N={n} smaller than HW={hw}.")
-
-    q_dtype, k_dtype = q.dtype, k.dtype
-    rope_dtype = sin.dtype
-    q = q.astype(rope_dtype)
-    k = k.astype(rope_dtype)
-
-    sin_b = sin[None, :, :]
-    cos_b = cos[None, :, :]
-    q_prefix, q_tail = jnp.split(q, [prefix], axis=-2)
-    k_prefix, k_tail = jnp.split(k, [prefix], axis=-2)
-    q_tail = rope_apply(q_tail, sin_b, cos_b)
-    k_tail = rope_apply(k_tail, sin_b, cos_b)
-    return (
-        jnp.concatenate([q_prefix, q_tail], axis=-2).astype(q_dtype),
-        jnp.concatenate([k_prefix, k_tail], axis=-2).astype(k_dtype),
-    )
 
 
 def _apply_module_last_dim(module: eqx.Module, x: jax.Array) -> jax.Array:
@@ -189,18 +123,8 @@ class Attention(eqx.Module):
         key: PRNGKeyArray,
         inference: Optional[bool] = None,
         mask: Optional[Array] = None,
-        rope_sincos: Optional[Tuple[jax.Array, jax.Array]] = None,
-        *,
-        qk_transform: Optional[
-            Callable[
-                [jax.Array, jax.Array],
-                Tuple[jax.Array, jax.Array],
-            ]
-        ] = None,
+        rotary: Optional[RotaryFactors] = None,
     ) -> Float[Array, "... seqlen dim"]:
-        if rope_sincos is not None and qk_transform is not None:
-            raise ValueError("rope_sincos and qk_transform are mutually exclusive.")
-
         key1, key2 = split_for_mode(key, 2, inference=inference)
 
         qkv = _apply_module_last_dim(self.qkv, x).reshape(
@@ -211,22 +135,13 @@ class Attention(eqx.Module):
         q = _apply_module_last_dim(self.q_norm, q)
         k = _apply_module_last_dim(self.k_norm, k)
 
-        if rope_sincos is not None:
-            sin, cos = rope_sincos
-            if sin.shape[-1] != self.head_dim or cos.shape[-1] != self.head_dim:
+        if rotary is not None:
+            if rotary.feature_dim != self.head_dim:
                 raise ValueError(
-                    f"RoPE sin/cos last dim ({sin.shape[-1]}) must equal "
+                    f"Rotary factor dimension ({rotary.feature_dim}) must equal "
                     f"head_dim ({self.head_dim})."
                 )
-            q, k = rope_apply_qk_last_hw(q, k, sin, cos)
-        elif qk_transform is not None:
-            q_shape, k_shape = q.shape, k.shape
-            q, k = qk_transform(q, k)
-            if q.shape != q_shape or k.shape != k_shape:
-                raise ValueError(
-                    "qk_transform must preserve Q/K shapes; got "
-                    f"{q.shape} and {k.shape}, expected {q_shape} and {k_shape}."
-                )
+            q, k = apply_rotary_qk(q, k, rotary)
 
         attn = (
             jnp.einsum("...hqd,...hkd->...hqk", q, k) / jnp.sqrt(self.head_dim)
@@ -354,8 +269,8 @@ class AttentionBlock(eqx.Module):
         attn_kwargs = {"mask": attn_mask} if attn_mask is not None else {}
         ffn_kwargs = {"mask": ffn_mask} if ffn_mask is not None else {}
         attn_kwargs = (
-            attn_kwargs | {"rope_sincos": kwargs["rope_sincos"]}
-            if kwargs.get("rope_sincos") is not None
+            attn_kwargs | {"rotary": kwargs["rotary"]}
+            if kwargs.get("rotary") is not None
             else attn_kwargs
         )
         x = self.drop_path1(

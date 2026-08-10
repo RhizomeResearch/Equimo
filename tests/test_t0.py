@@ -3,11 +3,17 @@ import jax.random as jr
 import pytest
 
 import equimo.serialization as serialization
-from equimo.core.layers import Attention, BlockChunk, Mlp, SwiGluFused
+from equimo.core.layers import (
+    Attention,
+    BlockChunk,
+    Mlp,
+    SwiGluFused,
+    apply_rotary_qk,
+)
 from equimo.registry import get_model_cls
 from equimo.timeseries import layers
 from equimo.timeseries.layers import registry as timeseries_registry
-from equimo.timeseries.layers.axis_attn import _xpos
+from equimo.timeseries.layers.axis_attn import _time_rotary_factors
 from equimo.timeseries.models import Forecast, T0, t0, t0_alpha
 from equimo.timeseries.models.t0 import _T0_REGISTRY
 
@@ -139,13 +145,40 @@ def test_predict_rolls_out_beyond_native_horizon():
     assert bool(jnp.all(jnp.isfinite(forecast.quantiles)))
 
 
-def test_xpos_matches_upstream_split_scale_layout():
-    q = jnp.ones((1, 1, 3, 4), dtype=jnp.float32)
-    rotated_q, _ = _xpos(q, q)
-    base = (jnp.arange(0, 4, 2) + 0.4 * 4) / (1.4 * 4)
-    half_scale = base ** (-1 / 512)
-    expected = jnp.concatenate((half_scale, half_scale))
-    assert jnp.allclose(rotated_q[0, 0, 0], expected)
+@pytest.mark.parametrize("seq_len", [3, 4])
+def test_xpos_matches_upstream_rotation_and_split_scale_layout(seq_len):
+    dim = 4
+    q = jnp.arange(1, seq_len * dim + 1, dtype=jnp.float32).reshape(1, 1, seq_len, dim)
+    k = q + 0.5
+    factors = _time_rotary_factors(seq_len, dim)
+    rotated_q, rotated_k = apply_rotary_qk(q, k, factors)
+
+    positions = jnp.arange(seq_len, dtype=jnp.float32)
+    frequencies = 1.0 / (10_000 ** (jnp.arange(0, dim, 2) / dim))
+    angles = jnp.repeat(jnp.outer(positions, frequencies), 2, axis=-1)
+    sin, cos = jnp.sin(angles), jnp.cos(angles)
+    base = (jnp.arange(0, dim, 2) + 0.4 * dim) / (1.4 * dim)
+    power = (positions - (seq_len - 1) // 2) / 512.0
+    half_scale = base[None] ** power[:, None]
+    scale = jnp.concatenate((half_scale, half_scale), axis=-1)
+
+    def rotate(x):
+        pairs = x.reshape(*x.shape[:-1], -1, 2)
+        paired = jnp.stack((-pairs[..., 1], pairs[..., 0]), axis=-1).reshape(x.shape)
+        return x * cos + paired * sin
+
+    assert jnp.allclose(rotated_q, rotate(q) * scale)
+    assert jnp.allclose(rotated_k, rotate(k) / scale)
+
+
+@pytest.mark.parametrize("dtype", [jnp.float16, jnp.bfloat16])
+def test_xpos_preserves_low_precision_dtype(dtype):
+    values = jnp.ones((1, 1, 4, 4), dtype=dtype)
+
+    q, k = apply_rotary_qk(values, values, _time_rotary_factors(4, 4))
+
+    assert q.dtype == dtype
+    assert k.dtype == dtype
 
 
 def test_constructor_rejects_odd_head_dimension():

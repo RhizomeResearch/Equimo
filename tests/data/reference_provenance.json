@@ -196,6 +196,29 @@
         "n_train": {"dtype": "int64", "shape": []},
         "logits": {"dtype": "float32", "shape": [4, 160]}
       }
+    },
+    "vit5_rope_reference.npz": {
+      "generator": "uv run python models/vit5.py --output-dir /tmp/equimo-references",
+      "upstream": {
+        "repository": "wangf3014/ViT-5",
+        "revision": "b7b0796062f4b51ae00523cb77c7117ae2dff536",
+        "checkpoint": "rope.py"
+      },
+      "seed": 42,
+      "input_shape": [6, 2, 16],
+      "tolerance": 0.000001,
+      "sha256": "7a1f4ff054b813ac1100722a342f20a54eba4753c7db9ad51fed26a64b178ed7",
+      "arrays": {
+        "x": {"dtype": "float32", "shape": [6, 2, 16]},
+        "sin": {"dtype": "float32", "shape": [6, 16]},
+        "cos": {"dtype": "float32", "shape": [6, 16]},
+        "output": {"dtype": "float32", "shape": [6, 2, 16]},
+        "height": {"dtype": "int64", "shape": []},
+        "width": {"dtype": "int64", "shape": []},
+        "dim": {"dtype": "int64", "shape": []},
+        "pt_seq_len": {"dtype": "int64", "shape": []},
+        "theta": {"dtype": "float64", "shape": []}
+      }
     }
   }
 }

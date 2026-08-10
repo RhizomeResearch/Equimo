@@ -15,13 +15,7 @@ from jaxtyping import Array, Float, PRNGKeyArray
 
 from equimo.core._prng import split_for_mode
 from equimo.core.layers.activation import get_act
-from equimo.core.layers.attention import (
-    Attention,
-    AttentionBlock,
-    rope_apply as rope_apply,
-    rope_apply_qk_last_hw as rope_apply_qk_last_hw,
-    rope_rotate_half as rope_rotate_half,
-)
+from equimo.core.layers.attention import Attention, AttentionBlock
 from equimo.core.layers.dropout import DropPathAdd, split_drop_path
 from equimo.core.layers.ffn import get_ffn
 from equimo.core.layers.mamba import Mamba2Mixer
@@ -865,7 +859,7 @@ class LinearAttention(eqx.Module):
 
     qk: eqx.Module
     lepe: eqx.Module
-    rope: eqx.Module
+    rope: RoPE
 
     def __init__(
         self,
@@ -899,7 +893,11 @@ class LinearAttention(eqx.Module):
         inference: Optional[bool] = None,
     ) -> Float[Array, "seqlen dim"]:
         n, c = x.shape
-        h = w = int(n**0.5)
+        h, w = self.rope.rotations.shape[:2]
+        if n != h * w:
+            raise ValueError(
+                f"Input sequence length {n} does not match configured grid {h}x{w}."
+            )
 
         q, k = rearrange(
             jax.vmap(self.qk)(x),

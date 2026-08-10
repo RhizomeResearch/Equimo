@@ -1,30 +1,43 @@
 # ty: ignore[invalid-assignment]
 # Adapted from tfc-t0 and modified for JAX/Equinox; see NOTICE.
 
+from typing import cast
+
 import equinox as eqx
 import jax.numpy as jnp
-from jaxtyping import Array
 
-from equimo.core.layers import Attention, RMSNormGated
-from equimo.core.layers.attention import rope_apply_interleaved
+from equimo.core.layers import (
+    Attention,
+    RMSNormGated,
+    RotaryFactors,
+    make_1d_rotary_factors,
+)
 
 from .registry import register_layer
 
 
-def _xpos(q: Array, k: Array) -> tuple[Array, Array]:
-    """Exact rotary-embedding-torch 0.8.x RoPE + XPos."""
-    dim, seq_len = q.shape[-1], q.shape[-2]
-    positions = jnp.arange(seq_len, dtype=q.dtype)
-    frequencies = 1.0 / (10_000 ** (jnp.arange(0, dim, 2) / dim))
-    angles = jnp.repeat(jnp.outer(positions, frequencies), 2, axis=-1)
-    base = (jnp.arange(0, dim, 2) + 0.4 * dim) / (1.4 * dim)
+def _time_rotary_factors(seq_len: int, dim: int) -> RotaryFactors:
+    """Build T0's exact interleaved RoPE and reciprocal XPos factors."""
+    factors = make_1d_rotary_factors(
+        seq_len,
+        dim,
+        theta=10_000.0,
+        layout="interleaved",
+        dtype=jnp.float32,
+    )
+    positions = jnp.arange(seq_len, dtype=jnp.float32)
+    base = (jnp.arange(0, dim, 2, dtype=jnp.float32) + 0.4 * dim) / (1.4 * dim)
     power = (positions - (seq_len - 1) // 2) / 512.0
     half_scale = base[None] ** power[:, None]
     scale = jnp.concatenate((half_scale, half_scale), axis=-1)
-    cos, sin = jnp.cos(angles), jnp.sin(angles)
-    return (
-        rope_apply_interleaved(q, sin, cos) * scale,
-        rope_apply_interleaved(k, sin, cos) / scale,
+    return cast(
+        RotaryFactors,
+        RotaryFactors(
+            sin=factors.sin,
+            cos=factors.cos,
+            layout=factors.layout,
+            scale=scale,
+        ),
     )
 
 
@@ -51,10 +64,15 @@ class AxisAttention(eqx.Module):
     def __call__(self, x, mask, *, key, inference=None):
         if self.attention_type == "group":
             x = jnp.swapaxes(x, 0, 1)
+        rotary = (
+            _time_rotary_factors(x.shape[-2], self.attention.head_dim)
+            if self.attention_type == "time"
+            else None
+        )
         x = self.attention(
             x,
             mask=mask,
-            qk_transform=_xpos if self.attention_type == "time" else None,
+            rotary=rotary,
             key=key,
             inference=inference,
         )

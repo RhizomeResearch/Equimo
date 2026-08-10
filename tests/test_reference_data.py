@@ -17,4 +17,4 @@ def test_reference_schema_and_provenance_coverage():
     )
 
     assert result.returncode == 0, result.stderr
-    assert "Validated 10 references" in result.stdout
+    assert "Validated 11 references" in result.stdout
