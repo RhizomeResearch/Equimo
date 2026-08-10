@@ -5,6 +5,11 @@ models. Their commands, upstream revisions, input seeds and shapes, locked
 library versions, expected schemas, comparison tolerances, and fixture hashes
 are recorded in `reference_provenance.json`.
 
+`model_output_references.json` is a separate, small Equimo-only regression
+baseline for the tiny production model-family matrix. It detects unintended
+local numerical changes; it is not evidence of PyTorch/upstream parity and is
+therefore never listed in `reference_provenance.json`.
+
 The EUPE fixture retains the original generator's deterministic RNG offset: a
 256×256 image was sampled before its 224×224 input. The manifest records this as
 `rng_discard_shape`, and `models/torch_models.py` reproduces that sequence.

@@ -1,5 +1,6 @@
 import subprocess
 import sys
+import json
 from pathlib import Path
 
 
@@ -17,4 +18,7 @@ def test_reference_schema_and_provenance_coverage():
     )
 
     assert result.returncode == 0, result.stderr
-    assert "Validated 11 references" in result.stdout
+    manifest = json.loads(
+        (DATA_DIR / "reference_provenance.json").read_text(encoding="utf-8")
+    )
+    assert f"Validated {len(manifest['fixtures'])} references" in result.stdout

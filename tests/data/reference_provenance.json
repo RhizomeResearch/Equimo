@@ -16,6 +16,7 @@
   "fixtures": {
     "ast_base_patch16_audioset_10_10_0_4593_reference.npz": {
       "generator": "uv run python models/ast.py ast_base_patch16_audioset_10_10_0_4593 --references-only --output-dir /tmp/equimo-references",
+      "identifier": "ast_base_patch16_audioset_10_10_0_4593",
       "upstream": {
         "repository": "MIT/ast-finetuned-audioset-10-10-0.4593",
         "revision": "f826b80d28226b62986cc218e5cec390b1096902",
@@ -34,6 +35,7 @@
     },
     "ast_base_patch16_speechcommands_v2_10_10_0_9812_reference.npz": {
       "generator": "uv run python models/ast.py ast_base_patch16_speechcommands_v2_10_10_0_9812 --references-only --output-dir /tmp/equimo-references",
+      "identifier": "ast_base_patch16_speechcommands_v2_10_10_0_9812",
       "upstream": {
         "repository": "MIT/ast-finetuned-speech-commands-v2",
         "revision": "315b0b847a3ca207e68b718503ad72066612eacd",
@@ -52,6 +54,7 @@
     },
     "ast_base_patch16_audioset_10_10_0_4593_raw_audio_reference.npz": {
       "generator": "uv run --group reference --extra audio python models/audio_preprocessing.py ast_base_patch16_audioset_10_10_0_4593 --output-dir /tmp/equimo-audio-references",
+      "identifier": "ast_base_patch16_audioset_10_10_0_4593",
       "upstream": {
         "repository": "MIT/ast-finetuned-audioset-10-10-0.4593",
         "revision": "f826b80d28226b62986cc218e5cec390b1096902",
@@ -72,6 +75,7 @@
     },
     "ast_base_patch16_speechcommands_v2_10_10_0_9812_raw_audio_reference.npz": {
       "generator": "uv run --group reference --extra audio python models/audio_preprocessing.py ast_base_patch16_speechcommands_v2_10_10_0_9812 --output-dir /tmp/equimo-audio-references",
+      "identifier": "ast_base_patch16_speechcommands_v2_10_10_0_9812",
       "upstream": {
         "repository": "MIT/ast-finetuned-speech-commands-v2",
         "revision": "315b0b847a3ca207e68b718503ad72066612eacd",
@@ -92,6 +96,7 @@
     },
     "dinov2_vits14_reg_reference.npz": {
       "generator": "uv run python models/torch_models.py dinov2_vits14_reg --output-dir /tmp/equimo-references",
+      "identifier": "dinov2_vits14_reg",
       "upstream": {
         "repository": "timm/vit_small_patch14_reg4_dinov2.lvd142m",
         "revision": "c04b5193082a8d5b0c4856c7937384a48136c5de",
@@ -108,6 +113,7 @@
     },
     "dinov3_vits16_reference.npz": {
       "generator": "uv run python models/torch_models.py dinov3_vits16 --output-dir /tmp/equimo-references",
+      "identifier": "dinov3_vits16_pretrain_lvd1689m",
       "upstream": {
         "repository": "facebook/dinov3-vits16-pretrain-lvd1689m",
         "revision": "114c1379950215c8b35dfcd4e90a5c251dde0d32",
@@ -124,6 +130,7 @@
     },
     "eupe_vitt16_reference.npz": {
       "generator": "uv run python models/torch_models.py eupe_vitt16 --source-dir /path/to/EUPE --source-revision 7319b8be9be7f38e6c8dff822695cd62f8e4cada --checkpoint /path/to/EUPE-ViT-T.pt --output-dir /tmp/equimo-references",
+      "identifier": "eupe_vitt16",
       "upstream": {
         "repository": "facebookresearch/EUPE",
         "revision": "7319b8be9be7f38e6c8dff822695cd62f8e4cada",
@@ -134,6 +141,10 @@
       "rng_discard_shape": [3, 256, 256],
       "input_shape": [3, 224, 224],
       "tolerance": 0.0005,
+      "comparison": {
+        "metric": "mean_absolute_error",
+        "atol": 0.0001
+      },
       "sha256": "169876fd268476b5214d4c4f9aa346c972b75244751a984b7ed1efa0e393b594",
       "arrays": {
         "features": {"dtype": "float32", "shape": [1, 201, 192]},
@@ -142,6 +153,7 @@
     },
     "siglip2_vitb16_256_reference.npz": {
       "generator": "uv run python models/torch_models.py siglip2_vitb16_256 --output-dir /tmp/equimo-references",
+      "identifier": "siglip2_vitb16_256",
       "upstream": {
         "repository": "google/siglip2-base-patch16-256",
         "revision": "3f9f96cb90da5dbc758b01813f2f6f1aee24c1ab",
@@ -158,6 +170,7 @@
     },
     "t0_alpha_reference.npz": {
       "generator": "uv run --group reference python models/t0.py --references-only --revision f8727c2357e0d81f1d9f56fe3aaac43068b5fc72 --checkpoint-sha256 16c030d3fd70f06dc4238e9a8356e9b5a631d07f80f1bc76ba539991aed5897f --output-dir /tmp/equimo-references",
+      "identifier": "t0_alpha",
       "upstream": {
         "repository": "theforecastingcompany/t0-alpha",
         "revision": "f8727c2357e0d81f1d9f56fe3aaac43068b5fc72",
@@ -169,6 +182,11 @@
       "context_shape": [2, 2, 64],
       "future_covariates_shape": [2, 1, 97],
       "tolerance": 0.0002,
+      "comparison": {
+        "metric": "allclose",
+        "rtol": 0.00001,
+        "atol": 0.00001
+      },
       "sha256": "ab5cc140cb601473ce519f420ad18965fe72bc5d087ff5825b6b7762b5b1c1d7",
       "arrays": {
         "values": {"dtype": "float32", "shape": [6, 97]},
@@ -180,6 +198,7 @@
     },
     "tabpfn_v3_classifier_default_reference.npz": {
       "generator": "uv run python models/tabpfn3.py tabpfn_v3_classifier_default --references-only --checkpoint /path/to/tabpfn-v3-classifier-v3_default.ckpt --output-dir /tmp/equimo-references",
+      "identifier": "tabpfn_v3_classifier_default",
       "upstream": {
         "repository": "Prior-Labs/tabpfn_3",
         "revision": "e923ba9be85784206c9e2f43b0035c84d5fd5747",

@@ -1544,7 +1544,8 @@ def _target_block_paths(
 
 def _block_path(path: Path) -> Path:
     parts = tuple(str(part) for part in path)
-    for index, part in enumerate(parts[:-1]):
+    for index in range(len(parts) - 2, -1, -1):
+        part = parts[index]
         if part in {"blocks", "block"}:
             return path[: index + 2]
     return path[:-1]

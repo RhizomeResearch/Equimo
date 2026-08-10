@@ -155,8 +155,9 @@ class AttentionDecoder(eqx.Module):
         if self.softmax_scaling is not None:
             q = self.softmax_scaling(q, n_train)
 
-        one_hot = jax.nn.one_hot(targets, self.num_classes)
-        scores = jnp.einsum("hmd,hnd->hmn", q, k) / jnp.sqrt(self.head_dim)
+        one_hot = jax.nn.one_hot(targets, self.num_classes, dtype=q.dtype)
+        scale = jnp.sqrt(jnp.asarray(self.head_dim, dtype=q.dtype))
+        scores = jnp.einsum("hmd,hnd->hmn", q, k) / scale
         attn = jax.nn.softmax(scores, axis=-1)
         probs = jnp.einsum("hmn,nc->hmc", attn, one_hot).mean(0)
         return jnp.log(jnp.clip(probs, min=1e-5) + 3e-5)

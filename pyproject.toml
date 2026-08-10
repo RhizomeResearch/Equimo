@@ -90,3 +90,10 @@ ignore = ["E731", "E741", "F722"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/test_equimo_integration.py" = ["F401"]
+
+[tool.pytest.ini_options]
+addopts = "-m 'not reference_parity and not live_reference_parity'"
+markers = [
+  "reference_parity: parity against checked-in outputs from pinned upstream implementations",
+  "live_reference_parity: parity requiring a separately supplied upstream checkpoint",
+]

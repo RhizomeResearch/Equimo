@@ -1,12 +1,16 @@
 """ONNX export coverage for every registered Equimo model family."""
 
+import jax
+import jax.numpy as jnp
 import jax.random as jr
 import numpy as np
+import onnx
+import onnxruntime as ort
 import pytest
+from jax2onnx import to_onnx
 
-import equimo.finetune as eqft
 from equimo.registry import _MODEL_REGISTRY
-from finetune.test_feature_spec_model_coverage import CASES
+from cases.model_cases import MODEL_CASES, extract_features
 
 
 def test_every_builtin_model_family_has_an_onnx_export_case():
@@ -16,33 +20,35 @@ def test_every_builtin_model_family_has_an_onnx_export_case():
         for modality, model_cls in entries.items()
         if model_cls.__module__.startswith("equimo.")
     }
-    covered = {(case.modality, case.registry_name) for case in CASES}
+    covered = {(case.modality, case.registry_name) for case in MODEL_CASES}
 
     assert covered == registered
 
 
-@pytest.mark.parametrize("case", CASES, ids=lambda case: case.registry_name)
+@pytest.mark.parametrize("case", MODEL_CASES, ids=lambda case: case.registry_name)
 def test_builtin_model_family_exports_to_onnx_with_runtime_parity(case):
-    onnx = pytest.importorskip("onnx")
-    ort = pytest.importorskip("onnxruntime")
-    to_onnx = pytest.importorskip("jax2onnx").to_onnx
-
     invocation = case.build(jr.PRNGKey(40))
+    export_args = (
+        [jnp.expand_dims(value, 0) for value in invocation.args]
+        if case.onnx_batched
+        else list(invocation.args)
+    )
 
     def inference(*args):
-        return eqft.extract_features(
-            invocation.model,
-            *args,
-            feature_spec=invocation.spec,
-            key=invocation.key,
-            inference=True,
-            **invocation.kwargs,
-        )
+        if case.onnx_batched:
+            return jax.vmap(
+                lambda *sample: extract_features(
+                    invocation,
+                    *sample,
+                    key=invocation.key,
+                )
+            )(*args)
+        return extract_features(invocation, *args, key=invocation.key)
 
     input_names = [f"input_{index}" for index in range(len(invocation.args))]
     model_proto = to_onnx(
         inference,
-        inputs=list(invocation.args),
+        inputs=export_args,
         opset=18,
         input_names=input_names,
         output_names=["features"],
@@ -57,10 +63,10 @@ def test_builtin_model_family_exports_to_onnx_with_runtime_parity(case):
         ["features"],
         {
             name: np.asarray(value)
-            for name, value in zip(input_names, invocation.args, strict=True)
+            for name, value in zip(input_names, export_args, strict=True)
         },
     )
-    expected = np.asarray(inference(*invocation.args))
+    expected = np.asarray(inference(*export_args))
 
     assert actual.shape == expected.shape
     assert actual.dtype == expected.dtype

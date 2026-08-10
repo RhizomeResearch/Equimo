@@ -60,6 +60,18 @@ test:models:
     reports:
       junit: report-models.xml
 
+test:interop:
+  stage: test
+  parallel:
+    matrix:
+      - PYTHON_VERSION: ["3.12", "3.13", "3.14"]
+  script:
+    - uv run --python "$PYTHON_VERSION" python tests/ci_shards.py interop --junitxml=report-interop.xml
+  artifacts:
+    when: always
+    reports:
+      junit: report-interop.xml
+
 test:core:
   stage: test
   parallel:
@@ -80,7 +92,23 @@ test:minimum-dependencies:
     - uv pip install --python .venv-minimum/bin/python "pytest>=9.0.2"
   script:
     - .venv-minimum/bin/python -c 'import importlib.metadata as m; assert m.version("jax") == "0.8.1"; assert m.version("jaxlib") == "0.8.1"; assert m.version("equinox") == "0.13.3"'
-    - .venv-minimum/bin/python -m pytest -q -p no:cacheprovider
+    - .venv-minimum/bin/python -m pytest -q -p no:cacheprovider --ignore=tests/test_onnx_export.py
+
+test:reference-parity:
+  stage: test
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+    - if: '$CI_PIPELINE_SOURCE == "web"'
+      when: manual
+    - when: never
+  variables:
+    EQUIMO_REQUIRE_REFERENCE_CACHE: "1"
+    PYTHON_VERSION: "3.12"
+  before_script:
+    - uv sync --locked --python "$PYTHON_VERSION" --group dev --group reference --extra audio
+  script:
+    - uv run --python "$PYTHON_VERSION" python models/prefetch_reference_checkpoints.py
+    - uv run --python "$PYTHON_VERSION" pytest -q -p no:cacheprovider -m reference_parity tests/test_reference_parity.py tests/audio/test_preprocessing_parity.py
 
 test:extra:extras:
   stage: test
@@ -148,6 +176,7 @@ publish:
     - "docs:finetune"
     - "test:finetune"
     - "test:models"
+    - "test:interop"
     - "test:core"
     - "test:minimum-dependencies"
     - "test:extra:extras"
