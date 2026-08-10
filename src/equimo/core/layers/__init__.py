@@ -12,6 +12,8 @@ __all__ = [
     "Mlp",
     "RMSNorm2d",
     "RMSNormGated",
+    "RotaryFactors",
+    "RotaryLayout",
     "Residual",
     "SwiGlu",
     "SwiGluFused",
@@ -25,6 +27,10 @@ __all__ = [
     "get_layer",
     "get_mixer",
     "get_norm",
+    "apply_rotary",
+    "apply_rotary_qk",
+    "insert_rotary_identity",
+    "make_1d_rotary_factors",
     "register_act",
     "register_attn",
     "register_attn_block",
@@ -63,4 +69,12 @@ from .norm import (
     RMSNormGated,
     get_norm,
     register_norm,
+)
+from .rotary import (
+    RotaryFactors,
+    RotaryLayout,
+    apply_rotary,
+    apply_rotary_qk,
+    insert_rotary_identity,
+    make_1d_rotary_factors,
 )

@@ -8,6 +8,7 @@ import jax.random as jr
 import pytest
 
 import equimo.finetune as eqft
+from equimo.core.layers import RotaryFactors
 from _jaxpr_utils import assert_prng_free_jaxpr
 
 
@@ -107,6 +108,28 @@ def test_prefix_attention_extends_key_value_mask(tiny_vision_transformer):
 
     assert attention.state.shape[2] == 2
     assert y.shape == x.shape
+
+
+def test_prefix_attention_supports_interleaved_rotary_and_leading_axes(
+    tiny_vision_transformer,
+):
+    prefixed = eqft.apply_prefixes(
+        tiny_vision_transformer,
+        eqft.PrefixConfig(num_prefix_tokens=2),
+        key=jr.PRNGKey(0),
+    )
+    attention = prefixed.base.blocks[0].attn
+    x = jnp.ones((3, 2, 4), dtype=jnp.float32)
+    rotary = RotaryFactors(
+        sin=jnp.ones((2, 4)),
+        cos=jnp.zeros((2, 4)),
+        layout="interleaved",
+    )
+
+    output = attention(x, rotary=rotary, inference=True)
+
+    assert output.shape == x.shape
+    assert jnp.all(jnp.isfinite(output))
 
 
 def test_prefixes_receive_gradients(tiny_vision_transformer):

@@ -115,9 +115,9 @@ def trace_model_divergence_vit(jax_model, pt_model, arr, key):
         if prefix:
             x_jax_tokens = jnp.concatenate([*prefix, x_jax_tokens], axis=0)
 
-    rope_sincos_jax = None
+    rotary_jax = None
     if jax_model.local_pos_embed is not None:
-        rope_sincos_jax = jax_model.local_pos_embed.get_sincos(
+        rotary_jax = jax_model.local_pos_embed.get_factors(
             H=height, W=width, inference=True, key=key_pos
         )
 
@@ -137,7 +137,7 @@ def trace_model_divergence_vit(jax_model, pt_model, arr, key):
         key, subkey = jax.random.split(key)
         x_jax_tokens = jax_block(
             x_jax_tokens,
-            rope_sincos=rope_sincos_jax,
+            rotary=rotary_jax,
             inference=True,
             key=subkey,
         )

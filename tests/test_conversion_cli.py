@@ -20,6 +20,7 @@ HELP_SCRIPTS = (
     "tips_text.py",
     "torch_models.py",
     "validate_references.py",
+    "vit5.py",
 )
 
 

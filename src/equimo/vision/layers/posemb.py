@@ -1,8 +1,7 @@
 # ty: ignore[invalid-assignment]
-# ty: ignore[not-subscriptable]
 # ty: ignore[unsupported-operator]
 import math
-from typing import Literal, Optional, Tuple
+from typing import Literal, Optional, Tuple, cast
 
 import equinox as eqx
 import jax
@@ -13,7 +12,11 @@ from jaxtyping import Array, Float, Integer, PRNGKeyArray
 
 from equimo.core._prng import default_key_for_mode, split_for_mode
 from equimo.core.layers._registry import make_get, make_register
-from equimo.core.layers.attention import rope_apply_interleaved
+from equimo.core.layers.rotary import (
+    RotaryFactors,
+    apply_rotary,
+    insert_rotary_identity,
+)
 from equimo.vision.layers.convolution import SingleConvBlock
 
 _POSEMB_REGISTRY: dict[str, type[eqx.Module]] = {}
@@ -428,14 +431,19 @@ class RoPE(eqx.Module):
         rotations: Precomputed rotation matrices for position encoding
     """
 
-    rotations: eqx.Module
+    rotations: jax.Array
 
     def __init__(self, shape: tuple, base: int = 10000):
         channel_dims, feature_dim = shape[:-1], shape[-1]
+        if not channel_dims:
+            raise ValueError("`shape` must contain at least one position axis.")
+        divisor = 2 * len(channel_dims)
+        if feature_dim <= 0 or feature_dim % divisor != 0:
+            raise ValueError(
+                "`feature_dim` must be positive and divisible by twice the "
+                "number of position axes."
+            )
         k_max = feature_dim // (2 * len(channel_dims))
-
-        if feature_dim % k_max != 0:
-            raise ValueError("`feature_dim` is not divisible by `k_max`.")
 
         # angles
         theta_ks = jnp.power(base, -jnp.arange(k_max) / k_max)
@@ -458,29 +466,31 @@ class RoPE(eqx.Module):
         self,
         x: Float[Array, "..."],
     ) -> Float[Array, "..."]:
-        # Reshape x to separate real and imaginary parts
-        x_reshaped = x.reshape(*x.shape[:-1], -1, 2)
-        x_r, x_i = x_reshaped[..., 0], x_reshaped[..., 1]
-
-        # Apply rotation via real arithmetic: (x_r + i·x_i)(r_r + i·r_i)
         rotations_ng = jax.lax.stop_gradient(self.rotations)
-        r_r = rotations_ng[..., 0].astype(x.dtype)
-        r_i = rotations_ng[..., 1].astype(x.dtype)
-        pe_r = x_r * r_r - x_i * r_i
-        pe_i = x_r * r_i + x_i * r_r
-
-        return jnp.stack([pe_r, pe_i], axis=-1).reshape(*x.shape)
+        cos = jnp.repeat(rotations_ng[..., 0], 2, axis=-1).astype(x.dtype)
+        sin = jnp.repeat(rotations_ng[..., 1], 2, axis=-1).astype(x.dtype)
+        factors = cast(
+            RotaryFactors,
+            RotaryFactors(
+                sin=sin.reshape(-1, x.shape[-1]),
+                cos=cos.reshape(-1, x.shape[-1]),
+                layout="interleaved",
+            ),
+        )
+        flat = x.reshape(-1, x.shape[-1])
+        return apply_rotary(flat, factors).reshape(x.shape)
 
 
 @register_posemb()
 class DinoRoPE(eqx.Module):
-    """Axial RoPE that produces per-position sin/cos for later rotation of features.
+    """Axial RoPE that produces per-position factors for rotating features.
 
     - Enforces dim % (4 * num_heads) == 0.
     - Periods can be specified via `base` or `min_period` + `max_period` (mutually exclusive).
     - Coordinates are normalized to [-1, 1] according to `normalize_coords`.
     - Optional training-time augmentations: shift, jitter (log-uniform per-axis), rescale (log-uniform shared).
-    - Returns (sin, cos) with shape [H*W, D_head], where D_head = dim // num_heads.
+    - Returns `RotaryFactors` whose arrays have shape [H*W, D_head], where
+      D_head = dim // num_heads.
 
     Parameters
     ----------
@@ -597,15 +607,15 @@ class DinoRoPE(eqx.Module):
 
         return coords.astype(dtype)
 
-    def get_sincos(
+    def get_factors(
         self,
         *,
         H: int,
         W: int,
         key: PRNGKeyArray,
         inference: bool = False,
-    ) -> Tuple[jax.Array, jax.Array]:
-        """Compute (sin, cos) with shapes [H*W, D_head].
+    ) -> RotaryFactors:
+        """Compute split-half factors with shape [H*W, D_head].
 
         If `inference is False`, training-time augmentations may be applied
         depending on configuration. If `inference is True`, no augmentations
@@ -662,7 +672,10 @@ class DinoRoPE(eqx.Module):
         cos = jnp.cos(angles).astype(dtype)  # [HW, D_head]
         sin = jnp.sin(angles).astype(dtype)  # [HW, D_head]
 
-        return sin, cos
+        return cast(
+            RotaryFactors,
+            RotaryFactors(sin=sin, cos=cos, layout="split_half"),
+        )
 
 
 @register_posemb()
@@ -681,9 +694,8 @@ class VisionRoPE(eqx.Module):
         ``pt_seq_len``.  Positions are divided by the axis length and
         rescaled to the pretrained grid size.
 
-    In both cases ``get_sincos(H=..., W=...)`` returns ``(sin, cos)`` with
-    shape ``(H*W, D_out)`` so downstream code doesn't need to know which
-    strategy was used.
+    In both cases ``get_factors(H=..., W=...)`` returns layout-aware factors
+    with shape ``(H*W, D_out)``.
 
     ``freqs`` is a deterministic RoPE buffer, not a learnable parameter. For
     period-based RoPE it stores periods despite the generic name; keep it
@@ -867,7 +879,11 @@ class VisionRoPE(eqx.Module):
         t_w = jnp.arange(W, dtype=jnp.float32) / W * self.pt_seq_len
         return t_h, t_w
 
-    def get_sincos(
+    @property
+    def layout(self) -> Literal["split_half", "interleaved"]:
+        return "split_half" if self.strategy == "period" else "interleaved"
+
+    def get_factors(
         self,
         *,
         H: int,
@@ -875,8 +891,8 @@ class VisionRoPE(eqx.Module):
         num_prefix_tokens: int = 0,
         key: Optional[PRNGKeyArray] = None,
         inference: bool = True,
-    ) -> Tuple[jax.Array, jax.Array]:
-        """Compute ``(sin, cos)`` each with shape ``(num_prefix_tokens + H*W, D_out)``.
+    ) -> RotaryFactors:
+        """Compute factors with shape ``(num_prefix_tokens + H*W, D_out)``.
 
         Prefix tokens (CLS, registers, etc.) receive identity rotation
         (sin=0, cos=1) so that RoPE leaves them unchanged.
@@ -913,15 +929,20 @@ class VisionRoPE(eqx.Module):
         sin = jnp.sin(angles).astype(dtype)
         cos = jnp.cos(angles).astype(dtype)
 
+        factors = cast(
+            RotaryFactors,
+            RotaryFactors(sin=sin, cos=cos, layout=self.layout),
+        )
+
         # Prepend identity rotation for prefix tokens (CLS, registers, etc.)
         if num_prefix_tokens > 0:
-            D_out = sin.shape[-1]
-            prefix_sin = jnp.zeros((num_prefix_tokens, D_out), dtype=dtype)
-            prefix_cos = jnp.ones((num_prefix_tokens, D_out), dtype=dtype)
-            sin = jnp.concatenate([prefix_sin, sin], axis=0)
-            cos = jnp.concatenate([prefix_cos, cos], axis=0)
+            factors = insert_rotary_identity(
+                factors,
+                index=0,
+                count=num_prefix_tokens,
+            )
 
-        return sin, cos
+        return factors
 
     def __call__(
         self,
@@ -936,16 +957,18 @@ class VisionRoPE(eqx.Module):
         """
         seq_len = x.shape[-3] - num_prefix_tokens
         ft = int(seq_len**0.5)
-        sin, cos = self.get_sincos(
+        if ft * ft != seq_len:
+            raise ValueError(
+                f"Cannot infer a square RoPE grid from {seq_len} sequence tokens."
+            )
+        factors = self.get_factors(
             H=ft,
             W=ft,
             num_prefix_tokens=num_prefix_tokens,
             key=key,
             inference=inference,
         )
-        cos = cos[:, None, :]
-        sin = sin[:, None, :]
-        return rope_apply_interleaved(x, sin, cos)
+        return apply_rotary(x, factors, sequence_axis=-3)
 
 
 @register_posemb()
@@ -999,6 +1022,8 @@ class CompositeVisionRoPE(eqx.Module):
         self.reg_rope = reg_rope
         self.num_prefix_tokens = num_prefix_tokens
         self.num_registers = num_registers
+        if reg_rope is not None and reg_rope.layout != patch_rope.layout:
+            raise ValueError("patch and register RoPE must use the same rotary layout.")
 
         if num_registers > 0 and reg_grid is None:
             side = int(num_registers**0.5)
@@ -1010,24 +1035,25 @@ class CompositeVisionRoPE(eqx.Module):
             reg_grid = (side, side)
         self.reg_grid = reg_grid if reg_grid is not None else (0, 0)
 
-    def get_sincos(
+    def get_factors(
         self,
         *,
         H: int,
         W: int,
         key: Optional[PRNGKeyArray] = None,
         inference: bool = True,
-    ) -> Tuple[jax.Array, jax.Array]:
-        """Compute ``(sin, cos)`` for the full sequence.
+    ) -> RotaryFactors:
+        """Compute rotary factors for the full sequence.
 
         Returns shape ``(num_prefix + num_registers + H*W, D_out)``.
         """
-        sin_p, cos_p = self.patch_rope.get_sincos(
+        patch_factors = self.patch_rope.get_factors(
             H=H,
             W=W,
             key=key,
             inference=inference,
         )
+        sin_p, cos_p = patch_factors.sin, patch_factors.cos
         D_out = sin_p.shape[-1]
         dtype = sin_p.dtype
 
@@ -1042,12 +1068,13 @@ class CompositeVisionRoPE(eqx.Module):
         # 2. Registers
         if self.num_registers > 0 and self.reg_rope is not None:
             rh, rw = self.reg_grid
-            sin_r, cos_r = self.reg_rope.get_sincos(
+            reg_factors = self.reg_rope.get_factors(
                 H=rh,
                 W=rw,
                 key=key,
                 inference=inference,
             )
+            sin_r, cos_r = reg_factors.sin, reg_factors.cos
             parts_sin.append(sin_r)
             parts_cos.append(cos_r)
         elif self.num_registers > 0:
@@ -1058,7 +1085,14 @@ class CompositeVisionRoPE(eqx.Module):
         parts_sin.append(sin_p)
         parts_cos.append(cos_p)
 
-        return jnp.concatenate(parts_sin, axis=0), jnp.concatenate(parts_cos, axis=0)
+        return cast(
+            RotaryFactors,
+            RotaryFactors(
+                sin=jnp.concatenate(parts_sin, axis=0),
+                cos=jnp.concatenate(parts_cos, axis=0),
+                layout=patch_factors.layout,
+            ),
+        )
 
     def __call__(
         self,
@@ -1080,11 +1114,13 @@ class CompositeVisionRoPE(eqx.Module):
         if H is None or W is None:
             ft = int(n_patches**0.5)
             H, W = ft, ft
+        if H * W != n_patches:
+            raise ValueError(
+                f"RoPE grid {H}x{W} does not match {n_patches} patch tokens."
+            )
 
-        sin, cos = self.get_sincos(H=H, W=W, key=key, inference=inference)
-        cos = cos[:, None, :]
-        sin = sin[:, None, :]
-        return rope_apply_interleaved(x, sin, cos)
+        factors = self.get_factors(H=H, W=W, key=key, inference=inference)
+        return apply_rotary(x, factors, sequence_axis=-3)
 
 
 @register_posemb()

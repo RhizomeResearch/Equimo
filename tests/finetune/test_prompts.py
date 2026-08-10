@@ -358,10 +358,10 @@ def test_vit_token_transform_receives_dynamic_grid_and_rope():
     )
     observed = []
 
-    def observe(tokens, rope_sincos, index, height, width, key, inference):
+    def observe(tokens, rotary, index, height, width, key, inference):
         del key, inference
-        observed.append((index, height, width, rope_sincos[0].shape[0]))
-        return tokens, rope_sincos
+        observed.append((index, height, width, rotary.sequence_length))
+        return tokens, rotary
 
     transformed = model._run_blocks(
         prepared,

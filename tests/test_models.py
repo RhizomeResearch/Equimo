@@ -14,6 +14,7 @@ import equimo.vision.models as em
 from equimo.serialization import load_weights, save_model
 from equimo.timeseries.models import t0_alpha
 from equimo.core.layers.activation import get_act
+from equimo.core.layers.rotary import apply_rotary
 from equimo.vision.models.attnet import attnet_xxs
 from equimo.vision.models.fastervit import FasterViT
 from equimo.vision.models.lowformer import lowformer_backbone_b0
@@ -21,6 +22,7 @@ from equimo.vision.models.mlla import Mlla
 from equimo.vision.models.mobilenet import mobilenetv3_small
 from equimo.vision.models.partialformer import PartialFormer
 from equimo.vision.models.shvit import SHViT
+from equimo.vision.layers.posemb import VisionRoPE
 from equimo.vision.models.vit import (
     dinov2_vits14_reg,
     dinov3_vits16_pretrain_lvd1689m,
@@ -204,11 +206,11 @@ def test_vit_private_block_runner_preserves_untransformed_features():
         mask=None,
         inference=False,
     )
-    expected, height, width, rope_sincos = prepared
+    expected, height, width, rotary = prepared
 
     for block, block_key in zip(model.blocks, block_keys, strict=True):
         key_pos, key_rope = jr.split(key_pos, 2)
-        rope_sincos = model.local_pos_embed.get_sincos(
+        rotary = model.local_pos_embed.get_factors(
             H=height,
             W=width,
             inference=False,
@@ -216,7 +218,7 @@ def test_vit_private_block_runner_preserves_untransformed_features():
         )
         expected = block(
             expected,
-            rope_sincos=rope_sincos,
+            rotary=rotary,
             inference=False,
             key=block_key,
         )
@@ -1059,6 +1061,31 @@ def test_vit5_small_forward():
     # 5 prefix tokens (1 cls + 4 reg) + 196 patches
     assert features.shape == (201, 384)
     assert jnp.all(jnp.isfinite(features))
+
+
+def test_vit5_rope_matches_official_interleaved_reference():
+    reference = np.load(Path(__file__).parent / "data" / "vit5_rope_reference.npz")
+    rope = VisionRoPE(
+        strategy="mode",
+        dim=int(reference["dim"]),
+        pt_seq_len=int(reference["pt_seq_len"]),
+        theta=float(reference["theta"]),
+    )
+
+    factors = rope.get_factors(
+        H=int(reference["height"]),
+        W=int(reference["width"]),
+    )
+    output = apply_rotary(
+        jnp.asarray(reference["x"]),
+        factors,
+        sequence_axis=-3,
+    )
+
+    assert factors.layout == "interleaved"
+    np.testing.assert_allclose(np.asarray(factors.sin), reference["sin"], atol=1e-6)
+    np.testing.assert_allclose(np.asarray(factors.cos), reference["cos"], atol=1e-6)
+    np.testing.assert_allclose(np.asarray(output), reference["output"], atol=1e-6)
 
 
 # DEQ

@@ -11,6 +11,7 @@ import jax.numpy as jnp
 import jax.random as jr
 
 from equimo.core._prng import default_key_for_mode, split_for_mode
+from equimo.core.layers.rotary import RotaryFactors, insert_rotary_identity
 
 from .._typing import PyTree
 from . import _common
@@ -250,7 +251,7 @@ def _equimo_vit_features(
 
     def inject_prompt(
         tokens,
-        rope_sincos,
+        rotary,
         index,
         height,
         width,
@@ -258,8 +259,8 @@ def _equimo_vit_features(
         layer_inference,
     ):
         del height, width
-        rope_needs_prompt = rope_sincos is not None and (
-            index == 0 or rope_sincos[0].shape[0] != tokens.shape[0]
+        rotary_needs_prompt = rotary is not None and (
+            index == 0 or rotary.sequence_length != tokens.shape[0]
         )
         if config.depth == "shallow":
             prompt = prompts[0].astype(tokens.dtype)
@@ -273,9 +274,9 @@ def _equimo_vit_features(
                     inference=layer_inference,
                 )
                 tokens = _insert_prompt(tokens, prompt, config)
-            if rope_needs_prompt:
-                rope_sincos = _insert_prompt_rope(rope_sincos, prompt, config)
-            return tokens, rope_sincos
+            if rotary_needs_prompt:
+                rotary = _insert_prompt_rotary(rotary, prompt, config)
+            return tokens, rotary
 
         prompt = _prompt_for_layer(
             prompts,
@@ -290,9 +291,9 @@ def _equimo_vit_features(
             if index == 0
             else _replace_prompt(tokens, prompt, config)
         )
-        if rope_needs_prompt:
-            rope_sincos = _insert_prompt_rope(rope_sincos, prompt, config)
-        return tokens, rope_sincos
+        if rotary_needs_prompt:
+            rotary = _insert_prompt_rotary(rotary, prompt, config)
+        return tokens, rotary
 
     return model._run_blocks(
         prepared,
@@ -420,22 +421,21 @@ def _insert_prompt(x: jax.Array, prompt: jax.Array, config: PromptConfig) -> jax
     return jnp.concatenate([x[:1], prompt, x[1:]], axis=0)
 
 
-def _insert_prompt_rope(
-    rope_sincos: tuple[jax.Array, jax.Array] | None,
+def _insert_prompt_rotary(
+    rotary: RotaryFactors | None,
     prompt: jax.Array,
     config: PromptConfig,
-) -> tuple[jax.Array, jax.Array] | None:
-    if rope_sincos is None:
+) -> RotaryFactors | None:
+    if rotary is None:
         return None
 
-    sin, cos = rope_sincos
     prompt_rows = prompt.shape[0]
     insert_at = 0 if _prepends_before_all(config) else 1
-    sin_prompt = jnp.zeros((prompt_rows, sin.shape[-1]), dtype=sin.dtype)
-    cos_prompt = jnp.ones((prompt_rows, cos.shape[-1]), dtype=cos.dtype)
-    sin = jnp.concatenate([sin[:insert_at], sin_prompt, sin[insert_at:]], axis=0)
-    cos = jnp.concatenate([cos[:insert_at], cos_prompt, cos[insert_at:]], axis=0)
-    return sin, cos
+    return insert_rotary_identity(
+        rotary,
+        index=insert_at,
+        count=prompt_rows,
+    )
 
 
 def _replace_prompt(x: jax.Array, prompt: jax.Array, config: PromptConfig) -> jax.Array:

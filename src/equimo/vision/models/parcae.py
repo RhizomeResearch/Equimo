@@ -1052,7 +1052,7 @@ class VisionParcae(eqx.Module):
         x = self.pos_drop(x, inference=inference, key=key)
         return x, H, W
 
-    def _rope_sincos(
+    def _rotary_factors(
         self,
         pos_embed: CompositeVisionRoPE | None,
         *,
@@ -1063,7 +1063,7 @@ class VisionParcae(eqx.Module):
     ):
         if pos_embed is None:
             return None
-        return pos_embed.get_sincos(H=H, W=W, inference=inference, key=key)
+        return pos_embed.get_factors(H=H, W=W, inference=inference, key=key)
 
     def _run_chunk(
         self,
@@ -1075,15 +1075,15 @@ class VisionParcae(eqx.Module):
         W: int,
         inference: Optional[bool],
         key: PRNGKeyArray,
-        rope_sincos=None,
+        rotary=None,
         checkpoint: bool = False,
         **kwargs,
     ):
         if chunk is None:
             return x
         key_rope, key_chunk = split_for_mode(key, 2, inference=inference)
-        if rope_sincos is None:
-            rope_sincos = self._rope_sincos(
+        if rotary is None:
+            rotary = self._rotary_factors(
                 pos_embed,
                 H=H,
                 W=W,
@@ -1094,7 +1094,7 @@ class VisionParcae(eqx.Module):
         def run(y):
             return chunk(
                 y,
-                rope_sincos=rope_sincos,
+                rotary=rotary,
                 inference=inference,
                 key=key_chunk,
                 **kwargs,
@@ -1296,7 +1296,7 @@ class VisionParcae(eqx.Module):
         W: int,
         inference: Optional[bool],
         key: PRNGKeyArray,
-        rope_sincos=None,
+        rotary=None,
         checkpoint: bool = False,
         **kwargs,
     ) -> Float[Array, "seq recurrent_dim"]:
@@ -1309,7 +1309,7 @@ class VisionParcae(eqx.Module):
             W=W,
             inference=inference,
             key=key,
-            rope_sincos=rope_sincos,
+            rotary=rotary,
             checkpoint=checkpoint,
             **kwargs,
         )
@@ -1343,7 +1343,7 @@ class VisionParcae(eqx.Module):
         )
         total_steps = no_grad_steps + grad_steps
 
-        rope_sincos = self._rope_sincos(
+        rotary = self._rotary_factors(
             self.recurrent_local_pos_embed,
             H=H,
             W=W,
@@ -1396,7 +1396,7 @@ class VisionParcae(eqx.Module):
                     W=W,
                     inference=inference,
                     key=key_step,
-                    rope_sincos=rope_sincos,
+                    rotary=rotary,
                     checkpoint=False,
                     **kwargs,
                 )
@@ -1441,7 +1441,7 @@ class VisionParcae(eqx.Module):
                     W=W,
                     inference=inference,
                     key=key_step,
-                    rope_sincos=rope_sincos,
+                    rotary=rotary,
                     checkpoint=self.recurrent_checkpoint,
                     **kwargs,
                 )

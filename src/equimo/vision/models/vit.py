@@ -358,14 +358,14 @@ class VisionTransformer(eqx.Module):
             Processed feature tensor
         """
         key_pos = split_for_mode(key, len(self.blocks) + 1, inference=inference)[0]
-        x, H, W, rope_sincos = self._prepare_tokens(
+        x, H, W, rotary = self._prepare_tokens(
             x,
             key=key_pos,
             mask=mask,
             inference=inference,
         )
         return self._run_blocks(
-            (x, H, W, rope_sincos),
+            (x, H, W, rotary),
             key=key,
             inference=inference,
             **kwargs,
@@ -390,7 +390,7 @@ class VisionTransformer(eqx.Module):
         key_pos, *block_subkeys = split_for_mode(
             key, len(self.blocks) + 1, inference=inference
         )
-        x, H, W, rope_sincos = self._prepare_tokens(
+        x, H, W, rotary = self._prepare_tokens(
             x,
             key=key_pos,
             mask=mask,
@@ -402,7 +402,7 @@ class VisionTransformer(eqx.Module):
         for blk, key_block in zip(self.blocks, block_subkeys):
             if self.local_pos_embed is not None and not inference:
                 key_pos, key_rope = jr.split(key_pos, 2)
-                rope_sincos = self.local_pos_embed.get_sincos(
+                rotary = self.local_pos_embed.get_factors(
                     H=H, W=W, inference=inference, key=key_rope
                 )
             blocks = blk.blocks
@@ -413,7 +413,7 @@ class VisionTransformer(eqx.Module):
             if local_indices:
                 x, chunk_outputs = blk.intermediate_features(
                     x,
-                    rope_sincos=rope_sincos,
+                    rotary=rotary,
                     inference=inference,
                     key=key_block,
                     indices=local_indices,
@@ -423,7 +423,7 @@ class VisionTransformer(eqx.Module):
             else:
                 x = blk(
                     x,
-                    rope_sincos=rope_sincos,
+                    rotary=rotary,
                     inference=inference,
                     key=key_block,
                     **kwargs,
@@ -471,12 +471,12 @@ class VisionTransformer(eqx.Module):
                 x = rearrange(x, "c h w -> (h w) c")
             x = jnp.concatenate([*prefix, x], axis=0) if prefix else x
 
-        rope_sincos = None
+        rotary = None
         if self.local_pos_embed is not None and inference:
-            rope_sincos = self.local_pos_embed.get_sincos(
+            rotary = self.local_pos_embed.get_factors(
                 H=H, W=W, inference=inference, key=key
             )
-        return x, H, W, rope_sincos
+        return x, H, W, rotary
 
     def _run_blocks(
         self,
@@ -490,7 +490,7 @@ class VisionTransformer(eqx.Module):
     ) -> Float[Array, "seqlen dim"]:
         """Run prepared tokens, optionally transforming them before each layer."""
 
-        x, H, W, rope_sincos = prepared
+        x, H, W, rotary = prepared
         key_pos, *block_subkeys = split_for_mode(
             key, len(self.blocks) + 1, inference=inference
         )
@@ -504,7 +504,7 @@ class VisionTransformer(eqx.Module):
         if not self.blocks and token_transform is not None:
             x, _ = token_transform(
                 x,
-                rope_sincos,
+                rotary,
                 0,
                 H,
                 W,
@@ -517,14 +517,14 @@ class VisionTransformer(eqx.Module):
         for blk, key_block in zip(self.blocks, block_subkeys, strict=True):
             if self.local_pos_embed is not None and not inference:
                 key_pos, key_rope = jr.split(key_pos, 2)
-                rope_sincos = self.local_pos_embed.get_sincos(
+                rotary = self.local_pos_embed.get_factors(
                     H=H, W=W, inference=inference, key=key_rope
                 )
 
             if token_transform is None:
                 x = blk(
                     x,
-                    rope_sincos=rope_sincos,
+                    rotary=rotary,
                     inference=inference,
                     key=key_block,
                     **kwargs,
@@ -545,9 +545,9 @@ class VisionTransformer(eqx.Module):
                 )
             if blocks is not None:
                 for block, layer_key in zip(blocks, layer_subkeys, strict=False):
-                    x, rope_sincos = token_transform(
+                    x, rotary = token_transform(
                         x,
-                        rope_sincos,
+                        rotary,
                         layer_index,
                         H,
                         W,
@@ -556,7 +556,7 @@ class VisionTransformer(eqx.Module):
                     )
                     x = block(
                         x,
-                        rope_sincos=rope_sincos,
+                        rotary=rotary,
                         inference=inference,
                         key=layer_key,
                         **kwargs,

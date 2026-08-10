@@ -13,7 +13,7 @@ import jax.random as jr
 import jax.tree_util as jtu
 
 from equimo.core._prng import split_for_mode
-from equimo.core.layers.attention import rope_apply_qk_last_hw
+from equimo.core.layers.rotary import RotaryFactors, apply_rotary_qk
 
 from .._typing import Path, PyTree
 from ..paths import key_path_to_path
@@ -136,15 +136,15 @@ class PrefixAttention(eqx.Module):
         key: jax.Array | None = None,
         inference: bool | None = None,
         mask: jax.Array | None = None,
-        rope_sincos=None,
+        rotary: RotaryFactors | None = None,
     ) -> jax.Array:
         key_prefix, key1, key2 = _split_three(key, inference=inference)
         q, k, v = _project_qkv(self.base, x, self.num_heads, self.head_dim)
         q = _apply_nested_norm(getattr(self.base, "q_norm", None), q)
         k = _apply_nested_norm(getattr(self.base, "k_norm", None), k)
 
-        if rope_sincos is not None:
-            q, k = _apply_rope(q, k, rope_sincos)
+        if rotary is not None:
+            q, k = apply_rotary_qk(q, k, rotary)
 
         prefix_k, prefix_v = self.state.astype(x.dtype)
         if self.prefix_dropout > 0.0 and not inference:
@@ -155,11 +155,14 @@ class PrefixAttention(eqx.Module):
             key_k, key_v = jr.split(key_prefix, 2)
             prefix_k = _common.dropout(prefix_k, self.prefix_dropout, key_k)
             prefix_v = _common.dropout(prefix_v, self.prefix_dropout, key_v)
-        k = jnp.concatenate([prefix_k, k], axis=1)
-        v = jnp.concatenate([prefix_v, v], axis=1)
+        leading_shape = k.shape[:-3]
+        prefix_k = jnp.broadcast_to(prefix_k, (*leading_shape, *prefix_k.shape))
+        prefix_v = jnp.broadcast_to(prefix_v, (*leading_shape, *prefix_v.shape))
+        k = jnp.concatenate([prefix_k, k], axis=-2)
+        v = jnp.concatenate([prefix_v, v], axis=-2)
         mask = _extend_mask(mask, self.state.shape[2])
 
-        attn = jnp.einsum("hqd,hkd->hqk", q, k) / jnp.sqrt(self.head_dim)
+        attn = jnp.einsum("...hqd,...hkd->...hqk", q, k) / jnp.sqrt(self.head_dim)
         if mask is not None:
             attn = jnp.where(
                 mask == 0,
@@ -173,12 +176,14 @@ class PrefixAttention(eqx.Module):
             getattr(self.base, "attn_drop", None), attn, inference, key1
         )
 
-        y = jnp.einsum("hqk,hkd->hqd", attn, v)
-        y = jnp.transpose(y, (1, 0, 2)).reshape((x.shape[0], -1))
+        y = jnp.einsum("...hqk,...hkd->...hqd", attn, v)
+        y = jnp.swapaxes(y, -3, -2).reshape(*x.shape[:-1], -1)
         projection = getattr(self.base, "proj", None)
         if not callable(projection):
             raise TypeError("Prefix attention requires a callable proj module.")
-        y = jax.vmap(cast(Callable[[jax.Array], jax.Array], projection))(y)
+        y = _apply_module_last_dim(
+            cast(Callable[[jax.Array], jax.Array], projection), y
+        )
         return _call_dropout(getattr(self.base, "proj_drop", None), y, inference, key2)
 
 
@@ -485,21 +490,23 @@ def _prefix_to_state(
 
 
 def _project_qkv(module, x: jax.Array, num_heads: int, head_dim: int):
-    qkv = jax.vmap(module.qkv)(x)
-    qkv = qkv.reshape((x.shape[0], 3, num_heads, head_dim))
-    qkv = jnp.transpose(qkv, (1, 2, 0, 3))
-    return qkv[0], qkv[1], qkv[2]
+    qkv = _apply_module_last_dim(module.qkv, x)
+    qkv = qkv.reshape(*x.shape[:-1], 3, num_heads, head_dim)
+    q, k, v = jnp.moveaxis(qkv, -3, 0)
+    return tuple(jnp.swapaxes(value, -3, -2) for value in (q, k, v))
+
+
+def _apply_module_last_dim(module: Callable, x: jax.Array) -> jax.Array:
+    leading_shape = x.shape[:-1]
+    flat = x.reshape(-1, x.shape[-1])
+    output = jax.vmap(module)(flat)
+    return output.reshape(*leading_shape, output.shape[-1])
 
 
 def _apply_nested_norm(norm, x: jax.Array) -> jax.Array:
     if norm is None:
         return x
-    return jax.vmap(jax.vmap(norm))(x)
-
-
-def _apply_rope(q: jax.Array, k: jax.Array, rope_sincos):
-    sin, cos = rope_sincos
-    return rope_apply_qk_last_hw(q, k, sin, cos)
+    return _apply_module_last_dim(norm, x)
 
 
 def _extend_mask(mask: jax.Array | None, num_prefix_tokens: int) -> jax.Array | None:
