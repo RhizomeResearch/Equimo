@@ -1,0 +1,53 @@
+Equimo pretrained materials
+Copyright 2024-2026 Clément Poiret and Equimo contributors
+
+This repository contains pretrained model and tokenizer artifacts converted or
+republished for use with Equimo. Each family remains subject to the applicable
+license in LICENSES/pretrained/. Those snapshots were last checked on
+2026-08-21 and may become outdated; users must check the current upstream terms
+before use.
+
+TabPFN-3
+--------
+
+The upstream license requires the following notice to accompany a distribution:
+
+The TABPFN-3 Model is licensed by Prior Labs GmbH under the TABPFN-3
+Non-Commercial License.
+Copyright © Prior Labs GmbH 2026.
+THE SERVICES ARE PROVIDED FREE OF CHARGE: COMPANY SHALL NOT BE LIABLE FOR
+DAMAGES RESULTING FROM SLIGHT NEGLIGENCE. LIABILITY FOR GROSS NEGLIGENCE AND
+INTENTIONAL MISCONDUCT REMAINS UNAFFECTED.
+
+Equimo's TabPFN-3 archives are derivatives: upstream checkpoint parameters were
+converted to Equimo's JAX/Equinox parameter layout and archive format. They are
+not an official Prior Labs product and are not represented as endorsed,
+approved, or validated by Prior Labs.
+
+TIPS
+----
+
+TIPS checkpoint and tokenizer materials are
+Copyright 2025 DeepMind Technologies Limited and are made available under the Creative Commons
+Attribution 4.0 International License. This includes the converted `tips_`
+checkpoint archives and `models/tokenizers/sentencepiece_tips.model`.
+
+Equimo converted the upstream checkpoint parameters to its JAX/Equinox
+parameter layout and archive format. The upstream source is
+https://github.com/google-deepmind/tips and states that it is not an official
+Google product. No endorsement by the upstream authors is implied.
+
+T0-alpha
+--------
+
+The T0-alpha checkpoint is Copyright 2026 The Forecasting Company and is
+provided under the Apache License 2.0. Equimo converted its parameters to the
+JAX/Equinox layout and archive format.
+
+Other converted checkpoints
+---------------------------
+
+The AST, DINOv2, DINOv3, EUPE, and SigLIP 2 archives likewise convert or
+repackage upstream parameters. Their BSD, Apache, DINOv3, FAIR Noncommercial,
+and Apache terms respectively are reproduced in LICENSES/pretrained/. Consult
+the current upstream license links in README.md for all applicable conditions.

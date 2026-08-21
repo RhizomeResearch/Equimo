@@ -23,10 +23,9 @@ from equimo._io import (
     sha256_file,
     validate_sha256,
 )
-from equimo._pretrained import PRETRAINED_ARCHIVE_SHA256
+from equimo._pretrained import DEFAULT_REPOSITORY_REVISION, PRETRAINED_ARCHIVE_SHA256
 from equimo.registry import _SAFE_IDENTIFIER_RE
 
-DEFAULT_REPOSITORY_REVISION = "8525ac8d42a078874330384fd2d7fdc07a604448"
 DEFAULT_REPOSITORY_URL = (
     "https://huggingface.co/poiretclement/equimo/resolve/"
     f"{DEFAULT_REPOSITORY_REVISION}/models/default"

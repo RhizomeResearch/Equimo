@@ -143,8 +143,9 @@ Available constructors:
 The specialized checkpoint names mirror the Prior Labs release: binary and
 multiclass classifier variants, OOD classifier/regressor variants, a medium-data
 regressor, and a time-series regressor. Upstream TabPFN-3 weights are released
-under `tabpfn-3-license-v1.0`; review that license before using pretrained
-weights outside research or internal evaluation.
+under `tabpfn-3-license-v1.0`; review the
+[current terms and bundled snapshot](LICENSES/pretrained/README.md#tabpfn-3)
+before using them.
 
 ## Implemented Time-Series Models
 
@@ -760,7 +761,14 @@ The following models have pretrained weights available in Equimo:
 - [TabPFN-3](https://arxiv.org/abs/2605.13986)
 - [T0-alpha](https://huggingface.co/theforecastingcompany/t0-alpha)
 
-Model identifiers map to filenames in Equimo's [Hugging Face repository](https://huggingface.co/poiretclement/equimo/tree/8525ac8d42a078874330384fd2d7fdc07a604448/models/default).
+Before using any pretrained weights, review the
+[pretrained-model license index](LICENSES/pretrained/README.md). It links the
+current upstream terms and records when each bundled license snapshot was last
+checked. Upstream licenses can change, so the copies in this repository may be
+outdated; always check the latest upstream version. Reports of stale terms are
+welcome as issues or pull requests.
+
+Model identifiers map to filenames in Equimo's [Hugging Face repository](https://huggingface.co/poiretclement/equimo/tree/5f40762d3d2bec5e4ee523d24f2ddfec4045c644/models/default).
 
 The experimental catalog currently covers one representative model per
 modality. Catalog keys use an explicit `<modality>/<variant>` namespace:
@@ -958,11 +966,20 @@ change.
 
 ## License
 
-Equimo's original code is licensed under the [MIT License](LICENSE.md).
+Equimo source and pretrained weights have separate terms. Equimo's original
+code is licensed under the [MIT License](LICENSE.md). Some utilities and the
 T0-derived modules incorporate Apache-2.0-licensed upstream work; see
-[NOTICE](NOTICE) and the
-[T0 Apache-2.0 license](LICENSES/tfc-t0-APACHE-2.0.txt). The package metadata
-reports the combined expression `MIT AND Apache-2.0`.
+[NOTICE](NOTICE), the [Apache-2.0 license](LICENSES/Apache-2.0.txt), the
+[T0 Apache-2.0 license](LICENSES/tfc-t0-APACHE-2.0.txt), and the
+[T0 source-provenance audit](docs/licensing/t0-source-provenance.md). The
+package metadata therefore reports the combined expression
+`MIT AND Apache-2.0`.
+
+Pretrained-model terms vary by family. The
+[pretrained-model license index](LICENSES/pretrained/README.md) contains bundled
+snapshots, current upstream links, attribution notices, and last-checked dates.
+Those snapshots may become outdated; check the latest upstream license before
+using pretrained weights.
 
 ## Citation
 

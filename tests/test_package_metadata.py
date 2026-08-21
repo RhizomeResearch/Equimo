@@ -48,11 +48,24 @@ def test_stable_release_metadata_and_documents_are_present():
     )
     for relative_path in (
         "CHANGELOG.md",
+        "docs/licensing/t0-source-provenance.md",
         "docs/migration-v2.md",
         "docs/stability.md",
         "docs/timeseries.md",
         "LICENSE.md",
+        "LICENSES/Apache-2.0.txt",
+        "LICENSES/pretrained/README.md",
+        "LICENSES/pretrained/ast-BSD-3-Clause.txt",
+        "LICENSES/pretrained/dinov2-Apache-2.0.txt",
+        "LICENSES/pretrained/dinov3-License.md",
+        "LICENSES/pretrained/eupe-FAIR-Noncommercial-Research-License.md",
+        "LICENSES/pretrained/siglip2-Apache-2.0.txt",
+        "LICENSES/pretrained/t0-alpha-Apache-2.0.txt",
+        "LICENSES/pretrained/tabpfn-3-License-v1.0.txt",
+        "LICENSES/pretrained/tips-CC-BY-4.0.txt",
         "LICENSES/tfc-t0-APACHE-2.0.txt",
+        "models/huggingface/NOTICE",
+        "models/huggingface/README.md",
         "NOTICE",
     ):
         assert (root / relative_path).is_file()
@@ -63,4 +76,5 @@ def test_stable_release_metadata_and_documents_are_present():
     assert "[time-series guide](docs/timeseries.md)" in readme
     assert "[MIT License](LICENSE.md)" in readme
     assert "[NOTICE](NOTICE)" in readme
+    assert "[pretrained-model license index](LICENSES/pretrained/README.md)" in readme
     assert "[T0 Apache-2.0 license](LICENSES/tfc-t0-APACHE-2.0.txt)" in readme

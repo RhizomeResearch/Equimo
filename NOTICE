@@ -1,6 +1,28 @@
 Equimo
 Copyright 2024-2026 Clément Poiret and Equimo contributors
 
+This distribution includes modified Apache-2.0-licensed utility code in
+src/equimo/utils.py. The applicable license is provided at
+LICENSES/Apache-2.0.txt.
+
+The normalize and PCAVisualizer utilities are derived from TIPS visualization
+helpers:
+
+Copyright 2025 Google LLC
+Source: https://github.com/google-deepmind/tips/blob/72820c1841f973c9543d9c95c5ff2262ec621955/scenic/utils/feature_viz.py
+
+Equimo contributors modified the upstream code by adding documentation, type
+annotations and formatting, and by making the scikit-learn import optional with
+an actionable error message.
+
+The make_divisible utility is derived from TensorFlow Models:
+
+Copyright 2025 The TensorFlow Authors. All Rights Reserved.
+Source: https://github.com/tensorflow/models/blob/b41a080d61cd4298fea9894804e9657777e2a451/official/vision/modeling/layers/nn_layers.py
+
+Equimo contributors modified the upstream code's formatting and type
+annotations.
+
 This distribution includes a JAX/Equinox adaptation of portions of T0
 (tfc-t0), modified by Equimo contributors. The affected implementation is
 under src/equimo/timeseries and models/t0.py.

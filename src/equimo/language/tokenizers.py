@@ -4,8 +4,11 @@ from urllib.parse import urlparse
 
 import requests
 
+from equimo._pretrained import DEFAULT_REPOSITORY_REVISION
+
 DEFAULT_TOKENIZER_REPOSITORY = (
-    "https://huggingface.co/poiretclement/equimo/resolve/main/models/tokenizers"
+    "https://huggingface.co/poiretclement/equimo/resolve/"
+    f"{DEFAULT_REPOSITORY_REVISION}/models/tokenizers"
 )
 
 

@@ -12,7 +12,14 @@ _ArrayLike = t.Union[np.ndarray, jnp.ndarray]
 
 
 def normalize(x, order: int = 2):
-    """Normalize vectors along the last axis with a minimum norm clamp."""
+    """Normalize vectors along the last axis with a minimum norm clamp.
+
+    Third-party provenance:
+        Copyright 2025 Google LLC
+        Source: https://github.com/google-deepmind/tips/blob/72820c1841f973c9543d9c95c5ff2262ec621955/scenic/utils/feature_viz.py
+        License: Apache-2.0; see ``LICENSES/Apache-2.0.txt``.
+        Modified by Equimo contributors: added documentation and formatting.
+    """
 
     return x / np.linalg.norm(x, ord=order, axis=-1, keepdims=True).clip(min=1e-3)
 
@@ -23,11 +30,13 @@ def make_divisible(
     min_value: t.Optional[float] = None,
     round_down_protect: bool = True,
 ) -> int:
-    """
-    This function is copied from here
-    "https://github.com/tensorflow/models/blob/master/official/vision/modeling/layers/nn_layers.py"
+    """Ensure that all layers have channels that are divisible by 8.
 
-    This is to ensure that all layers have channels that are divisible by 8.
+    Third-party provenance:
+        Copyright 2025 The TensorFlow Authors. All Rights Reserved.
+        Source: https://github.com/tensorflow/models/blob/b41a080d61cd4298fea9894804e9657777e2a451/official/vision/modeling/layers/nn_layers.py
+        License: Apache-2.0; see ``LICENSES/Apache-2.0.txt``.
+        Modified by Equimo contributors: adapted formatting and type annotations.
 
     Args:
         value: A `float` of original value.
@@ -51,7 +60,12 @@ def make_divisible(
 class PCAVisualizer:
     """PCA visualizer.
 
-    Taken as-is from https://github.com/google-deepmind/tips/blob/72820c1841f973c9543d9c95c5ff2262ec621955/scenic/utils/feature_viz.py#L32
+    Third-party provenance:
+        Copyright 2025 Google LLC
+        Source: https://github.com/google-deepmind/tips/blob/72820c1841f973c9543d9c95c5ff2262ec621955/scenic/utils/feature_viz.py
+        License: Apache-2.0; see ``LICENSES/Apache-2.0.txt``.
+        Modified by Equimo contributors: added a lazy optional-dependency import,
+        an actionable import error, documentation, type annotations, and formatting.
     """
 
     def __init__(

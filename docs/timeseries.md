@@ -140,3 +140,12 @@ Apache-2.0-licensed upstream work. The distributed
 [`NOTICE`](../NOTICE) preserves the TFC, Datadog, and Chronos-2 attributions;
 the corresponding license is distributed at
 [`LICENSES/tfc-t0-APACHE-2.0.txt`](../LICENSES/tfc-t0-APACHE-2.0.txt).
+The [source-provenance audit](./licensing/t0-source-provenance.md) documents why
+the package retains that source-code attribution.
+
+The converted T0-alpha pretrained weights are a separate distribution concern.
+Their bundled snapshot, current upstream license link, and last-checked date are
+listed in the
+[pretrained-model license index](../LICENSES/pretrained/README.md#t0-alpha).
+Check the latest upstream terms before using the weights because the bundled
+copy can become outdated.

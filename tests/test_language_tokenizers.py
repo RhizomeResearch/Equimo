@@ -6,6 +6,8 @@ import numpy as np
 import pytest
 
 from equimo.language import SentencePieceTokenizer
+from equimo.language.tokenizers import DEFAULT_TOKENIZER_REPOSITORY
+from equimo.serialization import DEFAULT_REPOSITORY_REVISION, DEFAULT_REPOSITORY_URL
 
 
 def _require_language_extra():
@@ -14,6 +16,15 @@ def _require_language_extra():
             importlib.import_module(module)
         else:
             pytest.importorskip(module)
+
+
+def test_default_repositories_use_the_same_immutable_revision():
+    revision_path = f"/resolve/{DEFAULT_REPOSITORY_REVISION}/"
+
+    assert revision_path in DEFAULT_REPOSITORY_URL
+    assert revision_path in DEFAULT_TOKENIZER_REPOSITORY
+    assert "/resolve/main/" not in DEFAULT_REPOSITORY_URL
+    assert "/resolve/main/" not in DEFAULT_TOKENIZER_REPOSITORY
 
 
 def test_sentencepiece_token_ids_truncation_and_padding():

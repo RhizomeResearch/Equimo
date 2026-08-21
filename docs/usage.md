@@ -23,6 +23,12 @@ respective namespaces. Generic checkpoint helpers are exported from
 `equimo.serialization`. The entire `equimo.timeseries` namespace is
 experimental.
 
+Pretrained weights have family-specific upstream terms. Before downloading or
+using them, review the
+[pretrained-model license index](../LICENSES/pretrained/README.md), then check
+the latest upstream license linked there. Bundled snapshots can become
+outdated; issues or pull requests updating stale terms are welcome.
+
 ## Vision Models
 
 Use constructor functions for published variants, or instantiate the model class
@@ -134,7 +140,8 @@ predict = jax.jit(
 log_probs = predict(x, y, n_train)
 ```
 
-Use pretrained TabPFN weights only after reviewing the upstream TabPFN-3 license.
+The pretrained-model license index includes the current TabPFN-3 terms and the
+required attribution notice.
 
 ## T0 Forecasting
 

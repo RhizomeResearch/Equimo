@@ -8,6 +8,16 @@ license = "MIT AND Apache-2.0"
 license-files = [
   "LICENSE.md",
   "NOTICE",
+  "LICENSES/Apache-2.0.txt",
+  "LICENSES/pretrained/README.md",
+  "LICENSES/pretrained/ast-BSD-3-Clause.txt",
+  "LICENSES/pretrained/dinov2-Apache-2.0.txt",
+  "LICENSES/pretrained/dinov3-License.md",
+  "LICENSES/pretrained/eupe-FAIR-Noncommercial-Research-License.md",
+  "LICENSES/pretrained/siglip2-Apache-2.0.txt",
+  "LICENSES/pretrained/t0-alpha-Apache-2.0.txt",
+  "LICENSES/pretrained/tabpfn-3-License-v1.0.txt",
+  "LICENSES/pretrained/tips-CC-BY-4.0.txt",
   "LICENSES/tfc-t0-APACHE-2.0.txt",
 ]
 dependencies = [
@@ -63,9 +73,12 @@ build-backend = "uv_build"
 [tool.uv.build-backend]
 source-include = [
   "CHANGELOG.md",
+  "docs/licensing/t0-source-provenance.md",
   "docs/migration-v2.md",
   "docs/stability.md",
   "docs/timeseries.md",
+  "models/huggingface/NOTICE",
+  "models/huggingface/README.md",
 ]
 
 [dependency-groups]

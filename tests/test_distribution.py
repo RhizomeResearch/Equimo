@@ -13,6 +13,21 @@ import pytest
 
 ROOT = Path(__file__).parents[1]
 DIST_DIR = ROOT / "dist"
+EXPECTED_LICENSE_FILES = [
+    "LICENSE.md",
+    "LICENSES/Apache-2.0.txt",
+    "LICENSES/pretrained/README.md",
+    "LICENSES/pretrained/ast-BSD-3-Clause.txt",
+    "LICENSES/pretrained/dinov2-Apache-2.0.txt",
+    "LICENSES/pretrained/dinov3-License.md",
+    "LICENSES/pretrained/eupe-FAIR-Noncommercial-Research-License.md",
+    "LICENSES/pretrained/siglip2-Apache-2.0.txt",
+    "LICENSES/pretrained/t0-alpha-Apache-2.0.txt",
+    "LICENSES/pretrained/tabpfn-3-License-v1.0.txt",
+    "LICENSES/pretrained/tips-CC-BY-4.0.txt",
+    "LICENSES/tfc-t0-APACHE-2.0.txt",
+    "NOTICE",
+]
 
 
 @pytest.fixture(scope="module")
@@ -50,11 +65,7 @@ def test_wheel_metadata_matches_project(built_distributions):
         project["requires-python"]
     )
     assert metadata["License-Expression"] == project["license"]
-    assert metadata.get_all("License-File") == [
-        "LICENSE.md",
-        "LICENSES/tfc-t0-APACHE-2.0.txt",
-        "NOTICE",
-    ]
+    assert metadata.get_all("License-File") == EXPECTED_LICENSE_FILES
     assert metadata["Description-Content-Type"] == "text/markdown"
     assert (
         metadata.get_payload(decode=True).decode()
@@ -87,18 +98,18 @@ def test_built_distributions_contain_all_package_modules(built_distributions):
         }
 
     assert wheel_modules == source_modules
-    assert {path.split(".dist-info/licenses/", 1)[1] for path in wheel_licenses} == {
-        "LICENSE.md",
-        "LICENSES/tfc-t0-APACHE-2.0.txt",
-        "NOTICE",
-    }
+    assert {path.split(".dist-info/licenses/", 1)[1] for path in wheel_licenses} == set(
+        EXPECTED_LICENSE_FILES
+    )
     assert sdist_modules == source_modules
     assert {
         f"{sdist_root}/PKG-INFO",
         f"{sdist_root}/CHANGELOG.md",
+        f"{sdist_root}/docs/licensing/t0-source-provenance.md",
         f"{sdist_root}/LICENSE.md",
-        f"{sdist_root}/LICENSES/tfc-t0-APACHE-2.0.txt",
-        f"{sdist_root}/NOTICE",
+        *(f"{sdist_root}/{path}" for path in EXPECTED_LICENSE_FILES),
+        f"{sdist_root}/models/huggingface/NOTICE",
+        f"{sdist_root}/models/huggingface/README.md",
         f"{sdist_root}/README.md",
         f"{sdist_root}/docs/migration-v2.md",
         f"{sdist_root}/docs/stability.md",
