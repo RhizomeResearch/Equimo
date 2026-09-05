@@ -34,6 +34,27 @@ PRETRAINED_PATH_CASES = (
         "ast_base_patch16_speechcommands_v2_10_10_0_9812_reference.npz",
     ),
     PretrainedPathCase(
+        "convnext",
+        "timm",
+        "convnext_atto",
+        vision_models.convnext_atto,
+        "convnext_atto_reference.npz",
+    ),
+    PretrainedPathCase(
+        "convnext",
+        "timm",
+        "convnext_zepto_rms_ols",
+        vision_models.convnext_zepto_rms_ols,
+        "convnext_zepto_rms_ols_reference.npz",
+    ),
+    PretrainedPathCase(
+        "convnextv2",
+        "timm",
+        "convnextv2_atto",
+        vision_models.convnextv2_atto,
+        "convnextv2_atto_reference.npz",
+    ),
+    PretrainedPathCase(
         "dinov2",
         "timm-vit",
         "dinov2_vits14_reg",
@@ -108,6 +129,8 @@ PRETRAINED_PATH_CASES = (
 
 PRETRAINED_FAMILY_PREFIXES = {
     "ast": "ast_",
+    "convnext": "convnext_",
+    "convnextv2": "convnextv2_",
     "dinov2": "dinov2_",
     "dinov3": "dinov3_",
     "eupe": "eupe_",

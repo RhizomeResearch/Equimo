@@ -53,6 +53,49 @@ __all__ = [
     "convnextv2_l",
     "convnextv2_huge",
     "convnextv2_h",
+    "convnext_nano_in12k",
+    "convnext_nano_in12k_ft_in1k",
+    "convnext_nano_r384_ad_in12k",
+    "convnext_nano_r384_in12k",
+    "convnext_nano_r384_in12k_ft_in1k",
+    "convnext_tiny_fb_in22k",
+    "convnext_tiny_fb_in22k_ft_in1k",
+    "convnext_tiny_fb_in22k_ft_in1k_384",
+    "convnext_tiny_in12k",
+    "convnext_tiny_in12k_ft_in1k",
+    "convnext_tiny_in12k_ft_in1k_384",
+    "convnext_small_fb_in22k",
+    "convnext_small_fb_in22k_ft_in1k",
+    "convnext_small_fb_in22k_ft_in1k_384",
+    "convnext_small_in12k",
+    "convnext_small_in12k_ft_in1k",
+    "convnext_small_in12k_ft_in1k_384",
+    "convnext_base_fb_in22k",
+    "convnext_base_fb_in22k_ft_in1k",
+    "convnext_base_fb_in22k_ft_in1k_384",
+    "convnext_large_fb_in22k",
+    "convnext_large_fb_in22k_ft_in1k",
+    "convnext_large_fb_in22k_ft_in1k_384",
+    "convnext_xlarge_fb_in22k",
+    "convnext_xlarge_fb_in22k_ft_in1k_384",
+    "convnextv2_atto_fcmae",
+    "convnextv2_femto_fcmae",
+    "convnextv2_pico_fcmae",
+    "convnextv2_nano_fcmae",
+    "convnextv2_nano_fcmae_ft_in22k_in1k",
+    "convnextv2_nano_fcmae_ft_in22k_in1k_384",
+    "convnextv2_tiny_fcmae",
+    "convnextv2_tiny_fcmae_ft_in22k_in1k",
+    "convnextv2_tiny_fcmae_ft_in22k_in1k_384",
+    "convnextv2_base_fcmae",
+    "convnextv2_base_fcmae_ft_in22k_in1k",
+    "convnextv2_base_fcmae_ft_in22k_in1k_384",
+    "convnextv2_large_fcmae",
+    "convnextv2_large_fcmae_ft_in22k_in1k",
+    "convnextv2_large_fcmae_ft_in22k_in1k_384",
+    "convnextv2_huge_fcmae",
+    "convnextv2_huge_fcmae_ft_in22k_in1k_384",
+    "convnextv2_huge_fcmae_ft_in22k_in1k_512",
     "eupe_convnext_tiny",
     "eupe_convnext_small",
     "eupe_convnext_base",
@@ -64,6 +107,7 @@ import equinox as eqx
 import jax.random as jr
 from jaxtyping import PRNGKeyArray
 
+from equimo._pretrained import PRETRAINED_ARCHIVE_SHA256
 from equimo.core.layers.activation import get_act
 from equimo.core.layers.generic import BlockChunk
 from equimo.core.layers.norm import get_norm
@@ -388,15 +432,67 @@ _CONVNEXT_REGISTRY: dict[str, tuple[dict, dict]] = {
     ),
 }
 
+# Tagged checkpoints share a size architecture but may use a different head.
+_CONVNEXT_TAGGED_VARIANTS: dict[str, tuple[str, int]] = {
+    "convnext_nano_in12k": ("convnext_nano", 11821),
+    "convnext_nano_in12k_ft_in1k": ("convnext_nano", 1000),
+    "convnext_nano_r384_ad_in12k": ("convnext_nano", 11821),
+    "convnext_nano_r384_in12k": ("convnext_nano", 11821),
+    "convnext_nano_r384_in12k_ft_in1k": ("convnext_nano", 1000),
+    "convnext_tiny_fb_in22k": ("convnext_tiny", 21841),
+    "convnext_tiny_fb_in22k_ft_in1k": ("convnext_tiny", 1000),
+    "convnext_tiny_fb_in22k_ft_in1k_384": ("convnext_tiny", 1000),
+    "convnext_tiny_in12k": ("convnext_tiny", 11821),
+    "convnext_tiny_in12k_ft_in1k": ("convnext_tiny", 1000),
+    "convnext_tiny_in12k_ft_in1k_384": ("convnext_tiny", 1000),
+    "convnext_small_fb_in22k": ("convnext_small", 21841),
+    "convnext_small_fb_in22k_ft_in1k": ("convnext_small", 1000),
+    "convnext_small_fb_in22k_ft_in1k_384": ("convnext_small", 1000),
+    "convnext_small_in12k": ("convnext_small", 11821),
+    "convnext_small_in12k_ft_in1k": ("convnext_small", 1000),
+    "convnext_small_in12k_ft_in1k_384": ("convnext_small", 1000),
+    "convnext_base_fb_in22k": ("convnext_base", 21841),
+    "convnext_base_fb_in22k_ft_in1k": ("convnext_base", 1000),
+    "convnext_base_fb_in22k_ft_in1k_384": ("convnext_base", 1000),
+    "convnext_large_fb_in22k": ("convnext_large", 21841),
+    "convnext_large_fb_in22k_ft_in1k": ("convnext_large", 1000),
+    "convnext_large_fb_in22k_ft_in1k_384": ("convnext_large", 1000),
+    "convnext_xlarge_fb_in22k": ("convnext_xlarge", 21841),
+    "convnext_xlarge_fb_in22k_ft_in1k_384": ("convnext_xlarge", 1000),
+    "convnextv2_atto_fcmae": ("convnextv2_atto", 0),
+    "convnextv2_femto_fcmae": ("convnextv2_femto", 0),
+    "convnextv2_pico_fcmae": ("convnextv2_pico", 0),
+    "convnextv2_nano_fcmae": ("convnextv2_nano", 0),
+    "convnextv2_nano_fcmae_ft_in22k_in1k": ("convnextv2_nano", 1000),
+    "convnextv2_nano_fcmae_ft_in22k_in1k_384": ("convnextv2_nano", 1000),
+    "convnextv2_tiny_fcmae": ("convnextv2_tiny", 0),
+    "convnextv2_tiny_fcmae_ft_in22k_in1k": ("convnextv2_tiny", 1000),
+    "convnextv2_tiny_fcmae_ft_in22k_in1k_384": ("convnextv2_tiny", 1000),
+    "convnextv2_base_fcmae": ("convnextv2_base", 0),
+    "convnextv2_base_fcmae_ft_in22k_in1k": ("convnextv2_base", 1000),
+    "convnextv2_base_fcmae_ft_in22k_in1k_384": ("convnextv2_base", 1000),
+    "convnextv2_large_fcmae": ("convnextv2_large", 0),
+    "convnextv2_large_fcmae_ft_in22k_in1k": ("convnextv2_large", 1000),
+    "convnextv2_large_fcmae_ft_in22k_in1k_384": ("convnextv2_large", 1000),
+    "convnextv2_huge_fcmae": ("convnextv2_huge", 0),
+    "convnextv2_huge_fcmae_ft_in22k_in1k_384": ("convnextv2_huge", 1000),
+    "convnextv2_huge_fcmae_ft_in22k_in1k_512": ("convnextv2_huge", 1000),
+}
+for _identifier, (_base_variant, _num_classes) in _CONVNEXT_TAGGED_VARIANTS.items():
+    _base_cfg, _variant_cfg = _CONVNEXT_REGISTRY[_base_variant]
+    _CONVNEXT_REGISTRY[_identifier] = (
+        _base_cfg,
+        _variant_cfg | {"num_classes": _num_classes, "act_layer": "exactgelu"},
+    )
+
+
 # Variants with a real trusted archive in PRETRAINED_ARCHIVE_SHA256 today.
 # Keep this in sync with what's actually published;
 # pretrained=True on anything else raises a clear error
 # instead of a 404 at download time.
-_CONVNEXT_PRETRAINED_VARIANTS = {
-    "eupe_convnext_tiny",
-    "eupe_convnext_small",
-    "eupe_convnext_base",
-}
+_CONVNEXT_PRETRAINED_VARIANTS = (
+    _CONVNEXT_REGISTRY.keys() & PRETRAINED_ARCHIVE_SHA256.keys()
+)
 
 
 def _build_convnext(
@@ -406,6 +502,13 @@ def _build_convnext(
     key: PRNGKeyArray | None = None,
     **overrides,
 ) -> ConvNeXt:
+    if pretrained and variant.startswith(("convnext_", "convnextv2_")):
+        overrides.setdefault("act_layer", "exactgelu")
+        if variant == "convnext_zepto_rms_ols":
+            _, variant_cfg = _CONVNEXT_REGISTRY[variant]
+            overrides.setdefault(
+                "stem_kwargs", variant_cfg["stem_kwargs"] | {"act_layer": "exactgelu"}
+            )
     return build_model_variant(
         ConvNeXt,
         _CONVNEXT_REGISTRY,
@@ -672,3 +775,218 @@ def eupe_convnext_small(pretrained: bool = False, **kwargs) -> ConvNeXt:
 def eupe_convnext_base(pretrained: bool = False, **kwargs) -> ConvNeXt:
     """EUPE ConvNeXt-Base (LVD-1689M pretrained backbone, no classification head)."""
     return _build_convnext("eupe_convnext_base", pretrained=pretrained, **kwargs)
+
+
+def convnext_nano_in12k(**kwargs) -> ConvNeXt:
+    """convnext_nano.in12k checkpoint architecture (11821 classes)."""
+    return _build_convnext("convnext_nano_in12k", **kwargs)
+
+
+def convnext_nano_in12k_ft_in1k(**kwargs) -> ConvNeXt:
+    """convnext_nano.in12k_ft_in1k checkpoint architecture (1000 classes)."""
+    return _build_convnext("convnext_nano_in12k_ft_in1k", **kwargs)
+
+
+def convnext_nano_r384_ad_in12k(**kwargs) -> ConvNeXt:
+    """convnext_nano.r384_ad_in12k checkpoint architecture (11821 classes)."""
+    return _build_convnext("convnext_nano_r384_ad_in12k", **kwargs)
+
+
+def convnext_nano_r384_in12k(**kwargs) -> ConvNeXt:
+    """convnext_nano.r384_in12k checkpoint architecture (11821 classes)."""
+    return _build_convnext("convnext_nano_r384_in12k", **kwargs)
+
+
+def convnext_nano_r384_in12k_ft_in1k(**kwargs) -> ConvNeXt:
+    """convnext_nano.r384_in12k_ft_in1k checkpoint architecture (1000 classes)."""
+    return _build_convnext("convnext_nano_r384_in12k_ft_in1k", **kwargs)
+
+
+def convnext_tiny_fb_in22k(**kwargs) -> ConvNeXt:
+    """convnext_tiny.fb_in22k checkpoint architecture (21841 classes)."""
+    return _build_convnext("convnext_tiny_fb_in22k", **kwargs)
+
+
+def convnext_tiny_fb_in22k_ft_in1k(**kwargs) -> ConvNeXt:
+    """convnext_tiny.fb_in22k_ft_in1k checkpoint architecture (1000 classes)."""
+    return _build_convnext("convnext_tiny_fb_in22k_ft_in1k", **kwargs)
+
+
+def convnext_tiny_fb_in22k_ft_in1k_384(**kwargs) -> ConvNeXt:
+    """convnext_tiny.fb_in22k_ft_in1k_384 checkpoint architecture (1000 classes)."""
+    return _build_convnext("convnext_tiny_fb_in22k_ft_in1k_384", **kwargs)
+
+
+def convnext_tiny_in12k(**kwargs) -> ConvNeXt:
+    """convnext_tiny.in12k checkpoint architecture (11821 classes)."""
+    return _build_convnext("convnext_tiny_in12k", **kwargs)
+
+
+def convnext_tiny_in12k_ft_in1k(**kwargs) -> ConvNeXt:
+    """convnext_tiny.in12k_ft_in1k checkpoint architecture (1000 classes)."""
+    return _build_convnext("convnext_tiny_in12k_ft_in1k", **kwargs)
+
+
+def convnext_tiny_in12k_ft_in1k_384(**kwargs) -> ConvNeXt:
+    """convnext_tiny.in12k_ft_in1k_384 checkpoint architecture (1000 classes)."""
+    return _build_convnext("convnext_tiny_in12k_ft_in1k_384", **kwargs)
+
+
+def convnext_small_fb_in22k(**kwargs) -> ConvNeXt:
+    """convnext_small.fb_in22k checkpoint architecture (21841 classes)."""
+    return _build_convnext("convnext_small_fb_in22k", **kwargs)
+
+
+def convnext_small_fb_in22k_ft_in1k(**kwargs) -> ConvNeXt:
+    """convnext_small.fb_in22k_ft_in1k checkpoint architecture (1000 classes)."""
+    return _build_convnext("convnext_small_fb_in22k_ft_in1k", **kwargs)
+
+
+def convnext_small_fb_in22k_ft_in1k_384(**kwargs) -> ConvNeXt:
+    """convnext_small.fb_in22k_ft_in1k_384 checkpoint architecture (1000 classes)."""
+    return _build_convnext("convnext_small_fb_in22k_ft_in1k_384", **kwargs)
+
+
+def convnext_small_in12k(**kwargs) -> ConvNeXt:
+    """convnext_small.in12k checkpoint architecture (11821 classes)."""
+    return _build_convnext("convnext_small_in12k", **kwargs)
+
+
+def convnext_small_in12k_ft_in1k(**kwargs) -> ConvNeXt:
+    """convnext_small.in12k_ft_in1k checkpoint architecture (1000 classes)."""
+    return _build_convnext("convnext_small_in12k_ft_in1k", **kwargs)
+
+
+def convnext_small_in12k_ft_in1k_384(**kwargs) -> ConvNeXt:
+    """convnext_small.in12k_ft_in1k_384 checkpoint architecture (1000 classes)."""
+    return _build_convnext("convnext_small_in12k_ft_in1k_384", **kwargs)
+
+
+def convnext_base_fb_in22k(**kwargs) -> ConvNeXt:
+    """convnext_base.fb_in22k checkpoint architecture (21841 classes)."""
+    return _build_convnext("convnext_base_fb_in22k", **kwargs)
+
+
+def convnext_base_fb_in22k_ft_in1k(**kwargs) -> ConvNeXt:
+    """convnext_base.fb_in22k_ft_in1k checkpoint architecture (1000 classes)."""
+    return _build_convnext("convnext_base_fb_in22k_ft_in1k", **kwargs)
+
+
+def convnext_base_fb_in22k_ft_in1k_384(**kwargs) -> ConvNeXt:
+    """convnext_base.fb_in22k_ft_in1k_384 checkpoint architecture (1000 classes)."""
+    return _build_convnext("convnext_base_fb_in22k_ft_in1k_384", **kwargs)
+
+
+def convnext_large_fb_in22k(**kwargs) -> ConvNeXt:
+    """convnext_large.fb_in22k checkpoint architecture (21841 classes)."""
+    return _build_convnext("convnext_large_fb_in22k", **kwargs)
+
+
+def convnext_large_fb_in22k_ft_in1k(**kwargs) -> ConvNeXt:
+    """convnext_large.fb_in22k_ft_in1k checkpoint architecture (1000 classes)."""
+    return _build_convnext("convnext_large_fb_in22k_ft_in1k", **kwargs)
+
+
+def convnext_large_fb_in22k_ft_in1k_384(**kwargs) -> ConvNeXt:
+    """convnext_large.fb_in22k_ft_in1k_384 checkpoint architecture (1000 classes)."""
+    return _build_convnext("convnext_large_fb_in22k_ft_in1k_384", **kwargs)
+
+
+def convnext_xlarge_fb_in22k(**kwargs) -> ConvNeXt:
+    """convnext_xlarge.fb_in22k checkpoint architecture (21841 classes)."""
+    return _build_convnext("convnext_xlarge_fb_in22k", **kwargs)
+
+
+def convnext_xlarge_fb_in22k_ft_in1k_384(**kwargs) -> ConvNeXt:
+    """convnext_xlarge.fb_in22k_ft_in1k_384 checkpoint architecture (1000 classes)."""
+    return _build_convnext("convnext_xlarge_fb_in22k_ft_in1k_384", **kwargs)
+
+
+def convnextv2_atto_fcmae(**kwargs) -> ConvNeXt:
+    """convnextv2_atto.fcmae checkpoint architecture (0 classes)."""
+    return _build_convnext("convnextv2_atto_fcmae", **kwargs)
+
+
+def convnextv2_femto_fcmae(**kwargs) -> ConvNeXt:
+    """convnextv2_femto.fcmae checkpoint architecture (0 classes)."""
+    return _build_convnext("convnextv2_femto_fcmae", **kwargs)
+
+
+def convnextv2_pico_fcmae(**kwargs) -> ConvNeXt:
+    """convnextv2_pico.fcmae checkpoint architecture (0 classes)."""
+    return _build_convnext("convnextv2_pico_fcmae", **kwargs)
+
+
+def convnextv2_nano_fcmae(**kwargs) -> ConvNeXt:
+    """convnextv2_nano.fcmae checkpoint architecture (0 classes)."""
+    return _build_convnext("convnextv2_nano_fcmae", **kwargs)
+
+
+def convnextv2_nano_fcmae_ft_in22k_in1k(**kwargs) -> ConvNeXt:
+    """convnextv2_nano.fcmae_ft_in22k_in1k checkpoint architecture (1000 classes)."""
+    return _build_convnext("convnextv2_nano_fcmae_ft_in22k_in1k", **kwargs)
+
+
+def convnextv2_nano_fcmae_ft_in22k_in1k_384(**kwargs) -> ConvNeXt:
+    """convnextv2_nano.fcmae_ft_in22k_in1k_384 checkpoint architecture (1000 classes)."""
+    return _build_convnext("convnextv2_nano_fcmae_ft_in22k_in1k_384", **kwargs)
+
+
+def convnextv2_tiny_fcmae(**kwargs) -> ConvNeXt:
+    """convnextv2_tiny.fcmae checkpoint architecture (0 classes)."""
+    return _build_convnext("convnextv2_tiny_fcmae", **kwargs)
+
+
+def convnextv2_tiny_fcmae_ft_in22k_in1k(**kwargs) -> ConvNeXt:
+    """convnextv2_tiny.fcmae_ft_in22k_in1k checkpoint architecture (1000 classes)."""
+    return _build_convnext("convnextv2_tiny_fcmae_ft_in22k_in1k", **kwargs)
+
+
+def convnextv2_tiny_fcmae_ft_in22k_in1k_384(**kwargs) -> ConvNeXt:
+    """convnextv2_tiny.fcmae_ft_in22k_in1k_384 checkpoint architecture (1000 classes)."""
+    return _build_convnext("convnextv2_tiny_fcmae_ft_in22k_in1k_384", **kwargs)
+
+
+def convnextv2_base_fcmae(**kwargs) -> ConvNeXt:
+    """convnextv2_base.fcmae checkpoint architecture (0 classes)."""
+    return _build_convnext("convnextv2_base_fcmae", **kwargs)
+
+
+def convnextv2_base_fcmae_ft_in22k_in1k(**kwargs) -> ConvNeXt:
+    """convnextv2_base.fcmae_ft_in22k_in1k checkpoint architecture (1000 classes)."""
+    return _build_convnext("convnextv2_base_fcmae_ft_in22k_in1k", **kwargs)
+
+
+def convnextv2_base_fcmae_ft_in22k_in1k_384(**kwargs) -> ConvNeXt:
+    """convnextv2_base.fcmae_ft_in22k_in1k_384 checkpoint architecture (1000 classes)."""
+    return _build_convnext("convnextv2_base_fcmae_ft_in22k_in1k_384", **kwargs)
+
+
+def convnextv2_large_fcmae(**kwargs) -> ConvNeXt:
+    """convnextv2_large.fcmae checkpoint architecture (0 classes)."""
+    return _build_convnext("convnextv2_large_fcmae", **kwargs)
+
+
+def convnextv2_large_fcmae_ft_in22k_in1k(**kwargs) -> ConvNeXt:
+    """convnextv2_large.fcmae_ft_in22k_in1k checkpoint architecture (1000 classes)."""
+    return _build_convnext("convnextv2_large_fcmae_ft_in22k_in1k", **kwargs)
+
+
+def convnextv2_large_fcmae_ft_in22k_in1k_384(**kwargs) -> ConvNeXt:
+    """convnextv2_large.fcmae_ft_in22k_in1k_384 checkpoint architecture (1000 classes)."""
+    return _build_convnext("convnextv2_large_fcmae_ft_in22k_in1k_384", **kwargs)
+
+
+def convnextv2_huge_fcmae(**kwargs) -> ConvNeXt:
+    """convnextv2_huge.fcmae checkpoint architecture (0 classes)."""
+    return _build_convnext("convnextv2_huge_fcmae", **kwargs)
+
+
+def convnextv2_huge_fcmae_ft_in22k_in1k_384(**kwargs) -> ConvNeXt:
+    """convnextv2_huge.fcmae_ft_in22k_in1k_384 checkpoint architecture (1000 classes)."""
+    return _build_convnext("convnextv2_huge_fcmae_ft_in22k_in1k_384", **kwargs)
+
+
+def convnextv2_huge_fcmae_ft_in22k_in1k_512(**kwargs) -> ConvNeXt:
+    """convnextv2_huge.fcmae_ft_in22k_in1k_512 checkpoint architecture (1000 classes)."""
+    return _build_convnext("convnextv2_huge_fcmae_ft_in22k_in1k_512", **kwargs)

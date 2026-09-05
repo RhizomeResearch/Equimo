@@ -11,6 +11,73 @@ from equimo.tabular.layers.mlp import _call_mlp
 from _jaxpr_utils import assert_prng_free_jaxpr
 
 
+def _incontext_reference(model, x, n_train):
+    """Full-row projections and per-query KV selection, including test-head reuse."""
+    heads, width = model.num_heads, model.head_dim
+    q, k, v = (
+        jax.vmap(projection)(x).reshape(x.shape[0], heads, width).transpose(1, 0, 2)
+        for projection in (model.q_proj, model.k_proj, model.v_proj)
+    )
+    k, v = k[:, :n_train], v[:, :n_train]
+    if model.softmax_scaling is not None:
+        q = model.softmax_scaling(q, n_train)
+    test_heads = model.num_kv_heads_test or heads
+    head_indices = jnp.arange(heads) // (heads // test_heads)
+    training_query = jnp.arange(x.shape[0])[None, :, None, None] < n_train
+    keys = jnp.where(training_query, k[:, None], k[head_indices, None])
+    values = jnp.where(training_query, v[:, None], v[head_indices, None])
+    scores = jnp.einsum("hqd,hqkd->hqk", q, keys) / jnp.sqrt(width)
+    out = jnp.einsum("hqk,hqkd->hqd", jax.nn.softmax(scores, axis=-1), values)
+    return jax.vmap(model.proj)(out.transpose(1, 0, 2).reshape(x.shape[0], -1))
+
+
+@pytest.mark.parametrize("dtype", (jnp.float32, jnp.bfloat16))
+@pytest.mark.parametrize(
+    "n_train,kv_heads,scaled",
+    ((1, None, False), (3, 1, False), (3, 2, True), (5, None, True), (5, 1, True)),
+)
+def test_incontext_attention_projection_parity(dtype, n_train, kv_heads, scaled):
+    scaling = (
+        attention.SoftmaxScaling(2, 4, hidden_dim=4, key=jr.PRNGKey(2))
+        if scaled
+        else None
+    )
+    model = attention.InContextAttention(
+        8,
+        2,
+        key=jr.PRNGKey(0),
+        num_kv_heads_test=kv_heads,
+        softmax_scaling=scaling,
+    )
+    model = jax.tree.map(
+        lambda leaf: leaf.astype(dtype) if eqx.is_inexact_array(leaf) else leaf, model
+    )
+    x = jr.normal(jr.PRNGKey(1), (5, 8), dtype=dtype)
+    expected = _incontext_reference(model, x, n_train)
+    tolerance = 0.02 if dtype == jnp.bfloat16 else 1e-5
+    call = lambda m, value: m(value, n_train)
+    for actual in (call(model, x), eqx.filter_jit(call)(model, x)):
+        assert actual.shape == x.shape
+        assert actual.dtype == dtype
+        assert jnp.allclose(actual, expected, atol=tolerance, rtol=tolerance)
+    batched = jax.vmap(lambda value: call(model, value))(jnp.stack((x, x)))
+    assert jnp.allclose(batched, expected[None], atol=tolerance, rtol=tolerance)
+
+    def loss(state, reference):
+        m, value = state
+        y = _incontext_reference(m, value, n_train) if reference else call(m, value)
+        return jnp.square(y.astype(jnp.float32)).mean()
+
+    actual_grad = eqx.filter_jit(eqx.filter_grad(loss))((model, x), False)
+    expected_grad = eqx.filter_jit(eqx.filter_grad(loss))((model, x), True)
+    for actual, expected in zip(
+        jax.tree.leaves(actual_grad), jax.tree.leaves(expected_grad), strict=True
+    ):
+        assert actual.dtype == expected.dtype
+        assert jnp.all(jnp.isfinite(actual))
+        assert jnp.allclose(actual, expected, atol=tolerance, rtol=tolerance)
+
+
 def test_default_tabular_layer_registries():
     assert layers.get_attn("attention") is layers.Attention
     assert layers.get_attn("crossattention") is layers.CrossAttention

@@ -3,8 +3,8 @@ Copyright 2024-2026 Clément Poiret and Equimo contributors
 
 This repository contains pretrained model and tokenizer artifacts converted or
 republished for use with Equimo. Each family remains subject to the applicable
-license in LICENSES/pretrained/. Those snapshots were last checked on
-2026-08-21 and may become outdated; users must check the current upstream terms
+license in LICENSES/pretrained/. Each snapshot has a checked date in README.md
+and may become outdated; users must check the current upstream terms
 before use.
 
 TabPFN-3
@@ -51,3 +51,17 @@ The AST, DINOv2, DINOv3, EUPE, and SigLIP 2 archives likewise convert or
 repackage upstream parameters. Their BSD, Apache, DINOv3, FAIR Noncommercial,
 and Apache terms respectively are reproduced in LICENSES/pretrained/. Consult
 the current upstream license links in README.md for all applicable conditions.
+
+ConvNeXt and ConvNeXt V2
+-----------------------
+
+The 40 ConvNeXt V1 checkpoints were converted from timm and retain their
+upstream Apache License 2.0 terms. The 26 ConvNeXt V2 checkpoints are
+Copyright (c) Meta Platforms, Inc. and affiliates and retain the Creative
+Commons Attribution-NonCommercial 4.0 International terms for model weights.
+The V2 repository's MIT software license does not apply to its model weights.
+
+Equimo converted the parameters to its JAX/Equinox layout and archive format.
+Each archive records its timm tag, upstream Hugging Face commit, preprocessing
+configuration, and numerical conversion checks. Sources and bundled licenses
+are linked in README.md. No endorsement by the upstream authors is implied.

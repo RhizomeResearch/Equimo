@@ -1024,25 +1024,16 @@ class TestDownload:
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         cache_path.touch()
 
-        try:
-            with patch("equimo.serialization.requests.get") as mock_get:
-                result = download(identifier, repository="http://example.com")
-                mock_get.assert_not_called()
-            assert result == cache_path
-        finally:
-            cache_path.unlink(missing_ok=True)
-            cache_path.with_name(f"{cache_path.name}.sha256").unlink(missing_ok=True)
+        with patch("equimo.serialization.requests.get") as mock_get:
+            result = download(identifier, repository="http://example.com")
+            mock_get.assert_not_called()
+        assert result == cache_path
 
     def test_download_makes_get_request(self, tmp_path):
         """When archive is absent, a streaming GET must be issued."""
         from equimo.serialization import download
 
         identifier = "vit_test_dl_xyz"
-        model_name = identifier.split("_")[0]
-        cache_path = Path(
-            f"~/.cache/equimo/{model_name}/{identifier}.tar.lz4"
-        ).expanduser()
-        cache_path.unlink(missing_ok=True)
 
         mock_response = MagicMock()
         mock_response.iter_content.return_value = [b"fake data"]
@@ -1050,19 +1041,15 @@ class TestDownload:
         mock_response.__exit__ = MagicMock(return_value=False)
         mock_response.raise_for_status = MagicMock()
 
-        try:
-            with patch(
-                "equimo.serialization.requests.get", return_value=mock_response
-            ) as mock_get:
-                download(identifier, repository="http://example.com")
-                mock_get.assert_called_once()
-                call_kwargs = mock_get.call_args
-                assert call_kwargs.kwargs.get("stream") is True
-                assert call_kwargs.kwargs.get("timeout") is not None
-                assert call_kwargs.kwargs.get("verify") is True
-        finally:
-            cache_path.unlink(missing_ok=True)
-            cache_path.with_name(f"{cache_path.name}.sha256").unlink(missing_ok=True)
+        with patch(
+            "equimo.serialization.requests.get", return_value=mock_response
+        ) as mock_get:
+            download(identifier, repository="http://example.com")
+            mock_get.assert_called_once()
+            call_kwargs = mock_get.call_args
+            assert call_kwargs.kwargs.get("stream") is True
+            assert call_kwargs.kwargs.get("timeout") is not None
+            assert call_kwargs.kwargs.get("verify") is True
 
     def test_cached_file_checksum_is_verified(self):
         from equimo.serialization import download
@@ -1074,40 +1061,30 @@ class TestDownload:
         cache_path.write_bytes(b"corrupted")
         checksum_path.write_text(hashlib.sha256(b"expected").hexdigest() + "\n")
 
-        try:
-            with patch("equimo.serialization.requests.get") as mock_get:
-                with pytest.raises(ValueError, match="checksum mismatch"):
-                    download(identifier, repository="http://example.com")
-                mock_get.assert_not_called()
-        finally:
-            cache_path.unlink(missing_ok=True)
-            checksum_path.unlink(missing_ok=True)
+        with patch("equimo.serialization.requests.get") as mock_get:
+            with pytest.raises(ValueError, match="checksum mismatch"):
+                download(identifier, repository="http://example.com")
+            mock_get.assert_not_called()
 
     def test_read_only_legacy_cache_remains_loadable(self, monkeypatch):
         from equimo import serialization
 
         identifier = "vit_test_read_only_cache"
         cache_path = Path(f"~/.cache/equimo/vit/{identifier}.tar.lz4").expanduser()
-        checksum_path = cache_path.with_name(f"{cache_path.name}.sha256")
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         cache_path.write_bytes(b"existing")
-        checksum_path.unlink(missing_ok=True)
 
         def fail_checksum_write(*args, **kwargs):
             raise PermissionError("read-only cache")
 
         monkeypatch.setattr(serialization, "_write_checksum", fail_checksum_write)
-        try:
-            with patch("equimo.serialization.requests.get") as mock_get:
-                with pytest.warns(RuntimeWarning, match="read-only cache"):
-                    result = serialization.download(
-                        identifier, repository="http://example.com"
-                    )
-                mock_get.assert_not_called()
-            assert result == cache_path
-        finally:
-            cache_path.unlink(missing_ok=True)
-            checksum_path.unlink(missing_ok=True)
+        with patch("equimo.serialization.requests.get") as mock_get:
+            with pytest.warns(RuntimeWarning, match="read-only cache"):
+                result = serialization.download(
+                    identifier, repository="http://example.com"
+                )
+            mock_get.assert_not_called()
+        assert result == cache_path
 
     def test_unchanged_verified_cache_does_not_rehash(self, monkeypatch):
         from equimo import serialization
@@ -1135,9 +1112,6 @@ class TestDownload:
 
         identifier = "vit_test_expected_checksum"
         cache_path = Path(f"~/.cache/equimo/vit/{identifier}.tar.lz4").expanduser()
-        checksum_path = cache_path.with_name(f"{cache_path.name}.sha256")
-        cache_path.unlink(missing_ok=True)
-        checksum_path.unlink(missing_ok=True)
         mock_response = MagicMock()
         mock_response.iter_content.return_value = [b"downloaded"]
         mock_response.headers = {}
@@ -1145,27 +1119,20 @@ class TestDownload:
         mock_response.__exit__ = MagicMock(return_value=False)
         mock_response.raise_for_status = MagicMock()
 
-        try:
-            with patch("equimo.serialization.requests.get", return_value=mock_response):
-                with pytest.raises(ValueError, match="checksum mismatch"):
-                    download(
-                        identifier,
-                        repository="http://example.com",
-                        expected_sha256="0" * 64,
-                    )
-            assert not cache_path.exists()
-        finally:
-            cache_path.unlink(missing_ok=True)
-            checksum_path.unlink(missing_ok=True)
+        with patch("equimo.serialization.requests.get", return_value=mock_response):
+            with pytest.raises(ValueError, match="checksum mismatch"):
+                download(
+                    identifier,
+                    repository="http://example.com",
+                    expected_sha256="0" * 64,
+                )
+        assert not cache_path.exists()
 
     def test_download_enforces_size_limit(self, monkeypatch):
         from equimo import serialization
 
         identifier = "vit_test_size_limit"
         cache_path = Path(f"~/.cache/equimo/vit/{identifier}.tar.lz4").expanduser()
-        checksum_path = cache_path.with_name(f"{cache_path.name}.sha256")
-        cache_path.unlink(missing_ok=True)
-        checksum_path.unlink(missing_ok=True)
         mock_response = MagicMock()
         mock_response.iter_content.return_value = [b"too", b"large"]
         mock_response.headers = {}
@@ -1174,14 +1141,10 @@ class TestDownload:
         mock_response.raise_for_status = MagicMock()
         monkeypatch.setattr(serialization, "_MAX_DOWNLOAD_BYTES", 4)
 
-        try:
-            with patch("equimo.serialization.requests.get", return_value=mock_response):
-                with pytest.raises(ValueError, match="size limit"):
-                    serialization.download(identifier, repository="http://example.com")
-            assert not cache_path.exists()
-        finally:
-            cache_path.unlink(missing_ok=True)
-            checksum_path.unlink(missing_ok=True)
+        with patch("equimo.serialization.requests.get", return_value=mock_response):
+            with pytest.raises(ValueError, match="size limit"):
+                serialization.download(identifier, repository="http://example.com")
+        assert not cache_path.exists()
 
     def test_default_repository_uses_embedded_archive_digest(self):
         from equimo.serialization import download

@@ -1,0 +1,2858 @@
+{
+  "date": "2026-09-05",
+  "device": "cpu",
+  "dtype": "float32",
+  "models": {
+    "convnext_atto": {
+      "archive_bytes": 14807087,
+      "archive_round_trip": "exact",
+      "archive_sha256": "cfdcc112c4903b5088696e9c73ac2d87b959c03c6bbc61084b90e7545b3a5e91",
+      "base_variant": "convnext_atto",
+      "num_classes": 1000,
+      "timm_tag": "convnext_atto.d2_in1k",
+      "upstream_revision": "435c0a8d02d5b872e90c8cde36887465982cb399",
+      "validation": [
+        {
+          "features": {
+            "max_absolute_error": 8.098781108856201e-06,
+            "mean_absolute_error": 1.958340817509452e-06
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 7.867813110351562e-06,
+            "mean_absolute_error": 1.7339195892418502e-06
+          },
+          "seed": 42
+        },
+        {
+          "features": {
+            "max_absolute_error": 8.333474397659302e-06,
+            "mean_absolute_error": 2.0101413156226045e-06
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 7.867813110351562e-06,
+            "mean_absolute_error": 1.7783902421797393e-06
+          },
+          "seed": 43
+        }
+      ]
+    },
+    "convnext_atto_ols": {
+      "archive_bytes": 14837807,
+      "archive_round_trip": "exact",
+      "archive_sha256": "6f16dfb79c53d02358687ea6c04fdabc2f48e87fda804e468669ef0c90d44ce7",
+      "base_variant": "convnext_atto_ols",
+      "num_classes": 1000,
+      "timm_tag": "convnext_atto_ols.a2_in1k",
+      "upstream_revision": "e5c9e1af0cd67a61db8ebe00a6c57019704b2a07",
+      "validation": [
+        {
+          "features": {
+            "max_absolute_error": 4.9173831939697266e-06,
+            "mean_absolute_error": 1.2577278312164708e-06
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 1.430511474609375e-05,
+            "mean_absolute_error": 3.4328625133639434e-06
+          },
+          "seed": 42
+        },
+        {
+          "features": {
+            "max_absolute_error": 5.0961971282958984e-06,
+            "mean_absolute_error": 1.2641260127566056e-06
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 1.33514404296875e-05,
+            "mean_absolute_error": 3.358878302606172e-06
+          },
+          "seed": 43
+        }
+      ]
+    },
+    "convnext_base": {
+      "archive_bytes": 354427575,
+      "archive_round_trip": "exact",
+      "archive_sha256": "cc776efb49882e6e38293dba9bc17c954c871e00b08315c90dadd3c84eb448f3",
+      "base_variant": "convnext_base",
+      "num_classes": 1000,
+      "timm_tag": "convnext_base.fb_in1k",
+      "upstream_revision": "28a94f6353acecb8a5ce70491f9bc29a21d93e2e",
+      "validation": [
+        {
+          "features": {
+            "max_absolute_error": 3.948807716369629e-07,
+            "mean_absolute_error": 6.62892034597462e-08
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 1.1622905731201172e-06,
+            "mean_absolute_error": 2.7629548071672616e-07
+          },
+          "seed": 42
+        },
+        {
+          "features": {
+            "max_absolute_error": 3.902241587638855e-07,
+            "mean_absolute_error": 6.88391565972779e-08
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 1.043081283569336e-06,
+            "mean_absolute_error": 2.5512463253107853e-07
+          },
+          "seed": 43
+        }
+      ]
+    },
+    "convnext_base_fb_in22k": {
+      "archive_bytes": 439880535,
+      "archive_round_trip": "exact",
+      "archive_sha256": "b72d5cd1f1582e2825a2c0a577a2844359476f20fc91e5c0606841870e89b973",
+      "base_variant": "convnext_base",
+      "num_classes": 21841,
+      "timm_tag": "convnext_base.fb_in22k",
+      "upstream_revision": "9afd4146adabf1b6e861d0f1ac2e7baa7c8dd1b7",
+      "validation": [
+        {
+          "features": {
+            "max_absolute_error": 1.3113021850585938e-06,
+            "mean_absolute_error": 2.3731629994472314e-07
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 2.384185791015625e-06,
+            "mean_absolute_error": 4.556626151952514e-07
+          },
+          "seed": 42
+        },
+        {
+          "features": {
+            "max_absolute_error": 1.5906989574432373e-06,
+            "mean_absolute_error": 2.8783850325453386e-07
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 4.351139068603516e-06,
+            "mean_absolute_error": 6.09065352819016e-07
+          },
+          "seed": 43
+        }
+      ]
+    },
+    "convnext_base_fb_in22k_ft_in1k": {
+      "archive_bytes": 354427575,
+      "archive_round_trip": "exact",
+      "archive_sha256": "c54d5954100cad08786def76b815832abf79381a15015980b8ee3179ed55615e",
+      "base_variant": "convnext_base",
+      "num_classes": 1000,
+      "timm_tag": "convnext_base.fb_in22k_ft_in1k",
+      "upstream_revision": "67758fcbcf9f007ec7630bf8636b74a8f24e52a0",
+      "validation": [
+        {
+          "features": {
+            "max_absolute_error": 2.8014183044433594e-06,
+            "mean_absolute_error": 4.829499857805786e-07
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 1.6987323760986328e-06,
+            "mean_absolute_error": 4.010535690213146e-07
+          },
+          "seed": 42
+        },
+        {
+          "features": {
+            "max_absolute_error": 4.291534423828125e-06,
+            "mean_absolute_error": 5.916800205341133e-07
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 3.516674041748047e-06,
+            "mean_absolute_error": 6.65510981434636e-07
+          },
+          "seed": 43
+        }
+      ]
+    },
+    "convnext_base_fb_in22k_ft_in1k_384": {
+      "archive_bytes": 354427575,
+      "archive_round_trip": "exact",
+      "archive_sha256": "6fdb3b8dba4172a1934774f38e2910fd07377ad8b5d7ab1394dd11e408374120",
+      "base_variant": "convnext_base",
+      "num_classes": 1000,
+      "timm_tag": "convnext_base.fb_in22k_ft_in1k_384",
+      "upstream_revision": "2b2698d86523262ca8065d0957c7f80d963bb43f",
+      "validation": [
+        {
+          "features": {
+            "max_absolute_error": 2.3543834686279297e-06,
+            "mean_absolute_error": 4.832456852454925e-07
+          },
+          "input_size": [
+            3,
+            384,
+            384
+          ],
+          "output": {
+            "max_absolute_error": 1.9073486328125e-06,
+            "mean_absolute_error": 3.86150560416354e-07
+          },
+          "seed": 42
+        },
+        {
+          "features": {
+            "max_absolute_error": 2.4437904357910156e-06,
+            "mean_absolute_error": 4.85188536458736e-07
+          },
+          "input_size": [
+            3,
+            384,
+            384
+          ],
+          "output": {
+            "max_absolute_error": 1.6540288925170898e-06,
+            "mean_absolute_error": 3.640176657881966e-07
+          },
+          "seed": 43
+        }
+      ]
+    },
+    "convnext_femto": {
+      "archive_bytes": 20899895,
+      "archive_round_trip": "exact",
+      "archive_sha256": "f9ce738f7c422a6feaefe7ecdd5bb2e0983a83bf15c2f97a18aebd0521c5a9b9",
+      "base_variant": "convnext_femto",
+      "num_classes": 1000,
+      "timm_tag": "convnext_femto.d1_in1k",
+      "upstream_revision": "1e0c02df687c47abf0819e1a4f858293e17e0c50",
+      "validation": [
+        {
+          "features": {
+            "max_absolute_error": 1.3470649719238281e-05,
+            "mean_absolute_error": 3.161820814057137e-06
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 1.1682510375976562e-05,
+            "mean_absolute_error": 2.945639153040247e-06
+          },
+          "seed": 42
+        },
+        {
+          "features": {
+            "max_absolute_error": 1.3828277587890625e-05,
+            "mean_absolute_error": 3.166202759530279e-06
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 1.1861324310302734e-05,
+            "mean_absolute_error": 2.9269865535752615e-06
+          },
+          "seed": 43
+        }
+      ]
+    },
+    "convnext_femto_ols": {
+      "archive_bytes": 20930615,
+      "archive_round_trip": "exact",
+      "archive_sha256": "dc01d8279977f57cbb294afa09b00ad47083842de01ee59b1a2f3d5172fd8d15",
+      "base_variant": "convnext_femto_ols",
+      "num_classes": 1000,
+      "timm_tag": "convnext_femto_ols.d1_in1k",
+      "upstream_revision": "16954408dffddcc0f68006660e4cf24e7804f07a",
+      "validation": [
+        {
+          "features": {
+            "max_absolute_error": 8.225440979003906e-06,
+            "mean_absolute_error": 1.95887582776777e-06
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 7.3909759521484375e-06,
+            "mean_absolute_error": 1.7906651237353799e-06
+          },
+          "seed": 42
+        },
+        {
+          "features": {
+            "max_absolute_error": 9.894371032714844e-06,
+            "mean_absolute_error": 1.8811018662745482e-06
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 7.152557373046875e-06,
+            "mean_absolute_error": 1.7643943692746689e-06
+          },
+          "seed": 43
+        }
+      ]
+    },
+    "convnext_large": {
+      "archive_bytes": 791133687,
+      "archive_round_trip": "exact",
+      "archive_sha256": "1e764468289af1049794c3ff31b5e2a1607fada518ca1e073aed63233c010259",
+      "base_variant": "convnext_large",
+      "num_classes": 1000,
+      "timm_tag": "convnext_large.fb_in1k",
+      "upstream_revision": "ee59ee399377a9c7d0fa318e3fc969de6ca2b380",
+      "validation": [
+        {
+          "features": {
+            "max_absolute_error": 1.9371509552001953e-07,
+            "mean_absolute_error": 2.6058851076982137e-08
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 7.897615432739258e-07,
+            "mean_absolute_error": 1.824125632765572e-07
+          },
+          "seed": 42
+        },
+        {
+          "features": {
+            "max_absolute_error": 8.344650268554688e-07,
+            "mean_absolute_error": 5.6376070034502845e-08
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 2.8759241104125977e-06,
+            "mean_absolute_error": 4.81933341234253e-07
+          },
+          "seed": 43
+        }
+      ]
+    },
+    "convnext_large_fb_in22k": {
+      "archive_bytes": 919261448,
+      "archive_round_trip": "exact",
+      "archive_sha256": "a9ba5bb343bdaaf0520d67368a9b0020897101125ae5f57d608c3831fe35cff1",
+      "base_variant": "convnext_large",
+      "num_classes": 21841,
+      "timm_tag": "convnext_large.fb_in22k",
+      "upstream_revision": "be6de86d9928c6cc2a8986963243142f403f382d",
+      "validation": [
+        {
+          "features": {
+            "max_absolute_error": 9.834766387939453e-07,
+            "mean_absolute_error": 1.5335713499098347e-07
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 2.4810433387756348e-06,
+            "mean_absolute_error": 4.0243821786134504e-07
+          },
+          "seed": 42
+        },
+        {
+          "features": {
+            "max_absolute_error": 3.159046173095703e-06,
+            "mean_absolute_error": 2.4753322236392705e-07
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 6.67572021484375e-06,
+            "mean_absolute_error": 7.854251293792913e-07
+          },
+          "seed": 43
+        }
+      ]
+    },
+    "convnext_large_fb_in22k_ft_in1k": {
+      "archive_bytes": 791133687,
+      "archive_round_trip": "exact",
+      "archive_sha256": "b1f9ae5acbd5068645b71416e6090fe15065485677bb6bc0fcb4d79ac35a7a98",
+      "base_variant": "convnext_large",
+      "num_classes": 1000,
+      "timm_tag": "convnext_large.fb_in22k_ft_in1k",
+      "upstream_revision": "dc2e53fad264aa1fb4e5940e0d1c9b79ac6e0854",
+      "validation": [
+        {
+          "features": {
+            "max_absolute_error": 2.1457672119140625e-06,
+            "mean_absolute_error": 3.372342689544894e-07
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 1.3560056686401367e-06,
+            "mean_absolute_error": 3.254618547998689e-07
+          },
+          "seed": 42
+        },
+        {
+          "features": {
+            "max_absolute_error": 3.2782554626464844e-06,
+            "mean_absolute_error": 4.7290825477830367e-07
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 3.337860107421875e-06,
+            "mean_absolute_error": 5.556904056902567e-07
+          },
+          "seed": 43
+        }
+      ]
+    },
+    "convnext_large_fb_in22k_ft_in1k_384": {
+      "archive_bytes": 791133687,
+      "archive_round_trip": "exact",
+      "archive_sha256": "4f46b33e7127f8e40b013cdbcd37f2f771b1812a4e731f090dd8fed263ba5615",
+      "base_variant": "convnext_large",
+      "num_classes": 1000,
+      "timm_tag": "convnext_large.fb_in22k_ft_in1k_384",
+      "upstream_revision": "1c3c222eca50028b09e888e12746ac10f2403a36",
+      "validation": [
+        {
+          "features": {
+            "max_absolute_error": 3.3974647521972656e-06,
+            "mean_absolute_error": 6.174396958158468e-07
+          },
+          "input_size": [
+            3,
+            384,
+            384
+          ],
+          "output": {
+            "max_absolute_error": 2.8014183044433594e-06,
+            "mean_absolute_error": 5.73338923004485e-07
+          },
+          "seed": 42
+        },
+        {
+          "features": {
+            "max_absolute_error": 3.814697265625e-06,
+            "mean_absolute_error": 6.792199087612971e-07
+          },
+          "input_size": [
+            3,
+            384,
+            384
+          ],
+          "output": {
+            "max_absolute_error": 2.86102294921875e-06,
+            "mean_absolute_error": 6.428472829611565e-07
+          },
+          "seed": 43
+        }
+      ]
+    },
+    "convnext_nano": {
+      "archive_bytes": 62402695,
+      "archive_round_trip": "exact",
+      "archive_sha256": "4ea3411472a3b71743d77c1d67befd1e76b7334bb887e7f6860b13fbe3253c0e",
+      "base_variant": "convnext_nano",
+      "num_classes": 1000,
+      "timm_tag": "convnext_nano.d1h_in1k",
+      "upstream_revision": "fe9cba6df2f17352639e23ca89e1aa6b37f51462",
+      "validation": [
+        {
+          "features": {
+            "max_absolute_error": 1.6868114471435547e-05,
+            "mean_absolute_error": 3.248276698286645e-06
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 1.8730759620666504e-05,
+            "mean_absolute_error": 4.779662958753761e-06
+          },
+          "seed": 42
+        },
+        {
+          "features": {
+            "max_absolute_error": 1.7374753952026367e-05,
+            "mean_absolute_error": 3.3750086458894657e-06
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 1.9684433937072754e-05,
+            "mean_absolute_error": 4.916619673167588e-06
+          },
+          "seed": 43
+        }
+      ]
+    },
+    "convnext_nano_in12k": {
+      "archive_bytes": 90153151,
+      "archive_round_trip": "exact",
+      "archive_sha256": "14b12c621517942aa10fdd17630e496eabe5554a1b2277840d24a9df0c33ebbd",
+      "base_variant": "convnext_nano",
+      "num_classes": 11821,
+      "timm_tag": "convnext_nano.in12k",
+      "upstream_revision": "15fd00e9b9a7be75b5cf75286814ddc0e03a45d0",
+      "validation": [
+        {
+          "features": {
+            "max_absolute_error": 1.4543533325195312e-05,
+            "mean_absolute_error": 2.7124610824103e-06
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 9.894371032714844e-06,
+            "mean_absolute_error": 1.8475990373190143e-06
+          },
+          "seed": 42
+        },
+        {
+          "features": {
+            "max_absolute_error": 1.1086463928222656e-05,
+            "mean_absolute_error": 2.4262856186396675e-06
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 8.463859558105469e-06,
+            "mean_absolute_error": 1.658204496379767e-06
+          },
+          "seed": 43
+        }
+      ]
+    },
+    "convnext_nano_in12k_ft_in1k": {
+      "archive_bytes": 62402695,
+      "archive_round_trip": "exact",
+      "archive_sha256": "3d1116f008c6eab194aa6ae0bba49e775bc06943a9d8f904004b4e07379278d4",
+      "base_variant": "convnext_nano",
+      "num_classes": 1000,
+      "timm_tag": "convnext_nano.in12k_ft_in1k",
+      "upstream_revision": "f185680dbe452e7d20db71f4e5020b89fe708945",
+      "validation": [
+        {
+          "features": {
+            "max_absolute_error": 1.430511474609375e-05,
+            "mean_absolute_error": 3.908528924512211e-06
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 1.3053417205810547e-05,
+            "mean_absolute_error": 2.840366278178408e-06
+          },
+          "seed": 42
+        },
+        {
+          "features": {
+            "max_absolute_error": 1.3768672943115234e-05,
+            "mean_absolute_error": 3.813180910583469e-06
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 1.3500452041625977e-05,
+            "mean_absolute_error": 2.8921515422553057e-06
+          },
+          "seed": 43
+        }
+      ]
+    },
+    "convnext_nano_ols": {
+      "archive_bytes": 62627975,
+      "archive_round_trip": "exact",
+      "archive_sha256": "4e78d5f6b119f734c5da4ee3cbeb16e839b896742845eb6d4dac65da02ffa3fe",
+      "base_variant": "convnext_nano_ols",
+      "num_classes": 1000,
+      "timm_tag": "convnext_nano_ols.d1h_in1k",
+      "upstream_revision": "013df4ea50db40d3a6f244077faa2e5d3b60c38a",
+      "validation": [
+        {
+          "features": {
+            "max_absolute_error": 1.94646418094635e-05,
+            "mean_absolute_error": 3.347176971146837e-06
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 2.586841583251953e-05,
+            "mean_absolute_error": 4.20845299231587e-06
+          },
+          "seed": 42
+        },
+        {
+          "features": {
+            "max_absolute_error": 1.9162893295288086e-05,
+            "mean_absolute_error": 3.213506715837866e-06
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 2.5928020477294922e-05,
+            "mean_absolute_error": 4.074469416082138e-06
+          },
+          "seed": 43
+        }
+      ]
+    },
+    "convnext_nano_r384_ad_in12k": {
+      "archive_bytes": 90153151,
+      "archive_round_trip": "exact",
+      "archive_sha256": "9dea1df90e10eb54af2ba424d50f263141f4790d8e101e84ed17dbcd4e9cb8c4",
+      "base_variant": "convnext_nano",
+      "num_classes": 11821,
+      "timm_tag": "convnext_nano.r384_ad_in12k",
+      "upstream_revision": "339567c3eda7e4d5a668e074fb86da8b188b85f6",
+      "validation": [
+        {
+          "features": {
+            "max_absolute_error": 5.3882598876953125e-05,
+            "mean_absolute_error": 1.0496206414245535e-05
+          },
+          "input_size": [
+            3,
+            384,
+            384
+          ],
+          "output": {
+            "max_absolute_error": 2.4199485778808594e-05,
+            "mean_absolute_error": 4.528651970758801e-06
+          },
+          "seed": 42
+        },
+        {
+          "features": {
+            "max_absolute_error": 6.961822509765625e-05,
+            "mean_absolute_error": 1.4626220036006998e-05
+          },
+          "input_size": [
+            3,
+            384,
+            384
+          ],
+          "output": {
+            "max_absolute_error": 2.7477741241455078e-05,
+            "mean_absolute_error": 5.309524567564949e-06
+          },
+          "seed": 43
+        }
+      ]
+    },
+    "convnext_nano_r384_in12k": {
+      "archive_bytes": 90153151,
+      "archive_round_trip": "exact",
+      "archive_sha256": "23eb01a5d3c241ebb01f5274bb225c1d797782ade9b4ceb14ca860790db9971a",
+      "base_variant": "convnext_nano",
+      "num_classes": 11821,
+      "timm_tag": "convnext_nano.r384_in12k",
+      "upstream_revision": "b5e07bc417d74b7c8580347b6bfe7f035e377025",
+      "validation": [
+        {
+          "features": {
+            "max_absolute_error": 5.435943603515625e-05,
+            "mean_absolute_error": 1.129146676248638e-05
+          },
+          "input_size": [
+            3,
+            384,
+            384
+          ],
+          "output": {
+            "max_absolute_error": 1.52587890625e-05,
+            "mean_absolute_error": 3.4431648145982763e-06
+          },
+          "seed": 42
+        },
+        {
+          "features": {
+            "max_absolute_error": 6.914138793945312e-05,
+            "mean_absolute_error": 1.4306086995929945e-05
+          },
+          "input_size": [
+            3,
+            384,
+            384
+          ],
+          "output": {
+            "max_absolute_error": 2.7179718017578125e-05,
+            "mean_absolute_error": 4.735267793876119e-06
+          },
+          "seed": 43
+        }
+      ]
+    },
+    "convnext_nano_r384_in12k_ft_in1k": {
+      "archive_bytes": 62402695,
+      "archive_round_trip": "exact",
+      "archive_sha256": "69cab9424c62fa286f3c031f63d372b525741ca9b422420e8caa4576b1f771d5",
+      "base_variant": "convnext_nano",
+      "num_classes": 1000,
+      "timm_tag": "convnext_nano.r384_in12k_ft_in1k",
+      "upstream_revision": "8a2572237c090b4dc2bae95c1791c5b401b6c26f",
+      "validation": [
+        {
+          "features": {
+            "max_absolute_error": 3.4809112548828125e-05,
+            "mean_absolute_error": 6.900777407281566e-06
+          },
+          "input_size": [
+            3,
+            384,
+            384
+          ],
+          "output": {
+            "max_absolute_error": 7.927417755126953e-06,
+            "mean_absolute_error": 1.7747636320564197e-06
+          },
+          "seed": 42
+        },
+        {
+          "features": {
+            "max_absolute_error": 3.159046173095703e-05,
+            "mean_absolute_error": 7.4944173320545815e-06
+          },
+          "input_size": [
+            3,
+            384,
+            384
+          ],
+          "output": {
+            "max_absolute_error": 8.702278137207031e-06,
+            "mean_absolute_error": 1.7428230876248563e-06
+          },
+          "seed": 43
+        }
+      ]
+    },
+    "convnext_pico": {
+      "archive_bytes": 36208727,
+      "archive_round_trip": "exact",
+      "archive_sha256": "74739b24f32663caf70d10eac2bba120f93a94b38eef121d9f9206f1e2b4b897",
+      "base_variant": "convnext_pico",
+      "num_classes": 1000,
+      "timm_tag": "convnext_pico.d1_in1k",
+      "upstream_revision": "0d879cb0cfd9b851a13f007d3ed170dd049f1476",
+      "validation": [
+        {
+          "features": {
+            "max_absolute_error": 1.7404556274414062e-05,
+            "mean_absolute_error": 3.2510315577383153e-06
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 1.5914440155029297e-05,
+            "mean_absolute_error": 4.092633844265947e-06
+          },
+          "seed": 42
+        },
+        {
+          "features": {
+            "max_absolute_error": 1.9371509552001953e-05,
+            "mean_absolute_error": 3.781128270929912e-06
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 1.901388168334961e-05,
+            "mean_absolute_error": 4.5928768486191984e-06
+          },
+          "seed": 43
+        }
+      ]
+    },
+    "convnext_pico_ols": {
+      "archive_bytes": 36280407,
+      "archive_round_trip": "exact",
+      "archive_sha256": "7d3c8028774f074b817d65c96c5ae8dd1e80e33be8c4dd7c429e14264e5d0a30",
+      "base_variant": "convnext_pico_ols",
+      "num_classes": 1000,
+      "timm_tag": "convnext_pico_ols.d1_in1k",
+      "upstream_revision": "b357b3c99ef130b8f7c6a8bbf55634c760cd3528",
+      "validation": [
+        {
+          "features": {
+            "max_absolute_error": 1.615285873413086e-05,
+            "mean_absolute_error": 3.2844673114595935e-06
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 1.4662742614746094e-05,
+            "mean_absolute_error": 3.816328899119981e-06
+          },
+          "seed": 42
+        },
+        {
+          "features": {
+            "max_absolute_error": 1.6748905181884766e-05,
+            "mean_absolute_error": 3.199756065441761e-06
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 1.52587890625e-05,
+            "mean_absolute_error": 3.773249773075804e-06
+          },
+          "seed": 43
+        }
+      ]
+    },
+    "convnext_small": {
+      "archive_bytes": 200960399,
+      "archive_round_trip": "exact",
+      "archive_sha256": "2c5d3be7ad5ea91507be89a965a9d90b26c5d2df1c37d94c72782b409d48cee6",
+      "base_variant": "convnext_small",
+      "num_classes": 1000,
+      "timm_tag": "convnext_small.fb_in1k",
+      "upstream_revision": "7941c0c00f3ca64f5048de06464b90ad12da0ccb",
+      "validation": [
+        {
+          "features": {
+            "max_absolute_error": 5.6438148021698e-07,
+            "mean_absolute_error": 8.317729793816397e-08
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 1.1026859283447266e-06,
+            "mean_absolute_error": 2.602841675525269e-07
+          },
+          "seed": 42
+        },
+        {
+          "features": {
+            "max_absolute_error": 5.438923835754395e-07,
+            "mean_absolute_error": 1.0485664603265832e-07
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 1.4603137969970703e-06,
+            "mean_absolute_error": 3.4529716685938183e-07
+          },
+          "seed": 43
+        }
+      ]
+    },
+    "convnext_small_fb_in22k": {
+      "archive_bytes": 265062495,
+      "archive_round_trip": "exact",
+      "archive_sha256": "f08be24cd21818d491f195bbd33e8f642df5375a85b0598d97a1a4ed8c67d672",
+      "base_variant": "convnext_small",
+      "num_classes": 21841,
+      "timm_tag": "convnext_small.fb_in22k",
+      "upstream_revision": "4cde7ae59c8f7fcff3f9547de274819f54863dfd",
+      "validation": [
+        {
+          "features": {
+            "max_absolute_error": 1.8477439880371094e-06,
+            "mean_absolute_error": 3.57689032171038e-07
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 3.606081008911133e-06,
+            "mean_absolute_error": 5.924663355472148e-07
+          },
+          "seed": 42
+        },
+        {
+          "features": {
+            "max_absolute_error": 1.6391277313232422e-06,
+            "mean_absolute_error": 3.557811112386844e-07
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 3.2782554626464844e-06,
+            "mean_absolute_error": 5.90811907841271e-07
+          },
+          "seed": 43
+        }
+      ]
+    },
+    "convnext_small_fb_in22k_ft_in1k": {
+      "archive_bytes": 200960399,
+      "archive_round_trip": "exact",
+      "archive_sha256": "11edf94a36c487e2ca99496e41eb0c2255c731cb90d84aeb195fb3f4881e6988",
+      "base_variant": "convnext_small",
+      "num_classes": 1000,
+      "timm_tag": "convnext_small.fb_in22k_ft_in1k",
+      "upstream_revision": "fe6b358aa409414cdb522ae3d43a2c9922f7cc1b",
+      "validation": [
+        {
+          "features": {
+            "max_absolute_error": 3.214925527572632e-06,
+            "mean_absolute_error": 7.013190383986512e-07
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 2.205371856689453e-06,
+            "mean_absolute_error": 5.424823825705971e-07
+          },
+          "seed": 42
+        },
+        {
+          "features": {
+            "max_absolute_error": 4.708766937255859e-06,
+            "mean_absolute_error": 9.99427697934152e-07
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 3.993511199951172e-06,
+            "mean_absolute_error": 8.655655960865261e-07
+          },
+          "seed": 43
+        }
+      ]
+    },
+    "convnext_small_fb_in22k_ft_in1k_384": {
+      "archive_bytes": 200960399,
+      "archive_round_trip": "exact",
+      "archive_sha256": "5f24d4dbf534c715fa17860701f170325380c2c8f15e8030f530ce76d73a6e18",
+      "base_variant": "convnext_small",
+      "num_classes": 1000,
+      "timm_tag": "convnext_small.fb_in22k_ft_in1k_384",
+      "upstream_revision": "14a837353b6ffeced1c635dc5c8c799356e316f4",
+      "validation": [
+        {
+          "features": {
+            "max_absolute_error": 3.2782554626464844e-06,
+            "mean_absolute_error": 6.504169505205937e-07
+          },
+          "input_size": [
+            3,
+            384,
+            384
+          ],
+          "output": {
+            "max_absolute_error": 1.7881393432617188e-06,
+            "mean_absolute_error": 4.59223059579017e-07
+          },
+          "seed": 42
+        },
+        {
+          "features": {
+            "max_absolute_error": 6.854534149169922e-06,
+            "mean_absolute_error": 6.940225034668401e-07
+          },
+          "input_size": [
+            3,
+            384,
+            384
+          ],
+          "output": {
+            "max_absolute_error": 2.1532177925109863e-06,
+            "mean_absolute_error": 4.984084398529376e-07
+          },
+          "seed": 43
+        }
+      ]
+    },
+    "convnext_small_in12k": {
+      "archive_bytes": 234240463,
+      "archive_round_trip": "exact",
+      "archive_sha256": "d48eca623be12a23e5e37338a950c71b80df3fb38a483bfb9503a8e2af3bf09c",
+      "base_variant": "convnext_small",
+      "num_classes": 11821,
+      "timm_tag": "convnext_small.in12k",
+      "upstream_revision": "17adaee9315a7486a1a0e4d0af1c224cdef1e2cc",
+      "validation": [
+        {
+          "features": {
+            "max_absolute_error": 2.193450927734375e-05,
+            "mean_absolute_error": 3.13943041874154e-06
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 1.0013580322265625e-05,
+            "mean_absolute_error": 1.6362722590201884e-06
+          },
+          "seed": 42
+        },
+        {
+          "features": {
+            "max_absolute_error": 1.71661376953125e-05,
+            "mean_absolute_error": 2.852156512744841e-06
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 1.33514404296875e-05,
+            "mean_absolute_error": 1.2604776884472813e-06
+          },
+          "seed": 43
+        }
+      ]
+    },
+    "convnext_small_in12k_ft_in1k": {
+      "archive_bytes": 200960399,
+      "archive_round_trip": "exact",
+      "archive_sha256": "a930a1f995b31d5a774cff84a37e00d0dd69fdf3b78387c3711cd7a773abab65",
+      "base_variant": "convnext_small",
+      "num_classes": 1000,
+      "timm_tag": "convnext_small.in12k_ft_in1k",
+      "upstream_revision": "45db0bc46e10f927840106d2763c36e6b8a2fc53",
+      "validation": [
+        {
+          "features": {
+            "max_absolute_error": 5.0067901611328125e-06,
+            "mean_absolute_error": 8.288777166853833e-07
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 2.1457672119140625e-06,
+            "mean_absolute_error": 5.002282819077664e-07
+          },
+          "seed": 42
+        },
+        {
+          "features": {
+            "max_absolute_error": 5.811452865600586e-06,
+            "mean_absolute_error": 1.0113203643413726e-06
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 2.9802322387695312e-06,
+            "mean_absolute_error": 7.599955438308825e-07
+          },
+          "seed": 43
+        }
+      ]
+    },
+    "convnext_small_in12k_ft_in1k_384": {
+      "archive_bytes": 200960399,
+      "archive_round_trip": "exact",
+      "archive_sha256": "9c7dab6a8d098c85e6449c07e550a0ff72db97956d6ca5b9a6c731456af91a38",
+      "base_variant": "convnext_small",
+      "num_classes": 1000,
+      "timm_tag": "convnext_small.in12k_ft_in1k_384",
+      "upstream_revision": "e9f96b3e3e8be16706d721c30d85112a87b82a8b",
+      "validation": [
+        {
+          "features": {
+            "max_absolute_error": 5.7220458984375e-06,
+            "mean_absolute_error": 1.2610702242454863e-06
+          },
+          "input_size": [
+            3,
+            384,
+            384
+          ],
+          "output": {
+            "max_absolute_error": 3.039836883544922e-06,
+            "mean_absolute_error": 8.000861839718709e-07
+          },
+          "seed": 42
+        },
+        {
+          "features": {
+            "max_absolute_error": 5.841255187988281e-06,
+            "mean_absolute_error": 1.1601647429415607e-06
+          },
+          "input_size": [
+            3,
+            384,
+            384
+          ],
+          "output": {
+            "max_absolute_error": 2.7641654014587402e-06,
+            "mean_absolute_error": 6.140507480267843e-07
+          },
+          "seed": 43
+        }
+      ]
+    },
+    "convnext_tiny": {
+      "archive_bytes": 114391279,
+      "archive_round_trip": "exact",
+      "archive_sha256": "aed04e2ebfea13a1190651605bcf988ef8765052f285695e7df207ad1ae28a49",
+      "base_variant": "convnext_tiny",
+      "num_classes": 1000,
+      "timm_tag": "convnext_tiny.fb_in1k",
+      "upstream_revision": "b43a6303c9fcf176d2d707478a128c2c91e93528",
+      "validation": [
+        {
+          "features": {
+            "max_absolute_error": 5.811452865600586e-07,
+            "mean_absolute_error": 9.817576795967398e-08
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 1.1622905731201172e-06,
+            "mean_absolute_error": 2.8495676929196634e-07
+          },
+          "seed": 42
+        },
+        {
+          "features": {
+            "max_absolute_error": 4.842877388000488e-07,
+            "mean_absolute_error": 9.441588844083526e-08
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 1.3709068298339844e-06,
+            "mean_absolute_error": 2.814307720200304e-07
+          },
+          "seed": 43
+        }
+      ]
+    },
+    "convnext_tiny_fb_in22k": {
+      "archive_bytes": 178504039,
+      "archive_round_trip": "exact",
+      "archive_sha256": "6a4d988f555c3262a8a31889c4530dd51095649e55e352c436f8589d18a8c06d",
+      "base_variant": "convnext_tiny",
+      "num_classes": 21841,
+      "timm_tag": "convnext_tiny.fb_in22k",
+      "upstream_revision": "342f2588bb2ea79d793d0712c9be16ec6ae0149a",
+      "validation": [
+        {
+          "features": {
+            "max_absolute_error": 3.2186508178710938e-06,
+            "mean_absolute_error": 4.6605370584984485e-07
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 4.26173210144043e-06,
+            "mean_absolute_error": 7.673480695302715e-07
+          },
+          "seed": 42
+        },
+        {
+          "features": {
+            "max_absolute_error": 2.2498425096273422e-06,
+            "mean_absolute_error": 4.751846063300036e-07
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 4.351139068603516e-06,
+            "mean_absolute_error": 7.511899866585736e-07
+          },
+          "seed": 43
+        }
+      ]
+    },
+    "convnext_tiny_fb_in22k_ft_in1k": {
+      "archive_bytes": 114391279,
+      "archive_round_trip": "exact",
+      "archive_sha256": "a7e60bb5867b1d18978130355555beceb0bf472259f3143178d878f18a9cddaa",
+      "base_variant": "convnext_tiny",
+      "num_classes": 1000,
+      "timm_tag": "convnext_tiny.fb_in22k_ft_in1k",
+      "upstream_revision": "bc48a87f119bae1b06418f5340bfa97ef75d4609",
+      "validation": [
+        {
+          "features": {
+            "max_absolute_error": 4.0978193283081055e-06,
+            "mean_absolute_error": 9.017883257911308e-07
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 2.86102294921875e-06,
+            "mean_absolute_error": 7.5347350048105e-07
+          },
+          "seed": 42
+        },
+        {
+          "features": {
+            "max_absolute_error": 6.318092346191406e-06,
+            "mean_absolute_error": 9.188659646497399e-07
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 3.7178397178649902e-06,
+            "mean_absolute_error": 7.737716600786371e-07
+          },
+          "seed": 43
+        }
+      ]
+    },
+    "convnext_tiny_fb_in22k_ft_in1k_384": {
+      "archive_bytes": 114391279,
+      "archive_round_trip": "exact",
+      "archive_sha256": "ec54a6c01b7433d176c5db202486ba307d241b04cc9af557c5e7f4af78411b24",
+      "base_variant": "convnext_tiny",
+      "num_classes": 1000,
+      "timm_tag": "convnext_tiny.fb_in22k_ft_in1k_384",
+      "upstream_revision": "32c741ba106f9e062174ef829354a16719c3dcac",
+      "validation": [
+        {
+          "features": {
+            "max_absolute_error": 6.377696990966797e-06,
+            "mean_absolute_error": 1.1599760227909428e-06
+          },
+          "input_size": [
+            3,
+            384,
+            384
+          ],
+          "output": {
+            "max_absolute_error": 3.516674041748047e-06,
+            "mean_absolute_error": 8.309837653541763e-07
+          },
+          "seed": 42
+        },
+        {
+          "features": {
+            "max_absolute_error": 7.62939453125e-06,
+            "mean_absolute_error": 1.2363174164420343e-06
+          },
+          "input_size": [
+            3,
+            384,
+            384
+          ],
+          "output": {
+            "max_absolute_error": 4.1425228118896484e-06,
+            "mean_absolute_error": 9.206030426867073e-07
+          },
+          "seed": 43
+        }
+      ]
+    },
+    "convnext_tiny_in12k": {
+      "archive_bytes": 147677242,
+      "archive_round_trip": "exact",
+      "archive_sha256": "275110a64ac7500dfb78afcf2c4fca8893a826e27bdbc418bfd535ff5b1a03ba",
+      "base_variant": "convnext_tiny",
+      "num_classes": 11821,
+      "timm_tag": "convnext_tiny.in12k",
+      "upstream_revision": "231535aee93533e7da9c82ccd8804ed9e59353bf",
+      "validation": [
+        {
+          "features": {
+            "max_absolute_error": 1.3113021850585938e-05,
+            "mean_absolute_error": 2.1324776753317565e-06
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 8.821487426757812e-06,
+            "mean_absolute_error": 1.3507724361261353e-06
+          },
+          "seed": 42
+        },
+        {
+          "features": {
+            "max_absolute_error": 1.0967254638671875e-05,
+            "mean_absolute_error": 1.923095851452672e-06
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 8.106231689453125e-06,
+            "mean_absolute_error": 1.1873014500451973e-06
+          },
+          "seed": 43
+        }
+      ]
+    },
+    "convnext_tiny_in12k_ft_in1k": {
+      "archive_bytes": 114391279,
+      "archive_round_trip": "exact",
+      "archive_sha256": "a61b598604ae6a632cd2e83c32feeeebffc79bf7044aada6dddd78c3011b898e",
+      "base_variant": "convnext_tiny",
+      "num_classes": 1000,
+      "timm_tag": "convnext_tiny.in12k_ft_in1k",
+      "upstream_revision": "aa096f03029c7f0ec052013f64c819b34f8ad790",
+      "validation": [
+        {
+          "features": {
+            "max_absolute_error": 4.887580871582031e-06,
+            "mean_absolute_error": 1.0059666237793863e-06
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 2.5331974029541016e-06,
+            "mean_absolute_error": 6.256988172026468e-07
+          },
+          "seed": 42
+        },
+        {
+          "features": {
+            "max_absolute_error": 5.751848220825195e-06,
+            "mean_absolute_error": 1.0607250260363799e-06
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 3.7550926208496094e-06,
+            "mean_absolute_error": 6.586033691746707e-07
+          },
+          "seed": 43
+        }
+      ]
+    },
+    "convnext_tiny_in12k_ft_in1k_384": {
+      "archive_bytes": 114391279,
+      "archive_round_trip": "exact",
+      "archive_sha256": "4bc548eaaf10f8d95e1cb729ede948c6325e4ac59dca5c19eb194409a489e563",
+      "base_variant": "convnext_tiny",
+      "num_classes": 1000,
+      "timm_tag": "convnext_tiny.in12k_ft_in1k_384",
+      "upstream_revision": "bac32564d7c9a688e40c76b6d17fcde4e0b15a19",
+      "validation": [
+        {
+          "features": {
+            "max_absolute_error": 9.298324584960938e-06,
+            "mean_absolute_error": 2.1132534584467066e-06
+          },
+          "input_size": [
+            3,
+            384,
+            384
+          ],
+          "output": {
+            "max_absolute_error": 5.4836273193359375e-06,
+            "mean_absolute_error": 1.1614039294727263e-06
+          },
+          "seed": 42
+        },
+        {
+          "features": {
+            "max_absolute_error": 6.9141387939453125e-06,
+            "mean_absolute_error": 1.702174927231681e-06
+          },
+          "input_size": [
+            3,
+            384,
+            384
+          ],
+          "output": {
+            "max_absolute_error": 3.516674041748047e-06,
+            "mean_absolute_error": 1.0315701501895091e-06
+          },
+          "seed": 43
+        }
+      ]
+    },
+    "convnext_xlarge": {
+      "archive_bytes": 1400855167,
+      "archive_round_trip": "exact",
+      "archive_sha256": "04f40248d309c2f6104149b4438b74cb8a693531e27692b8aea4217c0cb52313",
+      "base_variant": "convnext_xlarge",
+      "num_classes": 1000,
+      "timm_tag": "convnext_xlarge.fb_in22k_ft_in1k",
+      "upstream_revision": "1e844ed4e77e63bedb6689e60e3b4939b4516c2c",
+      "validation": [
+        {
+          "features": {
+            "max_absolute_error": 2.086162567138672e-06,
+            "mean_absolute_error": 2.5234024292331014e-07
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 1.5795230865478516e-06,
+            "mean_absolute_error": 3.1948880518939404e-07
+          },
+          "seed": 42
+        },
+        {
+          "features": {
+            "max_absolute_error": 1.6689300537109375e-06,
+            "mean_absolute_error": 2.497857565231243e-07
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 1.3113021850585938e-06,
+            "mean_absolute_error": 3.211577563888568e-07
+          },
+          "seed": 43
+        }
+      ]
+    },
+    "convnext_xlarge_fb_in22k": {
+      "archive_bytes": 1571668935,
+      "archive_round_trip": "exact",
+      "archive_sha256": "ca509c7178977c587501202543f77d21a002d1773b76c13035845005689a480d",
+      "base_variant": "convnext_xlarge",
+      "num_classes": 21841,
+      "timm_tag": "convnext_xlarge.fb_in22k",
+      "upstream_revision": "5be43820e0c4c55ec2a262cd1bd7858af6450692",
+      "validation": [
+        {
+          "features": {
+            "max_absolute_error": 9.98377799987793e-07,
+            "mean_absolute_error": 1.205005730753328e-07
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 2.682209014892578e-06,
+            "mean_absolute_error": 3.986987735515868e-07
+          },
+          "seed": 42
+        },
+        {
+          "features": {
+            "max_absolute_error": 1.0579824447631836e-06,
+            "mean_absolute_error": 1.2559836193304363e-07
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 2.384185791015625e-06,
+            "mean_absolute_error": 5.444061343951034e-07
+          },
+          "seed": 43
+        }
+      ]
+    },
+    "convnext_xlarge_fb_in22k_ft_in1k_384": {
+      "archive_bytes": 1400855167,
+      "archive_round_trip": "exact",
+      "archive_sha256": "4230f54745dab1263d020caab89dc73b27f53cd99bf3b58420b1ec299f8937c8",
+      "base_variant": "convnext_xlarge",
+      "num_classes": 1000,
+      "timm_tag": "convnext_xlarge.fb_in22k_ft_in1k_384",
+      "upstream_revision": "521ec214a37143d1af4aecd18ff1df06bca161ca",
+      "validation": [
+        {
+          "features": {
+            "max_absolute_error": 2.4437904357910156e-06,
+            "mean_absolute_error": 3.8252258605098177e-07
+          },
+          "input_size": [
+            3,
+            384,
+            384
+          ],
+          "output": {
+            "max_absolute_error": 1.8328428268432617e-06,
+            "mean_absolute_error": 4.3814071659653564e-07
+          },
+          "seed": 42
+        },
+        {
+          "features": {
+            "max_absolute_error": 2.5033950805664062e-06,
+            "mean_absolute_error": 3.5533039977053704e-07
+          },
+          "input_size": [
+            3,
+            384,
+            384
+          ],
+          "output": {
+            "max_absolute_error": 1.6093254089355469e-06,
+            "mean_absolute_error": 3.7992373336237506e-07
+          },
+          "seed": 43
+        }
+      ]
+    },
+    "convnext_zepto_rms": {
+      "archive_bytes": 8641905,
+      "archive_round_trip": "exact",
+      "archive_sha256": "7f36c3a346e8679504279e62d0f94b3fa5839a904f3d4826adacd193cfb9f6e6",
+      "base_variant": "convnext_zepto_rms",
+      "num_classes": 1000,
+      "timm_tag": "convnext_zepto_rms.ra4_e3600_r224_in1k",
+      "upstream_revision": "0b60cfd7ba79eaa108996337297585879134f48e",
+      "validation": [
+        {
+          "features": {
+            "max_absolute_error": 2.5779008865356445e-05,
+            "mean_absolute_error": 5.847025022376329e-06
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 1.043081283569336e-05,
+            "mean_absolute_error": 2.128250798705267e-06
+          },
+          "seed": 42
+        },
+        {
+          "features": {
+            "max_absolute_error": 4.9114227294921875e-05,
+            "mean_absolute_error": 1.5085666746017523e-05
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 3.0040740966796875e-05,
+            "mean_absolute_error": 6.348892839014297e-06
+          },
+          "seed": 43
+        }
+      ]
+    },
+    "convnext_zepto_rms_ols": {
+      "archive_bytes": 8676631,
+      "archive_round_trip": "exact",
+      "archive_sha256": "4d5ac57840d4930461b26045b0eb3525b1909e3723e90271fc929b1d389322fe",
+      "base_variant": "convnext_zepto_rms_ols",
+      "num_classes": 1000,
+      "timm_tag": "convnext_zepto_rms_ols.ra4_e3600_r224_in1k",
+      "upstream_revision": "fc9044eff11d0f1fb4c9fa812d8ac8c57b49c823",
+      "validation": [
+        {
+          "features": {
+            "max_absolute_error": 1.1563301086425781e-05,
+            "mean_absolute_error": 3.186703906976618e-06
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 4.827976226806641e-06,
+            "mean_absolute_error": 1.070383973456046e-06
+          },
+          "seed": 42
+        },
+        {
+          "features": {
+            "max_absolute_error": 1.3589859008789062e-05,
+            "mean_absolute_error": 3.8122125260997564e-06
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 6.079673767089844e-06,
+            "mean_absolute_error": 1.3367608744374593e-06
+          },
+          "seed": 43
+        }
+      ]
+    },
+    "convnextv2_atto": {
+      "archive_bytes": 14867420,
+      "archive_round_trip": "exact",
+      "archive_sha256": "58b3ef6a3ef06e22df33da32ea1bfc14934fac68d02c14eb5f813639c2e60906",
+      "base_variant": "convnextv2_atto",
+      "num_classes": 1000,
+      "timm_tag": "convnextv2_atto.fcmae_ft_in1k",
+      "upstream_revision": "2de59190576d00653aabde4bcd4af7525a93ad1b",
+      "validation": [
+        {
+          "features": {
+            "max_absolute_error": 4.887580871582031e-06,
+            "mean_absolute_error": 1.141156872108695e-06
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 4.649162292480469e-06,
+            "mean_absolute_error": 9.345970966023742e-07
+          },
+          "seed": 42
+        },
+        {
+          "features": {
+            "max_absolute_error": 5.245208740234375e-06,
+            "mean_absolute_error": 1.3258119224701659e-06
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 4.0531158447265625e-06,
+            "mean_absolute_error": 1.0012872735387646e-06
+          },
+          "seed": 43
+        }
+      ]
+    },
+    "convnextv2_atto_fcmae": {
+      "archive_bytes": 13574836,
+      "archive_round_trip": "exact",
+      "archive_sha256": "dce6c75b78ca3d0b4d95b72320e9ef0ec7230716b192bc5af609901a063a4797",
+      "base_variant": "convnextv2_atto",
+      "num_classes": 0,
+      "timm_tag": "convnextv2_atto.fcmae",
+      "upstream_revision": "1a67688b61fa12922bc86dab210c40f33129bd39",
+      "validation": [
+        {
+          "features": {
+            "max_absolute_error": 2.86102294921875e-06,
+            "mean_absolute_error": 5.517634917850955e-07
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 2.86102294921875e-06,
+            "mean_absolute_error": 5.517634917850955e-07
+          },
+          "seed": 42
+        },
+        {
+          "features": {
+            "max_absolute_error": 2.86102294921875e-06,
+            "mean_absolute_error": 5.387940973378136e-07
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 2.86102294921875e-06,
+            "mean_absolute_error": 5.387940973378136e-07
+          },
+          "seed": 43
+        }
+      ]
+    },
+    "convnextv2_base": {
+      "archive_bytes": 354939575,
+      "archive_round_trip": "exact",
+      "archive_sha256": "142169c8a5e8572841416436af1967be7a0d401f436c0b19c2943c766a51f81d",
+      "base_variant": "convnextv2_base",
+      "num_classes": 1000,
+      "timm_tag": "convnextv2_base.fcmae_ft_in1k",
+      "upstream_revision": "7b29800e499fdc06de5b612970f3384dc8d29ca5",
+      "validation": [
+        {
+          "features": {
+            "max_absolute_error": 1.1026859283447266e-06,
+            "mean_absolute_error": 2.2213401962289936e-07
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 7.62939453125e-06,
+            "mean_absolute_error": 1.1417046152928378e-06
+          },
+          "seed": 42
+        },
+        {
+          "features": {
+            "max_absolute_error": 6.556510925292969e-07,
+            "mean_absolute_error": 1.433579797094353e-07
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 4.172325134277344e-06,
+            "mean_absolute_error": 8.031875040614977e-07
+          },
+          "seed": 43
+        }
+      ]
+    },
+    "convnextv2_base_fcmae": {
+      "archive_bytes": 350836149,
+      "archive_round_trip": "exact",
+      "archive_sha256": "134a03cb1ff047c4e79efb581c4cf457af96230a41b87fbd6d0f8562f4c70802",
+      "base_variant": "convnextv2_base",
+      "num_classes": 0,
+      "timm_tag": "convnextv2_base.fcmae",
+      "upstream_revision": "4a8b02c2230370906f2b6ea42e18c553e50fbf57",
+      "validation": [
+        {
+          "features": {
+            "max_absolute_error": 5.7220458984375e-06,
+            "mean_absolute_error": 5.010846280129044e-07
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 5.7220458984375e-06,
+            "mean_absolute_error": 5.010846280129044e-07
+          },
+          "seed": 42
+        },
+        {
+          "features": {
+            "max_absolute_error": 5.7220458984375e-06,
+            "mean_absolute_error": 5.391672743826348e-07
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 5.7220458984375e-06,
+            "mean_absolute_error": 5.391672743826348e-07
+          },
+          "seed": 43
+        }
+      ]
+    },
+    "convnextv2_base_fcmae_ft_in22k_in1k": {
+      "archive_bytes": 354939575,
+      "archive_round_trip": "exact",
+      "archive_sha256": "0341727d024de8ef5bf08c62af008191b865a3b2e4b2bf3def03f9446d85fb9c",
+      "base_variant": "convnextv2_base",
+      "num_classes": 1000,
+      "timm_tag": "convnextv2_base.fcmae_ft_in22k_in1k",
+      "upstream_revision": "9e250ed8f88b436472d2b24af26f82a8aa8c719d",
+      "validation": [
+        {
+          "features": {
+            "max_absolute_error": 1.0728836059570312e-06,
+            "mean_absolute_error": 2.1626215129799675e-07
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 8.866190910339355e-07,
+            "mean_absolute_error": 2.187723282531806e-07
+          },
+          "seed": 42
+        },
+        {
+          "features": {
+            "max_absolute_error": 2.1457672119140625e-06,
+            "mean_absolute_error": 2.749841598870262e-07
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 1.2516975402832031e-06,
+            "mean_absolute_error": 3.01209269082392e-07
+          },
+          "seed": 43
+        }
+      ]
+    },
+    "convnextv2_base_fcmae_ft_in22k_in1k_384": {
+      "archive_bytes": 354939575,
+      "archive_round_trip": "exact",
+      "archive_sha256": "c40c9bed20a919fac19c0a4aba0424a814791d59bb2801d6778e68fe5821afc3",
+      "base_variant": "convnextv2_base",
+      "num_classes": 1000,
+      "timm_tag": "convnextv2_base.fcmae_ft_in22k_in1k_384",
+      "upstream_revision": "bea9dc139d5981aff6ce4d6d9690086e45ad8b56",
+      "validation": [
+        {
+          "features": {
+            "max_absolute_error": 2.0265579223632812e-06,
+            "mean_absolute_error": 2.8674318741650495e-07
+          },
+          "input_size": [
+            3,
+            384,
+            384
+          ],
+          "output": {
+            "max_absolute_error": 1.1622905731201172e-06,
+            "mean_absolute_error": 3.3693387990751944e-07
+          },
+          "seed": 42
+        },
+        {
+          "features": {
+            "max_absolute_error": 1.2516975402832031e-06,
+            "mean_absolute_error": 2.0430894664968946e-07
+          },
+          "input_size": [
+            3,
+            384,
+            384
+          ],
+          "output": {
+            "max_absolute_error": 5.662441253662109e-07,
+            "mean_absolute_error": 1.5745125381272373e-07
+          },
+          "seed": 43
+        }
+      ]
+    },
+    "convnextv2_femto": {
+      "archive_bytes": 20961335,
+      "archive_round_trip": "exact",
+      "archive_sha256": "b57d2b176e25996410cb5eb2f97050e55fcab00ace217a54ea1ff3b64e877216",
+      "base_variant": "convnextv2_femto",
+      "num_classes": 1000,
+      "timm_tag": "convnextv2_femto.fcmae_ft_in1k",
+      "upstream_revision": "8cf231e1f85cfad1b89ecd93ce7d1e564e51a2a8",
+      "validation": [
+        {
+          "features": {
+            "max_absolute_error": 6.288290023803711e-06,
+            "mean_absolute_error": 7.963823804857384e-07
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 4.76837158203125e-06,
+            "mean_absolute_error": 7.386840934486827e-07
+          },
+          "seed": 42
+        },
+        {
+          "features": {
+            "max_absolute_error": 5.185604095458984e-06,
+            "mean_absolute_error": 7.608218766108621e-07
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 5.0067901611328125e-06,
+            "mean_absolute_error": 6.943922699065297e-07
+          },
+          "seed": 43
+        }
+      ]
+    },
+    "convnextv2_femto_fcmae": {
+      "archive_bytes": 19424617,
+      "archive_round_trip": "exact",
+      "archive_sha256": "e1e44c73fcc914743192b8e536335e253547a04a6ca25b671697d15c6a4d35f7",
+      "base_variant": "convnextv2_femto",
+      "num_classes": 0,
+      "timm_tag": "convnextv2_femto.fcmae",
+      "upstream_revision": "ad8895ca0e753755810acaa2068a7ebf497e6b2a",
+      "validation": [
+        {
+          "features": {
+            "max_absolute_error": 3.0994415283203125e-06,
+            "mean_absolute_error": 6.099307938711718e-07
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 3.0994415283203125e-06,
+            "mean_absolute_error": 6.099307938711718e-07
+          },
+          "seed": 42
+        },
+        {
+          "features": {
+            "max_absolute_error": 2.86102294921875e-06,
+            "mean_absolute_error": 6.551979936375574e-07
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 2.86102294921875e-06,
+            "mean_absolute_error": 6.551979936375574e-07
+          },
+          "seed": 43
+        }
+      ]
+    },
+    "convnextv2_huge": {
+      "archive_bytes": 2641228735,
+      "archive_round_trip": "exact",
+      "archive_sha256": "c765aa22e7aaadb497c6134c7807827d38bfeda0c1b5ccc9f8fb4fc6f419c310",
+      "base_variant": "convnextv2_huge",
+      "num_classes": 1000,
+      "timm_tag": "convnextv2_huge.fcmae_ft_in1k",
+      "upstream_revision": "79144cc49b295e1bb236f0c49be7747ddeecdde0",
+      "validation": [
+        {
+          "features": {
+            "max_absolute_error": 5.5730342864990234e-06,
+            "mean_absolute_error": 1.3426330269794562e-07
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 2.09808349609375e-05,
+            "mean_absolute_error": 2.111300773322e-06
+          },
+          "seed": 42
+        },
+        {
+          "features": {
+            "max_absolute_error": 2.1457672119140625e-06,
+            "mean_absolute_error": 4.667466413366128e-08
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 7.748603820800781e-06,
+            "mean_absolute_error": 7.603280209877994e-07
+          },
+          "seed": 43
+        }
+      ]
+    },
+    "convnextv2_huge_fcmae": {
+      "archive_bytes": 2629934502,
+      "archive_round_trip": "exact",
+      "archive_sha256": "bcf212e3e22b14d53fb07de2952a1d5774e34247529231bffebab03a8733c726",
+      "base_variant": "convnextv2_huge",
+      "num_classes": 0,
+      "timm_tag": "convnextv2_huge.fcmae",
+      "upstream_revision": "cd831fe89d792d537dd7dee0ea604daa23cebcb6",
+      "validation": [
+        {
+          "features": {
+            "max_absolute_error": 5.9604644775390625e-06,
+            "mean_absolute_error": 8.54754546253389e-07
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 5.9604644775390625e-06,
+            "mean_absolute_error": 8.54754546253389e-07
+          },
+          "seed": 42
+        },
+        {
+          "features": {
+            "max_absolute_error": 6.079673767089844e-06,
+            "mean_absolute_error": 8.50300750698807e-07
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 6.079673767089844e-06,
+            "mean_absolute_error": 8.50300750698807e-07
+          },
+          "seed": 43
+        }
+      ]
+    },
+    "convnextv2_huge_fcmae_ft_in22k_in1k_384": {
+      "archive_bytes": 2641228735,
+      "archive_round_trip": "exact",
+      "archive_sha256": "ed3243c6d7d69134e192d62bd9708dad0c2f0209712386be8fe294af9dca870f",
+      "base_variant": "convnextv2_huge",
+      "num_classes": 1000,
+      "timm_tag": "convnextv2_huge.fcmae_ft_in22k_in1k_384",
+      "upstream_revision": "e2ddce36b729b827f01e8c3fd72be459d212c95c",
+      "validation": [
+        {
+          "features": {
+            "max_absolute_error": 2.6226043701171875e-06,
+            "mean_absolute_error": 1.2040096919463394e-07
+          },
+          "input_size": [
+            3,
+            384,
+            384
+          ],
+          "output": {
+            "max_absolute_error": 8.344650268554688e-07,
+            "mean_absolute_error": 1.6506109545844083e-07
+          },
+          "seed": 42
+        },
+        {
+          "features": {
+            "max_absolute_error": 3.0994415283203125e-06,
+            "mean_absolute_error": 1.5638781292182102e-07
+          },
+          "input_size": [
+            3,
+            384,
+            384
+          ],
+          "output": {
+            "max_absolute_error": 1.1175870895385742e-06,
+            "mean_absolute_error": 2.069873801247013e-07
+          },
+          "seed": 43
+        }
+      ]
+    },
+    "convnextv2_huge_fcmae_ft_in22k_in1k_512": {
+      "archive_bytes": 2641228735,
+      "archive_round_trip": "exact",
+      "archive_sha256": "743adf3e0f7cbf72e792780b6cbc2ee2d6a5755f6fa92a15381aa62064b52555",
+      "base_variant": "convnextv2_huge",
+      "num_classes": 1000,
+      "timm_tag": "convnextv2_huge.fcmae_ft_in22k_in1k_512",
+      "upstream_revision": "8a033dfd6920b7466c6ca2de4b7c53480709cda9",
+      "validation": [
+        {
+          "features": {
+            "max_absolute_error": 4.410743713378906e-06,
+            "mean_absolute_error": 2.2671297017495817e-07
+          },
+          "input_size": [
+            3,
+            512,
+            512
+          ],
+          "output": {
+            "max_absolute_error": 1.4454126358032227e-06,
+            "mean_absolute_error": 3.344882202327426e-07
+          },
+          "seed": 42
+        },
+        {
+          "features": {
+            "max_absolute_error": 4.76837158203125e-06,
+            "mean_absolute_error": 2.0973001824131643e-07
+          },
+          "input_size": [
+            3,
+            512,
+            512
+          ],
+          "output": {
+            "max_absolute_error": 1.3113021850585938e-06,
+            "mean_absolute_error": 2.884990522034059e-07
+          },
+          "seed": 43
+        }
+      ]
+    },
+    "convnextv2_large": {
+      "archive_bytes": 791901687,
+      "archive_round_trip": "exact",
+      "archive_sha256": "73a061419f36fb95de5fe425d1b40612dee875d8dddf88866f96770ff431816c",
+      "base_variant": "convnextv2_large",
+      "num_classes": 1000,
+      "timm_tag": "convnextv2_large.fcmae_ft_in1k",
+      "upstream_revision": "774e71d83a0870798b626b0723ce0b6c08746b1b",
+      "validation": [
+        {
+          "features": {
+            "max_absolute_error": 2.980232238769531e-07,
+            "mean_absolute_error": 4.4064446313996086e-08
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 5.0067901611328125e-06,
+            "mean_absolute_error": 4.0672532009011775e-07
+          },
+          "seed": 42
+        },
+        {
+          "features": {
+            "max_absolute_error": 7.450580596923828e-07,
+            "mean_absolute_error": 9.359748531778678e-08
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 1.0251998901367188e-05,
+            "mean_absolute_error": 8.713100214663427e-07
+          },
+          "seed": 43
+        }
+      ]
+    },
+    "convnextv2_large_fcmae": {
+      "archive_bytes": 785736124,
+      "archive_round_trip": "exact",
+      "archive_sha256": "9a3d4260da4e4ce71f9a0d5d02c2cf83b553f6289d3cda341fd164852bc5d215",
+      "base_variant": "convnextv2_large",
+      "num_classes": 0,
+      "timm_tag": "convnextv2_large.fcmae",
+      "upstream_revision": "4ae286f6d9c90312b0c105aaade84cdcbb8ed65c",
+      "validation": [
+        {
+          "features": {
+            "max_absolute_error": 7.62939453125e-06,
+            "mean_absolute_error": 2.9086228892083454e-07
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 7.62939453125e-06,
+            "mean_absolute_error": 2.9086228892083454e-07
+          },
+          "seed": 42
+        },
+        {
+          "features": {
+            "max_absolute_error": 7.62939453125e-06,
+            "mean_absolute_error": 3.8470250274258433e-07
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 7.62939453125e-06,
+            "mean_absolute_error": 3.8470250274258433e-07
+          },
+          "seed": 43
+        }
+      ]
+    },
+    "convnextv2_large_fcmae_ft_in22k_in1k": {
+      "archive_bytes": 791901687,
+      "archive_round_trip": "exact",
+      "archive_sha256": "c720bd4527fa5ce2a8753f1f367b21b2e515eeab96e6fa33733d3104ab8d56e0",
+      "base_variant": "convnextv2_large",
+      "num_classes": 1000,
+      "timm_tag": "convnextv2_large.fcmae_ft_in22k_in1k",
+      "upstream_revision": "48dcc282a4058de9e3059ee23fdaf8f41bc498f9",
+      "validation": [
+        {
+          "features": {
+            "max_absolute_error": 8.940696716308594e-07,
+            "mean_absolute_error": 1.820343413783121e-07
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 8.940696716308594e-07,
+            "mean_absolute_error": 2.1717977460866678e-07
+          },
+          "seed": 42
+        },
+        {
+          "features": {
+            "max_absolute_error": 4.798173904418945e-06,
+            "mean_absolute_error": 2.9881746854698576e-07
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 1.5348196029663086e-06,
+            "mean_absolute_error": 4.306612595428305e-07
+          },
+          "seed": 43
+        }
+      ]
+    },
+    "convnextv2_large_fcmae_ft_in22k_in1k_384": {
+      "archive_bytes": 791901687,
+      "archive_round_trip": "exact",
+      "archive_sha256": "69cf2810fdf6f7327dd1590f7abf2ca65e09d34691f882ea7a80210452900063",
+      "base_variant": "convnextv2_large",
+      "num_classes": 1000,
+      "timm_tag": "convnextv2_large.fcmae_ft_in22k_in1k_384",
+      "upstream_revision": "4b4ce03d1a7a884ac2242b5fadcf7f0e55a66482",
+      "validation": [
+        {
+          "features": {
+            "max_absolute_error": 2.637505531311035e-06,
+            "mean_absolute_error": 3.0643758464066195e-07
+          },
+          "input_size": [
+            3,
+            384,
+            384
+          ],
+          "output": {
+            "max_absolute_error": 1.9669532775878906e-06,
+            "mean_absolute_error": 3.74035920458482e-07
+          },
+          "seed": 42
+        },
+        {
+          "features": {
+            "max_absolute_error": 1.3709068298339844e-06,
+            "mean_absolute_error": 2.240052481283783e-07
+          },
+          "input_size": [
+            3,
+            384,
+            384
+          ],
+          "output": {
+            "max_absolute_error": 1.3187527656555176e-06,
+            "mean_absolute_error": 2.7021019377571065e-07
+          },
+          "seed": 43
+        }
+      ]
+    },
+    "convnextv2_nano": {
+      "archive_bytes": 62525575,
+      "archive_round_trip": "exact",
+      "archive_sha256": "1662f3e42fcbf7e0e999129edb54aa38269ff403224b66ae3c9339efee0137bf",
+      "base_variant": "convnextv2_nano",
+      "num_classes": 1000,
+      "timm_tag": "convnextv2_nano.fcmae_ft_in1k",
+      "upstream_revision": "fd83d9c986153f1bac0fc78368a17a66eb9c584e",
+      "validation": [
+        {
+          "features": {
+            "max_absolute_error": 7.68899917602539e-05,
+            "mean_absolute_error": 3.1340848636318697e-06
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 1.1444091796875e-05,
+            "mean_absolute_error": 1.8392000811218168e-06
+          },
+          "seed": 42
+        },
+        {
+          "features": {
+            "max_absolute_error": 5.245208740234375e-05,
+            "mean_absolute_error": 5.591965873463778e-06
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 2.1219253540039062e-05,
+            "mean_absolute_error": 2.6169045668211766e-06
+          },
+          "seed": 43
+        }
+      ]
+    },
+    "convnextv2_nano_fcmae": {
+      "archive_bytes": 59958454,
+      "archive_round_trip": "exact",
+      "archive_sha256": "49036a75c467f45ea8c5b7f20c2e5d3c75af7c5f93faf298c83c76f562a64e98",
+      "base_variant": "convnextv2_nano",
+      "num_classes": 0,
+      "timm_tag": "convnextv2_nano.fcmae",
+      "upstream_revision": "2419e272800fbfc02faec091b7e389cb93a098f1",
+      "validation": [
+        {
+          "features": {
+            "max_absolute_error": 4.291534423828125e-06,
+            "mean_absolute_error": 7.797285661581554e-07
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 4.291534423828125e-06,
+            "mean_absolute_error": 7.797285661581554e-07
+          },
+          "seed": 42
+        },
+        {
+          "features": {
+            "max_absolute_error": 7.3909759521484375e-06,
+            "mean_absolute_error": 9.614934697310673e-07
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 7.3909759521484375e-06,
+            "mean_absolute_error": 9.614934697310673e-07
+          },
+          "seed": 43
+        }
+      ]
+    },
+    "convnextv2_nano_fcmae_ft_in22k_in1k": {
+      "archive_bytes": 62525575,
+      "archive_round_trip": "exact",
+      "archive_sha256": "e5107305a936e6627af4d4f736558553f3d2fe028fd6c1bcd874ec72c1650c34",
+      "base_variant": "convnextv2_nano",
+      "num_classes": 1000,
+      "timm_tag": "convnextv2_nano.fcmae_ft_in22k_in1k",
+      "upstream_revision": "aacb23b94d2adf0b206df6c8a75798b672183d6d",
+      "validation": [
+        {
+          "features": {
+            "max_absolute_error": 3.4570693969726562e-06,
+            "mean_absolute_error": 6.300331847342022e-07
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 2.2351741790771484e-06,
+            "mean_absolute_error": 5.758665224675497e-07
+          },
+          "seed": 42
+        },
+        {
+          "features": {
+            "max_absolute_error": 2.8815120458602905e-06,
+            "mean_absolute_error": 5.896458787901793e-07
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 2.8014183044433594e-06,
+            "mean_absolute_error": 6.851274747532443e-07
+          },
+          "seed": 43
+        }
+      ]
+    },
+    "convnextv2_nano_fcmae_ft_in22k_in1k_384": {
+      "archive_bytes": 62525575,
+      "archive_round_trip": "exact",
+      "archive_sha256": "b70ee5b69d232a90e5a4fedf2c0d463c72b675fe6124b24174132477f5fa1e2d",
+      "base_variant": "convnextv2_nano",
+      "num_classes": 1000,
+      "timm_tag": "convnextv2_nano.fcmae_ft_in22k_in1k_384",
+      "upstream_revision": "411efe87ae964dcf81194e2b8a3bba80e1a8f0df",
+      "validation": [
+        {
+          "features": {
+            "max_absolute_error": 2.3245811462402344e-06,
+            "mean_absolute_error": 6.070241624911432e-07
+          },
+          "input_size": [
+            3,
+            384,
+            384
+          ],
+          "output": {
+            "max_absolute_error": 2.9355287551879883e-06,
+            "mean_absolute_error": 6.242599397410231e-07
+          },
+          "seed": 42
+        },
+        {
+          "features": {
+            "max_absolute_error": 4.76837158203125e-06,
+            "mean_absolute_error": 7.024838737379469e-07
+          },
+          "input_size": [
+            3,
+            384,
+            384
+          ],
+          "output": {
+            "max_absolute_error": 3.3974647521972656e-06,
+            "mean_absolute_error": 7.212385639832064e-07
+          },
+          "seed": 43
+        }
+      ]
+    },
+    "convnextv2_pico": {
+      "archive_bytes": 36300887,
+      "archive_round_trip": "exact",
+      "archive_sha256": "433ec878ff04884ddfdceb17c2a7bd1ddb1bb586a3d5cf309bcc7f88a3f0ead3",
+      "base_variant": "convnextv2_pico",
+      "num_classes": 1000,
+      "timm_tag": "convnextv2_pico.fcmae_ft_in1k",
+      "upstream_revision": "487fca19792ca49f7c60ddf306b7bc9b052d8305",
+      "validation": [
+        {
+          "features": {
+            "max_absolute_error": 1.621246337890625e-05,
+            "mean_absolute_error": 2.4012874746404123e-06
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 6.4373016357421875e-06,
+            "mean_absolute_error": 8.690608410688583e-07
+          },
+          "seed": 42
+        },
+        {
+          "features": {
+            "max_absolute_error": 3.3855438232421875e-05,
+            "mean_absolute_error": 2.3478842194890603e-06
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 4.470348358154297e-06,
+            "mean_absolute_error": 9.472723832004704e-07
+          },
+          "seed": 43
+        }
+      ]
+    },
+    "convnextv2_pico_fcmae": {
+      "archive_bytes": 34235784,
+      "archive_round_trip": "exact",
+      "archive_sha256": "0764f1b3e001c0b93617b7b637bd69d48c12c397236ed9c9306f75c763f31a5e",
+      "base_variant": "convnextv2_pico",
+      "num_classes": 0,
+      "timm_tag": "convnextv2_pico.fcmae",
+      "upstream_revision": "2e8e5635fb3c43c96dbcb94fd678fb28d3faa4f0",
+      "validation": [
+        {
+          "features": {
+            "max_absolute_error": 5.0067901611328125e-06,
+            "mean_absolute_error": 7.303377174139314e-07
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 5.0067901611328125e-06,
+            "mean_absolute_error": 7.303377174139314e-07
+          },
+          "seed": 42
+        },
+        {
+          "features": {
+            "max_absolute_error": 4.172325134277344e-06,
+            "mean_absolute_error": 7.923000566734117e-07
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 4.172325134277344e-06,
+            "mean_absolute_error": 7.923000566734117e-07
+          },
+          "seed": 43
+        }
+      ]
+    },
+    "convnextv2_tiny": {
+      "archive_bytes": 114581908,
+      "archive_round_trip": "exact",
+      "archive_sha256": "d89fdb1fc2b3d39647261a05ee18d01821477d364110fcdde924c000fc4a0ab1",
+      "base_variant": "convnextv2_tiny",
+      "num_classes": 1000,
+      "timm_tag": "convnextv2_tiny.fcmae_ft_in1k",
+      "upstream_revision": "508caf1bc24fd02c69d15778b994e808670dbc28",
+      "validation": [
+        {
+          "features": {
+            "max_absolute_error": 2.473592758178711e-06,
+            "mean_absolute_error": 3.071242247187911e-07
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 3.993511199951172e-06,
+            "mean_absolute_error": 7.247272719723696e-07
+          },
+          "seed": 42
+        },
+        {
+          "features": {
+            "max_absolute_error": 1.6987323760986328e-06,
+            "mean_absolute_error": 2.4437389356535277e-07
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 2.9802322387695312e-06,
+            "mean_absolute_error": 6.164517003526271e-07
+          },
+          "seed": 43
+        }
+      ]
+    },
+    "convnextv2_tiny_fcmae": {
+      "archive_bytes": 111503057,
+      "archive_round_trip": "exact",
+      "archive_sha256": "43715087120a56dabb5e22d3bd92a644a77d483d4a341265d1ca258cb505c03c",
+      "base_variant": "convnextv2_tiny",
+      "num_classes": 0,
+      "timm_tag": "convnextv2_tiny.fcmae",
+      "upstream_revision": "719850d18d9f48ae47b32b8fd0717cd4b82a8b80",
+      "validation": [
+        {
+          "features": {
+            "max_absolute_error": 2.372264862060547e-05,
+            "mean_absolute_error": 8.298261491290759e-07
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 2.372264862060547e-05,
+            "mean_absolute_error": 8.298261491290759e-07
+          },
+          "seed": 42
+        },
+        {
+          "features": {
+            "max_absolute_error": 1.704692840576172e-05,
+            "mean_absolute_error": 7.961932055877696e-07
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 1.704692840576172e-05,
+            "mean_absolute_error": 7.961932055877696e-07
+          },
+          "seed": 43
+        }
+      ]
+    },
+    "convnextv2_tiny_fcmae_ft_in22k_in1k": {
+      "archive_bytes": 114581908,
+      "archive_round_trip": "exact",
+      "archive_sha256": "6a38566af1aaaf0beeb493bf23424720936f10754e8f52592d2240f02b83bed3",
+      "base_variant": "convnextv2_tiny",
+      "num_classes": 1000,
+      "timm_tag": "convnextv2_tiny.fcmae_ft_in22k_in1k",
+      "upstream_revision": "b1dd46230e80bf4cc3fa0c3c905db2c3ec53a817",
+      "validation": [
+        {
+          "features": {
+            "max_absolute_error": 4.5299530029296875e-06,
+            "mean_absolute_error": 9.045907631843875e-07
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 5.4836273193359375e-06,
+            "mean_absolute_error": 1.0621193951010355e-06
+          },
+          "seed": 42
+        },
+        {
+          "features": {
+            "max_absolute_error": 4.500150680541992e-06,
+            "mean_absolute_error": 5.502081421582261e-07
+          },
+          "input_size": [
+            3,
+            224,
+            224
+          ],
+          "output": {
+            "max_absolute_error": 2.678483724594116e-06,
+            "mean_absolute_error": 6.455722996179247e-07
+          },
+          "seed": 43
+        }
+      ]
+    },
+    "convnextv2_tiny_fcmae_ft_in22k_in1k_384": {
+      "archive_bytes": 114581908,
+      "archive_round_trip": "exact",
+      "archive_sha256": "46e00aa5a1f834b068f899b5f1ab2e7ea1b398628673357135e3bca0ff1cc047",
+      "base_variant": "convnextv2_tiny",
+      "num_classes": 1000,
+      "timm_tag": "convnextv2_tiny.fcmae_ft_in22k_in1k_384",
+      "upstream_revision": "388f5731d1f9bb4442aee26bcb356983a95589dd",
+      "validation": [
+        {
+          "features": {
+            "max_absolute_error": 4.291534423828125e-06,
+            "mean_absolute_error": 7.228833851513627e-07
+          },
+          "input_size": [
+            3,
+            384,
+            384
+          ],
+          "output": {
+            "max_absolute_error": 2.950429916381836e-06,
+            "mean_absolute_error": 8.384734542232763e-07
+          },
+          "seed": 42
+        },
+        {
+          "features": {
+            "max_absolute_error": 4.589557647705078e-06,
+            "mean_absolute_error": 8.234082997660153e-07
+          },
+          "input_size": [
+            3,
+            384,
+            384
+          ],
+          "output": {
+            "max_absolute_error": 3.4570693969726562e-06,
+            "mean_absolute_error": 8.281320447167673e-07
+          },
+          "seed": 43
+        }
+      ]
+    }
+  },
+  "source": "models/convnext.py",
+  "tolerances": {
+    "atol": 0.0005,
+    "mean_absolute_error": 0.0005,
+    "rtol": 0.0001
+  },
+  "versions": {
+    "equimo": "2.1.0",
+    "equinox": "0.13.6",
+    "jax": "0.9.2",
+    "timm": "1.0.26",
+    "torch": "2.11.0"
+  }
+}

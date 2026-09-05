@@ -1511,7 +1511,12 @@ class PartialFormerBlock(eqx.Module):
         x1_out = jnp.concat([f, b], axis=0)
         x1_out = rearrange(x1_out, "(n s) c -> n s c", n=n)
 
-        inv_idx = jnp.argsort(idx)
+        # Sorting guarantees unique indices; invert in linear work without a second sort.
+        inv_idx = (
+            jnp.zeros_like(idx)
+            .at[idx]
+            .set(jnp.arange(n, dtype=idx.dtype), unique_indices=True)
+        )
         x1_out = x1_out[inv_idx]
 
         x1_out = rearrange(

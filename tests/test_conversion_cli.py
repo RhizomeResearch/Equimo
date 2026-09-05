@@ -4,6 +4,7 @@ import sys
 from pathlib import Path
 
 import pytest
+import numpy as np
 
 
 ROOT = Path(__file__).parents[1]
@@ -114,6 +115,41 @@ def test_convnext_batch_exit_status_includes_conversion_failures(
 
     assert converter.main() == int(fail_first)
     assert converted == ["convnext_atto", "convnext_femto"]
+
+
+@pytest.mark.parametrize(
+    ("actual", "expected"),
+    [
+        ([float("nan")], [0.0]),
+        ([0.0], [float("inf")]),
+        ([[0.0]], [0.0]),
+        ([0.01] + [0.0] * 999, [0.0] * 1000),
+        ([1.001] * 10, [1.0] * 10),
+    ],
+)
+def test_convnext_validation_rejects_invalid_or_inaccurate_outputs(actual, expected):
+    spec = importlib.util.spec_from_file_location(
+        "convnext_conversion", ROOT / "models" / "convnext.py"
+    )
+    converter = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(converter)
+
+    with pytest.raises((ValueError, AssertionError)):
+        converter.validate_outputs(actual, expected, "classifier")
+
+
+def test_convnext_validation_accepts_float32_roundoff():
+    spec = importlib.util.spec_from_file_location(
+        "convnext_conversion", ROOT / "models" / "convnext.py"
+    )
+    converter = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(converter)
+    expected = np.array([-2.0, 0.0, 2.0], dtype=np.float32)
+    actual = expected + np.float32(1e-6)
+
+    metrics = converter.validate_outputs(actual, expected, "features")
+
+    assert 0 < metrics["mean_absolute_error"] <= metrics["max_absolute_error"] < 2e-6
 
 
 def test_torch_reference_script_does_not_shadow_standard_library_ast():

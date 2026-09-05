@@ -757,6 +757,7 @@ model = load_weights(model, path=Path("mynet.tar.lz4"))
 
 The following models have pretrained weights available in Equimo:
 
+- [ConvNeXt](https://arxiv.org/abs/2201.03545) and [ConvNeXt V2](https://arxiv.org/abs/2301.00808) (66 timm checkpoints)
 - [DINOv2](https://arxiv.org/abs/2304.07193)
 - [DINOv3](https://arxiv.org/abs/2508.10104)
 - [SigLIP2](https://arxiv.org/abs/2502.14786)
@@ -773,7 +774,25 @@ checked. Upstream licenses can change, so the copies in this repository may be
 outdated; always check the latest upstream version. Reports of stale terms are
 welcome as issues or pull requests.
 
-Model identifiers map to filenames in Equimo's [Hugging Face repository](https://huggingface.co/poiretclement/equimo/tree/5f40762d3d2bec5e4ee523d24f2ddfec4045c644/models/default).
+Model identifiers map to filenames in Equimo's [Hugging Face repository](https://huggingface.co/poiretclement/equimo/tree/6916a4a3d460cfa804419454baf3d153885f3b6a/models/default).
+
+Published ConvNeXt size factories load the default classifier with `pretrained=True`:
+
+```python
+from equimo.vision.models import convnext_atto, convnextv2_atto_fcmae
+
+classifier = convnext_atto(pretrained=True)
+
+# Tagged factories select their checkpoint's architecture and class count.
+backbone = convnextv2_atto_fcmae(pretrained=True)
+```
+
+All 66 identifiers have named factories. Pretrained factories select exact
+GELU; tagged factories also select their classifier size or headless FCMAE
+configuration. The conversion inventory in
+[models/convnext.py](models/convnext.py) maps every identifier to its size and
+class count. Each archive records its upstream preprocessing configuration and
+parity measurements in `metadata.json`.
 
 The experimental catalog currently covers one representative model per
 modality. Catalog keys use an explicit `<modality>/<variant>` namespace:

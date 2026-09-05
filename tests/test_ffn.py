@@ -2,6 +2,7 @@
 
 import inspect
 
+import equinox as eqx
 import jax
 import jax.numpy as jnp
 import jax.random as jr
@@ -61,12 +62,17 @@ class TestWeightNormLinear:
         assert jnp.all(jnp.isfinite(layer(x)))
 
     def test_weight_normalization_property(self):
-        """Each row of the effective weight matrix should have unit L2 norm."""
-        layer = WeightNormLinear(DIM, 32, key=KEY)
-        v_norm = jnp.linalg.norm(layer.weight_v, axis=1, keepdims=True)
-        normalized = layer.weight_v / v_norm
-        row_norms = jnp.linalg.norm(normalized, axis=1)
-        assert jnp.allclose(row_norms, jnp.ones_like(row_norms), atol=1e-6)
+        """Normalize each weight row before applying its learned scale."""
+        layer = WeightNormLinear(2, 2, key=KEY)
+        layer = eqx.tree_at(
+            lambda m: (m.weight_v, m.weight_g),
+            layer,
+            (jnp.array([[3.0, 4.0], [0.0, -2.0]]), jnp.array([[2.0], [3.0]])),
+        )
+        x = jnp.array([[1.0, 0.0], [0.0, 1.0], [1.0, 2.0]])
+        expected = jnp.array([[1.2, 0.0], [1.6, -3.0], [4.4, -6.0]])
+
+        assert jnp.allclose(layer(x), expected, atol=1e-6)
 
     def test_weight_g_initial_shape(self):
         out_features = 32

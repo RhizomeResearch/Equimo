@@ -1,6 +1,6 @@
 [project]
 name = "Equimo"
-version = "2.1.0"
+version = "2.2.0"
 description = "Implementation of modern multimodal models in JAX/Equinox"
 readme = "README.md"
 requires-python = ">=3.12,<3.15"
@@ -11,6 +11,8 @@ license-files = [
   "LICENSES/Apache-2.0.txt",
   "LICENSES/pretrained/README.md",
   "LICENSES/pretrained/ast-BSD-3-Clause.txt",
+  "LICENSES/pretrained/convnext-Apache-2.0.txt",
+  "LICENSES/pretrained/convnextv2-CC-BY-NC-4.0.txt",
   "LICENSES/pretrained/dinov2-Apache-2.0.txt",
   "LICENSES/pretrained/dinov3-License.md",
   "LICENSES/pretrained/eupe-FAIR-Noncommercial-Research-License.md",
@@ -79,6 +81,7 @@ source-include = [
   "docs/timeseries.md",
   "models/huggingface/NOTICE",
   "models/huggingface/README.md",
+  "models/huggingface/convnext-conversion.json",
 ]
 
 [dependency-groups]

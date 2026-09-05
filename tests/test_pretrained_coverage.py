@@ -1,6 +1,8 @@
 """Completeness contracts for pretrained families and conversion paths."""
 
 import inspect
+from pathlib import Path
+import runpy
 
 import pytest
 
@@ -9,6 +11,15 @@ from cases.pretrained_cases import (
     PRETRAINED_PATH_CASES,
 )
 from equimo._pretrained import PRETRAINED_ARCHIVE_SHA256
+
+
+def test_every_convnext_conversion_target_has_a_trusted_archive():
+    converter = runpy.run_path(Path(__file__).parents[1] / "models" / "convnext.py")
+    assert set(converter["VARIANTS"]) == {
+        identifier
+        for identifier in PRETRAINED_ARCHIVE_SHA256
+        if identifier.startswith(("convnext_", "convnextv2_"))
+    }
 
 
 def test_every_trusted_archive_belongs_to_exactly_one_pretrained_family():
@@ -33,6 +44,8 @@ def test_every_pretrained_family_and_converter_path_has_a_representative_case():
     )
     assert {(case.family, case.conversion_path) for case in PRETRAINED_PATH_CASES} == {
         ("ast", "huggingface-spectrogram"),
+        ("convnext", "timm"),
+        ("convnextv2", "timm"),
         ("dinov2", "timm-vit"),
         ("dinov3", "huggingface-vit"),
         ("eupe", "vit"),

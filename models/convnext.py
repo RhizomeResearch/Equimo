@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import shutil
 import sys
+import tempfile
 from pathlib import Path
 
 if __name__ == "__main__":
@@ -491,6 +492,9 @@ VARIANTS: dict[str, dict] = {
 
 IMG_SIZE = 224
 _DEFAULT_MIN_FREE_GB = 5.0
+_MAX_MEAN_ERROR = 5e-4
+_ABSOLUTE_TOLERANCE = 5e-4
+_RELATIVE_TOLERANCE = 1e-4
 
 # The one `_ols` variant whose stem has an activation
 # between the two convolutions (`stem_kwargs={"act_layer": "gelu"}` in
@@ -688,6 +692,32 @@ def cleanup_timm_cache(timm_tag: str) -> int:
     return freed
 
 
+def validate_outputs(actual, expected, label: str) -> dict[str, float]:
+    """Check both average and elementwise float32 conversion parity."""
+    import numpy as np
+
+    actual, expected = np.asarray(actual), np.asarray(expected)
+    if actual.shape != expected.shape:
+        raise ValueError(f"{label}: shape mismatch {actual.shape} != {expected.shape}")
+    if not (np.isfinite(actual).all() and np.isfinite(expected).all()):
+        raise ValueError(f"{label}: non-finite outputs")
+    difference = np.abs(actual - expected)
+    metrics = {
+        "mean_absolute_error": float(difference.mean()),
+        "max_absolute_error": float(difference.max()),
+    }
+    if metrics["mean_absolute_error"] >= _MAX_MEAN_ERROR:
+        raise ValueError(f"{label}: conversion error {metrics}")
+    np.testing.assert_allclose(
+        actual,
+        expected,
+        atol=_ABSOLUTE_TOLERANCE,
+        rtol=_RELATIVE_TOLERANCE,
+        err_msg=label,
+    )
+    return metrics
+
+
 def convert_one(identifier: str, entry: dict, output_dir: Path, seed: int) -> float:
     """Convert one (variant, tag) pair end to end. Returns the pre-head
     feature error against the real torch model. Raises on any failure
@@ -707,7 +737,9 @@ def convert_one(identifier: str, entry: dict, output_dir: Path, seed: int) -> fl
 
     import equimo.vision.models as em
     from equimo.conversion.utils import convert_torch_to_equinox
-    from equimo.serialization import save_model
+    from huggingface_hub import HfApi
+
+    from equimo.serialization import load_weights, save_model
     from equimo.vision.models.convnext import _CONVNEXT_REGISTRY
 
     base_variant = entry["base_variant"]
@@ -748,7 +780,13 @@ def convert_one(identifier: str, entry: dict, output_dir: Path, seed: int) -> fl
     # (weight (out,in), needing Equimo's "after,2" expansion).
     # Detected from the real checkpoint,
     # so it can't silently go stale if timm's per-size defaults change.
-    torch_model = timm.create_model(timm_tag, pretrained=True)
+    upstream_repo = f"timm/{timm_tag}"
+    upstream_revision = HfApi().model_info(upstream_repo).sha
+    torch_model = timm.create_model(
+        timm_tag,
+        pretrained=True,
+        pretrained_cfg_overlay={"hf_hub_id": f"{upstream_repo}@{upstream_revision}"},
+    )
     fc1_weight = dict(torch_model.named_parameters())[
         "stages.0.blocks.0.mlp.fc1.weight"
     ]
@@ -770,30 +808,68 @@ def convert_one(identifier: str, entry: dict, output_dir: Path, seed: int) -> fl
     model = eqx.nn.inference_mode(model, True)
     torch_model.eval()
 
-    arr = np.random.default_rng(seed).standard_normal((3, IMG_SIZE, IMG_SIZE))
-    jax_arr = jnp.array(arr)
-    torch_arr = torch.tensor(arr).unsqueeze(0).float()
-
-    jax_features = model.features(jax_arr, inference=True, key=key)
-    jax_pooled = model.norm(jax_features.mean((1, 2)))
-    with torch.no_grad():
-        torch_features = torch_model.forward_features(torch_arr)
-        torch_pooled = torch_model.forward_head(torch_features, pre_logits=True)
-
-    error = float(
-        np.mean(np.abs(np.array(jax_pooled) - torch_pooled.squeeze(0).numpy()))
+    input_size = tuple(
+        torch_model.pretrained_cfg.get("input_size", (3, IMG_SIZE, IMG_SIZE))
     )
-    assert error < 5e-4, f"Conversion error: {error}"
-    print("err:", error)
+    validation = []
+    for validation_seed in (seed, seed + 1):
+        arr = (
+            np.random.default_rng(validation_seed)
+            .standard_normal(input_size)
+            .astype(np.float32)
+        )
+        jax_arr = jnp.asarray(arr)
+        torch_arr = torch.from_numpy(arr).unsqueeze(0)
+        jax_features = model.features(jax_arr, inference=True, key=key)
+        jax_pooled = model.norm(jax_features.mean((1, 2)))
+        jax_output = model.head(jax_pooled)
+        with torch.no_grad():
+            torch_features = torch_model.forward_features(torch_arr)
+            torch_pooled = torch_model.forward_head(torch_features, pre_logits=True)
+            torch_output = torch_model.forward_head(torch_features)
+        metrics = {
+            "seed": validation_seed,
+            "input_size": list(input_size),
+            "features": validate_outputs(
+                jax_pooled, torch_pooled.squeeze(0).numpy(), "features"
+            ),
+            "output": validate_outputs(
+                jax_output, torch_output.squeeze(0).numpy(), "output"
+            ),
+        }
+        validation.append(metrics)
+        print("parity:", metrics, flush=True)
 
-    save_model(
-        output_dir / identifier,
-        model,
-        {},
-        {"source": "timm", "timm_tag": timm_tag, "act_layer": "exactgelu"},
-        compression=True,
-    )
-    return error
+    base_cfg, variant_cfg = _CONVNEXT_REGISTRY[base_variant]
+    output_dir.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=output_dir) as temporary:
+        path = save_model(
+            Path(temporary) / identifier,
+            model,
+            base_cfg | variant_cfg | model_kwargs,
+            {
+                "source": "timm",
+                "timm_tag": timm_tag,
+                "upstream_revision": upstream_revision,
+                "timm_version": timm.__version__,
+                "torch_version": torch.__version__,
+                "act_layer": "exactgelu",
+                "pretrained_cfg": torch_model.pretrained_cfg,
+                "validation": validation,
+                "tolerances": {
+                    "mean_absolute_error": _MAX_MEAN_ERROR,
+                    "atol": _ABSOLUTE_TOLERANCE,
+                    "rtol": _RELATIVE_TOLERANCE,
+                },
+            },
+            compression=True,
+        )
+        restored = load_weights(model, path=path)
+        np.testing.assert_array_equal(
+            restored(jax_arr, key=key), jax_output, err_msg="archive round trip"
+        )
+        path.replace(archive_path(output_dir, identifier))
+    return max(item["features"]["mean_absolute_error"] for item in validation)
 
 
 def run_batch(

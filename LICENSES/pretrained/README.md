@@ -20,6 +20,8 @@ guarantee that the terms are still current.
 | Family | Identifier prefix | Count | License | Bundled snapshot | Model/source | Current license | Checked |
 | --- | --- | ---: | --- | --- | --- | --- | --- |
 | ast | `ast_` | 2 | BSD 3-Clause | [snapshot](ast-BSD-3-Clause.txt) | [AST model](https://huggingface.co/MIT/ast-finetuned-audioset-10-10-0.4593) | [upstream license](https://github.com/YuanGongND/ast/blob/master/LICENSE) | 2026-08-21 |
+| convnext | `convnext_` | 40 | Apache 2.0 | [snapshot](convnext-Apache-2.0.txt) | [ConvNeXt checkpoints](https://huggingface.co/timm/convnext_atto.d2_in1k) | [upstream license](https://huggingface.co/timm/convnext_atto.d2_in1k) | 2026-09-05 |
+| convnextv2 | `convnextv2_` | 26 | Creative Commons Attribution NonCommercial 4.0 International | [snapshot](convnextv2-CC-BY-NC-4.0.txt) | [ConvNeXt V2](https://github.com/facebookresearch/ConvNeXt-V2) | [upstream license](https://github.com/facebookresearch/ConvNeXt-V2/blob/main/LICENSE) | 2026-09-05 |
 | dinov2 | `dinov2_` | 8 | Apache 2.0 | [snapshot](dinov2-Apache-2.0.txt) | [DINOv2](https://github.com/facebookresearch/dinov2) | [upstream license](https://github.com/facebookresearch/dinov2/blob/main/LICENSE) | 2026-08-21 |
 | dinov3 | `dinov3_` | 8 | DINOv3 License | [snapshot](dinov3-License.md) | [DINOv3](https://github.com/facebookresearch/dinov3) | [upstream license](https://github.com/facebookresearch/dinov3/blob/main/LICENSE.md) | 2026-08-21 |
 | eupe | `eupe_` | 6 | FAIR Noncommercial Research License v1 | [snapshot](eupe-FAIR-Noncommercial-Research-License.md) | [EUPE](https://github.com/facebookresearch/EUPE) | [upstream license](https://github.com/facebookresearch/EUPE/blob/main/LICENSE.md) | 2026-08-21 |
@@ -36,6 +38,12 @@ which publishes the upstream implementation. TIPS licenses software under
 Apache 2.0 but licenses all other materials, including its checkpoint
 materials, under CC BY 4.0; this inventory therefore bundles the CC BY 4.0
 legal code for TIPS pretrained weights.
+
+ConvNeXt V1 checkpoint licenses are declared by their upstream timm model
+cards; the Apache 2.0 snapshot comes from timm. The ConvNeXt V2 snapshot
+contains both its MIT software license and its CC BY-NC 4.0 model-weight
+license. Converted V2 weights remain subject to the latter. Equimo converted
+all 66 checkpoints to the JAX/Equinox parameter layout and archive format.
 
 ## Attribution and modification notices
 

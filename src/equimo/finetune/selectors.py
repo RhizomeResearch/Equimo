@@ -12,7 +12,6 @@ import jax.tree_util as jtu
 from ._typing import Path, PyTree
 from .config import ParamInfo, TargetSpec
 from .paths import (
-    is_path_prefix,
     iter_param_leaves,
     key_path_to_path,
     path_to_str,
@@ -112,11 +111,20 @@ def _resolve_predicate_paths(
         info.path for info in infos if predicate(info.path, leaves_by_path[info.path])
     }
 
-    for module_path, module in _iter_selector_modules(model):
-        if not predicate(module_path, module):
-            continue
+    module_paths = {
+        path
+        for path, module in _iter_selector_modules(model)
+        if predicate(path, module)
+    }
+    if module_paths:
+        # Check each leaf's ancestors instead of scanning all leaves per module.
         selected.update(
-            info.path for info in infos if is_path_prefix(module_path, info.path)
+            info.path
+            for info in infos
+            if any(
+                info.path[:length] in module_paths
+                for length in range(len(info.path) + 1)
+            )
         )
 
     return selected

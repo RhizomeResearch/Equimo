@@ -280,8 +280,8 @@ class InContextAttention(eqx.Module):
         n_train: int,
     ) -> Float[Array, "rows dim"]:
         q = _to_heads(self.q_proj, x, self.num_heads, self.head_dim)
-        k = _to_heads(self.k_proj, x, self.num_heads, self.head_dim)[:, :n_train]
-        v = _to_heads(self.v_proj, x, self.num_heads, self.head_dim)[:, :n_train]
+        k = _to_heads(self.k_proj, x[:n_train], self.num_heads, self.head_dim)
+        v = _to_heads(self.v_proj, x[:n_train], self.num_heads, self.head_dim)
 
         if self.num_kv_heads_test is None:
             out = _scaled_dot_product_attention(

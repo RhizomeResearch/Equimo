@@ -8,6 +8,7 @@ from typing import Any, Callable, Mapping, Sequence
 import equinox as eqx
 import jax
 import jax.numpy as jnp
+import jax.scipy.linalg as jsl
 import jax.tree_util as jtu
 
 from ._typing import PyTree
@@ -1061,8 +1062,8 @@ def _solve_regmean_system(system, weighted_sum, *, solver: str):
         return jnp.linalg.solve(system.T, rhs).T
     if solver == "cholesky":
         factor = jnp.linalg.cholesky(system)
-        intermediate = jnp.linalg.solve(factor, rhs)
-        return jnp.linalg.solve(factor.T, intermediate).T
+        intermediate = jsl.solve_triangular(factor, rhs, lower=True)
+        return jsl.solve_triangular(factor, intermediate, lower=True, trans="T").T
     if solver == "svd":
         left, singular_values, right = jnp.linalg.svd(system, full_matrices=False)
         cutoff = (

@@ -3,8 +3,47 @@
 from __future__ import annotations
 
 import pytest
+import equinox as eqx
+import jax.numpy as jnp
+import jax.random as jr
 
 import equimo.finetune as eqft
+
+
+def test_predicate_order_root_and_nested_prefixes():
+    linear = eqx.nn.Linear(2, 2, key=jr.PRNGKey(0))
+    model = {"a": [linear], "ab": linear, "loose": jnp.ones(2)}
+    calls = []
+
+    def predicate(path, node):
+        calls.append(path)
+        return (isinstance(node, eqx.nn.Linear) and path == ("a", 0)) or path == (
+            "loose",
+        )
+
+    paths = eqft.resolve_target_paths(
+        model,
+        eqft.TargetSpec(predicate=predicate, exclude=("*.bias",)),
+    )
+    assert paths == ("a.0.weight", "loose")
+    assert calls == [
+        ("a", 0, "weight"),
+        ("a", 0, "bias"),
+        ("ab", "weight"),
+        ("ab", "bias"),
+        ("loose",),
+        ("a", 0),
+        ("ab",),
+    ]
+    assert eqft.resolve_target_paths(
+        linear, eqft.TargetSpec(predicate=eqft.is_linear)
+    ) == ("weight", "bias")
+    assert (
+        eqft.resolve_target_paths(
+            model, eqft.TargetSpec(predicate=lambda p, n: False, allow_empty=True)
+        )
+        == ()
+    )
 
 
 def test_selector_tags_qkv(tiny_vision_transformer):

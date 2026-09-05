@@ -51,9 +51,12 @@ def map_wrappers(
 ) -> PyTree:
     """Return ``model`` with each matched wrapper replaced by ``fn(wrapper)``."""
 
-    updated = model
-    for path, module in iter_wrappers(updated, wrapper_types):
-        updated = eqx.tree_at(
-            lambda tree, p=path: get_path(tree, p), updated, fn(module)
-        )
-    return updated
+    wrappers = iter_wrappers(model, wrapper_types)
+    if not wrappers:
+        return model
+    # Matches are traversal leaves, so their paths cannot overlap.
+    return eqx.tree_at(
+        lambda tree: tuple(get_path(tree, path) for path, _ in wrappers),
+        model,
+        tuple(fn(module) for _, module in wrappers),
+    )

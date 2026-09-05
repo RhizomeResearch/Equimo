@@ -2,6 +2,42 @@
 
 All notable changes to Equimo are documented here. Equimo follows Semantic Versioning from version 2.0.0 onward.
 
+## [2.2.0] - 2026-09-05
+
+### Added
+
+- Expanded ConvNeXt model factories, including ConvNeXt V2 with Global Response Normalization, RMS-normalized
+  variants, and overlapping stems.
+- Pretrained weights for 66 ConvNeXt checkpoints: 40 V1 and 26 V2 variants, including FCMAE backbones and fine-tuned
+  classifiers. Public factories support `pretrained=True` and named upstream checkpoint variants.
+- Trusted timm reference fixtures for ConvNeXt Atto, ConvNeXt Zepto RMS with an overlapping stem, and ConvNeXt V2
+  Atto. Feature and classifier-logit parity runs through the same reference suite as DINOv3, with elementwise
+  `atol=1e-4` and `rtol=1e-5`; direct Torch conversion tests also cover V2 blocks with overlapping stems.
+- Bundled upstream license snapshots, a pretrained-model license index, and conversion attribution notices in
+  source and wheel distributions. ConvNeXt V2 weights retain their upstream CC BY-NC 4.0 terms. T0 source provenance
+  is documented separately from its checkpoint license.
+- A reproducible CPU performance benchmark and [performance audit](docs/performance.md).
+
+### Changed
+
+- Pinned the pretrained Hugging Face repository to `6916a4a3d460cfa804419454baf3d153885f3b6a` and registered trusted
+  SHA-256 digests for all new ConvNeXt archives.
+- ConvNeXt conversion now uses pinned upstream revisions, strict parameter mapping, native-resolution feature and
+  logit comparisons for two deterministic inputs, and an exact archive-reload check. The checked-in conversion
+  report records source revisions, archive digests, and measured errors for all 66 checkpoints.
+- Reduced tabular attention work by projecting keys and values only for training rows, and replaced PartialFormer's
+  second permutation sort with an integer scatter.
+- Reduced fine-tuning setup and merge/unmerge overhead through ancestor-based selector matching, batched PEFT wrapper
+  replacement, and triangular solves in RegMean's Cholesky solver.
+- Consolidated shared feature-stage execution, tabular registry registration, adapter forwarding, and LoRA lifecycle
+  helpers while retaining their existing behavior.
+
+### Fixed
+
+- Global Response Normalization now has finite gradients for zero-valued channels while preserving its forward values.
+- Pretrained ConvNeXt models use exact GELU, including the activated overlapping stem, to match upstream checkpoint
+  numerics. Existing randomly initialized model defaults retain their approximate GELU behavior.
+
 ## [2.1.0] - 2026-08-10
 
 ### Added

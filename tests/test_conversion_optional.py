@@ -2,6 +2,7 @@ import importlib
 import importlib.util
 import os
 from pathlib import Path
+from types import SimpleNamespace
 
 import equinox as eqx
 import jax
@@ -97,6 +98,7 @@ def test_convert_preserves_bfloat16_destination_dtype():
 
 def test_convnext_zepto_overlap_conversion_matches_timm(tmp_path, monkeypatch):
     torch, timm = _require_torch_extra()
+    from huggingface_hub import HfApi
     import equimo.vision.models as em
 
     script = Path(__file__).parents[1] / "models" / "convnext.py"
@@ -104,7 +106,9 @@ def test_convnext_zepto_overlap_conversion_matches_timm(tmp_path, monkeypatch):
     assert spec is not None and spec.loader is not None
     converter = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(converter)
-    monkeypatch.setattr(converter, "IMG_SIZE", 32)
+    monkeypatch.setattr(
+        HfApi, "model_info", lambda *a, **kw: SimpleNamespace(sha="a" * 40)
+    )
 
     identifier = "convnext_zepto_rms_ols"
     entry = converter.VARIANTS[identifier] | {"num_classes": 7}
@@ -117,10 +121,12 @@ def test_convnext_zepto_overlap_conversion_matches_timm(tmp_path, monkeypatch):
         # Exercise the region where exact and approximate GELU diverge.
         with torch.no_grad():
             reference.stem[0].weight.mul_(10)
+    reference.pretrained_cfg["input_size"] = (3, 32, 32)
 
-    def create_model(name, *, pretrained):
+    def create_model(name, *, pretrained, pretrained_cfg_overlay):
         assert name == entry["timm_tag"]
         assert pretrained is True
+        assert pretrained_cfg_overlay["hf_hub_id"].endswith("@" + "a" * 40)
         return reference
 
     factory = getattr(em, identifier)
@@ -131,3 +137,79 @@ def test_convnext_zepto_overlap_conversion_matches_timm(tmp_path, monkeypatch):
 
     assert error < 1e-6
     assert (tmp_path / f"{identifier}.tar.lz4").is_file()
+
+
+@pytest.mark.parametrize("conv_mlp", [False, True], ids=["linear-mlp", "conv-mlp"])
+def test_convnext_v2_overlap_conversion_matches_timm(conv_mlp):
+    torch, timm = _require_torch_extra()
+    from equimo.conversion.utils import convert_torch_to_equinox
+    from equimo.vision.models import ConvNeXt
+
+    script = Path(__file__).parents[1] / "models" / "convnext.py"
+    spec = importlib.util.spec_from_file_location("convnext_conversion", script)
+    assert spec is not None and spec.loader is not None
+    converter = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(converter)
+    dimensions = {"depths": [1, 1, 1, 1], "dims": [8, 16, 32, 64]}
+
+    with torch.random.fork_rng(devices=[]):
+        torch.manual_seed(42)
+        reference = timm.create_model(
+            "convnextv2_atto",
+            pretrained=False,
+            num_classes=7,
+            stem_type="overlap",
+            conv_mlp=conv_mlp,
+            **dimensions,
+        ).eval()
+        with torch.no_grad():
+            for stage in reference.stages:
+                # GRN starts as identity; nonzero parameters exercise its math.
+                stage.blocks[0].mlp.grn.weight.uniform_(-0.3, 0.3)
+                stage.blocks[0].mlp.grn.bias.uniform_(-0.1, 0.1)
+                stage.blocks[0].mlp.fc1.weight.mul_(10)
+
+    model = ConvNeXt(
+        **dimensions,
+        num_classes=7,
+        use_grn=True,
+        layer_scale_init_value=None,
+        stem="convnextoverlapstem",
+        act_layer="exactgelu",
+        key=jr.PRNGKey(42),
+    )
+    entry = converter.VARIANTS["convnextv2_atto"] | {"is_ols": True}
+    replace_cfg, expand_cfg = converter.conversion_config(
+        entry,
+        dimensions["depths"],
+        conv_mlp,
+    )
+    model = convert_torch_to_equinox(
+        model,
+        replace_cfg=replace_cfg,
+        expand_cfg=expand_cfg,
+        strict=True,
+        source="custom",
+        torch_model=reference,
+    )
+    # Non-square spatial maps exercise GRN reduction axes at every stage.
+    arr = np.random.default_rng(42).standard_normal((3, 64, 96)).astype(np.float32)
+    with torch.no_grad():
+        value = reference.stem(torch.from_numpy(arr).unsqueeze(0))
+        expected_stages = []
+        for stage in reference.stages:
+            value = stage(value)
+            expected_stages.append(value.squeeze(0).numpy())
+        expected_output = reference.forward_head(value).squeeze(0).numpy()
+
+    actual_stages = model.intermediate_features(jnp.asarray(arr), inference=True)
+    actual_output = eqx.filter_jit(model)(jnp.asarray(arr), inference=True)
+    for actual, expected in zip(
+        (*actual_stages, actual_output),
+        (*expected_stages, expected_output),
+        strict=True,
+    ):
+        assert actual.shape == expected.shape
+        assert actual.dtype == expected.dtype == np.float32
+        assert np.isfinite(actual).all()
+        np.testing.assert_allclose(actual, expected, atol=1e-5, rtol=1e-5)

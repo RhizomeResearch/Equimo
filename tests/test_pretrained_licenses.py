@@ -18,6 +18,7 @@ APACHE_LICENSE = ROOT / "LICENSES" / "Apache-2.0.txt"
 HUB_CARD = ROOT / "models" / "huggingface" / "README.md"
 HUB_NOTICE = ROOT / "models" / "huggingface" / "NOTICE"
 CHECKED_DATE = dt.date(2026, 8, 21)
+CONVNEXT_CHECKED_DATE = dt.date(2026, 9, 5)
 TIPS_SOURCE = (
     "https://github.com/google-deepmind/tips/blob/"
     "72820c1841f973c9543d9c95c5ff2262ec621955/scenic/utils/feature_viz.py"
@@ -29,6 +30,8 @@ TENSORFLOW_SOURCE = (
 )
 EXPECTED_SNAPSHOTS = {
     "ast": "ast-BSD-3-Clause.txt",
+    "convnext": "convnext-Apache-2.0.txt",
+    "convnextv2": "convnextv2-CC-BY-NC-4.0.txt",
     "dinov2": "dinov2-Apache-2.0.txt",
     "dinov3": "dinov3-License.md",
     "eupe": "eupe-FAIR-Noncommercial-Research-License.md",
@@ -38,6 +41,8 @@ EXPECTED_SNAPSHOTS = {
     "tips": "tips-CC-BY-4.0.txt",
 }
 EXPECTED_SNAPSHOT_SHA256 = {
+    "convnext": "71b111620fa32c17a80ccd6db2da759d31a591e497d8b5f382174f59d1b59d49",
+    "convnextv2": "9ab7947f327be897e841ce58b90996c4b814c35127897b383f17616510115b9b",
     "ast": "c6c18fd2915ae9d95fe070b619da57837d867e14bd3c62ed97c1b406362dad41",
     "dinov2": "600cc67cc4cb2f5ea317dcfc687ad1c74dc4bec8782bbe9db0afd83513b935b7",
     "dinov3": "25d122eb8f5b880fd23c736fb6ea8018ee45c12237e00b8a86d14c653904999e",
@@ -116,7 +121,11 @@ def test_license_index_links_dated_snapshots_and_current_upstream_terms():
             == (EXPECTED_SNAPSHOT_SHA256[family])
         )
         assert upstream_target.startswith("https://")
-        assert dt.date.fromisoformat(cells[7]) == CHECKED_DATE
+        assert dt.date.fromisoformat(cells[7]) == (
+            CONVNEXT_CHECKED_DATE
+            if family in {"convnext", "convnextv2"}
+            else CHECKED_DATE
+        )
 
 
 def test_license_index_warns_that_snapshots_can_become_outdated():
@@ -184,7 +193,11 @@ def test_hub_model_card_covers_registry_and_tips_tokenizer():
         assert _link_target(cells[4]) == (
             f"LICENSES/pretrained/{EXPECTED_SNAPSHOTS[family]}"
         )
-        assert dt.date.fromisoformat(cells[7]) == CHECKED_DATE
+        assert dt.date.fromisoformat(cells[7]) == (
+            CONVNEXT_CHECKED_DATE
+            if family in {"convnext", "convnextv2"}
+            else CHECKED_DATE
+        )
 
     assert "`models/tokenizers/sentencepiece_tips.model`" in card
     assert "may be outdated" in normalized
@@ -207,6 +220,7 @@ def test_hub_markdown_relative_links_target_published_files():
     published_paths = {
         "README.md",
         "NOTICE",
+        "convnext-conversion.json",
         "LICENSES/pretrained/README.md",
         *(f"LICENSES/pretrained/{name}" for name in EXPECTED_SNAPSHOTS.values()),
     }

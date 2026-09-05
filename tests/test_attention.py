@@ -3,6 +3,7 @@
 import io
 import sys
 
+import numpy as np
 import jax
 import jax.numpy as jnp
 import jax.random as jr
@@ -44,6 +45,55 @@ DIM = 32
 NUM_HEADS = 4
 SEQLEN = 16
 H, W = 4, 4
+
+
+class _PartialScale(eqx.Module):
+    scale: float
+
+    def __call__(self, x, *args, **kwargs):
+        return x * self.scale
+
+
+@pytest.mark.parametrize("patch_size", (1, 2))
+@pytest.mark.parametrize("ratio", (0.0, 0.5, 1.0))
+@pytest.mark.parametrize("dtype", (jnp.float32, jnp.bfloat16))
+def test_partialformer_restores_ranked_patches(patch_size, ratio, dtype):
+    model = PartialFormerBlock(4, 1, ratio, patch_size, key=KEY)
+    model = eqx.tree_at(
+        lambda m: (m.posemb, m.mmsa, m.sqa, m.mlp),
+        model,
+        (
+            _PartialScale(1.0),
+            _PartialScale(2.0),
+            _PartialScale(3.0),
+            _PartialScale(0.0),
+        ),
+    )
+    model = jax.tree.map(
+        lambda leaf: leaf.astype(dtype) if eqx.is_array(leaf) else leaf, model
+    )
+    grid = 4 // patch_size
+    scores = np.tile([3.0, 1.0, 3.0, 2.0], grid * grid // 4)
+    # Stable ties in the primary ranking must retain their original patch order.
+    foreground = np.argsort(-scores, kind="stable")[: int(len(scores) * ratio)]
+    scales = np.full(len(scores), 3.0)
+    scales[foreground] = 2.0
+
+    def to_tokens(patches):
+        image = np.repeat(
+            np.repeat(patches.reshape(grid, grid), patch_size, 0), patch_size, 1
+        )
+        return jnp.broadcast_to(jnp.asarray(image, dtype=dtype).reshape(16, 1), (16, 4))
+
+    x, multipliers = to_tokens(scores), to_tokens(scales)
+    qa = jnp.ones((1, 4), dtype=dtype)
+    call = lambda x: model(x, qa, inference=True)
+    for out, qa_out in (call(x), eqx.filter_jit(call)(x)):
+        assert out.dtype == qa_out.dtype == dtype
+        assert jnp.array_equal(out, x + x * multipliers)
+        assert jnp.array_equal(qa_out, jnp.zeros_like(qa))
+    grad = jax.grad(lambda x: call(x)[0].astype(jnp.float32).sum())(x)
+    assert jnp.array_equal(grad, 1 + multipliers)
 
 
 class TestAttentionLayers:

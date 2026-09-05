@@ -39,8 +39,8 @@ def test_stable_release_metadata_and_documents_are_present():
     pyproject = tomllib.loads((root / "pyproject.toml").read_text())["project"]
     package_metadata = importlib.metadata.metadata("equimo")
 
-    assert pyproject["version"] == "2.1.0"
-    assert package_metadata["Version"] == "2.1.0"
+    assert pyproject["version"] == "2.2.0"
+    assert package_metadata["Version"] == "2.2.0"
     assert package_metadata["License-Expression"] == "MIT AND Apache-2.0"
     assert "Development Status :: 5 - Production/Stable" in pyproject["classifiers"]
     assert "Development Status :: 5 - Production/Stable" in package_metadata.get_all(

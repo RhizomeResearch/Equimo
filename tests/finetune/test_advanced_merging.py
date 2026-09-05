@@ -3,10 +3,49 @@
 from __future__ import annotations
 
 import pytest
+import jax
 import jax.numpy as jnp
 import jax.random as jr
 
 import equimo.finetune as eqft
+from equimo.finetune.merging import _solve_regmean_system
+
+
+@pytest.mark.parametrize("ridge", (0.01, 1.0))
+def test_regmean_cholesky_residual_and_gradients(ridge):
+    a = jr.normal(jr.PRNGKey(0), (8, 8))
+    system = a @ a.T + ridge * jnp.eye(8)
+    rhs = jr.normal(jr.PRNGKey(1), (3, 8))
+    solve = lambda s, w: _solve_regmean_system(s, w, solver="cholesky")
+
+    def reference(s, w):
+        factor = jnp.linalg.cholesky(s)
+        return jnp.linalg.solve(factor.T, jnp.linalg.solve(factor, w.T)).T
+
+    expected_solution = reference(system, rhs)
+    actual = jax.jit(solve)(system, rhs)
+    assert actual.dtype == rhs.dtype
+    assert jnp.allclose(actual, expected_solution, rtol=1e-5, atol=1e-5)
+    residual = jnp.linalg.norm(actual @ system - rhs)
+    scale = jnp.linalg.norm(actual) * jnp.linalg.norm(system) + jnp.linalg.norm(rhs)
+    assert residual / scale < 1e-6
+    for fn in (solve, reference):
+        grads = jax.grad(lambda s, w: jnp.square(fn(s, w)).mean(), argnums=(0, 1))(
+            system, rhs
+        )
+        if fn is solve:
+            actual_grads = grads
+        else:
+            for actual, expected in zip(actual_grads, grads, strict=True):
+                assert jnp.allclose(actual, expected, rtol=1e-5, atol=1e-5)
+    batched = jax.vmap(solve)(jnp.stack((system, system)), jnp.stack((rhs, rhs)))
+    assert jnp.allclose(batched, expected_solution[None], rtol=1e-5, atol=1e-5)
+
+
+def test_regmean_cholesky_non_positive_definite_remains_nan():
+    system = jnp.diag(jnp.array([-1.0, 1.0]))
+    actual = _solve_regmean_system(system, jnp.ones((1, 2)), solver="cholesky")
+    assert jnp.all(jnp.isnan(actual))
 
 
 def test_ties_dare_breadcrumbs_task_vectors(tiny_vision_transformer):

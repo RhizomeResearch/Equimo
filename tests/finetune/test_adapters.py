@@ -244,7 +244,8 @@ def test_adaptformer_paper_profile_freezes_fixed_scale(tiny_vision_transformer):
     assert plan.trainable.blocks[0].adapter.scale is None
 
 
-def test_named_adapter_bank_switches_active_adapter(tiny_vision_transformer):
+@pytest.fixture
+def adapter_bank(tiny_vision_transformer):
     model = eqft.add_adapter(
         tiny_vision_transformer,
         name="dataset_a",
@@ -257,6 +258,11 @@ def test_named_adapter_bank_switches_active_adapter(tiny_vision_transformer):
         config=eqft.AdapterConfig(bottleneck=3, placement="after_mlp"),
         key=jr.PRNGKey(1),
     )
+    return model
+
+
+def test_named_adapter_bank_switches_active_adapter(adapter_bank):
+    model = adapter_bank
     model = eqft.set_active_adapter(model, "dataset_b")
 
     assert model.blocks[0].mlp.adapter_names == ("dataset_a", "dataset_b")
@@ -265,21 +271,8 @@ def test_named_adapter_bank_switches_active_adapter(tiny_vision_transformer):
         eqft.set_active_adapter(model, "missing")
 
 
-def test_adapter_bank_config_supports_policy_and_multiple_active(
-    tiny_vision_transformer,
-):
-    model = eqft.add_adapter(
-        tiny_vision_transformer,
-        name="dataset_a",
-        config=eqft.AdapterConfig(bottleneck=3, placement="after_mlp"),
-        key=jr.PRNGKey(0),
-    )
-    model = eqft.add_adapter(
-        model,
-        name="dataset_b",
-        config=eqft.AdapterConfig(bottleneck=3, placement="after_mlp"),
-        key=jr.PRNGKey(1),
-    )
+def test_adapter_bank_config_supports_policy_and_multiple_active(adapter_bank):
+    model = adapter_bank
 
     with pytest.raises(ValueError, match="Multiple active"):
         eqft.configure_adapter_bank(
@@ -303,19 +296,8 @@ def test_adapter_bank_config_supports_policy_and_multiple_active(
     assert ignored.blocks[0].mlp.active_adapter == "dataset_a"
 
 
-def test_adapter_fusion_attaches_attention_to_named_banks(tiny_vision_transformer):
-    model = eqft.add_adapter(
-        tiny_vision_transformer,
-        name="dataset_a",
-        config=eqft.AdapterConfig(bottleneck=3, placement="after_mlp"),
-        key=jr.PRNGKey(0),
-    )
-    model = eqft.add_adapter(
-        model,
-        name="dataset_b",
-        config=eqft.AdapterConfig(bottleneck=3, placement="after_mlp"),
-        key=jr.PRNGKey(1),
-    )
+def test_adapter_fusion_attaches_attention_to_named_banks(adapter_bank):
+    model = adapter_bank
     fused = eqft.apply_adapter_fusion(
         model,
         eqft.AdapterFusionConfig(fusion_dropout=0.0),
@@ -386,19 +368,8 @@ def test_adapter_fusion_respects_configured_placement(tiny_vision_transformer):
     assert isinstance(fused.blocks[0].mlp.adapter_fusion, eqft.AdapterFusion)
 
 
-def test_adapter_fusion_trainable_spec_freezes_task_adapters(tiny_vision_transformer):
-    model = eqft.add_adapter(
-        tiny_vision_transformer,
-        name="dataset_a",
-        config=eqft.AdapterConfig(bottleneck=3, placement="after_mlp"),
-        key=jr.PRNGKey(0),
-    )
-    model = eqft.add_adapter(
-        model,
-        name="dataset_b",
-        config=eqft.AdapterConfig(bottleneck=3, placement="after_mlp"),
-        key=jr.PRNGKey(1),
-    )
+def test_adapter_fusion_trainable_spec_freezes_task_adapters(adapter_bank):
+    model = adapter_bank
     fused = eqft.apply_adapter_fusion(model, key=jr.PRNGKey(2))
     plan = eqft.prepare_finetune(
         fused,
@@ -412,19 +383,10 @@ def test_adapter_fusion_trainable_spec_freezes_task_adapters(tiny_vision_transfo
     assert plan.trainable.head.weight is None
 
 
-def test_adapter_fusion_delta_roundtrip(tmp_path, tiny_vision_transformer):
-    model = eqft.add_adapter(
-        tiny_vision_transformer,
-        name="dataset_a",
-        config=eqft.AdapterConfig(bottleneck=3, placement="after_mlp"),
-        key=jr.PRNGKey(0),
-    )
-    model = eqft.add_adapter(
-        model,
-        name="dataset_b",
-        config=eqft.AdapterConfig(bottleneck=3, placement="after_mlp"),
-        key=jr.PRNGKey(1),
-    )
+def test_adapter_fusion_delta_roundtrip(
+    tmp_path, tiny_vision_transformer, adapter_bank
+):
+    model = adapter_bank
     fused = eqft.apply_adapter_fusion(model, key=jr.PRNGKey(2))
     trained = eqx.tree_at(
         lambda m: m.blocks[0].mlp.adapter_fusion.query.weight,

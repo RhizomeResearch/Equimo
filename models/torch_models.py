@@ -18,6 +18,24 @@ DEFAULT_OUTPUT_DIR = ROOT / "tests" / "data"
 DEFAULT_SEED = 42
 
 REFERENCES = {
+    "convnext_atto": {
+        "filename": "convnext_atto_reference.npz",
+        "model_id": "timm/convnext_atto.d2_in1k",
+        "revision": "435c0a8d02d5b872e90c8cde36887465982cb399",
+        "input_shape": (3, 224, 224),
+    },
+    "convnext_zepto_rms_ols": {
+        "filename": "convnext_zepto_rms_ols_reference.npz",
+        "model_id": "timm/convnext_zepto_rms_ols.ra4_e3600_r224_in1k",
+        "revision": "fc9044eff11d0f1fb4c9fa812d8ac8c57b49c823",
+        "input_shape": (3, 224, 224),
+    },
+    "convnextv2_atto": {
+        "filename": "convnextv2_atto_reference.npz",
+        "model_id": "timm/convnextv2_atto.fcmae_ft_in1k",
+        "revision": "2de59190576d00653aabde4bcd4af7525a93ad1b",
+        "input_shape": (3, 224, 224),
+    },
     "dinov2_vits14_reg": {
         "filename": "dinov2_vits14_reg_reference.npz",
         "model_id": "timm/vit_small_patch14_reg4_dinov2.lvd142m",
@@ -142,6 +160,28 @@ def _generate_huggingface(identifier, info, revision, image, output):
     np.savez(output, **arrays)
 
 
+def _generate_convnext(info, revision, image, output):
+    import numpy as np
+    import torch
+    from timm import create_model
+
+    model = create_model(
+        info["model_id"].removeprefix("timm/"),
+        pretrained=True,
+        pretrained_cfg_overlay={"hf_hub_id": f"{info['model_id']}@{revision}"},
+    ).eval()
+    with torch.no_grad():
+        features = model.forward_features(torch.from_numpy(image).unsqueeze(0))
+        pooled = model.forward_head(features, pre_logits=True)
+        logits = model.forward_head(features)
+    np.savez(
+        output,
+        img=image,
+        features=pooled[0].cpu().numpy(),
+        logits=logits[0].cpu().numpy(),
+    )
+
+
 def _generate_dinov2(info, revision, image, output):
     import numpy as np
     import torch
@@ -205,7 +245,9 @@ def generate(args: argparse.Namespace) -> None:
         image = rng.standard_normal(info["input_shape"]).astype(np.float32)
         output = args.output_dir / info["filename"]
         revision = _revision(args, identifier)
-        if identifier == "dinov2_vits14_reg":
+        if identifier.startswith(("convnext_", "convnextv2_")):
+            _generate_convnext(info, revision, image, output)
+        elif identifier == "dinov2_vits14_reg":
             _generate_dinov2(info, revision, image, output)
         elif identifier == "eupe_vitt16":
             _generate_eupe(args, info, image, output)

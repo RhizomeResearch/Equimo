@@ -61,12 +61,6 @@ class TestPatchEmbedding:
         x = jr.normal(KEY, (self.IN_CHANNELS, self.IMG_SIZE, self.IMG_SIZE))
         assert jnp.all(jnp.isfinite(layer(x)))
 
-    def test_no_norm_layer_default(self):
-        """norm_layer=None (default) must produce a valid output without error."""
-        layer = PatchEmbedding(self.IN_CHANNELS, self.DIM, self.PATCH_SIZE, key=KEY)
-        x = jr.normal(KEY, (self.IN_CHANNELS, self.IMG_SIZE, self.IMG_SIZE))
-        assert jnp.all(jnp.isfinite(layer(x)))
-
     def test_with_norm_layer(self):
         layer = PatchEmbedding(
             self.IN_CHANNELS,

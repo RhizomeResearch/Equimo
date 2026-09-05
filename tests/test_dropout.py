@@ -1,6 +1,7 @@
 """Tests for equimo.core.layers.dropout."""
 
 import equinox as eqx
+import jax
 import jax.numpy as jnp
 import jax.random as jr
 import pytest
@@ -68,9 +69,8 @@ class TestDropPath:
         layer = DropPath(p=0.9)
         x = jnp.ones(SHAPE)
         out = layer(x, key=KEY, inference=False)
-        # Each row must be either all-zero or all-nonzero (same value across dim axis)
-        row_sums = jnp.sum(jnp.abs(out), axis=-1)
-        assert jnp.all((row_sums == 0) | (row_sums > 0))
+        assert jnp.all(out == out[:, :1])
+        assert jnp.all((out == 0) | jnp.isclose(out, 10.0))
 
     def test_stochastic_across_keys(self):
         """Different keys must (with overwhelming probability) produce different outputs."""
@@ -84,7 +84,8 @@ class TestDropPath:
         """With rescaling by 1/q, E[output] ≈ E[input] over many samples."""
         layer = DropPath(p=0.5)
         x = jnp.ones(SHAPE)
-        outputs = jnp.stack([layer(x, key=jr.PRNGKey(i)) for i in range(500)])
+        keys = jax.vmap(jr.PRNGKey)(jnp.arange(500))
+        outputs = jax.vmap(lambda key: layer(x, key=key))(keys)
         assert jnp.abs(jnp.mean(outputs) - 1.0) < 0.1
 
     def test_bfloat16_input_finite(self):

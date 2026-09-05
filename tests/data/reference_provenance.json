@@ -94,6 +94,75 @@
         "logits": {"dtype": "float32", "shape": [35]}
       }
     },
+    "convnext_atto_reference.npz": {
+      "generator": "uv run python models/torch_models.py convnext_atto --output-dir /tmp/equimo-references",
+      "identifier": "convnext_atto",
+      "upstream": {
+        "repository": "timm/convnext_atto.d2_in1k",
+        "revision": "435c0a8d02d5b872e90c8cde36887465982cb399",
+        "checkpoint": "model.safetensors"
+      },
+      "seed": 42,
+      "input_shape": [3, 224, 224],
+      "tolerance": 0.0001,
+      "comparison": {
+        "metric": "allclose",
+        "atol": 0.0001,
+        "rtol": 0.00001
+      },
+      "sha256": "2844007befd4d4598c96ce0d565611fd2d2d313b3e04bfec2968f12e73ef7b95",
+      "arrays": {
+        "img": {"dtype": "float32", "shape": [3, 224, 224]},
+        "features": {"dtype": "float32", "shape": [320]},
+        "logits": {"dtype": "float32", "shape": [1000]}
+      }
+    },
+    "convnext_zepto_rms_ols_reference.npz": {
+      "generator": "uv run python models/torch_models.py convnext_zepto_rms_ols --output-dir /tmp/equimo-references",
+      "identifier": "convnext_zepto_rms_ols",
+      "upstream": {
+        "repository": "timm/convnext_zepto_rms_ols.ra4_e3600_r224_in1k",
+        "revision": "fc9044eff11d0f1fb4c9fa812d8ac8c57b49c823",
+        "checkpoint": "model.safetensors"
+      },
+      "seed": 42,
+      "input_shape": [3, 224, 224],
+      "tolerance": 0.0001,
+      "comparison": {
+        "metric": "allclose",
+        "atol": 0.0001,
+        "rtol": 0.00001
+      },
+      "sha256": "5900eb73c6feb581db33f6dac6d75d234979f701e08e4bd22ef217ae3a37d59d",
+      "arrays": {
+        "img": {"dtype": "float32", "shape": [3, 224, 224]},
+        "features": {"dtype": "float32", "shape": [256]},
+        "logits": {"dtype": "float32", "shape": [1000]}
+      }
+    },
+    "convnextv2_atto_reference.npz": {
+      "generator": "uv run python models/torch_models.py convnextv2_atto --output-dir /tmp/equimo-references",
+      "identifier": "convnextv2_atto",
+      "upstream": {
+        "repository": "timm/convnextv2_atto.fcmae_ft_in1k",
+        "revision": "2de59190576d00653aabde4bcd4af7525a93ad1b",
+        "checkpoint": "model.safetensors"
+      },
+      "seed": 42,
+      "input_shape": [3, 224, 224],
+      "tolerance": 0.0001,
+      "comparison": {
+        "metric": "allclose",
+        "atol": 0.0001,
+        "rtol": 0.00001
+      },
+      "sha256": "196142edf7d584982d9c77be9f84bed690a09fc0c238873267f199576cbdf779",
+      "arrays": {
+        "img": {"dtype": "float32", "shape": [3, 224, 224]},
+        "features": {"dtype": "float32", "shape": [320]},
+        "logits": {"dtype": "float32", "shape": [1000]}
+      }
+    },
     "dinov2_vits14_reg_reference.npz": {
       "generator": "uv run python models/torch_models.py dinov2_vits14_reg --output-dir /tmp/equimo-references",
       "identifier": "dinov2_vits14_reg",

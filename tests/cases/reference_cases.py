@@ -43,6 +43,25 @@ def _ast(identifier, factory):
     )
 
 
+def _convnext(identifier, factory):
+    def evaluate(reference):
+        image = jnp.asarray(reference["img"])
+        model = factory(pretrained=True)
+        features = model.features(image, key=jr.PRNGKey(42), inference=True)
+        return {
+            "features": np.asarray(model.norm(features.mean((1, 2)))),
+            "logits": np.asarray(model(image, key=jr.PRNGKey(42), inference=True)),
+        }
+
+    return ReferenceCase(
+        identifier.split("_")[0],
+        "timm",
+        identifier,
+        f"{identifier}_reference.npz",
+        evaluate,
+    )
+
+
 def _dinov2(reference):
     model = vision_models.dinov2_vits14_reg(pretrained=True)
     output = model.forward_features(
@@ -109,6 +128,9 @@ def _tabpfn(reference):
 
 
 REFERENCE_CASES = (
+    _convnext("convnext_atto", vision_models.convnext_atto),
+    _convnext("convnext_zepto_rms_ols", vision_models.convnext_zepto_rms_ols),
+    _convnext("convnextv2_atto", vision_models.convnextv2_atto),
     _ast(
         "ast_base_patch16_audioset_10_10_0_4593",
         audio_models.ast_base_patch16_audioset_10_10_0_4593,

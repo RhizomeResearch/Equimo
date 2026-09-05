@@ -40,6 +40,8 @@ def test_reference_matrix_tracks_every_available_pretrained_path_fixture():
     assert expected == covered
     assert {case.family for case in REFERENCE_CASES} == {
         "ast",
+        "convnext",
+        "convnextv2",
         "dinov2",
         "dinov3",
         "eupe",
