@@ -1,6 +1,10 @@
 # ty: ignore[invalid-assignment]
 # ty: ignore[call-non-callable]
-from typing import Callable, Literal, Optional
+# ty: ignore[too-many-positional-arguments]
+# ty: ignore[unknown-argument]
+
+from collections.abc import Callable
+from typing import Literal
 
 import equinox as eqx
 import jax.random as jr
@@ -10,9 +14,9 @@ from equimo.core._prng import split_for_mode
 from equimo.core.layers.activation import get_act
 from equimo.vision.layers.convolution import DoubleConvBlock, SingleConvBlock
 from equimo.core.layers.generic import Residual
-from equimo.core.layers.norm import LayerNorm2d
+from equimo.core.layers.norm import get_norm
 from equimo.vision.layers.patch import SEPatchMerging
-from equimo.utils import nearest_power_of_2_divisor
+from equimo.utils import make_divisible, nearest_power_of_2_divisor
 from equimo.core.layers._registry import make_get, make_register
 
 _DOWNSAMPLER_REGISTRY: dict[str, type[eqx.Module]] = {}
@@ -249,7 +253,7 @@ class PWSEDownsampler(eqx.Module):
         self,
         x: Float[Array, "in_channels height width"],
         key: PRNGKeyArray,
-        inference: Optional[bool] = None,
+        inference: bool | None = None,
     ) -> Float[Array, "out_channels new_height new_width"]:
         """Apply downsampling to input features.
 
@@ -282,24 +286,26 @@ class PWSEDownsampler(eqx.Module):
 
 @register_downsampler()
 class ConvNeXtStem(eqx.Module):
-    """ConvNeXt stem: 4x spatial downsampling via stride-4 convolution + LayerNorm2d.
+    """ConvNeXt stem: 4x spatial downsampling via stride-4 convolution + norm.
 
     This is the initial patchification layer used in ConvNeXt, analogous to a
     ViT patch embedding with patch_size=4.
 
     Attributes:
         conv: Stride-4 convolution that patchifies the input.
-        norm: Channel-wise LayerNorm applied after convolution.
+        norm: Channel-wise norm applied after convolution
+            (LayerNorm2d by default; SimpleNorm2d for the zepto_rms size family).
     """
 
     conv: eqx.nn.Conv2d
-    norm: LayerNorm2d
+    norm: eqx.Module
 
     def __init__(
         self,
         in_channels: int,
         *,
         out_channels: int,
+        norm_layer: str | type[eqx.Module] = "layernorm2d",
         key: PRNGKeyArray,
         **kwargs,
     ):
@@ -310,7 +316,7 @@ class ConvNeXtStem(eqx.Module):
             stride=4,
             key=key,
         )
-        self.norm = LayerNorm2d(out_channels, eps=1e-6)
+        self.norm = get_norm(norm_layer)(out_channels, eps=1e-6)
 
     def __call__(
         self,
@@ -322,19 +328,91 @@ class ConvNeXtStem(eqx.Module):
 
 
 @register_downsampler()
+class ConvNeXtOverlapStem(eqx.Module):
+    """4x downsampling via two overlapping stride-2 convolutions ('_ols' stems).
+
+    Used by timm's ConvNeXt "_ols" variants
+    in place of ConvNeXtStem's single non-overlapping stride-4 conv.
+    ``mid_ratio``/``act_layer`` cover all three timm stem flavors from one class:
+
+    - ``mid_ratio=0.5``: 'overlap_tiered' (atto_ols/femto_ols/pico_ols)
+    - ``mid_ratio=1.0``: 'overlap' (nano_ols)
+    - ``mid_ratio=1.0`` with ``act_layer`` set: 'overlap_act' (zepto_rms_ols)
+
+    Attributes:
+        conv1: First stride-2 3x3 convolution,
+            to the (optionally reduced) mid channel count.
+        conv2: Second stride-2 3x3 convolution, to out_channels.
+        act: Optional activation between the two convolutions.
+        norm: Channel-wise norm applied after the second convolution
+            (LayerNorm2d by default; SimpleNorm2d for the zepto_rms size family).
+    """
+
+    conv1: eqx.nn.Conv2d
+    conv2: eqx.nn.Conv2d
+    act: Callable | None = eqx.field(static=True)
+    norm: eqx.Module
+
+    def __init__(
+        self,
+        in_channels: int,
+        *,
+        out_channels: int,
+        mid_ratio: float = 1.0,
+        act_layer: str | Callable | None = None,
+        norm_layer: str | type[eqx.Module] = "layernorm2d",
+        key: PRNGKeyArray,
+        **kwargs,
+    ):
+        key1, key2 = jr.split(key, 2)
+        mid_channels = make_divisible(out_channels * mid_ratio, 8)
+        self.conv1 = eqx.nn.Conv2d(
+            in_channels=in_channels,
+            out_channels=mid_channels,
+            kernel_size=3,
+            stride=2,
+            padding=1,
+            key=key1,
+        )
+        self.conv2 = eqx.nn.Conv2d(
+            in_channels=mid_channels,
+            out_channels=out_channels,
+            kernel_size=3,
+            stride=2,
+            padding=1,
+            key=key2,
+        )
+        self.act = get_act(act_layer) if act_layer is not None else None
+        self.norm = get_norm(norm_layer)(out_channels, eps=1e-6)
+
+    def __call__(
+        self,
+        x: Float[Array, "in_channels height width"],
+        *args,
+        **kwargs,
+    ) -> Float[Array, "out_channels new_height new_width"]:
+        x = self.conv1(x)
+        if self.act is not None:
+            x = self.act(x)
+        x = self.conv2(x)
+        return self.norm(x)
+
+
+@register_downsampler()
 class ConvNeXtDownsampler(eqx.Module):
-    """ConvNeXt inter-stage downsampler: LayerNorm2d + stride-2 convolution.
+    """ConvNeXt inter-stage downsampler: norm + stride-2 convolution.
 
     Reduces spatial dimensions by 2x while changing the channel count.
     Normalization is applied before the convolution, following the ConvNeXt
     design where each downsampling layer normalizes the input first.
 
     Attributes:
-        norm: Channel-wise LayerNorm applied before convolution.
+        norm: Channel-wise norm applied before convolution
+            (LayerNorm2d by default; SimpleNorm2d for the zepto_rms size family).
         conv: Stride-2 convolution that halves spatial dimensions.
     """
 
-    norm: LayerNorm2d
+    norm: eqx.Module
     conv: eqx.nn.Conv2d
 
     def __init__(
@@ -342,10 +420,11 @@ class ConvNeXtDownsampler(eqx.Module):
         in_channels: int,
         *,
         out_channels: int,
+        norm_layer: str | type[eqx.Module] = "layernorm2d",
         key: PRNGKeyArray,
         **kwargs,
     ):
-        self.norm = LayerNorm2d(in_channels, eps=1e-6)
+        self.norm = get_norm(norm_layer)(in_channels, eps=1e-6)
         self.conv = eqx.nn.Conv2d(
             in_channels=in_channels,
             out_channels=out_channels,

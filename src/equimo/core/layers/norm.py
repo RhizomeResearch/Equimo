@@ -1,5 +1,3 @@
-from typing import Optional
-
 import equinox as eqx
 import jax.numpy as jnp
 from jax import lax
@@ -47,7 +45,7 @@ class RMSNormGated(eqx.Module):
     def __call__(
         self,
         x: Float[Array, "dim"],  # noqa: F821
-        z: Optional[Float[Array, "dim"]] = None,  # noqa: F821
+        z: Float[Array, "dim"] | None = None,  # noqa: F821
         **kwargs,
     ) -> Float[Array, "dim"]:  # noqa: F821
         """Apply RMS normalization with optional gating.
@@ -172,7 +170,7 @@ class DyT(eqx.Module):
     def __call__(
         self,
         x: Float[Array, "dim"],  # noqa: F821
-        z: Optional[Float[Array, "dim"]] = None,  # noqa: F821
+        z: Float[Array, "dim"] | None = None,  # noqa: F821
         **kwargs,
     ) -> Float[Array, "dim"]:  # noqa: F821
         """Apply dynamic tanh to input tensor.
@@ -203,7 +201,7 @@ class RMSNorm2d(eqx.Module):
     """
 
     eps: float = eqx.field(static=True)
-    weight: Optional[Float[Array, "channels"]]  # noqa: F821
+    weight: Float[Array, "channels"] | None  # noqa: F821
 
     def __init__(self, channels: int, eps: float = 1e-6, affine: bool = True):
         """
@@ -233,6 +231,142 @@ class RMSNorm2d(eqx.Module):
 
 
 @register_norm()
+class SimpleNorm(eqx.Module):
+    """Scales a vector to unit variance without centering it:
+
+        output = x / sqrt(var(x) + eps) * weight.
+
+    Used by timm's ConvNeXt "zepto_rms" size.
+    For compatibility with timm's implementation,
+    which uses torch.var()'s default behavior,
+    var(x) is the ordinary sample variance
+    (Bessel-corrected: divide by N-1 rather than N).
+
+    Computation is promoted to float32 for numerical stability,
+    then cast back to the input dtype
+    to preserve mixed-precision training contracts.
+    """
+
+    eps: float = eqx.field(static=True)
+    weight: Float[Array, "dim"] | None  # noqa: F821
+
+    def __init__(self, dim: int, eps: float = 1e-6, affine: bool = True):
+        """
+        Args:
+            dim: Size of the feature vector.
+            eps: Epsilon for numerical stability.
+            affine: If True, learn a per-element scale parameter (weight).
+        """
+        self.eps = eps
+        self.weight = jnp.ones(dim) if affine else None
+
+    def __call__(self, x: Float[Array, "dim"]) -> Float[Array, "dim"]:  # noqa: F821
+        """Forward pass for a single flat feature vector."""
+        dtype = x.dtype
+        x_f32 = x.astype(jnp.float32)
+        n = x_f32.shape[-1]
+        mean = jnp.mean(x_f32, axis=-1, keepdims=True)
+        var = jnp.sum(jnp.square(x_f32 - mean), axis=-1, keepdims=True) / (n - 1)
+        x_norm = x_f32 * lax.rsqrt(var + self.eps)
+        if self.weight is not None:
+            x_norm = x_norm * self.weight
+        return x_norm.astype(dtype)
+
+
+@register_norm()
+class SimpleNorm2d(eqx.Module):
+    """SimpleNorm, applied per-pixel to a 2D map (C, H, W).
+
+    Normalizes over the channel dimension at each spatial location.
+
+    Computation is promoted to float32 for numerical stability,
+    then cast back to the input dtype
+    to preserve mixed-precision training contracts.
+    """
+
+    eps: float = eqx.field(static=True)
+    weight: Float[Array, "channels"] | None  # noqa: F821
+
+    def __init__(self, channels: int, eps: float = 1e-6, affine: bool = True):
+        """
+        Args:
+            channels: Number of input channels (C).
+            eps: Epsilon for numerical stability.
+            affine: If True, learn a per-channel scale parameter (weight).
+        """
+        self.eps = eps
+        self.weight = jnp.ones(channels) if affine else None
+
+    def __call__(
+        self, x: Float[Array, "channels height width"]
+    ) -> Float[Array, "channels height width"]:
+        """
+        Forward pass for a single sample (C, H, W).
+        Use jax.vmap(model)(batch) for (N, C, H, W) inputs.
+        """
+        dtype = x.dtype
+        x_f32 = x.astype(jnp.float32)
+        # Normalize over channel dimension: mean/var shape (1, H, W)
+        n = x_f32.shape[0]
+        mean = jnp.mean(x_f32, axis=0, keepdims=True)
+        var = jnp.sum(jnp.square(x_f32 - mean), axis=0, keepdims=True) / (n - 1)
+        x_norm = x_f32 * lax.rsqrt(var + self.eps)  # scales x, not (x - mean)
+        if self.weight is not None:
+            x_norm = x_norm * self.weight[:, None, None]
+        return x_norm.astype(dtype)
+
+
+@register_norm()
+class GRN(eqx.Module):
+    """Global Response Normalization for 2D spatial feature maps (C, H, W).
+
+    Introduced in ConvNeXt V2 (Woo et al., 2023)
+    as a channel-wise feature competition mechanism.
+
+    Since weight/bias are zero-initialized,
+    GRN starts as an identity function (output == input) at init.
+    It only starts reweighting channels
+    once weight/bias move away from zero during training.
+
+    Computation is promoted to float32 for numerical stability,
+    then cast back to the input dtype
+    to preserve mixed-precision training contracts.
+    """
+
+    eps: float = eqx.field(static=True)
+    weight: Float[Array, "channels"]  # noqa: F821
+    bias: Float[Array, "channels"]  # noqa: F821
+
+    def __init__(self, channels: int, eps: float = 1e-6):
+        """
+        Args:
+            channels: Number of input channels (C).
+            eps: Epsilon for numerical stability.
+        """
+        self.eps = eps
+        self.weight = jnp.zeros(channels)
+        self.bias = jnp.zeros(channels)
+
+    def __call__(
+        self, x: Float[Array, "channels height width"]
+    ) -> Float[Array, "channels height width"]:
+        """
+        Forward pass for a single sample (C, H, W).
+        Use jax.vmap(model)(batch) for (N, C, H, W) inputs.
+        """
+        dtype = x.dtype
+        x_f32 = x.astype(jnp.float32)
+        # Per-channel L2 norm over spatial dims: shape (C, 1, 1)
+        gx = jnp.sqrt(jnp.sum(jnp.square(x_f32), axis=(1, 2), keepdims=True))
+        # Normalize across channels: shape (C, 1, 1)
+        nx = gx / (jnp.mean(gx, axis=0, keepdims=True) + self.eps)
+        out = (
+            self.weight[:, None, None] * (x_f32 * nx) + self.bias[:, None, None] + x_f32
+        )
+        return out.astype(dtype)
+
+
+@register_norm()
 class LayerNorm2d(eqx.Module):
     """Layer Normalization for 2D spatial feature maps (C, H, W).
 
@@ -248,8 +382,8 @@ class LayerNorm2d(eqx.Module):
     """
 
     eps: float = eqx.field(static=True)
-    weight: Optional[Float[Array, "channels"]]  # noqa: F821
-    bias: Optional[Float[Array, "channels"]]  # noqa: F821
+    weight: Float[Array, "channels"] | None  # noqa: F821
+    bias: Float[Array, "channels"] | None  # noqa: F821
 
     def __init__(self, channels: int, eps: float = 1e-6, affine: bool = True):
         self.eps = eps
