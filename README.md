@@ -233,6 +233,7 @@ plan = eqft.prepare_finetune(
 trainable = plan.trainable
 frozen = plan.frozen
 
+
 def loss_fn(trainable, batch):
     model = plan.combine(trainable)
     logits = jax.vmap(lambda x: model(x, key=key, inference=False))(batch["x"])
@@ -355,7 +356,11 @@ Each family exposes its internal registry dict and `_build_*` function. You can
 add your own variants without subclassing:
 
 ```python
-from equimo.vision.models.attnet import _ATTNET_REGISTRY, _ATTNET_BASE_CFG, _build_attnet
+from equimo.vision.models.attnet import (
+    _ATTNET_REGISTRY,
+    _ATTNET_BASE_CFG,
+    _build_attnet,
+)
 
 _ATTNET_REGISTRY["attnet_custom"] = (
     _ATTNET_BASE_CFG,
@@ -403,9 +408,10 @@ Model registration is modality-aware:
 ```python
 from equimo.registry import get_model_cls, register_model
 
+
 @register_model("mynet", modality="vision")
-class MyVisionModel(eqx.Module):
-    ...
+class MyVisionModel(eqx.Module): ...
+
 
 assert get_model_cls("mynet", modality="vision") is MyVisionModel
 ```
@@ -425,6 +431,7 @@ import equimo.vision.models as em
 from equimo.vision.layers import register_attn, register_attn_block
 
 # ── 1. Define and register the attention module ───────────────────────────────
+
 
 @register_attn("myattn")
 class MyAttention(eqx.Module):
@@ -448,16 +455,17 @@ class MyAttention(eqx.Module):
         inference: bool = False,
     ) -> Float[Array, "seq dim"]:
         seq, d = x.shape
-        qkv = jax.vmap(self.qkv)(x)              # (seq, 3*dim)
-        q, k, v = jnp.split(qkv, 3, axis=-1)     # each (seq, dim)
-        scale = d ** -0.5
-        attn = jax.nn.softmax(
-            (q @ k.T * scale).astype(jnp.float32), axis=-1
-        ).astype(x.dtype)
+        qkv = jax.vmap(self.qkv)(x)  # (seq, 3*dim)
+        q, k, v = jnp.split(qkv, 3, axis=-1)  # each (seq, dim)
+        scale = d**-0.5
+        attn = jax.nn.softmax((q @ k.T * scale).astype(jnp.float32), axis=-1).astype(
+            x.dtype
+        )
         return jax.vmap(self.proj)(attn @ v)
 
 
 # ── 2. Wrap it in a transformer block and register it ────────────────────────
+
 
 @register_attn_block("myattnblock")
 class MyAttentionBlock(eqx.Module):
@@ -469,7 +477,7 @@ class MyAttentionBlock(eqx.Module):
     def __init__(
         self,
         dim: int,
-        num_heads: int,   # accepted for API compatibility; ignored here
+        num_heads: int,  # accepted for API compatibility; ignored here
         mlp_ratio: float = 4.0,
         drop_path: float = 0.0,
         *,
@@ -496,9 +504,7 @@ class MyAttentionBlock(eqx.Module):
         inference: bool = False,
         **kwargs,
     ) -> Float[Array, "seq dim"]:
-        x = x + self.attn(
-            jax.vmap(self.norm1)(x), key=key, inference=inference
-        )
+        x = x + self.attn(jax.vmap(self.norm1)(x), key=key, inference=inference)
         x = x + jax.vmap(self.mlp)(jax.vmap(self.norm2)(x))
         return x
 
@@ -514,7 +520,7 @@ model = em.VisionTransformer(
     num_heads=[6],
     depths=[6],
     num_classes=1000,
-    block="myattnblock",   # ← resolved from the registry
+    block="myattnblock",  # ← resolved from the registry
     key=key,
 )
 
@@ -528,8 +534,7 @@ override:
 
 ```python
 @register_attn("myattn", force=True)
-class MyImprovedAttention(eqx.Module):
-    ...
+class MyImprovedAttention(eqx.Module): ...
 ```
 
 ## BlockChunk
@@ -550,13 +555,13 @@ stage = BlockChunk(
     depth=4,
     in_channels=96,
     out_channels=192,
-    module="attentionblock",       # resolved from _ATTN_BLOCK_REGISTRY
+    module="attentionblock",  # resolved from _ATTN_BLOCK_REGISTRY
     module_kwargs={"dim": 96, "num_heads": 3, "mlp_ratio": 4.0},
     downsampler="convnormdownsampler",  # resolved from _DOWNSAMPLER_REGISTRY
-    downsampler_kwargs={},         # in_channels/out_channels injected automatically
-    downsample_last=True,          # blocks run first, then downsample
+    downsampler_kwargs={},  # in_channels/out_channels injected automatically
+    downsample_last=True,  # blocks run first, then downsample
     drop_path=0.1,
-    layer_resolver=get_layer,      # resolve strings in the vision scope
+    layer_resolver=get_layer,  # resolve strings in the vision scope
     key=key,
 )
 ```
@@ -741,8 +746,8 @@ model = load_weights(model, identifier="siglip2_vitb16_256")
 Custom models are restored the same way:
 
 ```python
-class MyNet(eqx.Module):
-    ...
+class MyNet(eqx.Module): ...
+
 
 model = MyNet(..., key=key)
 model = load_weights(model, path=Path("mynet.tar.lz4"))

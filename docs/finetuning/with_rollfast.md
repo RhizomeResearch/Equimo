@@ -190,12 +190,8 @@ optim = rfft.adamw_from_plan(
     swa=rfft.SWAConfig(enabled=True, start_fraction=0.75),
 )
 
-eval_ema_model = plan.combine(
-    optim.eval_params(trainable, opt_state, view="ema")
-)
-eval_swa_model = plan.combine(
-    optim.eval_params(trainable, opt_state, view="swa")
-)
+eval_ema_model = plan.combine(optim.eval_params(trainable, opt_state, view="ema"))
+eval_swa_model = plan.combine(optim.eval_params(trainable, opt_state, view="swa"))
 ```
 
 Optimizer state is serialized by Rollfast, separately from Equimo model deltas:

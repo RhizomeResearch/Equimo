@@ -6,7 +6,8 @@
 # ty: ignore[unresolved-attribute]
 import math
 import operator
-from typing import Callable, Literal, Optional, Sequence, Tuple, Union
+from collections.abc import Callable, Sequence
+from typing import Literal
 
 import equinox as eqx
 import jax
@@ -23,6 +24,7 @@ from equimo.core._prng import (
 from equimo.core.layers.activation import get_act
 from equimo.core.layers.dropout import DropPathAdd, split_drop_path
 from equimo.core.layers.norm import (
+    GRN,
     LayerNorm2d,
     LayerScale,
     RMSNorm2d,
@@ -122,8 +124,8 @@ class SingleConvBlock(eqx.Module):
     def __call__(
         self,
         x: Float[Array, "channels height width"],
-        key: Optional[PRNGKeyArray] = None,
-        inference: Optional[bool] = None,
+        key: PRNGKeyArray | None = None,
+        inference: bool | None = None,
     ) -> Float[Array, "channels height width"]:
         if key is None and self.dropout.p > 0:
             key = default_key_for_mode(key, inference=inference)
@@ -229,8 +231,8 @@ class DoubleConvBlock(eqx.Module):
     def __call__(
         self,
         x: Float[Array, "channels height width"],
-        key: Optional[PRNGKeyArray] = None,
-        inference: Optional[bool] = None,
+        key: PRNGKeyArray | None = None,
+        inference: bool | None = None,
     ) -> Float[Array, "channels height width"]:
         if key is None:
             key = default_key_for_mode(key, inference=inference)
@@ -368,8 +370,8 @@ class Stem(eqx.Module):
     def __call__(
         self,
         x: Float[Array, "channels height width"],
-        key: Optional[PRNGKeyArray] = None,
-        inference: Optional[bool] = None,
+        key: PRNGKeyArray | None = None,
+        inference: bool | None = None,
     ) -> Float[Array, "seqlen dim"]:
         key_conv1 = fold_in_for_mode(key, 0, inference=inference)
         x = self.conv1(x, key=key_conv1, inference=inference)
@@ -428,8 +430,8 @@ class ConvBottleneck(eqx.Module):
     def __call__(
         self,
         x: Float[Array, "channels height width"],
-        key: Optional[PRNGKeyArray] = None,
-        inference: Optional[bool] = None,
+        key: PRNGKeyArray | None = None,
+        inference: bool | None = None,
     ) -> Float[Array, "channels height width"]:
         if key is None:
             key = default_key_for_mode(key, inference=inference)
@@ -452,7 +454,7 @@ class C2f(eqx.Module):
 
     conv1: SingleConvBlock
     conv2: SingleConvBlock
-    blocks: Tuple[ConvBottleneck, ...]
+    blocks: tuple[ConvBottleneck, ...]
 
     def __init__(
         self,
@@ -504,8 +506,8 @@ class C2f(eqx.Module):
     def __call__(
         self,
         x: Float[Array, "channels height width"],
-        key: Optional[PRNGKeyArray] = None,
-        inference: Optional[bool] = None,
+        key: PRNGKeyArray | None = None,
+        inference: bool | None = None,
     ) -> Float[Array, "channels height width"]:
         if key is None:
             key = default_key_for_mode(key, inference=inference)
@@ -527,7 +529,7 @@ class C3k(eqx.Module):
     conv1: SingleConvBlock
     conv2: SingleConvBlock
     conv3: SingleConvBlock
-    blocks: Tuple[ConvBottleneck, ...]
+    blocks: tuple[ConvBottleneck, ...]
 
     def __init__(
         self,
@@ -589,8 +591,8 @@ class C3k(eqx.Module):
     def __call__(
         self,
         x: Float[Array, "channels height width"],
-        key: Optional[PRNGKeyArray] = None,
-        inference: Optional[bool] = None,
+        key: PRNGKeyArray | None = None,
+        inference: bool | None = None,
     ) -> Float[Array, "channels height width"]:
         if key is None:
             key = default_key_for_mode(key, inference=inference)
@@ -635,8 +637,8 @@ class C3(eqx.Module):
     def __call__(
         self,
         x: Float[Array, "channels height width"],
-        key: Optional[PRNGKeyArray] = None,
-        inference: Optional[bool] = None,
+        key: PRNGKeyArray | None = None,
+        inference: bool | None = None,
     ) -> Float[Array, "channels height width"]:
         return self.c3k(x, key=key, inference=inference)
 
@@ -649,7 +651,7 @@ class C3k2(eqx.Module):
 
     conv1: SingleConvBlock
     conv2: SingleConvBlock
-    blocks: Tuple[ConvBottleneck, ...] | Tuple[C3k, ...]
+    blocks: tuple[ConvBottleneck, ...] | tuple[C3k, ...]
 
     def __init__(
         self,
@@ -713,8 +715,8 @@ class C3k2(eqx.Module):
     def __call__(
         self,
         x: Float[Array, "channels height width"],
-        key: Optional[PRNGKeyArray] = None,
-        inference: Optional[bool] = None,
+        key: PRNGKeyArray | None = None,
+        inference: bool | None = None,
     ) -> Float[Array, "channels height width"]:
         if key is None:
             key = default_key_for_mode(key, inference=inference)
@@ -760,13 +762,13 @@ class MBConv(eqx.Module):
         mid_channels: int | None = None,
         kernel_size: int = 3,
         stride: int = 1,
-        use_bias: Tuple[bool, ...] | bool = False,
+        use_bias: tuple[bool, ...] | bool = False,
         expand_ratio: float = 6.0,
-        norm_layer: Tuple[str | type[eqx.Module] | None, ...]
+        norm_layer: tuple[str | type[eqx.Module] | None, ...]
         | str
         | type[eqx.Module]
         | None = "groupnorm",
-        act_layer: Tuple[str | Callable | None, ...] | str | Callable | None = "relu6",
+        act_layer: tuple[str | Callable | None, ...] | str | Callable | None = "relu6",
         se: bool = False,
         fuse: bool = False,
         fuse_threshold: int = 256,
@@ -780,16 +782,16 @@ class MBConv(eqx.Module):
     ):
         key_inverted, key_depth, key_point, key_se = jr.split(key, 4)
 
-        if not isinstance(norm_layer, Tuple):
+        if not isinstance(norm_layer, tuple):
             norm_layer = (norm_layer,) * 3
-        if not isinstance(act_layer, Tuple):
+        if not isinstance(act_layer, tuple):
             act_layer = (act_layer,) * 3
 
         # Resolve registry names
         norm_layer = tuple(get_norm(n) if n is not None else None for n in norm_layer)
         act_layer = tuple(get_act(a) if a is not None else None for a in act_layer)
         if isinstance(use_bias, bool):
-            use_bias: Tuple = (use_bias,) * 3
+            use_bias: tuple = (use_bias,) * 3
         if len(use_bias) != 3:
             raise ValueError(
                 f"`use_bias` should be a Tuple of length 3, got: {len(use_bias)}"
@@ -902,8 +904,8 @@ class MBConv(eqx.Module):
     def __call__(
         self,
         x: Float[Array, "channels height width"],
-        key: Optional[PRNGKeyArray] = None,
-        inference: Optional[bool] = None,
+        key: PRNGKeyArray | None = None,
+        inference: bool | None = None,
     ) -> Float[Array, "channels height width"]:
         if key is None:
             key = default_key_for_mode(key, inference=inference)
@@ -947,12 +949,12 @@ class DSConv(eqx.Module):
         key: PRNGKeyArray,
         kernel_size: int = 3,
         stride: int = 1,
-        use_bias: Tuple[bool, ...] | bool = False,
-        norm_layer: Tuple[str | type[eqx.Module] | None, ...]
+        use_bias: tuple[bool, ...] | bool = False,
+        norm_layer: tuple[str | type[eqx.Module] | None, ...]
         | str
         | type[eqx.Module]
         | None = "groupnorm",
-        act_layer: Tuple[str | Callable | None, ...] | str | Callable | None = "relu6",
+        act_layer: tuple[str | Callable | None, ...] | str | Callable | None = "relu6",
         residual: bool = False,
         init_values: float | None = None,
         dropout: float = 0.0,
@@ -961,16 +963,16 @@ class DSConv(eqx.Module):
     ):
         key_depth, key_point = jr.split(key, 2)
 
-        if not isinstance(norm_layer, Tuple):
+        if not isinstance(norm_layer, tuple):
             norm_layer = (norm_layer,) * 2
-        if not isinstance(act_layer, Tuple):
+        if not isinstance(act_layer, tuple):
             act_layer = (act_layer,) * 2
 
         # Resolve registry names
         norm_layer = tuple(get_norm(n) if n is not None else None for n in norm_layer)
         act_layer = tuple(get_act(a) if a is not None else None for a in act_layer)
         if isinstance(use_bias, bool):
-            use_bias: Tuple = (use_bias,) * 2
+            use_bias: tuple = (use_bias,) * 2
         if len(use_bias) != 2:
             raise ValueError(
                 f"`use_bias` should be a Tuple of length 2, got: {len(use_bias)}"
@@ -1022,8 +1024,8 @@ class DSConv(eqx.Module):
     def __call__(
         self,
         x: Float[Array, "channels height width"],
-        key: Optional[PRNGKeyArray] = None,
-        inference: Optional[bool] = None,
+        key: PRNGKeyArray | None = None,
+        inference: bool | None = None,
     ) -> Float[Array, "channels height width"]:
         if key is None:
             key = default_key_for_mode(key, inference=inference)
@@ -1159,8 +1161,8 @@ class UIB(eqx.Module):
     def __call__(
         self,
         x: Float[Array, "channels height width"],
-        key: Optional[PRNGKeyArray] = None,
-        inference: Optional[bool] = None,
+        key: PRNGKeyArray | None = None,
+        inference: bool | None = None,
     ) -> Float[Array, "channels height width"]:
         if key is None:
             key = default_key_for_mode(key, inference=inference)
@@ -1232,8 +1234,8 @@ class IFormerStem(eqx.Module):
     def __call__(
         self,
         x: Float[Array, "channels height width"],
-        key: Optional[PRNGKeyArray] = None,
-        inference: Optional[bool] = None,
+        key: PRNGKeyArray | None = None,
+        inference: bool | None = None,
     ) -> Float[Array, "nc nh nw"]:
         if key is None:
             key = default_key_for_mode(key, inference=inference)
@@ -1313,8 +1315,8 @@ class IFormerBlock(eqx.Module):
     def __call__(
         self,
         x: Float[Array, "channels height width"],
-        key: Optional[PRNGKeyArray] = None,
-        inference: Optional[bool] = None,
+        key: PRNGKeyArray | None = None,
+        inference: bool | None = None,
     ) -> Float[Array, "channels height width"]:
         if key is None:
             key = default_key_for_mode(key, inference=inference)
@@ -1334,19 +1336,33 @@ class IFormerBlock(eqx.Module):
 
 @register_conv()
 class ConvNeXtBlock(eqx.Module):
-    """ConvNeXt block: DwConv7x7 -> LayerNorm2d -> PwConv1(C->4*C) -> GELU -> PwConv2(4*C->C).
+    """ConvNeXt block: DwConv7x7 -> norm -> PwConv1(C->4*C) -> GELU -> [GRN] -> PwConv2(4*C->C).
 
-    Uses depthwise convolution followed by channel-wise LayerNorm and two
-    pointwise convolutions (implemented as 1x1 Conv2d). This matches the
-    original ConvNeXt design from "A ConvNet for the 2020s" (Liu et al., 2022).
+    Depthwise convolution, a channel-wise norm,
+    two pointwise convolutions (1x1 Conv2d),
+    optional Global Response Normalization, and optional LayerScale.
+
+    This class can be used to build ConvNeXt V1 blocks
+    ("A ConvNet for the 2020s", Liu et al., 2022)
+    or V2 blocks ("ConvNeXt V2: Co-designing...", Woo et al., 2023).
+    V1 is the default: ``use_grn=False, init_values=1e-6``.
+    V2 replaces LayerScale with a Global Response Normalization,
+    inserted on the expanded 4*C dimension,
+    between the activation and the second pointwise convolution:
+    ``use_grn=True, init_values=None``.
+
+    ``norm_layer`` is orthogonal to the V1/V2 choice above: it swaps the
+    block's internal norm (LayerNorm2d by default, RMSNorm2d for the
+    zepto_rms size family).
 
     Input/Output convention: (C, H, W).
     """
 
     dwconv: eqx.nn.Conv2d
-    norm: LayerNorm2d
+    norm: eqx.Module
     pwconv1: eqx.nn.Conv2d
     act: Callable = eqx.field(static=True)
+    grn: GRN | eqx.nn.Identity
     pwconv2: eqx.nn.Conv2d
     ls: LayerScale | eqx.nn.Identity
     drop_path: DropPathAdd
@@ -1358,6 +1374,8 @@ class ConvNeXtBlock(eqx.Module):
         kernel_size: int = 7,
         mlp_ratio: float = 4.0,
         act_layer: str | Callable = "gelu",
+        norm_layer: str | type[eqx.Module] = "layernorm2d",
+        use_grn: bool = False,
         drop_path: float = 0.0,
         init_values: float | None = 1e-6,
         key: PRNGKeyArray,
@@ -1366,6 +1384,7 @@ class ConvNeXtBlock(eqx.Module):
         key_dw, key_pw1, key_pw2 = jr.split(key, 3)
 
         act_layer = get_act(act_layer)
+        norm_layer = get_norm(norm_layer)
 
         mid_channels = int(channels * mlp_ratio)
         self.dwconv = eqx.nn.Conv2d(
@@ -1376,7 +1395,7 @@ class ConvNeXtBlock(eqx.Module):
             groups=channels,
             key=key_dw,
         )
-        self.norm = LayerNorm2d(channels, eps=1e-6)
+        self.norm = norm_layer(channels, eps=1e-6)
         self.pwconv1 = eqx.nn.Conv2d(
             in_channels=channels,
             out_channels=mid_channels,
@@ -1384,6 +1403,7 @@ class ConvNeXtBlock(eqx.Module):
             key=key_pw1,
         )
         self.act = act_layer
+        self.grn = GRN(mid_channels, eps=1e-6) if use_grn else eqx.nn.Identity()
         self.pwconv2 = eqx.nn.Conv2d(
             in_channels=mid_channels,
             out_channels=channels,
@@ -1396,8 +1416,8 @@ class ConvNeXtBlock(eqx.Module):
     def __call__(
         self,
         x: Float[Array, "channels height width"],
-        key: Optional[PRNGKeyArray] = None,
-        inference: Optional[bool] = None,
+        key: PRNGKeyArray | None = None,
+        inference: bool | None = None,
         **kwargs,
     ) -> Float[Array, "channels height width"]:
         if key is None:
@@ -1406,6 +1426,7 @@ class ConvNeXtBlock(eqx.Module):
         out = self.dwconv(x)
         out = self.norm(out)
         out = self.act(self.pwconv1(out))
+        out = self.grn(out)
         out = self.pwconv2(out)
         out = self.drop_path(x, self.ls(out), inference=inference, key=key)
 
@@ -1443,12 +1464,12 @@ class GenericGhostModule(eqx.Module):
     cheap_operation: eqx.nn.Conv2d
 
     # Training
-    primary_rpr_conv: Tuple[eqx.nn.Conv2d, ...]
+    primary_rpr_conv: tuple[eqx.nn.Conv2d, ...]
     primary_rpr_scale: eqx.nn.Conv2d | eqx.nn.Identity
     primary_shared_norm: eqx.nn.GroupNorm
     primary_activation: Callable
 
-    cheap_rpr_conv: Tuple[eqx.nn.Conv2d, ...]
+    cheap_rpr_conv: tuple[eqx.nn.Conv2d, ...]
     cheap_rpr_scale: eqx.nn.Conv2d | eqx.nn.Identity
     cheap_shared_norm: eqx.nn.GroupNorm
     cheap_activation: Callable
@@ -1672,8 +1693,8 @@ class GenericGhostModule(eqx.Module):
     def __call__(
         self,
         x: Float[Array, "channels height width"],
-        key: Optional[PRNGKeyArray] = None,
-        inference: Optional[bool] = None,
+        key: PRNGKeyArray | None = None,
+        inference: bool | None = None,
     ) -> Float[Array, "channels height width"]:
         use_inference = self.inference if inference is None else inference
 
@@ -1719,7 +1740,7 @@ class GhostBottleneck(eqx.Module):
     ghost2: "GenericGhostModule"
 
     dw_conv: eqx.nn.Conv2d | eqx.nn.Identity
-    dw_rpr_conv: Tuple[eqx.nn.Conv2d, ...]  # depthwise conv branches (no bias)
+    dw_rpr_conv: tuple[eqx.nn.Conv2d, ...]  # depthwise conv branches (no bias)
     dw_rpr_scale: eqx.nn.Conv2d | eqx.nn.Identity  # optional 1x1 depthwise (no bias)
     dw_shared_norm: eqx.nn.GroupNorm | eqx.nn.Identity
 
@@ -1874,8 +1895,8 @@ class GhostBottleneck(eqx.Module):
     def __call__(
         self,
         x: Float[Array, "channels height width"],
-        key: Optional[PRNGKeyArray] = None,
-        inference: Optional[bool] = None,
+        key: PRNGKeyArray | None = None,
+        inference: bool | None = None,
     ) -> Float[Array, "channels height width"]:
         use_inference = self.inference if inference is None else inference
 
@@ -2073,8 +2094,8 @@ def _finalize_ghostbottleneck(module: "GhostBottleneck") -> "GhostBottleneck":
 
 
 def update_ghostnet(
-    model: eqx.Module | Union["GenericGhostModule", "GhostBottleneck"],
-) -> eqx.Module | Union["GenericGhostModule", "GhostBottleneck"]:
+    model: eqx.Module | GenericGhostModule | GhostBottleneck,
+) -> eqx.Module | GenericGhostModule | GhostBottleneck:
     """
     Recursively fuse training branches for both GenericGhostModule and GhostBottleneck.
     Keeps GroupNorm layers; no bias fusion.
@@ -2092,8 +2113,8 @@ def update_ghostnet(
 
 
 def finalize_ghostnet(
-    model: eqx.Module | Union["GenericGhostModule", "GhostBottleneck"],
-) -> eqx.Module | Union["GenericGhostModule", "GhostBottleneck"]:
+    model: eqx.Module | GenericGhostModule | GhostBottleneck,
+) -> eqx.Module | GenericGhostModule | GhostBottleneck:
     """
     Recursively finalize both GenericGhostModule and GhostBottleneck for inference:
     - Fuse training branches.
@@ -2235,8 +2256,8 @@ class PartialConv2d(eqx.Module):
     def __call__(
         self,
         x: Float[Array, "channels height width"],
-        key: Optional[PRNGKeyArray] = None,
-        inference: Optional[bool] = None,
+        key: PRNGKeyArray | None = None,
+        inference: bool | None = None,
     ) -> Float[Array, "channels height width"]:
         c = self.partial_channels
         y1 = self.conv(x[:c, :, :])
@@ -2391,8 +2412,8 @@ class FasterNetBlock(eqx.Module):
     def __call__(
         self,
         x: Float[Array, "channels height width"],
-        key: Optional[PRNGKeyArray] = None,
-        inference: Optional[bool] = None,
+        key: PRNGKeyArray | None = None,
+        inference: bool | None = None,
     ) -> Float[Array, "channels height width"]:
         if key is None:
             key = default_key_for_mode(key, inference=inference)
@@ -2478,8 +2499,8 @@ class GLUConv(eqx.Module):
     def __call__(
         self,
         x: Float[Array, "channels height width"],
-        key: Optional[PRNGKeyArray] = None,
-        inference: Optional[bool] = None,
+        key: PRNGKeyArray | None = None,
+        inference: bool | None = None,
     ) -> Float[Array, "channels height width"]:
         if key is None:
             key = default_key_for_mode(key, inference=inference)
@@ -2596,8 +2617,8 @@ class ATConv(eqx.Module):
     def __call__(
         self,
         x: Float[Array, "channels height width"],
-        key: Optional[PRNGKeyArray] = None,
-        inference: Optional[bool] = None,
+        key: PRNGKeyArray | None = None,
+        inference: bool | None = None,
     ) -> Float[Array, "channels height width"]:
         kernels = self._generate_kernels(x)
         kernels = self._apply_kernel_difference(kernels)
@@ -2690,8 +2711,8 @@ class ATConvBlock(eqx.Module):
     def __call__(
         self,
         x: Float[Array, "channels height width"],
-        key: Optional[PRNGKeyArray] = None,
-        inference: Optional[bool] = None,
+        key: PRNGKeyArray | None = None,
+        inference: bool | None = None,
     ) -> Float[Array, "channels height width"]:
         if key is None:
             key = default_key_for_mode(key, inference=inference)
@@ -2734,7 +2755,7 @@ class S2Mixer(eqx.Module):
         split_indices: Indices used to split the input tensor along the channel dimension.
     """
 
-    mix_convs: Tuple[eqx.nn.Conv2d, ...]
+    mix_convs: tuple[eqx.nn.Conv2d, ...]
     split_indices: list[int] = eqx.field(static=True)
 
     def __init__(
@@ -2787,8 +2808,8 @@ class S2Mixer(eqx.Module):
     def __call__(
         self,
         x: Float[Array, "channels height width"],
-        key: Optional[PRNGKeyArray] = None,
-        inference: Optional[bool] = None,
+        key: PRNGKeyArray | None = None,
+        inference: bool | None = None,
     ) -> Float[Array, "channels height width"]:
         # Split channels: [branch1_in, branch2_in, ..., identity_in]
         splits = jnp.split(x, self.split_indices, axis=0)
@@ -2856,8 +2877,8 @@ class ShiftNeck(eqx.Module):
     def __call__(
         self,
         x: Float[Array, "c h w"],
-        key: Optional[PRNGKeyArray] = None,
-        inference: Optional[bool] = None,
+        key: PRNGKeyArray | None = None,
+        inference: bool | None = None,
     ) -> Float[Array, "c h w"]:
         gap = jnp.mean(x, axis=(1, 2), keepdims=True)
 
@@ -2930,8 +2951,8 @@ class ShiftFFN(eqx.Module):
     def __call__(
         self,
         x: Float[Array, "channels height width"],
-        key: Optional[PRNGKeyArray] = None,
-        inference: Optional[bool] = None,
+        key: PRNGKeyArray | None = None,
+        inference: bool | None = None,
     ) -> Float[Array, "channels height width"]:
         x_expanded = self.conv1(x)
         x_biased = self.shift_neck(x_expanded, key=key, inference=inference)
@@ -3027,8 +3048,8 @@ class FreeNetBlock(eqx.Module):
     def __call__(
         self,
         x: Float[Array, "channels height width"],
-        key: Optional[PRNGKeyArray] = None,
-        inference: Optional[bool] = None,
+        key: PRNGKeyArray | None = None,
+        inference: bool | None = None,
     ) -> Float[Array, "channels height width"]:
         if key is None:
             key = default_key_for_mode(key, inference=inference)
