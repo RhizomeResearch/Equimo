@@ -6,6 +6,7 @@ import pytest
 import jax
 import jax.numpy as jnp
 import jax.random as jr
+import numpy as np
 
 import equimo.finetune as eqft
 from equimo.finetune.merging import _solve_regmean_system
@@ -29,15 +30,39 @@ def test_regmean_cholesky_residual_and_gradients(ridge):
     residual = jnp.linalg.norm(actual @ system - rhs)
     scale = jnp.linalg.norm(actual) * jnp.linalg.norm(system) + jnp.linalg.norm(rhs)
     assert residual / scale < 1e-6
-    for fn in (solve, reference):
-        grads = jax.grad(lambda s, w: jnp.square(fn(s, w)).mean(), argnums=(0, 1))(
-            system, rhs
-        )
-        if fn is solve:
-            actual_grads = grads
-        else:
-            for actual, expected in zip(actual_grads, grads, strict=True):
-                assert jnp.allclose(actual, expected, rtol=1e-5, atol=1e-5)
+    grads = jax.grad(lambda s, w: jnp.square(solve(s, w)).mean(), argnums=(0, 1))(
+        system, rhs
+    )
+    # Different float32 solve algorithms lose different low-order bits through
+    # cancellation in the ill-conditioned case. Use an independent float64
+    # derivative of X S = W and compare the full gradient norms instead.
+    system64 = np.asarray(system, dtype=np.float64)
+    rhs64 = np.asarray(rhs, dtype=np.float64)
+    solution64 = np.linalg.solve(system64.T, rhs64.T).T
+    grad_rhs64 = np.linalg.solve(system64, (2 * solution64 / solution64.size).T).T
+    grad_system64 = -solution64.T @ grad_rhs64
+    # Cholesky symmetrizes its input, so its system gradient is symmetric.
+    grad_system64 = (grad_system64 + grad_system64.T) / 2
+    for value, expected in zip(grads, (grad_system64, grad_rhs64), strict=True):
+        assert value.dtype == rhs.dtype
+        assert jnp.all(jnp.isfinite(value))
+        error = np.linalg.norm(np.asarray(value, dtype=np.float64) - expected)
+        assert error / np.linalg.norm(expected) < 1e-5
+
+    grad_system, grad_rhs = (np.asarray(value, dtype=np.float64) for value in grads)
+    solution = np.asarray(actual, dtype=np.float64)
+    loss_gradient = 2 * solution / solution.size
+    residual = np.linalg.norm(grad_rhs @ system64.T - loss_gradient)
+    scale = np.linalg.norm(grad_rhs) * np.linalg.norm(system64) + np.linalg.norm(
+        loss_gradient
+    )
+    assert residual / scale < 1e-6
+    product = solution.T @ grad_rhs
+    residual = np.linalg.norm(grad_system + (product + product.T) / 2)
+    scale = np.linalg.norm(grad_system) + np.linalg.norm(solution) * np.linalg.norm(
+        grad_rhs
+    )
+    assert residual / scale < 1e-6
     batched = jax.vmap(solve)(jnp.stack((system, system)), jnp.stack((rhs, rhs)))
     assert jnp.allclose(batched, expected_solution[None], rtol=1e-5, atol=1e-5)
 
