@@ -302,28 +302,12 @@ class LoRALinear(eqx.Module):
     def merge(self):
         """Return a module with the LoRA delta folded into ``base.weight``."""
 
-        if not self.mergeable:
-            raise ValueError("This LoRA module is not mergeable.")
-        if self.merged:
-            raise ValueError("LoRA module is already merged.")
-        base = eqx.tree_at(
-            lambda m: m.weight,
-            self.base,
-            self.base.weight + self.delta_weight().astype(self.base.weight.dtype),
-        )
-        return self._replace(base=base, merged=True)
+        return _merge_additive_lora(self, "LoRA")
 
     def unmerge(self):
         """Return a module with the LoRA delta removed from ``base.weight``."""
 
-        if not self.merged:
-            return self
-        base = eqx.tree_at(
-            lambda m: m.weight,
-            self.base,
-            self.base.weight - self.delta_weight().astype(self.base.weight.dtype),
-        )
-        return self._replace(base=base, merged=False)
+        return _unmerge_additive_lora(self)
 
     def _replace(self, *, base: eqx.Module, merged: bool):
         return self.__class__(
@@ -474,28 +458,12 @@ class LoRAFALinear(eqx.Module):
     def merge(self):
         """Return a module with the LoRA-FA delta folded into ``base.weight``."""
 
-        if not self.mergeable:
-            raise ValueError("This LoRA-FA module is not mergeable.")
-        if self.merged:
-            raise ValueError("LoRA-FA module is already merged.")
-        base = eqx.tree_at(
-            lambda m: m.weight,
-            self.base,
-            self.base.weight + self.delta_weight().astype(self.base.weight.dtype),
-        )
-        return self._replace(base=base, merged=True)
+        return _merge_additive_lora(self, "LoRA-FA")
 
     def unmerge(self):
         """Return a module with the LoRA-FA delta removed from ``base.weight``."""
 
-        if not self.merged:
-            return self
-        base = eqx.tree_at(
-            lambda m: m.weight,
-            self.base,
-            self.base.weight - self.delta_weight().astype(self.base.weight.dtype),
-        )
-        return self._replace(base=base, merged=False)
+        return _unmerge_additive_lora(self)
 
     def _replace(self, *, base: eqx.Module, merged: bool):
         return LoRAFALinear(
@@ -632,28 +600,12 @@ class RandLoRALinear(eqx.Module):
     def merge(self):
         """Return a module with the RandLoRA delta folded into ``base.weight``."""
 
-        if not self.mergeable:
-            raise ValueError("This RandLoRA module is not mergeable.")
-        if self.merged:
-            raise ValueError("RandLoRA module is already merged.")
-        base = eqx.tree_at(
-            lambda m: m.weight,
-            self.base,
-            self.base.weight + self.delta_weight().astype(self.base.weight.dtype),
-        )
-        return self._replace(base=base, merged=True)
+        return _merge_additive_lora(self, "RandLoRA")
 
     def unmerge(self):
         """Return a module with the RandLoRA delta removed from ``base.weight``."""
 
-        if not self.merged:
-            return self
-        base = eqx.tree_at(
-            lambda m: m.weight,
-            self.base,
-            self.base.weight - self.delta_weight().astype(self.base.weight.dtype),
-        )
-        return self._replace(base=base, merged=False)
+        return _unmerge_additive_lora(self)
 
     def _replace(self, *, base: eqx.Module, merged: bool):
         return RandLoRALinear(
@@ -773,28 +725,12 @@ class FourierFTLinear(eqx.Module):
     def merge(self):
         """Return a module with the FourierFT delta folded into ``base.weight``."""
 
-        if not self.mergeable:
-            raise ValueError("This FourierFT module is not mergeable.")
-        if self.merged:
-            raise ValueError("FourierFT module is already merged.")
-        base = eqx.tree_at(
-            lambda m: m.weight,
-            self.base,
-            self.base.weight + self.delta_weight().astype(self.base.weight.dtype),
-        )
-        return self._replace(base=base, merged=True)
+        return _merge_additive_lora(self, "FourierFT")
 
     def unmerge(self):
         """Return a module with the FourierFT delta removed from ``base.weight``."""
 
-        if not self.merged:
-            return self
-        base = eqx.tree_at(
-            lambda m: m.weight,
-            self.base,
-            self.base.weight - self.delta_weight().astype(self.base.weight.dtype),
-        )
-        return self._replace(base=base, merged=False)
+        return _unmerge_additive_lora(self)
 
     def _replace(self, *, base: eqx.Module, merged: bool):
         return FourierFTLinear(
@@ -1488,6 +1424,35 @@ def extract_lora_delta(
     )
 
 
+def _merge_additive_lora(
+    module: LoRALinear | LoRAFALinear | RandLoRALinear | FourierFTLinear,
+    method_name: str,
+):
+    if not module.mergeable:
+        raise ValueError(f"This {method_name} module is not mergeable.")
+    if module.merged:
+        raise ValueError(f"{method_name} module is already merged.")
+    base = eqx.tree_at(
+        lambda m: m.weight,
+        module.base,
+        module.base.weight + module.delta_weight().astype(module.base.weight.dtype),
+    )
+    return module._replace(base=base, merged=True)
+
+
+def _unmerge_additive_lora(
+    module: LoRALinear | LoRAFALinear | RandLoRALinear | FourierFTLinear,
+):
+    if not module.merged:
+        return module
+    base = eqx.tree_at(
+        lambda m: m.weight,
+        module.base,
+        module.base.weight - module.delta_weight().astype(module.base.weight.dtype),
+    )
+    return module._replace(base=base, merged=False)
+
+
 def load_lora_delta(base_model: PyTree, bundle: FineTuneBundle) -> PyTree:
     """Apply a LoRA bundle to a compatible base model."""
 
@@ -1527,7 +1492,7 @@ def load_lora_delta(base_model: PyTree, bundle: FineTuneBundle) -> PyTree:
                 f"{expected_bias_shape}, got {actual_bias_shape}."
             )
         if entry["class"] == "LoRAFALinear":
-            lora_fa = cast(
+            lora_module = cast(
                 LoRAFALinear,
                 LoRAFALinear(
                     module,
@@ -1546,14 +1511,8 @@ def load_lora_delta(base_model: PyTree, bundle: FineTuneBundle) -> PyTree:
                     correction_matrix=entry["correction_matrix"],
                 ),
             )
-            if entry["merged"]:
-                lora_fa = lora_fa.merge()
-            updated = eqx.tree_at(
-                lambda tree, p=path: get_path(tree, p), updated, lora_fa
-            )
-            continue
-        if entry["class"] == "FourierFTLinear":
-            fourier = cast(
+        elif entry["class"] == "FourierFTLinear":
+            lora_module = cast(
                 FourierFTLinear,
                 FourierFTLinear(
                     module,
@@ -1569,15 +1528,9 @@ def load_lora_delta(base_model: PyTree, bundle: FineTuneBundle) -> PyTree:
                     coefficients_imag=entry["coefficients_imag"],
                 ),
             )
-            if entry["merged"]:
-                fourier = fourier.merge()
-            updated = eqx.tree_at(
-                lambda tree, p=path: get_path(tree, p), updated, fourier
-            )
-            continue
-        if entry["class"] == "AdaLoRAModule":
+        elif entry["class"] == "AdaLoRAModule":
             metadata = entry.get("metadata", {})
-            adalora = cast(
+            lora_module = cast(
                 AdaLoRAModule,
                 AdaLoRAModule(
                     module,
@@ -1596,13 +1549,7 @@ def load_lora_delta(base_model: PyTree, bundle: FineTuneBundle) -> PyTree:
                     ),
                 ),
             )
-            if entry["merged"]:
-                adalora = adalora.merge()
-            updated = eqx.tree_at(
-                lambda tree, p=path: get_path(tree, p), updated, adalora
-            )
-            continue
-        if entry["class"] == "RandLoRALinear":
+        elif entry["class"] == "RandLoRALinear":
             entry_metadata = _entry_metadata(entry)
             lora_module = cast(
                 RandLoRALinear,
@@ -1633,56 +1580,49 @@ def load_lora_delta(base_model: PyTree, bundle: FineTuneBundle) -> PyTree:
                     metadata=tuple(sorted(entry_metadata.items())),
                 ),
             )
-            if entry["merged"]:
-                lora_module = lora_module.merge()
-            updated = eqx.tree_at(
-                lambda tree, p=path: get_path(tree, p),
-                updated,
-                lora_module,
-            )
-            continue
-        base_weight_delta = entry.get("base_weight_delta")
-        if base_weight_delta is not None:
-            module = eqx.tree_at(
-                lambda linear: linear.weight,
-                module,
-                _linear_weight(module)
-                + base_weight_delta.astype(_linear_weight(module).dtype),
-            )
+        else:
+            base_weight_delta = entry.get("base_weight_delta")
+            if base_weight_delta is not None:
+                module = eqx.tree_at(
+                    lambda linear: linear.weight,
+                    module,
+                    _linear_weight(module)
+                    + base_weight_delta.astype(_linear_weight(module).dtype),
+                )
 
-        entry_metadata = _entry_metadata(entry)
-        wrapper_type = (
-            LoRAMergedLinear if entry["class"] == "LoRAMergedLinear" else LoRALinear
-        )
-        lora_module = cast(
-            LoRALinear,
-            wrapper_type(
-                module,
-                rank=int(entry["rank"]),
-                alpha=float(entry["alpha"]),
-                scaling=entry["scaling"],
-                dropout=float(entry["dropout"]),
-                train_base=bool(entry["train_base"]),
-                mergeable=bool(entry["mergeable"]),
-                fan_in_fan_out=bool(entry.get("fan_in_fan_out", False)),
-                key=jr.PRNGKey(0),
-                lora_A=entry["lora_A"],
-                lora_B=entry["lora_B"],
-                rank_mask=entry.get("rank_mask"),
-                base_weight_delta=base_weight_delta,
-                merged=False,
-                projection_segments=tuple(
-                    ProjectionSegment(
-                        name=item["name"],
-                        axis=int(item["axis"]),
-                        start=int(item["start"]),
-                        stop=int(item["stop"]),
-                    )
-                    for item in entry.get("projection_segments", ())
+            entry_metadata = _entry_metadata(entry)
+            wrapper_type = (
+                LoRAMergedLinear if entry["class"] == "LoRAMergedLinear" else LoRALinear
+            )
+            lora_module = cast(
+                LoRALinear,
+                wrapper_type(
+                    module,
+                    rank=int(entry["rank"]),
+                    alpha=float(entry["alpha"]),
+                    scaling=entry["scaling"],
+                    dropout=float(entry["dropout"]),
+                    train_base=bool(entry["train_base"]),
+                    mergeable=bool(entry["mergeable"]),
+                    fan_in_fan_out=bool(entry.get("fan_in_fan_out", False)),
+                    key=jr.PRNGKey(0),
+                    lora_A=entry["lora_A"],
+                    lora_B=entry["lora_B"],
+                    rank_mask=entry.get("rank_mask"),
+                    base_weight_delta=base_weight_delta,
+                    merged=False,
+                    projection_segments=tuple(
+                        ProjectionSegment(
+                            name=item["name"],
+                            axis=int(item["axis"]),
+                            start=int(item["start"]),
+                            stop=int(item["stop"]),
+                        )
+                        for item in entry.get("projection_segments", ())
+                    ),
+                    metadata=tuple(sorted(entry_metadata.items())),
                 ),
-                metadata=tuple(sorted(entry_metadata.items())),
-            ),
-        )
+            )
         if entry["merged"]:
             lora_module = lora_module.merge()
         updated = eqx.tree_at(

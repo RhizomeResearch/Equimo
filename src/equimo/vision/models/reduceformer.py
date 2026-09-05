@@ -12,7 +12,6 @@ from typing import Callable, Literal, Optional, Sequence, Tuple
 
 import equinox as eqx
 import jax.random as jr
-import numpy as np
 from einops import reduce
 from jaxtyping import Array, Float, PRNGKeyArray
 
@@ -24,7 +23,10 @@ from equimo.vision.layers.convolution import DSConv, MBConv, SingleConvBlock
 from equimo.core.layers.generic import BlockChunk
 from equimo.core.layers.norm import get_norm
 from equimo.registry import register_model
+from equimo.utils import make_drop_path_schedule
 from equimo.core.factory import build_model_variant
+
+from ._features import _run_stages
 
 
 def _make_reduceformer_chunk(
@@ -146,10 +148,9 @@ class ReduceFormer(eqx.Module):
 
         depth = sum(depths)
 
-        if drop_path_uniform:
-            dpr = [drop_path_rate] * depth
-        else:
-            dpr = np.linspace(0.0, drop_path_rate, depth).tolist()
+        dpr = make_drop_path_schedule(
+            drop_path_rate, [depth], uniform=drop_path_uniform
+        )
 
         act_layer = get_act(act_layer)
         norm_layer = get_norm(norm_layer)
@@ -227,18 +228,17 @@ class ReduceFormer(eqx.Module):
             key, len(self.blocks) + 1, inference=inference
         )
 
-        intermediates = []
-
         x = self.conv_stem(x, inference=inference, key=key_stem)
         x = self.block_stem(x, inference=inference, key=key_stem)
 
-        intermediates.append(x)  # let's consider the stem is a normal block
-
-        for i, blk in enumerate(self.blocks):
-            x = blk(x, inference=inference, key=key_blocks[i])
-            intermediates.append(x)
-
-        return intermediates
+        _, outputs = _run_stages(
+            self.blocks,
+            x,
+            key_blocks,
+            inference=inference,
+            indices=range(len(self.blocks)),
+        )
+        return [x, *outputs]
 
     def intermediate_features(
         self,
@@ -284,8 +284,7 @@ class ReduceFormer(eqx.Module):
         x = self.conv_stem(x, inference=inference, key=key_stem)
         x = self.block_stem(x, inference=inference, key=key_stem)
 
-        for i, blk in enumerate(self.blocks):
-            x = blk(x, inference=inference, key=key_blocks[i])
+        x, _ = _run_stages(self.blocks, x, key_blocks, inference=inference)
 
         return x
 

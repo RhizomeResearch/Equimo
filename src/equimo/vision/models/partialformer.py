@@ -26,7 +26,7 @@ from equimo.core.layers.norm import get_norm
 from equimo.vision.layers import get_layer
 from equimo.vision.layers.posemb import PosCNN
 from equimo.registry import register_model
-from equimo.utils import to_list
+from equimo.utils import make_drop_path_schedule, to_list
 
 
 class BlockChunk(eqx.Module):
@@ -256,10 +256,9 @@ class PartialFormer(eqx.Module):
 
         self.pos_drop = eqx.nn.Dropout(pos_drop_rate)
 
-        if drop_path_uniform:
-            dpr = [drop_path_rate] * depth
-        else:
-            dpr = np.linspace(0.0, drop_path_rate, depth).tolist()
+        dpr = make_drop_path_schedule(
+            drop_path_rate, [depth], uniform=drop_path_uniform
+        )
 
         if isinstance(foreground_ratios, float):
             f_ratios = [foreground_ratios] * depth

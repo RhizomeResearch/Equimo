@@ -9,7 +9,6 @@ from typing import Callable, List, Literal, Optional, Sequence, Tuple
 import equinox as eqx
 import jax
 import jax.random as jr
-import numpy as np
 from einops import rearrange
 from jaxtyping import Array, Float, PRNGKeyArray
 
@@ -23,7 +22,7 @@ from equimo.core.layers.norm import get_norm
 from equimo.vision.layers import get_layer
 from equimo.vision.layers.patch import ConvPatchEmbed
 from equimo.registry import register_model
-from equimo.utils import pool_sd, to_list
+from equimo.utils import make_drop_path_schedule, pool_sd, to_list
 
 _DOUBLE_CONV_CONFIG_KEYS = frozenset(
     (
@@ -346,10 +345,9 @@ class FasterViT(eqx.Module):
             key=key_patchemb,
         )
 
-        if drop_path_uniform:
-            dpr = [drop_path_rate] * depth
-        else:
-            dpr = np.linspace(0.0, drop_path_rate, depth).tolist()
+        dpr = make_drop_path_schedule(
+            drop_path_rate, [depth], uniform=drop_path_uniform
+        )
 
         n_chunks = len(depths)
         num_heads = to_list(num_heads, n_chunks)

@@ -54,7 +54,7 @@ from equimo.vision.layers.patch import PatchEmbedding
 from equimo.vision.models._embedding import build_local_rope, build_token_embeddings
 from equimo.vision.layers.posemb import CompositeVisionRoPE, LearnedPosEmbed
 from equimo.registry import register_model
-from equimo.utils import pool_sd
+from equimo.utils import make_drop_path_schedule, pool_sd
 from equimo.core.factory import build_model_variant
 
 InjectionKind = Literal["diagonal", "diagonal_exact_zoh", "linear", "add"]
@@ -888,10 +888,9 @@ class VisionParcae(eqx.Module):
         physical_depth = (
             n_layers_in_prelude + n_layers_in_recurrent_block + n_layers_in_coda
         )
-        if drop_path_uniform:
-            dpr = [drop_path_rate] * physical_depth
-        else:
-            dpr = np.linspace(0.0, drop_path_rate, physical_depth).tolist()
+        dpr = make_drop_path_schedule(
+            drop_path_rate, [physical_depth], uniform=drop_path_uniform
+        )
         prelude_dpr = dpr[:n_layers_in_prelude]
         core_start = n_layers_in_prelude
         core_end = core_start + n_layers_in_recurrent_block

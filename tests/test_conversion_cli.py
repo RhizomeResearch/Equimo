@@ -1,3 +1,4 @@
+import importlib.util
 import subprocess
 import sys
 from pathlib import Path
@@ -10,6 +11,7 @@ SCRIPTS = ("tips.py", "tips_text.py", "eupe.py")
 HELP_SCRIPTS = (
     "audio_preprocessing.py",
     "ast.py",
+    "convnext.py",
     "dinov2.py",
     "dinov3.py",
     "eupe.py",
@@ -40,6 +42,78 @@ def test_conversion_help_is_offline(script):
 
     assert result.returncode == 0, result.stderr
     assert "usage:" in result.stdout
+
+
+def test_convnext_disk_space_abort_exits_unsuccessfully(tmp_path):
+    result = run_script(
+        "convnext.py",
+        "convnext_atto",
+        "--output-dir",
+        str(tmp_path),
+        "--min-free-gb",
+        "1e99",
+    )
+
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "aborted-disk-space" in result.stdout
+    assert not list(tmp_path.iterdir())
+
+
+@pytest.mark.parametrize("dry_run", [False, True])
+def test_convnext_skip_and_dry_run_exit_successfully(tmp_path, dry_run):
+    archive = tmp_path / "convnext_atto.tar.lz4"
+    if not dry_run:
+        archive.touch()
+    result = run_script(
+        "convnext.py",
+        "convnext_atto",
+        "--output-dir",
+        str(tmp_path),
+        *(["--dry-run"] if dry_run else []),
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    if not dry_run:
+        assert "skipped" in result.stdout
+    else:
+        assert not archive.exists()
+
+
+@pytest.mark.parametrize("fail_first", [False, True])
+def test_convnext_batch_exit_status_includes_conversion_failures(
+    tmp_path, monkeypatch, fail_first
+):
+    script = ROOT / "models" / "convnext.py"
+    spec = importlib.util.spec_from_file_location("convnext_conversion", script)
+    assert spec is not None and spec.loader is not None
+    converter = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(converter)
+    converted = []
+
+    def convert_one(identifier, entry, output_dir, seed):
+        converted.append(identifier)
+        if fail_first and identifier == "convnext_atto":
+            raise ValueError("Conversion error")
+        return 0.0
+
+    monkeypatch.setattr(converter, "convert_one", convert_one)
+    monkeypatch.setattr(converter, "cleanup_timm_cache", lambda tag: 0)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            str(script),
+            "convnext_atto",
+            "convnext_femto",
+            "--output-dir",
+            str(tmp_path),
+            "--min-free-gb",
+            "0",
+        ],
+    )
+
+    assert converter.main() == int(fail_first)
+    assert converted == ["convnext_atto", "convnext_femto"]
 
 
 def test_torch_reference_script_does_not_shadow_standard_library_ast():

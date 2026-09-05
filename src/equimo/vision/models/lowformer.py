@@ -1,6 +1,5 @@
 # ty: ignore[invalid-return-type]
 # ty: ignore[invalid-assignment]
-# ty: ignore[call-non-callable]
 __all__ = [
     "LowFormer",
     "lowformer_backbone_b0",
@@ -13,7 +12,6 @@ from typing import Callable, Literal, Optional, Sequence, Tuple
 
 import equinox as eqx
 import jax.random as jr
-import numpy as np
 from einops import reduce
 from jaxtyping import Array, Float, PRNGKeyArray
 
@@ -25,7 +23,10 @@ from equimo.vision.layers.convolution import DSConv, MBConv, SingleConvBlock
 from equimo.core.layers.generic import BlockChunk
 from equimo.core.layers.norm import get_norm
 from equimo.registry import register_model
+from equimo.utils import make_drop_path_schedule
 from equimo.core.factory import build_model_variant
+
+from ._features import _run_stages
 
 
 def _make_lowformer_chunk(
@@ -150,10 +151,9 @@ class LowFormer(eqx.Module):
         block_type_stem = block_types.pop(0)
         key_block_stem = key_blocks.pop(0)
 
-        if drop_path_uniform:
-            dpr = [drop_path_rate] * depth
-        else:
-            dpr = np.linspace(0.0, drop_path_rate, depth).tolist()
+        dpr = make_drop_path_schedule(
+            drop_path_rate, [depth], uniform=drop_path_uniform
+        )
 
         self.input_stem = eqx.nn.Sequential(
             [
@@ -214,6 +214,14 @@ class LowFormer(eqx.Module):
             else eqx.nn.Identity()
         )
 
+    def _stem_features(self, x: Array, *, key: PRNGKeyArray, inference: bool | None):
+        if inference is True:
+            for layer in self.input_stem.layers:
+                x = layer(x, key=key, inference=True)
+        else:
+            x = self.input_stem(x, key=key)
+        return x
+
     def features(
         self,
         x: Float[Array, "channels height width"],
@@ -236,14 +244,9 @@ class LowFormer(eqx.Module):
             key, len(self.blocks) + 1, inference=inference
         )
 
-        if inference is True:
-            for layer in self.input_stem.layers:
-                x = layer(x, key=key_stem, inference=True)
-        else:
-            x = self.input_stem(x, key=key_stem)
+        x = self._stem_features(x, key=key_stem, inference=inference)
 
-        for i, blk in enumerate(self.blocks):
-            x = blk(x, inference=inference, key=key_blocks[i])
+        x, _ = _run_stages(self.blocks, x, key_blocks, inference=inference)
 
         return x
 
@@ -265,22 +268,16 @@ class LowFormer(eqx.Module):
         key_stem, *key_blocks = split_for_mode(
             key, len(self.blocks) + 1, inference=inference
         )
-        outputs = []
-
-        if inference is True:
-            for layer in self.input_stem.layers:
-                x = layer(x, key=key_stem, inference=True)
-        else:
-            x = self.input_stem(x, key=key_stem)
-        if 0 in wanted:
-            outputs.append(x)
-
-        for i, blk in enumerate(self.blocks, start=1):
-            x = blk(x, inference=inference, key=key_blocks[i - 1])
-            if i in wanted:
-                outputs.append(x)
-
-        return tuple(outputs)
+        x = self._stem_features(x, key=key_stem, inference=inference)
+        stem_outputs = (x,) if 0 in wanted else ()
+        _, outputs = _run_stages(
+            self.blocks,
+            x,
+            key_blocks,
+            inference=inference,
+            indices=frozenset(i - 1 for i in wanted),
+        )
+        return stem_outputs + outputs
 
     def __call__(
         self,

@@ -40,6 +40,25 @@ def _register_module(
     return cls
 
 
+def _register_family(
+    registry: dict[str, type[eqx.Module]],
+    name: str | None,
+    force: bool,
+) -> Callable[[type[eqx.Module]], type[eqx.Module]]:
+    """Register a class in its family and the shared tabular layer lookup."""
+
+    def decorator(cls: type[eqx.Module]) -> type[eqx.Module]:
+        return _register_module(
+            registry,
+            cls,
+            _registry_name(cls, name),
+            force,
+            add_to_layer_registry=True,
+        )
+
+    return decorator
+
+
 def _resolve_from_registry(
     module: str | type[eqx.Module],
     registry: dict[str, type[eqx.Module]],

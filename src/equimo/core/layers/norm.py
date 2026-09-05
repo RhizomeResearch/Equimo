@@ -357,7 +357,11 @@ class GRN(eqx.Module):
         dtype = x.dtype
         x_f32 = x.astype(jnp.float32)
         # Per-channel L2 norm over spatial dims: shape (C, 1, 1)
-        gx = jnp.sqrt(jnp.sum(jnp.square(x_f32), axis=(1, 2), keepdims=True))
+        squared_norm = jnp.sum(jnp.square(x_f32), axis=(1, 2), keepdims=True)
+        is_zero = squared_norm == 0
+        # Avoid sqrt'(0) in autodiff while keeping zero-channel norms exact.
+        gx = jnp.sqrt(jnp.where(is_zero, 1.0, squared_norm))
+        gx = jnp.where(is_zero, 0.0, gx)
         # Normalize across channels: shape (C, 1, 1)
         nx = gx / (jnp.mean(gx, axis=0, keepdims=True) + self.eps)
         out = (

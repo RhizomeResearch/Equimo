@@ -17,7 +17,6 @@ from typing import Callable, Optional, Sequence, Tuple
 
 import equinox as eqx
 import jax.random as jr
-import numpy as np
 from jaxtyping import Array, Float, PRNGKeyArray
 
 from equimo.core._prng import split_for_mode
@@ -26,8 +25,11 @@ from equimo.core.layers.activation import get_act
 from equimo.core.layers.generic import BlockChunk
 from equimo.core.layers.norm import get_norm
 from equimo.registry import register_model
+from equimo.utils import make_drop_path_schedule
 from equimo.vision.layers import get_layer
 from equimo.core.factory import build_model_variant
+
+from ._features import _run_stages
 
 
 @register_model("attnet", modality="vision")
@@ -67,10 +69,9 @@ class AttNet(eqx.Module):
         act_layer = get_act(act_layer)
         norm_layer = get_norm(norm_layer)
 
-        if drop_path_uniform:
-            dpr = [drop_path_rate] * depth
-        else:
-            dpr = np.linspace(0.0, drop_path_rate, depth).tolist()
+        dpr = make_drop_path_schedule(
+            drop_path_rate, [depth], uniform=drop_path_uniform
+        )
 
         blocks = []
         _bc_dim = [in_channels, *dims[:-1]]
@@ -116,8 +117,7 @@ class AttNet(eqx.Module):
         **kwargs,
     ) -> Float[Array, "num_classes"]:  # noqa: F821
         key_blocks = split_for_mode(key, len(self.blocks), inference=inference)
-        for blk, key_blk in zip(self.blocks, key_blocks):
-            x = blk(x, inference=inference, key=key_blk)
+        x, _ = _run_stages(self.blocks, x, key_blocks, inference=inference)
         return x
 
     def intermediate_features(
@@ -137,12 +137,10 @@ class AttNet(eqx.Module):
             n_last_blocks=n_last_blocks,
         )
         key_blocks = split_for_mode(key, len(self.blocks), inference=inference)
-        outputs = []
-        for i, (blk, key_blk) in enumerate(zip(self.blocks, key_blocks)):
-            x = blk(x, inference=inference, key=key_blk)
-            if i in wanted:
-                outputs.append(x)
-        return tuple(outputs)
+        _, outputs = _run_stages(
+            self.blocks, x, key_blocks, inference=inference, indices=wanted
+        )
+        return outputs
 
     def __call__(
         self,

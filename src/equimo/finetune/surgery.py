@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from typing import Any
 
 import equinox as eqx
 import jax
 import jax.numpy as jnp
-import jax.tree_util as jtu
 
 from equimo.core.layers.dropout import DropPath, DropPathAdd
 
@@ -26,7 +24,8 @@ from .config import (
 from .inspection import make_trainable_report
 from .labels import make_labeled_param_info_tree
 from .masks import make_trainable_filter, resolve_trainable_paths
-from .paths import is_path_prefix, key_path_to_path
+from .paths import is_path_prefix
+from .peft.base import get_path, iter_wrappers
 from .selectors import resolve_target
 from .tags import Tagger, canonical_tags_for_path
 
@@ -88,9 +87,9 @@ def replace_head(
     path = _resolve_module_selector_path(model, selector, tagger=tagger)
     if not path:
         raise ValueError("replace_head cannot replace the model root.")
-    old_head = _get_path(model, path)
+    old_head = get_path(model, path)
     _validate_head_replacement(old_head, head, sample_features)
-    return eqx.tree_at(lambda m: _get_path(m, path), model, head)
+    return eqx.tree_at(lambda m: get_path(m, path), model, head)
 
 
 def transfer_head(
@@ -106,10 +105,10 @@ def transfer_head(
     source_path = _resolve_module_selector_path(source_model, selector, tagger=tagger)
     if not target_path or not source_path:
         raise ValueError("transfer_head cannot replace the model root.")
-    source_head = _get_path(source_model, source_path)
-    _validate_head_replacement(_get_path(target_model, target_path), source_head, None)
+    source_head = get_path(source_model, source_path)
+    _validate_head_replacement(get_path(target_model, target_path), source_head, None)
     return eqx.tree_at(
-        lambda model: _get_path(model, target_path),
+        lambda model: get_path(model, target_path),
         target_model,
         source_head,
     )
@@ -199,30 +198,16 @@ def _set_module_probability(
 ) -> PyTree:
     exclude_path = _resolve_exclude_path(model, exclude, tagger=tagger)
     updated = model
-    for path, module in _iter_modules(model, module_types):
+    for path, module in iter_wrappers(model, module_types):
         if exclude_path is not None and is_path_prefix(exclude_path, path):
             continue
         replacement = eqx.tree_at(lambda item: item.p, module, float(rate))
         updated = eqx.tree_at(
-            lambda tree, module_path=path: _get_path(tree, module_path),
+            lambda tree, module_path=path: get_path(tree, module_path),
             updated,
             replacement,
         )
     return updated
-
-
-def _iter_modules(
-    tree: PyTree,
-    module_types: tuple[type[Any], ...],
-) -> tuple[tuple[Path, Any], ...]:
-    def is_target(node: Any) -> bool:
-        return isinstance(node, module_types)
-
-    return tuple(
-        (key_path_to_path(key_path), leaf)
-        for key_path, leaf in jtu.tree_leaves_with_path(tree, is_leaf=is_target)
-        if is_target(leaf)
-    )
 
 
 def _resolve_exclude_path(
@@ -251,16 +236,6 @@ def _resolve_module_selector_path(
             return (selector,)
         selector = TargetSpec(tags_any=(selector,))
     return _resolve_single_module_path(model, selector, tagger=tagger)
-
-
-def _get_path(tree: PyTree, path: tuple[str | int, ...]):
-    node = tree
-    for part in path:
-        if isinstance(node, Mapping) or isinstance(part, int):
-            node = node[part]
-        else:
-            node = getattr(node, part)
-    return node
 
 
 def _resolve_single_module_path(

@@ -208,39 +208,26 @@ def convert_torch_to_equinox(
         eqx.Module: Converted Equinox model in inference mode
     """
     dynamic, static = eqx.partition(jax_model, eqx.is_array)
+    converted_params = convert_params_from_torch(
+        dynamic,
+        replace_cfg,
+        expand_cfg,
+        squeeze_cfg,
+        torch_whitelist,
+        jax_whitelist,
+        strict,
+        source,
+        torch_hub_cfg,
+        torch_model,
+        timm_cfg,
+        return_torch,
+    )
     if return_torch:
-        converted_params, torch_model = convert_params_from_torch(
-            dynamic,
-            replace_cfg,
-            expand_cfg,
-            squeeze_cfg,
-            torch_whitelist,
-            jax_whitelist,
-            strict,
-            source,
-            torch_hub_cfg,
-            torch_model,
-            timm_cfg,
-            return_torch,
-        )
+        converted_params, converted_torch = converted_params
 
-        return eqx.nn.inference_mode(
-            eqx.combine(converted_params, static), value=True
-        ), torch_model.eval()
-    else:
-        converted_params = convert_params_from_torch(
-            dynamic,
-            replace_cfg,
-            expand_cfg,
-            squeeze_cfg,
-            torch_whitelist,
-            jax_whitelist,
-            strict,
-            source,
-            torch_hub_cfg,
-            torch_model,
-            timm_cfg,
-            return_torch,
-        )
-
-        return eqx.nn.inference_mode(eqx.combine(converted_params, static), value=True)
+    converted_model = eqx.nn.inference_mode(
+        eqx.combine(converted_params, static), value=True
+    )
+    if return_torch:
+        return converted_model, converted_torch.eval()
+    return converted_model

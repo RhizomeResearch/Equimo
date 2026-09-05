@@ -25,72 +25,468 @@ if __name__ == "__main__":
 #     ("_ols" variants, ConvNeXtOverlapStem)
 #     instead of the default single-conv patchify stem (ConvNeXtStem).
 VARIANTS: dict[str, dict] = {
-    "convnext_atto": {"base_variant": "convnext_atto", "timm_tag": "convnext_atto.d2_in1k", "num_classes": 1000, "v2": False, "is_ols": False},
-    "convnext_femto": {"base_variant": "convnext_femto", "timm_tag": "convnext_femto.d1_in1k", "num_classes": 1000, "v2": False, "is_ols": False},
-    "convnext_pico": {"base_variant": "convnext_pico", "timm_tag": "convnext_pico.d1_in1k", "num_classes": 1000, "v2": False, "is_ols": False},
-    "convnext_nano": {"base_variant": "convnext_nano", "timm_tag": "convnext_nano.d1h_in1k", "num_classes": 1000, "v2": False, "is_ols": False},
-    "convnext_nano_in12k": {"base_variant": "convnext_nano", "timm_tag": "convnext_nano.in12k", "num_classes": 11821, "v2": False, "is_ols": False},
-    "convnext_nano_in12k_ft_in1k": {"base_variant": "convnext_nano", "timm_tag": "convnext_nano.in12k_ft_in1k", "num_classes": 1000, "v2": False, "is_ols": False},
-    "convnext_nano_r384_ad_in12k": {"base_variant": "convnext_nano", "timm_tag": "convnext_nano.r384_ad_in12k", "num_classes": 11821, "v2": False, "is_ols": False},
-    "convnext_nano_r384_in12k": {"base_variant": "convnext_nano", "timm_tag": "convnext_nano.r384_in12k", "num_classes": 11821, "v2": False, "is_ols": False},
-    "convnext_nano_r384_in12k_ft_in1k": {"base_variant": "convnext_nano", "timm_tag": "convnext_nano.r384_in12k_ft_in1k", "num_classes": 1000, "v2": False, "is_ols": False},
-    "convnext_tiny": {"base_variant": "convnext_tiny", "timm_tag": "convnext_tiny.fb_in1k", "num_classes": 1000, "v2": False, "is_ols": False},
-    "convnext_tiny_fb_in22k": {"base_variant": "convnext_tiny", "timm_tag": "convnext_tiny.fb_in22k", "num_classes": 21841, "v2": False, "is_ols": False},
-    "convnext_tiny_fb_in22k_ft_in1k": {"base_variant": "convnext_tiny", "timm_tag": "convnext_tiny.fb_in22k_ft_in1k", "num_classes": 1000, "v2": False, "is_ols": False},
-    "convnext_tiny_fb_in22k_ft_in1k_384": {"base_variant": "convnext_tiny", "timm_tag": "convnext_tiny.fb_in22k_ft_in1k_384", "num_classes": 1000, "v2": False, "is_ols": False},
-    "convnext_tiny_in12k": {"base_variant": "convnext_tiny", "timm_tag": "convnext_tiny.in12k", "num_classes": 11821, "v2": False, "is_ols": False},
-    "convnext_tiny_in12k_ft_in1k": {"base_variant": "convnext_tiny", "timm_tag": "convnext_tiny.in12k_ft_in1k", "num_classes": 1000, "v2": False, "is_ols": False},
-    "convnext_tiny_in12k_ft_in1k_384": {"base_variant": "convnext_tiny", "timm_tag": "convnext_tiny.in12k_ft_in1k_384", "num_classes": 1000, "v2": False, "is_ols": False},
-    "convnext_small": {"base_variant": "convnext_small", "timm_tag": "convnext_small.fb_in1k", "num_classes": 1000, "v2": False, "is_ols": False},
-    "convnext_small_fb_in22k": {"base_variant": "convnext_small", "timm_tag": "convnext_small.fb_in22k", "num_classes": 21841, "v2": False, "is_ols": False},
-    "convnext_small_fb_in22k_ft_in1k": {"base_variant": "convnext_small", "timm_tag": "convnext_small.fb_in22k_ft_in1k", "num_classes": 1000, "v2": False, "is_ols": False},
-    "convnext_small_fb_in22k_ft_in1k_384": {"base_variant": "convnext_small", "timm_tag": "convnext_small.fb_in22k_ft_in1k_384", "num_classes": 1000, "v2": False, "is_ols": False},
-    "convnext_small_in12k": {"base_variant": "convnext_small", "timm_tag": "convnext_small.in12k", "num_classes": 11821, "v2": False, "is_ols": False},
-    "convnext_small_in12k_ft_in1k": {"base_variant": "convnext_small", "timm_tag": "convnext_small.in12k_ft_in1k", "num_classes": 1000, "v2": False, "is_ols": False},
-    "convnext_small_in12k_ft_in1k_384": {"base_variant": "convnext_small", "timm_tag": "convnext_small.in12k_ft_in1k_384", "num_classes": 1000, "v2": False, "is_ols": False},
-    "convnext_base": {"base_variant": "convnext_base", "timm_tag": "convnext_base.fb_in1k", "num_classes": 1000, "v2": False, "is_ols": False},
-    "convnext_base_fb_in22k": {"base_variant": "convnext_base", "timm_tag": "convnext_base.fb_in22k", "num_classes": 21841, "v2": False, "is_ols": False},
-    "convnext_base_fb_in22k_ft_in1k": {"base_variant": "convnext_base", "timm_tag": "convnext_base.fb_in22k_ft_in1k", "num_classes": 1000, "v2": False, "is_ols": False},
-    "convnext_base_fb_in22k_ft_in1k_384": {"base_variant": "convnext_base", "timm_tag": "convnext_base.fb_in22k_ft_in1k_384", "num_classes": 1000, "v2": False, "is_ols": False},
-    "convnext_large": {"base_variant": "convnext_large", "timm_tag": "convnext_large.fb_in1k", "num_classes": 1000, "v2": False, "is_ols": False},
-    "convnext_large_fb_in22k": {"base_variant": "convnext_large", "timm_tag": "convnext_large.fb_in22k", "num_classes": 21841, "v2": False, "is_ols": False},
-    "convnext_large_fb_in22k_ft_in1k": {"base_variant": "convnext_large", "timm_tag": "convnext_large.fb_in22k_ft_in1k", "num_classes": 1000, "v2": False, "is_ols": False},
-    "convnext_large_fb_in22k_ft_in1k_384": {"base_variant": "convnext_large", "timm_tag": "convnext_large.fb_in22k_ft_in1k_384", "num_classes": 1000, "v2": False, "is_ols": False},
-    "convnext_xlarge_fb_in22k": {"base_variant": "convnext_xlarge", "timm_tag": "convnext_xlarge.fb_in22k", "num_classes": 21841, "v2": False, "is_ols": False},
-    "convnext_xlarge": {"base_variant": "convnext_xlarge", "timm_tag": "convnext_xlarge.fb_in22k_ft_in1k", "num_classes": 1000, "v2": False, "is_ols": False},
-    "convnext_xlarge_fb_in22k_ft_in1k_384": {"base_variant": "convnext_xlarge", "timm_tag": "convnext_xlarge.fb_in22k_ft_in1k_384", "num_classes": 1000, "v2": False, "is_ols": False},
-    "convnext_zepto_rms_ols": {"base_variant": "convnext_zepto_rms_ols", "timm_tag": "convnext_zepto_rms_ols.ra4_e3600_r224_in1k", "num_classes": 1000, "v2": False, "is_ols": True},
-    "convnext_zepto_rms": {"base_variant": "convnext_zepto_rms", "timm_tag": "convnext_zepto_rms.ra4_e3600_r224_in1k", "num_classes": 1000, "v2": False, "is_ols": False},
-    "convnext_atto_ols": {"base_variant": "convnext_atto_ols", "timm_tag": "convnext_atto_ols.a2_in1k", "num_classes": 1000, "v2": False, "is_ols": True},
-    "convnext_femto_ols": {"base_variant": "convnext_femto_ols", "timm_tag": "convnext_femto_ols.d1_in1k", "num_classes": 1000, "v2": False, "is_ols": True},
-    "convnext_pico_ols": {"base_variant": "convnext_pico_ols", "timm_tag": "convnext_pico_ols.d1_in1k", "num_classes": 1000, "v2": False, "is_ols": True},
-    "convnext_nano_ols": {"base_variant": "convnext_nano_ols", "timm_tag": "convnext_nano_ols.d1h_in1k", "num_classes": 1000, "v2": False, "is_ols": True},
-    "convnextv2_atto_fcmae": {"base_variant": "convnextv2_atto", "timm_tag": "convnextv2_atto.fcmae", "num_classes": 0, "v2": True, "is_ols": False},
-    "convnextv2_atto": {"base_variant": "convnextv2_atto", "timm_tag": "convnextv2_atto.fcmae_ft_in1k", "num_classes": 1000, "v2": True, "is_ols": False},
-    "convnextv2_femto_fcmae": {"base_variant": "convnextv2_femto", "timm_tag": "convnextv2_femto.fcmae", "num_classes": 0, "v2": True, "is_ols": False},
-    "convnextv2_femto": {"base_variant": "convnextv2_femto", "timm_tag": "convnextv2_femto.fcmae_ft_in1k", "num_classes": 1000, "v2": True, "is_ols": False},
-    "convnextv2_pico_fcmae": {"base_variant": "convnextv2_pico", "timm_tag": "convnextv2_pico.fcmae", "num_classes": 0, "v2": True, "is_ols": False},
-    "convnextv2_pico": {"base_variant": "convnextv2_pico", "timm_tag": "convnextv2_pico.fcmae_ft_in1k", "num_classes": 1000, "v2": True, "is_ols": False},
-    "convnextv2_nano_fcmae": {"base_variant": "convnextv2_nano", "timm_tag": "convnextv2_nano.fcmae", "num_classes": 0, "v2": True, "is_ols": False},
-    "convnextv2_nano": {"base_variant": "convnextv2_nano", "timm_tag": "convnextv2_nano.fcmae_ft_in1k", "num_classes": 1000, "v2": True, "is_ols": False},
-    "convnextv2_nano_fcmae_ft_in22k_in1k": {"base_variant": "convnextv2_nano", "timm_tag": "convnextv2_nano.fcmae_ft_in22k_in1k", "num_classes": 1000, "v2": True, "is_ols": False},
-    "convnextv2_nano_fcmae_ft_in22k_in1k_384": {"base_variant": "convnextv2_nano", "timm_tag": "convnextv2_nano.fcmae_ft_in22k_in1k_384", "num_classes": 1000, "v2": True, "is_ols": False},
-    "convnextv2_tiny_fcmae": {"base_variant": "convnextv2_tiny", "timm_tag": "convnextv2_tiny.fcmae", "num_classes": 0, "v2": True, "is_ols": False},
-    "convnextv2_tiny": {"base_variant": "convnextv2_tiny", "timm_tag": "convnextv2_tiny.fcmae_ft_in1k", "num_classes": 1000, "v2": True, "is_ols": False},
-    "convnextv2_tiny_fcmae_ft_in22k_in1k": {"base_variant": "convnextv2_tiny", "timm_tag": "convnextv2_tiny.fcmae_ft_in22k_in1k", "num_classes": 1000, "v2": True, "is_ols": False},
-    "convnextv2_tiny_fcmae_ft_in22k_in1k_384": {"base_variant": "convnextv2_tiny", "timm_tag": "convnextv2_tiny.fcmae_ft_in22k_in1k_384", "num_classes": 1000, "v2": True, "is_ols": False},
-    "convnextv2_base_fcmae": {"base_variant": "convnextv2_base", "timm_tag": "convnextv2_base.fcmae", "num_classes": 0, "v2": True, "is_ols": False},
-    "convnextv2_base": {"base_variant": "convnextv2_base", "timm_tag": "convnextv2_base.fcmae_ft_in1k", "num_classes": 1000, "v2": True, "is_ols": False},
-    "convnextv2_base_fcmae_ft_in22k_in1k": {"base_variant": "convnextv2_base", "timm_tag": "convnextv2_base.fcmae_ft_in22k_in1k", "num_classes": 1000, "v2": True, "is_ols": False},
-    "convnextv2_base_fcmae_ft_in22k_in1k_384": {"base_variant": "convnextv2_base", "timm_tag": "convnextv2_base.fcmae_ft_in22k_in1k_384", "num_classes": 1000, "v2": True, "is_ols": False},
-    "convnextv2_large_fcmae": {"base_variant": "convnextv2_large", "timm_tag": "convnextv2_large.fcmae", "num_classes": 0, "v2": True, "is_ols": False},
-    "convnextv2_large": {"base_variant": "convnextv2_large", "timm_tag": "convnextv2_large.fcmae_ft_in1k", "num_classes": 1000, "v2": True, "is_ols": False},
-    "convnextv2_large_fcmae_ft_in22k_in1k": {"base_variant": "convnextv2_large", "timm_tag": "convnextv2_large.fcmae_ft_in22k_in1k", "num_classes": 1000, "v2": True, "is_ols": False},
-    "convnextv2_large_fcmae_ft_in22k_in1k_384": {"base_variant": "convnextv2_large", "timm_tag": "convnextv2_large.fcmae_ft_in22k_in1k_384", "num_classes": 1000, "v2": True, "is_ols": False},
-    "convnextv2_huge_fcmae": {"base_variant": "convnextv2_huge", "timm_tag": "convnextv2_huge.fcmae", "num_classes": 0, "v2": True, "is_ols": False},
-    "convnextv2_huge": {"base_variant": "convnextv2_huge", "timm_tag": "convnextv2_huge.fcmae_ft_in1k", "num_classes": 1000, "v2": True, "is_ols": False},
-    "convnextv2_huge_fcmae_ft_in22k_in1k_384": {"base_variant": "convnextv2_huge", "timm_tag": "convnextv2_huge.fcmae_ft_in22k_in1k_384", "num_classes": 1000, "v2": True, "is_ols": False},
-    "convnextv2_huge_fcmae_ft_in22k_in1k_512": {"base_variant": "convnextv2_huge", "timm_tag": "convnextv2_huge.fcmae_ft_in22k_in1k_512", "num_classes": 1000, "v2": True, "is_ols": False},
+    "convnext_atto": {
+        "base_variant": "convnext_atto",
+        "timm_tag": "convnext_atto.d2_in1k",
+        "num_classes": 1000,
+        "v2": False,
+        "is_ols": False,
+    },
+    "convnext_femto": {
+        "base_variant": "convnext_femto",
+        "timm_tag": "convnext_femto.d1_in1k",
+        "num_classes": 1000,
+        "v2": False,
+        "is_ols": False,
+    },
+    "convnext_pico": {
+        "base_variant": "convnext_pico",
+        "timm_tag": "convnext_pico.d1_in1k",
+        "num_classes": 1000,
+        "v2": False,
+        "is_ols": False,
+    },
+    "convnext_nano": {
+        "base_variant": "convnext_nano",
+        "timm_tag": "convnext_nano.d1h_in1k",
+        "num_classes": 1000,
+        "v2": False,
+        "is_ols": False,
+    },
+    "convnext_nano_in12k": {
+        "base_variant": "convnext_nano",
+        "timm_tag": "convnext_nano.in12k",
+        "num_classes": 11821,
+        "v2": False,
+        "is_ols": False,
+    },
+    "convnext_nano_in12k_ft_in1k": {
+        "base_variant": "convnext_nano",
+        "timm_tag": "convnext_nano.in12k_ft_in1k",
+        "num_classes": 1000,
+        "v2": False,
+        "is_ols": False,
+    },
+    "convnext_nano_r384_ad_in12k": {
+        "base_variant": "convnext_nano",
+        "timm_tag": "convnext_nano.r384_ad_in12k",
+        "num_classes": 11821,
+        "v2": False,
+        "is_ols": False,
+    },
+    "convnext_nano_r384_in12k": {
+        "base_variant": "convnext_nano",
+        "timm_tag": "convnext_nano.r384_in12k",
+        "num_classes": 11821,
+        "v2": False,
+        "is_ols": False,
+    },
+    "convnext_nano_r384_in12k_ft_in1k": {
+        "base_variant": "convnext_nano",
+        "timm_tag": "convnext_nano.r384_in12k_ft_in1k",
+        "num_classes": 1000,
+        "v2": False,
+        "is_ols": False,
+    },
+    "convnext_tiny": {
+        "base_variant": "convnext_tiny",
+        "timm_tag": "convnext_tiny.fb_in1k",
+        "num_classes": 1000,
+        "v2": False,
+        "is_ols": False,
+    },
+    "convnext_tiny_fb_in22k": {
+        "base_variant": "convnext_tiny",
+        "timm_tag": "convnext_tiny.fb_in22k",
+        "num_classes": 21841,
+        "v2": False,
+        "is_ols": False,
+    },
+    "convnext_tiny_fb_in22k_ft_in1k": {
+        "base_variant": "convnext_tiny",
+        "timm_tag": "convnext_tiny.fb_in22k_ft_in1k",
+        "num_classes": 1000,
+        "v2": False,
+        "is_ols": False,
+    },
+    "convnext_tiny_fb_in22k_ft_in1k_384": {
+        "base_variant": "convnext_tiny",
+        "timm_tag": "convnext_tiny.fb_in22k_ft_in1k_384",
+        "num_classes": 1000,
+        "v2": False,
+        "is_ols": False,
+    },
+    "convnext_tiny_in12k": {
+        "base_variant": "convnext_tiny",
+        "timm_tag": "convnext_tiny.in12k",
+        "num_classes": 11821,
+        "v2": False,
+        "is_ols": False,
+    },
+    "convnext_tiny_in12k_ft_in1k": {
+        "base_variant": "convnext_tiny",
+        "timm_tag": "convnext_tiny.in12k_ft_in1k",
+        "num_classes": 1000,
+        "v2": False,
+        "is_ols": False,
+    },
+    "convnext_tiny_in12k_ft_in1k_384": {
+        "base_variant": "convnext_tiny",
+        "timm_tag": "convnext_tiny.in12k_ft_in1k_384",
+        "num_classes": 1000,
+        "v2": False,
+        "is_ols": False,
+    },
+    "convnext_small": {
+        "base_variant": "convnext_small",
+        "timm_tag": "convnext_small.fb_in1k",
+        "num_classes": 1000,
+        "v2": False,
+        "is_ols": False,
+    },
+    "convnext_small_fb_in22k": {
+        "base_variant": "convnext_small",
+        "timm_tag": "convnext_small.fb_in22k",
+        "num_classes": 21841,
+        "v2": False,
+        "is_ols": False,
+    },
+    "convnext_small_fb_in22k_ft_in1k": {
+        "base_variant": "convnext_small",
+        "timm_tag": "convnext_small.fb_in22k_ft_in1k",
+        "num_classes": 1000,
+        "v2": False,
+        "is_ols": False,
+    },
+    "convnext_small_fb_in22k_ft_in1k_384": {
+        "base_variant": "convnext_small",
+        "timm_tag": "convnext_small.fb_in22k_ft_in1k_384",
+        "num_classes": 1000,
+        "v2": False,
+        "is_ols": False,
+    },
+    "convnext_small_in12k": {
+        "base_variant": "convnext_small",
+        "timm_tag": "convnext_small.in12k",
+        "num_classes": 11821,
+        "v2": False,
+        "is_ols": False,
+    },
+    "convnext_small_in12k_ft_in1k": {
+        "base_variant": "convnext_small",
+        "timm_tag": "convnext_small.in12k_ft_in1k",
+        "num_classes": 1000,
+        "v2": False,
+        "is_ols": False,
+    },
+    "convnext_small_in12k_ft_in1k_384": {
+        "base_variant": "convnext_small",
+        "timm_tag": "convnext_small.in12k_ft_in1k_384",
+        "num_classes": 1000,
+        "v2": False,
+        "is_ols": False,
+    },
+    "convnext_base": {
+        "base_variant": "convnext_base",
+        "timm_tag": "convnext_base.fb_in1k",
+        "num_classes": 1000,
+        "v2": False,
+        "is_ols": False,
+    },
+    "convnext_base_fb_in22k": {
+        "base_variant": "convnext_base",
+        "timm_tag": "convnext_base.fb_in22k",
+        "num_classes": 21841,
+        "v2": False,
+        "is_ols": False,
+    },
+    "convnext_base_fb_in22k_ft_in1k": {
+        "base_variant": "convnext_base",
+        "timm_tag": "convnext_base.fb_in22k_ft_in1k",
+        "num_classes": 1000,
+        "v2": False,
+        "is_ols": False,
+    },
+    "convnext_base_fb_in22k_ft_in1k_384": {
+        "base_variant": "convnext_base",
+        "timm_tag": "convnext_base.fb_in22k_ft_in1k_384",
+        "num_classes": 1000,
+        "v2": False,
+        "is_ols": False,
+    },
+    "convnext_large": {
+        "base_variant": "convnext_large",
+        "timm_tag": "convnext_large.fb_in1k",
+        "num_classes": 1000,
+        "v2": False,
+        "is_ols": False,
+    },
+    "convnext_large_fb_in22k": {
+        "base_variant": "convnext_large",
+        "timm_tag": "convnext_large.fb_in22k",
+        "num_classes": 21841,
+        "v2": False,
+        "is_ols": False,
+    },
+    "convnext_large_fb_in22k_ft_in1k": {
+        "base_variant": "convnext_large",
+        "timm_tag": "convnext_large.fb_in22k_ft_in1k",
+        "num_classes": 1000,
+        "v2": False,
+        "is_ols": False,
+    },
+    "convnext_large_fb_in22k_ft_in1k_384": {
+        "base_variant": "convnext_large",
+        "timm_tag": "convnext_large.fb_in22k_ft_in1k_384",
+        "num_classes": 1000,
+        "v2": False,
+        "is_ols": False,
+    },
+    "convnext_xlarge_fb_in22k": {
+        "base_variant": "convnext_xlarge",
+        "timm_tag": "convnext_xlarge.fb_in22k",
+        "num_classes": 21841,
+        "v2": False,
+        "is_ols": False,
+    },
+    "convnext_xlarge": {
+        "base_variant": "convnext_xlarge",
+        "timm_tag": "convnext_xlarge.fb_in22k_ft_in1k",
+        "num_classes": 1000,
+        "v2": False,
+        "is_ols": False,
+    },
+    "convnext_xlarge_fb_in22k_ft_in1k_384": {
+        "base_variant": "convnext_xlarge",
+        "timm_tag": "convnext_xlarge.fb_in22k_ft_in1k_384",
+        "num_classes": 1000,
+        "v2": False,
+        "is_ols": False,
+    },
+    "convnext_zepto_rms_ols": {
+        "base_variant": "convnext_zepto_rms_ols",
+        "timm_tag": "convnext_zepto_rms_ols.ra4_e3600_r224_in1k",
+        "num_classes": 1000,
+        "v2": False,
+        "is_ols": True,
+    },
+    "convnext_zepto_rms": {
+        "base_variant": "convnext_zepto_rms",
+        "timm_tag": "convnext_zepto_rms.ra4_e3600_r224_in1k",
+        "num_classes": 1000,
+        "v2": False,
+        "is_ols": False,
+    },
+    "convnext_atto_ols": {
+        "base_variant": "convnext_atto_ols",
+        "timm_tag": "convnext_atto_ols.a2_in1k",
+        "num_classes": 1000,
+        "v2": False,
+        "is_ols": True,
+    },
+    "convnext_femto_ols": {
+        "base_variant": "convnext_femto_ols",
+        "timm_tag": "convnext_femto_ols.d1_in1k",
+        "num_classes": 1000,
+        "v2": False,
+        "is_ols": True,
+    },
+    "convnext_pico_ols": {
+        "base_variant": "convnext_pico_ols",
+        "timm_tag": "convnext_pico_ols.d1_in1k",
+        "num_classes": 1000,
+        "v2": False,
+        "is_ols": True,
+    },
+    "convnext_nano_ols": {
+        "base_variant": "convnext_nano_ols",
+        "timm_tag": "convnext_nano_ols.d1h_in1k",
+        "num_classes": 1000,
+        "v2": False,
+        "is_ols": True,
+    },
+    "convnextv2_atto_fcmae": {
+        "base_variant": "convnextv2_atto",
+        "timm_tag": "convnextv2_atto.fcmae",
+        "num_classes": 0,
+        "v2": True,
+        "is_ols": False,
+    },
+    "convnextv2_atto": {
+        "base_variant": "convnextv2_atto",
+        "timm_tag": "convnextv2_atto.fcmae_ft_in1k",
+        "num_classes": 1000,
+        "v2": True,
+        "is_ols": False,
+    },
+    "convnextv2_femto_fcmae": {
+        "base_variant": "convnextv2_femto",
+        "timm_tag": "convnextv2_femto.fcmae",
+        "num_classes": 0,
+        "v2": True,
+        "is_ols": False,
+    },
+    "convnextv2_femto": {
+        "base_variant": "convnextv2_femto",
+        "timm_tag": "convnextv2_femto.fcmae_ft_in1k",
+        "num_classes": 1000,
+        "v2": True,
+        "is_ols": False,
+    },
+    "convnextv2_pico_fcmae": {
+        "base_variant": "convnextv2_pico",
+        "timm_tag": "convnextv2_pico.fcmae",
+        "num_classes": 0,
+        "v2": True,
+        "is_ols": False,
+    },
+    "convnextv2_pico": {
+        "base_variant": "convnextv2_pico",
+        "timm_tag": "convnextv2_pico.fcmae_ft_in1k",
+        "num_classes": 1000,
+        "v2": True,
+        "is_ols": False,
+    },
+    "convnextv2_nano_fcmae": {
+        "base_variant": "convnextv2_nano",
+        "timm_tag": "convnextv2_nano.fcmae",
+        "num_classes": 0,
+        "v2": True,
+        "is_ols": False,
+    },
+    "convnextv2_nano": {
+        "base_variant": "convnextv2_nano",
+        "timm_tag": "convnextv2_nano.fcmae_ft_in1k",
+        "num_classes": 1000,
+        "v2": True,
+        "is_ols": False,
+    },
+    "convnextv2_nano_fcmae_ft_in22k_in1k": {
+        "base_variant": "convnextv2_nano",
+        "timm_tag": "convnextv2_nano.fcmae_ft_in22k_in1k",
+        "num_classes": 1000,
+        "v2": True,
+        "is_ols": False,
+    },
+    "convnextv2_nano_fcmae_ft_in22k_in1k_384": {
+        "base_variant": "convnextv2_nano",
+        "timm_tag": "convnextv2_nano.fcmae_ft_in22k_in1k_384",
+        "num_classes": 1000,
+        "v2": True,
+        "is_ols": False,
+    },
+    "convnextv2_tiny_fcmae": {
+        "base_variant": "convnextv2_tiny",
+        "timm_tag": "convnextv2_tiny.fcmae",
+        "num_classes": 0,
+        "v2": True,
+        "is_ols": False,
+    },
+    "convnextv2_tiny": {
+        "base_variant": "convnextv2_tiny",
+        "timm_tag": "convnextv2_tiny.fcmae_ft_in1k",
+        "num_classes": 1000,
+        "v2": True,
+        "is_ols": False,
+    },
+    "convnextv2_tiny_fcmae_ft_in22k_in1k": {
+        "base_variant": "convnextv2_tiny",
+        "timm_tag": "convnextv2_tiny.fcmae_ft_in22k_in1k",
+        "num_classes": 1000,
+        "v2": True,
+        "is_ols": False,
+    },
+    "convnextv2_tiny_fcmae_ft_in22k_in1k_384": {
+        "base_variant": "convnextv2_tiny",
+        "timm_tag": "convnextv2_tiny.fcmae_ft_in22k_in1k_384",
+        "num_classes": 1000,
+        "v2": True,
+        "is_ols": False,
+    },
+    "convnextv2_base_fcmae": {
+        "base_variant": "convnextv2_base",
+        "timm_tag": "convnextv2_base.fcmae",
+        "num_classes": 0,
+        "v2": True,
+        "is_ols": False,
+    },
+    "convnextv2_base": {
+        "base_variant": "convnextv2_base",
+        "timm_tag": "convnextv2_base.fcmae_ft_in1k",
+        "num_classes": 1000,
+        "v2": True,
+        "is_ols": False,
+    },
+    "convnextv2_base_fcmae_ft_in22k_in1k": {
+        "base_variant": "convnextv2_base",
+        "timm_tag": "convnextv2_base.fcmae_ft_in22k_in1k",
+        "num_classes": 1000,
+        "v2": True,
+        "is_ols": False,
+    },
+    "convnextv2_base_fcmae_ft_in22k_in1k_384": {
+        "base_variant": "convnextv2_base",
+        "timm_tag": "convnextv2_base.fcmae_ft_in22k_in1k_384",
+        "num_classes": 1000,
+        "v2": True,
+        "is_ols": False,
+    },
+    "convnextv2_large_fcmae": {
+        "base_variant": "convnextv2_large",
+        "timm_tag": "convnextv2_large.fcmae",
+        "num_classes": 0,
+        "v2": True,
+        "is_ols": False,
+    },
+    "convnextv2_large": {
+        "base_variant": "convnextv2_large",
+        "timm_tag": "convnextv2_large.fcmae_ft_in1k",
+        "num_classes": 1000,
+        "v2": True,
+        "is_ols": False,
+    },
+    "convnextv2_large_fcmae_ft_in22k_in1k": {
+        "base_variant": "convnextv2_large",
+        "timm_tag": "convnextv2_large.fcmae_ft_in22k_in1k",
+        "num_classes": 1000,
+        "v2": True,
+        "is_ols": False,
+    },
+    "convnextv2_large_fcmae_ft_in22k_in1k_384": {
+        "base_variant": "convnextv2_large",
+        "timm_tag": "convnextv2_large.fcmae_ft_in22k_in1k_384",
+        "num_classes": 1000,
+        "v2": True,
+        "is_ols": False,
+    },
+    "convnextv2_huge_fcmae": {
+        "base_variant": "convnextv2_huge",
+        "timm_tag": "convnextv2_huge.fcmae",
+        "num_classes": 0,
+        "v2": True,
+        "is_ols": False,
+    },
+    "convnextv2_huge": {
+        "base_variant": "convnextv2_huge",
+        "timm_tag": "convnextv2_huge.fcmae_ft_in1k",
+        "num_classes": 1000,
+        "v2": True,
+        "is_ols": False,
+    },
+    "convnextv2_huge_fcmae_ft_in22k_in1k_384": {
+        "base_variant": "convnextv2_huge",
+        "timm_tag": "convnextv2_huge.fcmae_ft_in22k_in1k_384",
+        "num_classes": 1000,
+        "v2": True,
+        "is_ols": False,
+    },
+    "convnextv2_huge_fcmae_ft_in22k_in1k_512": {
+        "base_variant": "convnextv2_huge",
+        "timm_tag": "convnextv2_huge.fcmae_ft_in22k_in1k_512",
+        "num_classes": 1000,
+        "v2": True,
+        "is_ols": False,
+    },
 }
 
 IMG_SIZE = 224
@@ -305,11 +701,14 @@ def convert_one(identifier: str, entry: dict, output_dir: Path, seed: int) -> fl
         import timm
         import torch
     except ImportError as exc:
-        raise ImportError("`torch`, `timm`, Equinox, JAX, and NumPy are required") from exc
+        raise ImportError(
+            "`torch`, `timm`, Equinox, JAX, and NumPy are required"
+        ) from exc
 
     import equimo.vision.models as em
     from equimo.conversion.utils import convert_torch_to_equinox
     from equimo.serialization import save_model
+    from equimo.vision.models.convnext import _CONVNEXT_REGISTRY
 
     base_variant = entry["base_variant"]
     timm_tag = entry["timm_tag"]
@@ -326,7 +725,13 @@ def convert_one(identifier: str, entry: dict, output_dir: Path, seed: int) -> fl
     # Using the wrong one still runs,
     # but silently degrades accuracy
     # (verified: ~2000x higher error on convnext_tiny).
-    model = getattr(em, base_variant)(act_layer="exactgelu", num_classes=num_classes)
+    model_kwargs = {"act_layer": "exactgelu", "num_classes": num_classes}
+    if base_variant == _OLS_STEM_HAS_ACT:
+        _, variant_cfg = _CONVNEXT_REGISTRY[base_variant]
+        model_kwargs["stem_kwargs"] = variant_cfg["stem_kwargs"] | {
+            "act_layer": "exactgelu"
+        }
+    model = getattr(em, base_variant)(**model_kwargs)
 
     # Derived from the constructed model rather than hardcoded per size, so
     # VARIANTS doesn't need a `depths` table for all 16 distinct sizes.
@@ -344,7 +749,9 @@ def convert_one(identifier: str, entry: dict, output_dir: Path, seed: int) -> fl
     # Detected from the real checkpoint,
     # so it can't silently go stale if timm's per-size defaults change.
     torch_model = timm.create_model(timm_tag, pretrained=True)
-    fc1_weight = dict(torch_model.named_parameters())["stages.0.blocks.0.mlp.fc1.weight"]
+    fc1_weight = dict(torch_model.named_parameters())[
+        "stages.0.blocks.0.mlp.fc1.weight"
+    ]
     conv_mlp = fc1_weight.ndim == 4
 
     replace_cfg, expand_cfg = conversion_config(entry, depths, conv_mlp)
@@ -454,12 +861,15 @@ def run_batch(
                     f"freed {human_size(freed)}"
                 )
 
-        print(f"  cumulative kept output size: {human_size(kept_output_bytes(output_dir))}")
+        print(
+            f"  cumulative kept output size: {human_size(kept_output_bytes(output_dir))}"
+        )
 
     return results
 
 
-def main():
+def main() -> int:
+    """Return nonzero if any conversion fails or is aborted."""
     args = parse_args()
     for identifier in args.targets:
         entry = VARIANTS[identifier]
@@ -470,7 +880,7 @@ def main():
             f"output={archive_path(args.output_dir, identifier)}"
         )
     if args.dry_run:
-        return
+        return 0
 
     results = run_batch(args.targets, args.output_dir, args.seed, args.min_free_gb)
 
@@ -478,7 +888,8 @@ def main():
     for r in results:
         print(f"{r['identifier']:45s} {r['status']:20s} {r['detail']}")
     print(f"\nTotal kept output size: {human_size(kept_output_bytes(args.output_dir))}")
+    return int(any(r["status"] not in ("ok", "skipped") for r in results))
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

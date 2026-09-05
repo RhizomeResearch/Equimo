@@ -398,26 +398,9 @@ class SerialAdapterBlock(eqx.Module):
         inference: bool | None = None,
         **kwargs,
     ):
-        y = _call_base(self.base, x, *args, key=key, inference=inference, **kwargs)
-        adapters = _active_adapters(self)
-        if self.adapter_fusion is not None:
-            keys = _common.split_optional_key(
-                key, len(adapters) + 1, inference=inference
-            )
-            adapter_outputs = tuple(
-                adapter(y, key=adapter_key, inference=inference)
-                for adapter, adapter_key in zip(adapters, keys[:-1], strict=True)
-            )
-            return y + self.adapter_fusion(
-                y,
-                adapter_outputs,
-                key=keys[-1],
-                inference=inference,
-            )
-        keys = _common.split_optional_key(key, len(adapters), inference=inference)
-        for adapter, adapter_key in zip(adapters, keys, strict=True):
-            y = y + adapter(y, key=adapter_key, inference=inference)
-        return y
+        return _call_serial_adapter(
+            self, x, *args, key=key, inference=inference, **kwargs
+        )
 
 
 class OutputAdapterModule(eqx.Module):
@@ -438,26 +421,9 @@ class OutputAdapterModule(eqx.Module):
         inference: bool | None = None,
         **kwargs,
     ):
-        y = _call_base(self.base, x, *args, key=key, inference=inference, **kwargs)
-        adapters = _active_adapters(self)
-        if self.adapter_fusion is not None:
-            keys = _common.split_optional_key(
-                key, len(adapters) + 1, inference=inference
-            )
-            adapter_outputs = tuple(
-                adapter(y, key=adapter_key, inference=inference)
-                for adapter, adapter_key in zip(adapters, keys[:-1], strict=True)
-            )
-            return y + self.adapter_fusion(
-                y,
-                adapter_outputs,
-                key=keys[-1],
-                inference=inference,
-            )
-        keys = _common.split_optional_key(key, len(adapters), inference=inference)
-        for adapter, adapter_key in zip(adapters, keys, strict=True):
-            y = y + adapter(y, key=adapter_key, inference=inference)
-        return y
+        return _call_serial_adapter(
+            self, x, *args, key=key, inference=inference, **kwargs
+        )
 
 
 class ParallelAdapterBlock(eqx.Module):
@@ -475,9 +441,9 @@ class ParallelAdapterBlock(eqx.Module):
         inference: bool | None = None,
         **kwargs,
     ):
-        key_base, key_adapter = _split_pair(key, inference=inference)
-        y = _call_base(self.base, x, *args, key=key_base, inference=inference, **kwargs)
-        return y + self.adapter(x, key=key_adapter, inference=inference)
+        return _call_parallel_adapter(
+            self, x, *args, key=key, inference=inference, **kwargs
+        )
 
 
 class AdaptFormerBlock(eqx.Module):
@@ -494,9 +460,9 @@ class AdaptFormerBlock(eqx.Module):
         inference: bool | None = None,
         **kwargs,
     ):
-        key_base, key_adapter = _split_pair(key, inference=inference)
-        y = _call_base(self.base, x, *args, key=key_base, inference=inference, **kwargs)
-        return y + self.adapter(x, key=key_adapter, inference=inference)
+        return _call_parallel_adapter(
+            self, x, *args, key=key, inference=inference, **kwargs
+        )
 
 
 class OrthogonalLinear(eqx.Module):
@@ -1661,6 +1627,47 @@ def _resolve_bottleneck(dim: int, config: AdapterConfig) -> int:
     bottleneck = max(1, dim // config.reduction_factor)
     clipped = min(max(bottleneck, config.bottleneck_min), config.bottleneck_max)
     return max(1, ((int(clipped) + 7) // 8) * 8)
+
+
+def _call_serial_adapter(
+    wrapper: SerialAdapterBlock | OutputAdapterModule,
+    x: jax.Array,
+    *args,
+    key: jax.Array | None,
+    inference: bool | None,
+    **kwargs,
+):
+    y = _call_base(wrapper.base, x, *args, key=key, inference=inference, **kwargs)
+    adapters = _active_adapters(wrapper)
+    if wrapper.adapter_fusion is not None:
+        keys = _common.split_optional_key(key, len(adapters) + 1, inference=inference)
+        adapter_outputs = tuple(
+            adapter(y, key=adapter_key, inference=inference)
+            for adapter, adapter_key in zip(adapters, keys[:-1], strict=True)
+        )
+        return y + wrapper.adapter_fusion(
+            y,
+            adapter_outputs,
+            key=keys[-1],
+            inference=inference,
+        )
+    keys = _common.split_optional_key(key, len(adapters), inference=inference)
+    for adapter, adapter_key in zip(adapters, keys, strict=True):
+        y = y + adapter(y, key=adapter_key, inference=inference)
+    return y
+
+
+def _call_parallel_adapter(
+    wrapper: ParallelAdapterBlock | AdaptFormerBlock,
+    x: jax.Array,
+    *args,
+    key: jax.Array | None,
+    inference: bool | None,
+    **kwargs,
+):
+    key_base, key_adapter = _split_pair(key, inference=inference)
+    y = _call_base(wrapper.base, x, *args, key=key_base, inference=inference, **kwargs)
+    return y + wrapper.adapter(x, key=key_adapter, inference=inference)
 
 
 def _active_adapters(

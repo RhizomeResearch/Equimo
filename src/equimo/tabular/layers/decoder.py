@@ -10,7 +10,7 @@ from jaxtyping import Array, Float, Int, PRNGKeyArray
 from equimo.core.layers.activation import get_act
 
 from .attention import SoftmaxScaling, _to_heads
-from .registry import _register_module, _registry_name, _resolve_from_registry
+from .registry import _register_family, _resolve_from_registry
 
 _DECODER_REGISTRY: dict[str, type[eqx.Module]] = {}
 _EMBEDDING_REGISTRY: dict[str, type[eqx.Module]] = {}
@@ -22,17 +22,7 @@ def register_decoder(
 ) -> Callable[[type[eqx.Module]], type[eqx.Module]]:
     """Register a tabular decoder layer class."""
 
-    def decorator(cls: type[eqx.Module]) -> type[eqx.Module]:
-        registry_name = _registry_name(cls, name)
-        return _register_module(
-            _DECODER_REGISTRY,
-            cls,
-            registry_name,
-            force,
-            add_to_layer_registry=True,
-        )
-
-    return decorator
+    return _register_family(_DECODER_REGISTRY, name, force)
 
 
 def get_decoder(module: str | type[eqx.Module]) -> type[eqx.Module]:
@@ -46,17 +36,7 @@ def register_embedding(
 ) -> Callable[[type[eqx.Module]], type[eqx.Module]]:
     """Register a tabular embedding layer class."""
 
-    def decorator(cls: type[eqx.Module]) -> type[eqx.Module]:
-        registry_name = _registry_name(cls, name)
-        return _register_module(
-            _EMBEDDING_REGISTRY,
-            cls,
-            registry_name,
-            force,
-            add_to_layer_registry=True,
-        )
-
-    return decorator
+    return _register_family(_EMBEDDING_REGISTRY, name, force)
 
 
 def get_embedding(module: str | type[eqx.Module]) -> type[eqx.Module]:

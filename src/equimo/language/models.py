@@ -194,13 +194,9 @@ class TextTransformerEncoder(eqx.Module):
             signal = jnp.pad(signal, ((0, 0), (0, 1)), mode="constant")
         return signal
 
-    def features(
-        self,
-        ids: Int[Array, "seqlen"],  # noqa: F821
-        padding_mask: Float[Array, "seqlen"],  # noqa: F821
-        key: PRNGKeyArray,
-        inference: Optional[bool] = None,
-    ) -> Float[Array, "seqlen dim"]:
+    def _prepare_tokens(
+        self, ids: jax.Array, padding_mask: jax.Array
+    ) -> tuple[jax.Array, jax.Array]:
         seq_len = ids.shape[0]
         x = jax.vmap(self.token_embedding)(ids)
         valid_mask = (padding_mask == 0).astype(x.dtype)
@@ -208,6 +204,16 @@ class TextTransformerEncoder(eqx.Module):
             x = x * jnp.asarray(self.dim**0.5, dtype=x.dtype)
 
         x = x + self.posemb(seq_len=seq_len).astype(x.dtype)
+        return x, valid_mask
+
+    def features(
+        self,
+        ids: Int[Array, "seqlen"],  # noqa: F821
+        padding_mask: Float[Array, "seqlen"],  # noqa: F821
+        key: PRNGKeyArray,
+        inference: Optional[bool] = None,
+    ) -> Float[Array, "seqlen dim"]:
+        x, valid_mask = self._prepare_tokens(ids, padding_mask)
         x = self.transformer(
             x,
             mask=valid_mask[None, None, :],
@@ -228,12 +234,7 @@ class TextTransformerEncoder(eqx.Module):
     ) -> Tuple[Float[Array, "seqlen dim"], ...]:
         """Return selected native transformer block outputs."""
 
-        seq_len = ids.shape[0]
-        x = jax.vmap(self.token_embedding)(ids)
-        valid_mask = (padding_mask == 0).astype(x.dtype)
-        if self.scale_sqrt_depth:
-            x = x * jnp.asarray(self.dim**0.5, dtype=x.dtype)
-        x = x + self.posemb(seq_len=seq_len).astype(x.dtype)
+        x, valid_mask = self._prepare_tokens(ids, padding_mask)
         return self.transformer.intermediate_features(
             x,
             mask=valid_mask[None, None, :],

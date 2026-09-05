@@ -1,11 +1,13 @@
 """Tests for equimo.core.layers.norm."""
 
 import equinox as eqx
+import jax
 import jax.numpy as jnp
 import jax.random as jr
 import pytest
 
 from equimo.core.layers.norm import (
+    GRN,
     DyT,
     LayerNorm2d,
     LayerScale,
@@ -332,6 +334,47 @@ class TestLayerNorm2d:
         out = layer(x)
         assert out.dtype == jnp.float16
         assert jnp.all(jnp.isfinite(out))
+
+
+class TestGRN:
+    @pytest.mark.parametrize("dtype", [jnp.float32, jnp.bfloat16])
+    @pytest.mark.parametrize("zero_channels", [1, 4])
+    @pytest.mark.parametrize("weight", [0.0, 0.5])
+    def test_zero_channels_have_finite_gradients(self, dtype, zero_channels, weight):
+        layer = GRN(4)
+        layer = eqx.tree_at(lambda m: m.weight, layer, jnp.full((4,), weight))
+        x = jnp.arange(1, 17, dtype=dtype).reshape(4, 2, 2)
+        x = x.at[:zero_channels].set(0)
+
+        value, grad = jax.jit(jax.value_and_grad(lambda x: layer(x).sum()))(x)
+
+        assert value.dtype == dtype
+        assert grad.dtype == dtype
+        assert jnp.isfinite(value)
+        assert jnp.all(jnp.isfinite(grad))
+        assert jnp.array_equal(grad[:zero_channels], jnp.ones_like(x[:zero_channels]))
+        if weight == 0.0 or zero_channels == 4:
+            assert jnp.array_equal(grad, jnp.ones_like(x))
+
+    @pytest.mark.parametrize("dtype", [jnp.float32, jnp.bfloat16])
+    def test_nonzero_affine_preserves_channel_competition(self, dtype):
+        layer = GRN(3)
+        layer = eqx.tree_at(
+            lambda m: (m.weight, m.bias),
+            layer,
+            (jnp.array([0.5, 1.0, 1.5]), jnp.array([-1.0, 0.0, 1.0])),
+        )
+        x = jnp.broadcast_to(jnp.arange(3, dtype=dtype)[:, None, None], (3, 2, 2))
+
+        output = jax.jit(jax.vmap(layer))(jnp.stack([x, x]))
+
+        # Spatial norms are [0, 2, 4], giving channel responses [0, 1, 2].
+        expected = jnp.broadcast_to(
+            jnp.array([-1.0, 2.0, 9.0], dtype=dtype)[None, :, None, None],
+            (2, 3, 2, 2),
+        )
+        assert output.dtype == dtype
+        assert jnp.allclose(output, expected, atol=1e-5, rtol=0)
 
 
 # get_norm

@@ -6,6 +6,7 @@ import pytest
 
 from equimo.core.layers.ffn import Mlp as CoreMlp
 from equimo.tabular import layers
+from equimo.tabular.layers import attention, blocks, decoder, preprocessing, registry
 from equimo.tabular.layers.mlp import _call_mlp
 from _jaxpr_utils import assert_prng_free_jaxpr
 
@@ -69,6 +70,48 @@ def test_tabular_family_registration_adds_global_layer_lookup():
     )
     assert layers.get_ffn("custom_tabular_ffn") is CustomTabularFfn
     assert layers.get_layer("custom_tabular_ffn") is CustomTabularFfn
+
+
+@pytest.mark.parametrize(
+    ("module", "family", "registry_attr"),
+    (
+        (attention, "attn", "_ATTN_REGISTRY"),
+        (blocks, "attn_block", "_ATTN_BLOCK_REGISTRY"),
+        (decoder, "decoder", "_DECODER_REGISTRY"),
+        (decoder, "embedding", "_EMBEDDING_REGISTRY"),
+        (preprocessing, "preprocessor", "_PREPROCESSOR_REGISTRY"),
+    ),
+    ids=lambda value: value if isinstance(value, str) else value.__name__,
+)
+def test_family_registration_collisions_are_atomic(
+    monkeypatch, module, family, registry_attr
+):
+    monkeypatch.setattr(module, registry_attr, {})
+    monkeypatch.setattr(registry, "_LAYER_REGISTRY", {})
+    register = getattr(module, f"register_{family}")
+    get = getattr(module, f"get_{family}")
+
+    class Existing(eqx.Module):
+        pass
+
+    class Replacement(eqx.Module):
+        pass
+
+    layers.register_layer("Shared")(Existing)
+    with pytest.raises(ValueError, match="already registered"):
+        register("SHARED")(Replacement)
+    assert getattr(module, registry_attr) == {}
+    assert layers.get_layer("shared") is Existing
+
+    assert register("SHARED", force=True)(Replacement) is Replacement
+    assert get("Shared") is Replacement
+    assert layers.get_layer("shared") is Replacement
+
+    layers.register_layer("shared", force=True)(Existing)
+    with pytest.raises(ValueError, match="already registered"):
+        register("shared")(Existing)
+    assert get("shared") is Replacement
+    assert layers.get_layer("shared") is Existing
 
 
 def test_tabular_unknown_layer_raises():

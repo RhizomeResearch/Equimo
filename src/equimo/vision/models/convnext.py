@@ -62,13 +62,13 @@ from collections.abc import Callable
 
 import equinox as eqx
 import jax.random as jr
-import numpy as np
 from jaxtyping import PRNGKeyArray
 
 from equimo.core.layers.activation import get_act
 from equimo.core.layers.generic import BlockChunk
 from equimo.core.layers.norm import get_norm
 from equimo.registry import register_model
+from equimo.utils import make_drop_path_schedule
 from equimo.vision.layers import get_layer
 from equimo.core.factory import build_model_variant
 from equimo.vision.models._features import DenseStageFeatures
@@ -162,10 +162,9 @@ class ConvNeXt(DenseStageFeatures, eqx.Module):
         norm_layer = get_norm(norm_layer)
         block_norm_layer = get_norm(block_norm_layer)
 
-        if drop_path_uniform:
-            dpr = [drop_path_rate] * depth
-        else:
-            dpr = np.linspace(0.0, drop_path_rate, depth).tolist()
+        dpr = make_drop_path_schedule(
+            drop_path_rate, [depth], uniform=drop_path_uniform
+        )
 
         # Stage 0: stem (4x downsample) + blocks
         # Stages 1-3: ConvNeXtDownsampler (2x downsample) + blocks

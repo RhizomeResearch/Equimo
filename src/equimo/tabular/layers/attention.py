@@ -11,7 +11,7 @@ from jaxtyping import Array, Float, PRNGKeyArray
 from equimo.core.layers.rotary import apply_rotary, make_1d_rotary_factors
 
 from .mlp import Mlp, _call_mlp
-from .registry import _register_module, _registry_name, _resolve_from_registry
+from .registry import _register_family, _resolve_from_registry
 
 _ATTN_REGISTRY: dict[str, type[eqx.Module]] = {}
 
@@ -35,17 +35,7 @@ def register_attn(
 ) -> Callable[[type[eqx.Module]], type[eqx.Module]]:
     """Register a tabular attention layer class."""
 
-    def decorator(cls: type[eqx.Module]) -> type[eqx.Module]:
-        registry_name = _registry_name(cls, name)
-        return _register_module(
-            _ATTN_REGISTRY,
-            cls,
-            registry_name,
-            force,
-            add_to_layer_registry=True,
-        )
-
-    return decorator
+    return _register_family(_ATTN_REGISTRY, name, force)
 
 
 def get_attn(module: str | type[eqx.Module]) -> type[eqx.Module]:

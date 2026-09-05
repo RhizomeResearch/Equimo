@@ -74,7 +74,6 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import jax.random as jr
-import numpy as np
 from einops import rearrange
 from jaxtyping import Array, Float, Int, PRNGKeyArray
 
@@ -96,7 +95,7 @@ from equimo.vision.layers.patch import PatchEmbedding
 from equimo.vision.models._embedding import build_local_rope, build_token_embeddings
 from equimo.vision.layers.posemb import LearnedPosEmbed, CompositeVisionRoPE
 from equimo.registry import register_model
-from equimo.utils import pool_sd, to_list
+from equimo.utils import make_drop_path_schedule, pool_sd, to_list
 from equimo.core.factory import build_model_variant
 
 
@@ -283,10 +282,9 @@ class VisionTransformer(eqx.Module):
         )
         self.pos_drop = eqx.nn.Dropout(pos_drop_rate)
 
-        if drop_path_uniform:
-            dpr = [drop_path_rate] * depth
-        else:
-            dpr = np.linspace(0.0, drop_path_rate, depth).tolist()
+        dpr = make_drop_path_schedule(
+            drop_path_rate, [depth], uniform=drop_path_uniform
+        )
 
         n_chunks = len(depths)
         dims = to_list(dim, n_chunks)

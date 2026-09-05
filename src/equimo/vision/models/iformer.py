@@ -15,7 +15,6 @@ from typing import Callable, Tuple
 
 import equinox as eqx
 import jax.random as jr
-import numpy as np
 from jaxtyping import PRNGKeyArray
 
 from equimo.vision.layers import get_layer
@@ -23,6 +22,7 @@ from equimo.core.layers.activation import get_act
 from equimo.core.layers.generic import BlockChunk
 from equimo.core.layers.norm import get_norm
 from equimo.registry import register_model
+from equimo.utils import make_drop_path_schedule
 from equimo.core.factory import build_model_variant
 from equimo.vision.models._features import DenseStageFeatures
 
@@ -71,12 +71,9 @@ class IFormer(DenseStageFeatures, eqx.Module):
 
         universal_kwargs = {"act_layer": act_layer}
 
-        if drop_path_uniform:
-            # not traced
-            dpr = [drop_path_rate] * depth
-        else:
-            # traced
-            dpr = np.linspace(0.0, drop_path_rate, depth).tolist()
+        dpr = make_drop_path_schedule(
+            drop_path_rate, [depth], uniform=drop_path_uniform
+        )
 
         blocks = []
         _bc_dim = [in_channels, *dims[:-1]]

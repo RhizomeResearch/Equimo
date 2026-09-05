@@ -5,7 +5,7 @@ them into a concrete ``eqx.Module`` leaves its PyTree structure, and therefore
 its saved-checkpoint signature, unchanged.
 """
 
-from typing import TYPE_CHECKING, Any, Optional, Sequence
+from typing import TYPE_CHECKING, Any, Collection, Optional, Sequence
 
 import jax
 import jax.random as jr
@@ -14,6 +14,23 @@ from jaxtyping import Array, Float, PRNGKeyArray
 
 from equimo.core._prng import split_for_mode
 from equimo.core.intermediates import intermediate_indices
+
+
+def _run_stages(
+    blocks: Sequence[Any],
+    x: jax.Array,
+    keys: Sequence[PRNGKeyArray],
+    *,
+    inference: bool | None,
+    indices: Collection[int] = (),
+) -> tuple[jax.Array, tuple[jax.Array, ...]]:
+    """Run every stage, retaining only the requested native outputs."""
+    outputs = []
+    for i, (block, key) in enumerate(zip(blocks, keys)):
+        x = block(x, inference=inference, key=key)
+        if i in indices:
+            outputs.append(x)
+    return x, tuple(outputs)
 
 
 class DenseStageFeatures:
@@ -41,8 +58,7 @@ class DenseStageFeatures:
             key, len(self.blocks) + 1, inference=inference
         )
 
-        for blk, key_blk in zip(self.blocks, key_blocks):
-            x = blk(x, inference=inference, key=key_blk)
+        x, _ = _run_stages(self.blocks, x, key_blocks, inference=inference)
         x = self.dropout(x, inference=inference, key=key_drop)
 
         return x
@@ -64,12 +80,10 @@ class DenseStageFeatures:
             n_last_blocks=n_last_blocks,
         )
         _, *key_blocks = split_for_mode(key, len(self.blocks) + 1, inference=inference)
-        outputs = []
-        for i, (blk, key_blk) in enumerate(zip(self.blocks, key_blocks)):
-            x = blk(x, inference=inference, key=key_blk)
-            if i in wanted:
-                outputs.append(x)
-        return tuple(outputs)
+        _, outputs = _run_stages(
+            self.blocks, x, key_blocks, inference=inference, indices=wanted
+        )
+        return outputs
 
     def __call__(
         self,
@@ -109,8 +123,7 @@ class TokenStemFeatures:
 
         x = self.patch_embed(x)
         x = self.pos_drop(x, inference=inference, key=key_pd)
-        for i, blk in enumerate(self.blocks):
-            x = blk(x, inference=inference, key=keys[i])
+        x, _ = _run_stages(self.blocks, x, keys, inference=inference)
 
         return x
 
@@ -132,12 +145,10 @@ class TokenStemFeatures:
         key_pd, *keys = split_for_mode(key, 1 + len(self.blocks), inference=inference)
         x = self.patch_embed(x)
         x = self.pos_drop(x, inference=inference, key=key_pd)
-        outputs = []
-        for i, blk in enumerate(self.blocks):
-            x = blk(x, inference=inference, key=keys[i])
-            if i in wanted:
-                outputs.append(x)
-        return tuple(outputs)
+        _, outputs = _run_stages(
+            self.blocks, x, keys, inference=inference, indices=wanted
+        )
+        return outputs
 
     def __call__(
         self,

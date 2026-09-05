@@ -18,7 +18,6 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import jax.random as jr
-import numpy as np
 from jaxtyping import Array, Float, PRNGKeyArray
 
 from equimo.core._prng import split_for_mode
@@ -34,7 +33,7 @@ from equimo.core.layers.generic import (
 )
 from equimo.core.layers.norm import get_norm
 from equimo.registry import register_model
-from equimo.utils import pool_sd, to_list
+from equimo.utils import make_drop_path_schedule, pool_sd, to_list
 from equimo.core.factory import build_model_variant
 
 
@@ -142,10 +141,9 @@ class AudioSpectrogramTransformer(eqx.Module):
         self.pos_embed = jr.normal(key_pos, (self.num_patches + 2, dim))
         self.pos_drop = eqx.nn.Dropout(pos_drop_rate)
 
-        if drop_path_uniform:
-            dpr = [drop_path_rate] * depth
-        else:
-            dpr = np.linspace(0.0, drop_path_rate, depth).tolist()
+        dpr = make_drop_path_schedule(
+            drop_path_rate, [depth], uniform=drop_path_uniform
+        )
 
         n_chunks = len(depths)
         num_heads = to_list(num_heads, n_chunks)

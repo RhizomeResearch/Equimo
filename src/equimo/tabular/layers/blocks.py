@@ -24,8 +24,7 @@ from .mlp import Mlp, _call_mlp
 from equimo.core.layers.dropout import split_drop_path
 
 from .registry import (
-    _register_module,
-    _registry_name,
+    _register_family,
     _resolve_from_registry,
     register_layer,
 )
@@ -39,17 +38,7 @@ def register_attn_block(
 ) -> Callable[[type[eqx.Module]], type[eqx.Module]]:
     """Register a tabular attention block class."""
 
-    def decorator(cls: type[eqx.Module]) -> type[eqx.Module]:
-        registry_name = _registry_name(cls, name)
-        return _register_module(
-            _ATTN_BLOCK_REGISTRY,
-            cls,
-            registry_name,
-            force,
-            add_to_layer_registry=True,
-        )
-
-    return decorator
+    return _register_family(_ATTN_BLOCK_REGISTRY, name, force)
 
 
 def get_attn_block(module: str | type[eqx.Module]) -> type[eqx.Module]:

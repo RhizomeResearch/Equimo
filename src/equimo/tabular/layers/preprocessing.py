@@ -4,7 +4,7 @@ import equinox as eqx
 import jax.numpy as jnp
 from jaxtyping import Array, Float
 
-from .registry import _register_module, _registry_name, _resolve_from_registry
+from .registry import _register_family, _resolve_from_registry
 
 _PREPROCESSOR_REGISTRY: dict[str, type[eqx.Module]] = {}
 
@@ -15,17 +15,7 @@ def register_preprocessor(
 ) -> Callable[[type[eqx.Module]], type[eqx.Module]]:
     """Register a tabular preprocessing layer class."""
 
-    def decorator(cls: type[eqx.Module]) -> type[eqx.Module]:
-        registry_name = _registry_name(cls, name)
-        return _register_module(
-            _PREPROCESSOR_REGISTRY,
-            cls,
-            registry_name,
-            force,
-            add_to_layer_registry=True,
-        )
-
-    return decorator
+    return _register_family(_PREPROCESSOR_REGISTRY, name, force)
 
 
 def get_preprocessor(module: str | type[eqx.Module]) -> type[eqx.Module]:
