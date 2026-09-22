@@ -26,6 +26,7 @@ Start with these pages:
 - [Selectors](selectors.md)
 - [Executable feature specifications](feature_specs.md)
 - [Linear probe](linear_probe.md)
+- [Spatial linear probe](dense_probe.md)
 - [LP-FT](lpft.md)
 - [LLRD](llrd.md)
 - [LoRA](lora.md)

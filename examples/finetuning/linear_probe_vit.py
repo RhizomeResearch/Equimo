@@ -22,7 +22,17 @@ class TinyBackbone(eqx.Module):
 key = jr.PRNGKey(0)
 model = TinyBackbone(key=key)
 probe = eqft.make_linear_probe(
-    model, in_features=4, out_features=3, key=key, pool="cls"
+    model,
+    in_features=4,
+    out_features=10,
+    key=key,
+    feature_spec=eqft.FeatureSpec(
+        endpoint="features",
+        output_layout="BNC",
+        token_selection="cls",
+        pooling=None,
+        normalize="none",
+    ),
 )
 plan = eqft.prepare_finetune(probe, trainable=eqft.TrainableSpec(mode="head"))
 

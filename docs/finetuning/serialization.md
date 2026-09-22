@@ -52,3 +52,11 @@ contracts.
 
 Supported delta methods: `lora`, `dora`, `adapter`, `prompt`, `prefix`,
 `scale_shift`, `ia3`, and `vera`.
+
+Ordinary linear probes, spatial probes, and partially tuned backbones should be
+stored as full models with `equimo.serialization.save_model`. Reconstruct the
+same wrapper before `load_weights` and pass an `expected_model_config` that
+records the backbone constructor, executable feature specification, head
+dimensions and initialization, and output layout. The
+[spatial linear probe guide](dense_probe.md) contains a complete configuration
+example.

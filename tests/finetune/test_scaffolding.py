@@ -102,6 +102,8 @@ def test_recipe_namespaces_export_direct_helpers():
     assert hasattr(eqft.recipes, "vpt_deep")
     assert hasattr(eqft.recipes, "task_adapter_bank")
     assert hasattr(eqft.vision, "dense_feature_adapter")
+    assert hasattr(eqft.vision, "DenseProbe")
+    assert hasattr(eqft.vision, "make_dense_probe")
     assert hasattr(eqft.audio, "adapter_ast")
     assert hasattr(eqft.language, "prefix_encoder")
 

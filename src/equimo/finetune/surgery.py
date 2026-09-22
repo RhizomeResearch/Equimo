@@ -344,6 +344,29 @@ def _head_out_features(head: Any) -> int | None:
     return None
 
 
+def _validate_declared_head_dimensions(
+    head: Any,
+    *,
+    in_features: int,
+    out_features: int,
+    context: str,
+) -> None:
+    """Validate inspectable head dimensions against a public declaration."""
+
+    actual_in = _head_in_features(head)
+    if actual_in is not None and actual_in != in_features:
+        raise ValueError(
+            f"{context} input-feature mismatch: declared {in_features}, "
+            f"head expects {actual_in}."
+        )
+    actual_out = _head_out_features(head)
+    if actual_out is not None and actual_out != out_features:
+        raise ValueError(
+            f"{context} output-feature mismatch: declared {out_features}, "
+            f"head produces {actual_out}."
+        )
+
+
 def _labels_from_param_info(param_info: PyTree) -> PyTree:
     import jax.tree_util as jtu
 

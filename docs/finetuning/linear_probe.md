@@ -7,12 +7,19 @@ modalities, pass an executable [`FeatureSpec`](feature_specs.md). Without one,
 the compatibility native/heuristic extraction route remains in use.
 
 ```python
+classification_features = eqft.FeatureSpec(
+    endpoint="forward_features",
+    output_layout="BNC",
+    token_selection="cls",
+    pooling=None,
+    normalize="none",
+)
 probe = eqft.make_linear_probe(
     model,
     in_features=384,
     out_features=10,
     key=key,
-    pool="cls",
+    feature_spec=classification_features,
 )
 plan = eqft.prepare_finetune(
     probe,
@@ -22,6 +29,13 @@ plan = eqft.prepare_finetune(
 
 The wrapper replaces the original backbone head with an identity head so
 head-only training selects only the probe head.
+
+When a custom head exposes inspectable linear dimensions, `make_linear_probe`
+checks them against `in_features` and `out_features`. A mismatch fails during
+construction rather than producing logits with an undeclared width.
+
+For a pointwise readout that preserves a patch grid, use the
+[spatial linear probe](dense_probe.md).
 
 For ViT-like backbones, `pool="cls_patch_mean"` concatenates the CLS token with
 the mean over patch tokens. Prefix/register/distillation tokens are excluded

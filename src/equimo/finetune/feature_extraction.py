@@ -26,7 +26,7 @@ from .pooling import (
     _NativeReadoutPool,
     pool_features,
 )
-from .surgery import replace_head
+from .surgery import _validate_declared_head_dimensions, replace_head
 
 
 @dataclass(frozen=True)
@@ -1251,6 +1251,12 @@ def make_linear_probe(
 
     probe_head = (
         LinearHead(in_features, out_features, key=key) if head is None else head
+    )
+    _validate_declared_head_dimensions(
+        probe_head,
+        in_features=in_features,
+        out_features=out_features,
+        context="make_linear_probe",
     )
     try:
         backbone = replace_head(backbone, IdentityHead())

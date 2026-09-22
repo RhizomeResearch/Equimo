@@ -397,6 +397,29 @@ def test_linear_probe_cls_patch_mean_layer_norm_readout_is_trainable(
     assert plan.report.trainable_params == 43
 
 
+@pytest.mark.parametrize(
+    ("head", "message"),
+    (
+        (eqft.LinearHead(5, 3, key=jr.PRNGKey(20)), "input-feature mismatch"),
+        (eqft.LinearHead(4, 2, key=jr.PRNGKey(21)), "output-feature mismatch"),
+    ),
+)
+def test_make_linear_probe_rejects_inspectable_head_dimension_mismatch(
+    tiny_vision_transformer,
+    head,
+    message,
+):
+    with pytest.raises(ValueError, match=message):
+        eqft.make_linear_probe(
+            tiny_vision_transformer,
+            in_features=4,
+            out_features=3,
+            key=jr.PRNGKey(22),
+            pool="cls",
+            head=head,
+        )
+
+
 def test_feature_extractor_filter_jit(tiny_vision_transformer):
     extractor = eqft.FeatureExtractor(tiny_vision_transformer, pool="cls")
     x = jnp.ones((2, 3))

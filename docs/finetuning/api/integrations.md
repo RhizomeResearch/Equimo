@@ -46,4 +46,4 @@ module equimo.finetune.vision
 
 Defined in `equimo.finetune.vision`.
 
-> Vision fine-tuning dense-feature utilities.
+> Vision fine-tuning probes and dense-feature utilities.
