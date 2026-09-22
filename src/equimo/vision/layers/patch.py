@@ -143,6 +143,10 @@ class PatchEmbedding(eqx.Module):
 
     def __call__(self, x: Float[Array, "channels height width"]) -> Float[Array, "..."]:
         C, H, W = x.shape
+        if H <= 0 or W <= 0:
+            raise ValueError(
+                f"Input spatial dimensions must be positive, got ({H}, {W})."
+            )
 
         if self.img_size is not None:
             if not self.dynamic_img_size:

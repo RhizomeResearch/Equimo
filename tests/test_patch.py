@@ -124,6 +124,15 @@ class TestPatchEmbedding:
         out = layer(x)
         assert out.shape == ((alt_size // self.PATCH_SIZE) ** 2, self.DIM)
 
+    @pytest.mark.parametrize("shape", ((3, 0, 32), (3, 32, 0), (3, 0, 0)))
+    @pytest.mark.parametrize("pad", (False, True))
+    def test_empty_spatial_dimensions_rejected(self, shape, pad):
+        layer = PatchEmbedding(
+            3, 8, 16, dynamic_img_size=True, dynamic_img_pad=pad, key=KEY
+        )
+        with pytest.raises(ValueError, match="positive"):
+            eqx.filter_jit(layer)(jnp.zeros(shape))
+
     def test_dynamic_img_pad_non_divisible(self):
         """dynamic_img_pad=True pads non-divisible sizes transparently."""
         layer = PatchEmbedding(

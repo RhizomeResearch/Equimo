@@ -240,6 +240,15 @@ def _canonical_json(payload: dict) -> str:
     )
 
 
+def _unique_metadata_object(pairs: list[tuple[str, object]]) -> dict:
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"Checkpoint metadata contains duplicate key {key!r}.")
+        result[key] = value
+    return result
+
+
 def _write_metadata(path: Path, metadata: dict) -> None:
     path.write_text(_canonical_json(metadata), encoding="utf-8")
 
@@ -550,6 +559,20 @@ def _resolve_weights_dir(
 
     if identifier is not None:
         path = download(identifier, repository, expected_sha256=expected_sha256)
+    elif expected_sha256 is not None:
+        assert path is not None
+        if path.is_dir() or path.suffixes != [".tar", ".lz4"]:
+            raise ValueError(
+                "expected_sha256 applies to a .tar.lz4 archive; use "
+                "expected_weights_sha256 for a checkpoint directory."
+            )
+        expected_sha256 = validate_sha256(expected_sha256, label="expected_sha256")
+        actual_checksum = sha256_file(path)
+        if actual_checksum != expected_sha256:
+            raise ValueError(
+                "Local archive checksum mismatch: expected "
+                f"{expected_sha256}, got {actual_checksum}."
+            )
 
     assert path is not None
     if path.suffixes == [".tar", ".lz4"]:
@@ -564,6 +587,8 @@ def inspect_checkpoint(
     *,
     model: eqx.Module | None = None,
     allow_legacy: bool = False,
+    expected_weights_sha256: str | None = None,
+    expected_model_config: dict | None = None,
 ) -> CheckpointInfo:
     """Inspect and validate a local checkpoint without deserializing its weights.
 
@@ -583,11 +608,31 @@ def inspect_checkpoint(
             No download is attempted.
         model: Optional model whose class and array-leaf structure must match.
         allow_legacy: Explicitly allow a schema-less v2-alpha checkpoint.
+        expected_weights_sha256: Optional trusted digest of ``weights.eqx``.
+            Checked independently of metadata, including for legacy checkpoints
+            and reused extraction caches. Obtain it from an admitted artifact.
+        expected_model_config: Optional exact, JSON-serializable constructor
+            configuration to compare with ``model_config`` in the metadata.
+            Object order is ignored and tuples compare as JSON arrays. This
+            checks recorded configuration, not the supplied model's static
+            fields; construct that model using the same admitted configuration.
 
     Returns:
         Immutable checkpoint identity and verification information. ``path`` is
         the exact path supplied by the caller, not an extraction-cache path.
     """
+
+    if expected_weights_sha256 is not None:
+        expected_weights_sha256 = validate_sha256(
+            expected_weights_sha256, label="expected_weights_sha256"
+        )
+    if expected_model_config is not None:
+        if not isinstance(expected_model_config, dict):
+            raise ValueError(
+                "expected_model_config must be a JSON-serializable object."
+            )
+        # Validate before extracting or reading a potentially large checkpoint.
+        _canonical_json(expected_model_config)
 
     source_path = Path(path)
     if source_path.is_dir():
@@ -609,6 +654,8 @@ def inspect_checkpoint(
         result_path=source_path,
         model=model,
         allow_legacy=allow_legacy,
+        expected_weights_sha256=expected_weights_sha256,
+        expected_model_config=expected_model_config,
     )
 
 
@@ -618,6 +665,8 @@ def _inspect_checkpoint_directory(
     result_path: Path,
     model: eqx.Module | None,
     allow_legacy: bool,
+    expected_weights_sha256: str | None,
+    expected_model_config: dict | None,
 ) -> CheckpointInfo:
     metadata_path = path / "metadata.json"
     weights_path = path / "weights.eqx"
@@ -637,11 +686,20 @@ def _inspect_checkpoint_directory(
     with metadata_path.open("rb") as handle:
         payload = read_limited(handle, _MAX_METADATA_BYTES, label="Checkpoint metadata")
     try:
-        metadata = json.loads(payload)
+        metadata = json.loads(payload, object_pairs_hook=_unique_metadata_object)
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
         raise ValueError(f"Checkpoint metadata is not valid JSON: {error}") from error
     if not isinstance(metadata, dict):
         raise ValueError("Checkpoint metadata must be a JSON object.")
+
+    if expected_model_config is not None:
+        recorded_config = metadata.get("model_config")
+        if not isinstance(recorded_config, dict) or _canonical_json(
+            recorded_config
+        ) != _canonical_json(expected_model_config):
+            raise ValueError(
+                "Checkpoint model_config mismatch with expected_model_config."
+            )
 
     if "format" not in metadata:
         partial_fields = (_VERSIONED_METADATA_FIELDS - {"format"}) & metadata.keys()
@@ -656,7 +714,7 @@ def _inspect_checkpoint_directory(
                 "Checkpoint uses schema-less v2-alpha metadata; pass "
                 "allow_legacy=True to inspect it as unverified."
             )
-        actual_checksum = sha256_file(weights_path)
+        actual_checksum = _weights_checksum(weights_path, expected_weights_sha256)
         equimo_version = metadata.get("equimo_version")
         return CheckpointInfo(
             path=result_path,
@@ -701,7 +759,7 @@ def _inspect_checkpoint_directory(
     if not isinstance(metadata.get("timm"), list):
         raise ValueError("Checkpoint metadata field 'timm' must be an array.")
 
-    actual_checksum = sha256_file(weights_path)
+    actual_checksum = _weights_checksum(weights_path, expected_weights_sha256)
     if actual_checksum != expected_checksum:
         raise ValueError(
             "Checkpoint weights checksum mismatch: expected "
@@ -735,6 +793,16 @@ def _inspect_checkpoint_directory(
     )
 
 
+def _weights_checksum(path: Path, expected: str | None) -> str:
+    actual = sha256_file(path)
+    if expected is not None and actual != expected:
+        raise ValueError(
+            "Checkpoint weights checksum mismatch with expected_weights_sha256: "
+            f"expected {expected}, got {actual}."
+        )
+    return actual
+
+
 def _metadata_string(metadata: dict, field: str) -> str:
     value = metadata.get(field)
     if not isinstance(value, str) or not value:
@@ -761,6 +829,9 @@ def load_weights(
     repository: str = DEFAULT_REPOSITORY_URL,
     inference_mode: bool = True,
     expected_sha256: str | None = None,
+    *,
+    expected_weights_sha256: str | None = None,
+    expected_model_config: dict | None = None,
 ) -> eqx.Module:
     """Deserialise saved weights into an already-constructed model.
 
@@ -780,7 +851,15 @@ def load_weights(
             Defaults to :data:`DEFAULT_REPOSITORY_URL`.
         inference_mode: Pass ``True`` (default) to disable dropout for
             evaluation; ``False`` to keep training behaviour.
-        expected_sha256: Optional trusted SHA-256 digest for a remote archive.
+        expected_sha256: Optional trusted SHA-256 digest for a complete remote
+            or local ``.tar.lz4`` archive. Not valid for directory inputs.
+        expected_weights_sha256: Optional trusted digest of ``weights.eqx``,
+            checked even when an extraction cache is reused. Supports both
+            versioned and legacy checkpoints.
+        expected_model_config: Optional exact JSON-serializable configuration
+            to compare with the recorded ``model_config``. Construct *model*
+            with the same admitted configuration; this comparison does not
+            inspect its static fields. See :func:`inspect_checkpoint`.
 
     Returns:
         Model with deserialised weights.  Dtype is whatever was stored
@@ -789,9 +868,9 @@ def load_weights(
     load_path = _resolve_weights_dir(identifier, path, repository, expected_sha256)
     logger.info("Loading weights...")
 
-    alpha_archive_verified = identifier is not None and (
-        expected_sha256 is not None
-        or (
+    alpha_archive_verified = expected_sha256 is not None or (
+        identifier is not None
+        and (
             repository.rstrip("/") == DEFAULT_REPOSITORY_URL
             and identifier in PRETRAINED_ARCHIVE_SHA256
         )
@@ -800,13 +879,17 @@ def load_weights(
         load_path,
         model=model,
         allow_legacy=True,
+        expected_weights_sha256=expected_weights_sha256,
+        expected_model_config=expected_model_config,
     )
     if checkpoint.legacy:
         message = (
             "Loading a compatible v2-alpha checkpoint without versioned "
             "internal metadata."
         )
-        if alpha_archive_verified:
+        if expected_weights_sha256 is not None:
+            logger.info(message + " The supplied weights checksum was verified.")
+        elif alpha_archive_verified:
             logger.info(message + " The complete archive checksum was verified.")
         else:
             warnings.warn(
@@ -814,7 +897,12 @@ def load_weights(
                 RuntimeWarning,
                 stacklevel=2,
             )
-    model = eqx.tree_deserialise_leaves(load_path / "weights.eqx", model)
+    with (load_path / "weights.eqx").open("rb") as handle:
+        model = eqx.tree_deserialise_leaves(handle, model)
+        if handle.read(1):
+            raise ValueError(
+                "Checkpoint weights contain trailing data after model leaves."
+            )
     model = eqx.nn.inference_mode(model, inference_mode)
 
     logger.info("Weights loaded successfully.")
