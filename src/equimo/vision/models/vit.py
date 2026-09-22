@@ -377,9 +377,10 @@ class VisionTransformer(eqx.Module):
         inference: Optional[bool] = None,
         indices: Sequence[int] | None = None,
         n_last_blocks: int | None = None,
+        apply_norm: bool = False,
         **kwargs,
     ) -> tuple[Float[Array, "seqlen dim"], ...]:
-        """Return selected native token outputs after transformer blocks."""
+        """Return selected token outputs, optionally after the final norm."""
 
         total = count_chunk_blocks(self.blocks)
         wanted = intermediate_indices(
@@ -417,7 +418,10 @@ class VisionTransformer(eqx.Module):
                     indices=local_indices,
                     **kwargs,
                 )
-                outputs.extend(chunk_outputs)
+                outputs.extend(
+                    jax.vmap(self.norm)(output) if apply_norm else output
+                    for output in chunk_outputs
+                )
             else:
                 x = blk(
                     x,
@@ -429,6 +433,101 @@ class VisionTransformer(eqx.Module):
             offset += n_blocks
 
         return tuple(outputs)
+
+    def feature_metadata(
+        self,
+        x: Float[Array, "channels height width"],
+        *args,
+        endpoint: str,
+        endpoint_options: dict,
+    ) -> dict:
+        """Describe token geometry for explicit feature extraction contracts."""
+
+        del args
+        if x.ndim != 3:
+            raise ValueError(
+                "VisionTransformer feature metadata requires one CHW image."
+            )
+        input_size = (int(x.shape[-2]), int(x.shape[-1]))
+        raw_patch_size = self.patch_embed.patch_size
+        patch_size = (
+            (raw_patch_size, raw_patch_size)
+            if isinstance(raw_patch_size, int)
+            else (int(raw_patch_size[0]), int(raw_patch_size[1]))
+        )
+        grid_size = self.patch_embed.dynamic_feat_size(input_size)
+        patch_padding = (
+            grid_size[0] * patch_size[0] - input_size[0],
+            grid_size[1] * patch_size[1] - input_size[1],
+        )
+        prefix_tokens = (("cls",) if self.cls_token is not None else ()) + tuple(
+            f"register_{index}" for index in range(self.num_reg_tokens)
+        )
+
+        layer_indices: tuple[int, ...] = ()
+        if endpoint == "intermediate_features":
+            total = count_chunk_blocks(self.blocks)
+            layer_indices = tuple(
+                sorted(
+                    intermediate_indices(
+                        total,
+                        indices=endpoint_options.get("indices"),
+                        n_last_blocks=endpoint_options.get("n_last_blocks"),
+                    )
+                )
+            )
+
+        endpoint_normalization = "none"
+        if endpoint == "forward_features" or endpoint_options.get("apply_norm", False):
+            endpoint_normalization = "encoder_final_norm"
+
+        return {
+            "input_size": input_size,
+            "patch_size": patch_size,
+            "patch_padding": patch_padding,
+            "grid_size": grid_size,
+            "prefix_tokens": prefix_tokens,
+            "tokens_include_prefix": endpoint != "forward_features",
+            "layer_indices": layer_indices,
+            "endpoint_normalization": endpoint_normalization,
+            "positional_configuration": self._feature_position_configuration(),
+        }
+
+    def _feature_position_configuration(self) -> tuple[tuple[str, str], ...]:
+        configuration = [
+            (
+                "global.type",
+                "none"
+                if self.global_pos_embed is None
+                else type(self.global_pos_embed).__name__,
+            ),
+            (
+                "local.type",
+                "none"
+                if self.local_pos_embed is None
+                else type(self.local_pos_embed).__name__,
+            ),
+        ]
+        if self.global_pos_embed is not None:
+            configuration.extend(
+                (
+                    ("global.embed_size", str(self.global_pos_embed.embed_size)),
+                    ("global.antialias", str(self.global_pos_embed.antialias)),
+                )
+            )
+        if self.local_pos_embed is not None:
+            patch_rope = self.local_pos_embed.patch_rope
+            configuration.extend(
+                (
+                    ("local.strategy", str(patch_rope.strategy)),
+                    ("local.normalize_coords", str(patch_rope.normalize_coords)),
+                    ("local.shift_coords", str(patch_rope.shift_coords)),
+                    ("local.jitter_coords", str(patch_rope.jitter_coords)),
+                    ("local.rescale_coords", str(patch_rope.rescale_coords)),
+                    ("local.dtype", str(patch_rope.dtype)),
+                )
+            )
+        return tuple(configuration)
 
     def _prepare_tokens(
         self,

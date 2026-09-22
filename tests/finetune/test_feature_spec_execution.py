@@ -42,6 +42,67 @@ class PromptTokenFeatures(eqx.Module):
         return x
 
 
+class SpatialTokenFeatures(eqx.Module):
+    patch_size: tuple[int, int] = eqx.field(static=True)
+    prefix_tokens: tuple[str, ...] = eqx.field(static=True)
+    num_prefix_tokens: int = eqx.field(static=True)
+    pad: bool = eqx.field(static=True)
+
+    def __init__(
+        self,
+        patch_size=(2, 2),
+        prefix_tokens=("cls", "register_0"),
+        *,
+        pad=True,
+    ):
+        self.patch_size = patch_size
+        self.prefix_tokens = prefix_tokens
+        self.num_prefix_tokens = len(prefix_tokens)
+        self.pad = pad
+
+    def features(self, x):
+        height, width = x.shape[-2:]
+        patch_h, patch_w = self.patch_size
+        pad_h = (-height) % patch_h
+        pad_w = (-width) % patch_w
+        if not self.pad and (pad_h or pad_w):
+            raise ValueError("input must be divisible by the patch size")
+        x = jnp.pad(x, ((0, 0), (0, pad_h), (0, pad_w)))
+        patches = x[0, ::patch_h, ::patch_w].reshape(-1, 1)
+        prefix = -jnp.arange(1, len(self.prefix_tokens) + 1, dtype=x.dtype)[:, None]
+        return jnp.concatenate((prefix, patches), axis=0)
+
+    def feature_metadata(self, x, *, endpoint, endpoint_options):
+        del endpoint, endpoint_options
+        height, width = x.shape[-2:]
+        patch_h, patch_w = self.patch_size
+        grid_h = (height + patch_h - 1) // patch_h if self.pad else height // patch_h
+        grid_w = (width + patch_w - 1) // patch_w if self.pad else width // patch_w
+        return {
+            "input_size": (height, width),
+            "patch_size": self.patch_size,
+            "patch_padding": (
+                grid_h * patch_h - height,
+                grid_w * patch_w - width,
+            ),
+            "grid_size": (grid_h, grid_w),
+            "prefix_tokens": self.prefix_tokens,
+            "tokens_include_prefix": True,
+            "endpoint_normalization": "none",
+            "positional_configuration": (("kind", "coordinate-test"),),
+        }
+
+
+class IncorrectSpatialMetadata(SpatialTokenFeatures):
+    def feature_metadata(self, x, *, endpoint, endpoint_options):
+        metadata = super().feature_metadata(
+            x,
+            endpoint=endpoint,
+            endpoint_options=endpoint_options,
+        )
+        return {**metadata, "grid_size": (1, 1)}
+
+
 @pytest.fixture(scope="module")
 def dinov2_vits14_reg_small():
     key = jr.PRNGKey(100)
@@ -96,6 +157,18 @@ def test_unbatched_layout_and_explicit_endpoint_path_are_supported():
     assert jnp.array_equal(result, jnp.mean(x, axis=0))
 
 
+def test_dense_spatial_layout_derives_grid_metadata_from_declared_axes():
+    x = jnp.arange(24.0).reshape(3, 2, 4)
+    spec = eqft.FeatureSpec("features", "BCHW", "all", None, return_metadata=True)
+
+    result = eqft.extract_features(EchoFeatures(), x, feature_spec=spec)
+
+    assert jnp.array_equal(result.features, x)
+    assert result.levels[0].input_size == (2, 4)
+    assert result.levels[0].grid_size == (2, 4)
+    assert result.levels[0].feature_width == 3
+
+
 @pytest.mark.parametrize(
     "kwargs",
     (
@@ -118,6 +191,27 @@ def test_unbatched_layout_and_explicit_endpoint_path_are_supported():
 def test_contradictory_specs_are_rejected(kwargs):
     with pytest.raises(ValueError):
         eqft.FeatureSpec(endpoint="features", **kwargs)
+
+
+@pytest.mark.parametrize(
+    "endpoint_options",
+    (
+        {"unknown": True},
+        {"indices": ()},
+        {"indices": (0,), "n_last_blocks": 1},
+        {"n_last_blocks": 0},
+        {"apply_norm": "yes"},
+    ),
+)
+def test_invalid_endpoint_options_are_rejected(endpoint_options):
+    with pytest.raises(ValueError):
+        eqft.FeatureSpec(
+            "intermediate_features",
+            "BNC",
+            "all",
+            None,
+            endpoint_options=endpoint_options,
+        )
 
 
 def test_mask_is_padding_polarity_and_all_padding_returns_zero():
@@ -175,6 +269,103 @@ def test_prompt_tokens_are_conditionally_excluded(exclude):
     expected_tokens = x[3:] if exclude else jnp.concatenate([x[1:3], x[3:]])
 
     assert jnp.array_equal(result, jnp.mean(expected_tokens, axis=0))
+
+
+@pytest.mark.parametrize(
+    "prefix_tokens",
+    ((), ("cls",), ("cls", "register_0", "register_1", "register_2")),
+)
+def test_spatial_metadata_preserves_row_major_patch_order_and_prefixes(
+    prefix_tokens,
+):
+    model = SpatialTokenFeatures(prefix_tokens=prefix_tokens)
+    image = jnp.arange(24.0).reshape(1, 4, 6)
+    spec = eqft.FeatureSpec(
+        "features",
+        "BNC",
+        "patches",
+        None,
+        endpoint_options={},
+        return_metadata=True,
+    )
+
+    result = eqft.extract_features(model, image, feature_spec=spec)
+
+    assert isinstance(result, eqft.FeatureResult)
+    assert jnp.array_equal(
+        result.features[:, 0],
+        jnp.asarray([0.0, 2.0, 4.0, 12.0, 14.0, 16.0]),
+    )
+    assert result.levels == (
+        eqft.FeatureLevelMetadata(
+            layer_index=None,
+            feature_width=1,
+            source_layout="BNC",
+            endpoint_normalization="none",
+            post_normalization="none",
+            prefix_tokens=prefix_tokens,
+            positional_configuration=(("kind", "coordinate-test"),),
+            input_size=(4, 6),
+            patch_size=(2, 2),
+            patch_padding=(0, 0),
+            grid_size=(2, 3),
+            flatten_order="row-major",
+        ),
+    )
+
+
+@pytest.mark.parametrize(
+    ("shape", "patch_size", "expected_grid"),
+    (
+        ((256, 256), (16, 16), (16, 16)),
+        ((512, 512), (16, 16), (32, 32)),
+        ((512, 1024), (16, 16), (32, 64)),
+        ((1024, 512), (16, 16), (64, 32)),
+        ((518, 1022), (14, 14), (37, 73)),
+    ),
+)
+def test_spatial_metadata_covers_square_rectangular_and_patch14_profiles(
+    shape, patch_size, expected_grid
+):
+    model = SpatialTokenFeatures(patch_size=patch_size)
+    image = jnp.zeros((3, *shape), dtype=jnp.bfloat16)
+    spec = eqft.FeatureSpec("features", "BNC", "patches", None, return_metadata=True)
+
+    result = eqft.extract_features(model, image, feature_spec=spec)
+
+    assert result.features.dtype == jnp.bfloat16
+    assert result.levels[0].grid_size == expected_grid
+    assert result.features.shape == (expected_grid[0] * expected_grid[1], 1)
+
+
+def test_spatial_metadata_reports_padding_and_rejects_unsupported_geometry():
+    image = jnp.zeros((1, 5, 7))
+    spec = eqft.FeatureSpec("features", "BNC", "patches", None, return_metadata=True)
+
+    padded = eqft.extract_features(
+        SpatialTokenFeatures(pad=True), image, feature_spec=spec
+    )
+    assert padded.levels[0].grid_size == (3, 4)
+    assert padded.levels[0].patch_padding == (1, 1)
+
+    with pytest.raises(ValueError, match="divisible"):
+        eqft.extract_features(SpatialTokenFeatures(pad=False), image, feature_spec=spec)
+
+
+def test_spatial_metadata_requires_a_model_contract_for_token_grids():
+    spec = eqft.FeatureSpec("features", "BNC", "patches", None, return_metadata=True)
+    with pytest.raises(ValueError, match="does not publish feature_metadata"):
+        eqft.extract_features(EchoFeatures(), jnp.ones((4, 3)), feature_spec=spec)
+
+
+def test_spatial_metadata_rejects_a_grid_that_disagrees_with_tokens():
+    spec = eqft.FeatureSpec("features", "BNC", "patches", None, return_metadata=True)
+    with pytest.raises(ValueError, match="token count"):
+        eqft.extract_features(
+            IncorrectSpatialMetadata(),
+            jnp.ones((1, 4, 6)),
+            feature_spec=spec,
+        )
 
 
 @pytest.mark.parametrize("normalization", ("l2", "standardize"))
@@ -399,6 +590,124 @@ def test_dinov2_explicit_specs_support_jit_and_vmap(dinov2_vits14_reg_small):
     assert jnp.allclose(compiled, eager, rtol=1e-6, atol=1e-6)
     assert batched.shape == (2, 384)
     assert jnp.all(jnp.isfinite(batched))
+
+
+def test_feature_result_supports_jit_vmap_and_gradients():
+    model = SpatialTokenFeatures(prefix_tokens=("cls",))
+    spec = eqft.FeatureSpec("features", "BNC", "patches", None, return_metadata=True)
+
+    def extract_one(image):
+        return eqft.extract_features(model, image, feature_spec=spec)
+
+    image = jnp.arange(24.0).reshape(1, 4, 6)
+    eager = extract_one(image)
+    compiled = jax.jit(extract_one)(image)
+    batched = jax.jit(jax.vmap(extract_one))(jnp.stack((image, image + 1)))
+    gradient = jax.grad(lambda value: jnp.sum(extract_one(value).features))(image)
+
+    assert jnp.array_equal(compiled.features, eager.features)
+    assert compiled.levels == eager.levels
+    assert batched.features.shape == (2, 6, 1)
+    assert batched.levels == eager.levels
+    assert gradient.shape == image.shape
+    assert jnp.all(jnp.isfinite(gradient))
+
+
+def test_vit_separate_intermediates_preserve_indices_prefixes_and_norm():
+    key = jr.PRNGKey(102)
+    model = VisionTransformer(
+        img_size=16,
+        in_channels=3,
+        dim=8,
+        patch_size=8,
+        num_heads=[2, 2],
+        depths=[2, 2],
+        reg_tokens=2,
+        num_classes=0,
+        key=key,
+    )
+    image = jr.normal(jr.PRNGKey(103), (3, 16, 16))
+    spec = eqft.FeatureSpec(
+        "intermediate_features",
+        "BNC",
+        "all",
+        None,
+        layer_aggregation={"method": "separate"},
+        endpoint_options={"indices": (1, 2), "apply_norm": True},
+        return_metadata=True,
+    )
+
+    result = eqft.extract_features(model, image, feature_spec=spec, key=key)
+    expected = model.intermediate_features(
+        image,
+        key=key,
+        inference=True,
+        indices=(1, 2),
+        apply_norm=True,
+    )
+
+    assert isinstance(result, eqft.FeatureResult)
+    assert len(result.features) == 2
+    assert all(
+        jnp.allclose(actual, reference)
+        for actual, reference in zip(result.features, expected, strict=True)
+    )
+    assert tuple(level.layer_index for level in result.levels) == (1, 2)
+    assert all(level.feature_width == 8 for level in result.levels)
+    assert all(
+        level.endpoint_normalization == "encoder_final_norm" for level in result.levels
+    )
+    assert all(
+        level.prefix_tokens == ("cls", "register_0", "register_1")
+        for level in result.levels
+    )
+    assert all(level.grid_size == (2, 2) for level in result.levels)
+    assert all(features.shape == (7, 8) for features in result.features)
+
+    low_precision_model = jax.tree.map(
+        lambda leaf: leaf.astype(jnp.bfloat16) if eqx.is_inexact_array(leaf) else leaf,
+        model,
+    )
+    low_precision = eqx.filter_jit(
+        lambda current_model, sample: eqft.extract_features(
+            current_model,
+            sample,
+            feature_spec=spec,
+            key=key,
+        )
+    )(low_precision_model, image.astype(jnp.bfloat16))
+    assert all(level.dtype == jnp.bfloat16 for level in low_precision.features)
+
+
+def test_feature_spec_endpoint_options_conflict_with_runtime_arguments():
+    key = jr.PRNGKey(104)
+    model = VisionTransformer(
+        img_size=16,
+        in_channels=3,
+        dim=8,
+        patch_size=8,
+        num_heads=2,
+        depths=[2],
+        num_classes=0,
+        key=key,
+    )
+    spec = eqft.FeatureSpec(
+        "intermediate_features",
+        "BNC",
+        "all",
+        None,
+        layer_aggregation={"method": "last"},
+        endpoint_options={"indices": (0,)},
+    )
+
+    with pytest.raises(ValueError, match="conflict with runtime arguments"):
+        eqft.extract_features(
+            model,
+            jnp.ones((3, 16, 16)),
+            feature_spec=spec,
+            key=key,
+            indices=(1,),
+        )
 
 
 def test_dinov2_explicit_spec_does_not_fall_back_from_invalid_endpoint(

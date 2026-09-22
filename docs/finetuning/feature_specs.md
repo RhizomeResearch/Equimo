@@ -60,9 +60,19 @@ third-party models.
 - `normalize` applies `l2` or `standardize` only across the resolved feature
   axis. Sensitive arithmetic uses float32 locally and returns the endpoint
   dtype.
-- `layer_aggregation` accepts `{"method": "last"}`, `"mean"`, or `"concat"`.
+- `layer_aggregation` accepts `{"method": "last"}`, `"mean"`, `"concat"`, or
+  `"separate"`.
   It applies to a non-empty tuple/list returned by the endpoint before token
   selection and pooling. Concatenation uses the resolved feature axis.
+- `endpoint_options` serializes intermediate endpoint arguments. The portable
+  options are `indices`, `n_last_blocks`, and `apply_norm`; layer selectors are
+  mutually exclusive. A runtime argument cannot override a serialized option.
+- `layer_aggregation={"method": "separate"}` applies selection, pooling, and
+  feature normalization independently to every retained endpoint level.
+- `return_metadata=True` returns a `FeatureResult`. Its `features` member holds
+  the usual array or tuple of arrays, and `levels` records immutable layer,
+  width, prefix-token, normalization, positional, input, padding, and patch-grid
+  metadata. The default remains the existing array return.
 - `preprocessing_fingerprint`, when present, must match either
   `observed_preprocessing_fingerprint=` at extraction time or a
   `model.preprocessing_fingerprint` attribute. Missing and mismatched observed
@@ -100,6 +110,14 @@ their registered family implementation; configurations that remove a class
 token, such as SigLIP-style ViTs, support patch selection but reject `cls`
 selection explicitly.
 
+Spatial token models that support metadata publish
+`feature_metadata(*args, endpoint=..., endpoint_options=...)`. The hook must
+return exact input, patch, padding, grid, prefix ordering, endpoint
+normalization, and positional configuration. Token extraction rejects a
+spatial metadata request when this contract is absent. Native `BCHW` endpoints
+derive their grid directly from the declared spatial axes. A patch grid is
+always row-major and is never recovered from the square root of a token count.
+
 Third-party integrations without a stable contract can omit `feature_spec` and
 continue to use the compatibility heuristics. Once they publish a spec, invalid
 declarations are not silently redirected to that fallback.
@@ -128,13 +146,47 @@ final_patch_mean = eqft.FeatureSpec(
 )
 ```
 
+For DINOv3-S/16 classification, the explicit default recipe uses the final
+normalized class token and therefore returns 384 features. Pooling stays a
+caller-visible choice across models:
+
+```python
+final_cls = eqft.FeatureSpec(
+    "forward_features", "BNC", "cls", None
+)
+final_patches = eqft.FeatureSpec(
+    "forward_features", "BNC", "patches", None, return_metadata=True
+)
+patch_mean = eqft.FeatureSpec(
+    "forward_features", "BNC", "patches", "mean_patch"
+)
+cls_and_patch_mean = eqft.FeatureSpec(
+    "forward_features", "BNC", "all", "cls_patch_mean"
+)
+intermediate_levels = eqft.FeatureSpec(
+    "intermediate_features",
+    "BNC",
+    "all",
+    None,
+    layer_aggregation={"method": "separate"},
+    endpoint_options={"indices": (2, 5, 8, 11), "apply_norm": True},
+    return_metadata=True,
+)
+```
+
+`apply_norm=True` applies the encoder's final normalization separately at each
+selected intermediate level. `normalize="l2"` or `"standardize"` remains a
+subsequent feature operation, and both stages are recorded independently.
+
 `forward_features` publishes normalized patch tokens after removing the base
 class/register prefix. Prompt-tuned wrappers expose their own endpoint contract;
 the example above characterizes the unwrapped DINOv2 endpoint.
 
 ## Serialization
 
-`FineTuneBundle.feature_spec` uses a versioned, strict codec. Pass
+`FineTuneBundle.feature_spec` uses a versioned, strict codec. Version 2 stores
+endpoint options and metadata-return behavior; version 1 remains readable with
+their disabled defaults. Pass
 `feature_spec=` to `save_delta` to store the executable contract and bind its
 preprocessing fingerprint into bundle lineage. Unknown codec versions, fields,
 layouts, selections, pools, normalizations, and aggregation values are rejected

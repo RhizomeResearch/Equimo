@@ -276,6 +276,15 @@ FEATURE_SPECS = (
         None,
         layer_aggregation={"method": "concat"},
     ),
+    eqft.FeatureSpec(
+        "intermediate_features",
+        "BNC",
+        "patches",
+        None,
+        layer_aggregation={"method": "separate"},
+        endpoint_options={"indices": (2, 5, 8, 11), "apply_norm": True},
+        return_metadata=True,
+    ),
 )
 
 
@@ -309,6 +318,26 @@ def test_feature_spec_codec_rejects_unknown_versions_fields_and_values(
 
     with pytest.raises(eqft.FineTuneBundleError, match=message):
         serialization._feature_spec_from_payload(payload)
+
+
+def test_feature_spec_codec_reads_version_1_with_new_defaults():
+    original = eqft.FeatureSpec(
+        "features",
+        "BNC",
+        "patches",
+        "mean_patch",
+        preprocessing_fingerprint="sha256:legacy",
+    )
+    payload = serialization._feature_spec_to_payload(original)
+    payload["version"] = 1
+    del payload["value"]["endpoint_options"]
+    del payload["value"]["return_metadata"]
+
+    restored = serialization._feature_spec_from_payload(payload)
+
+    assert restored == original
+    assert restored.endpoint_options is None
+    assert restored.return_metadata is False
 
 
 def test_save_delta_carries_feature_spec_and_preprocessing_lineage(

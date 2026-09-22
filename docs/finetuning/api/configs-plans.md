@@ -90,7 +90,7 @@ Defined in `equimo.finetune.calibration`.
 ## `FeatureSpec`
 
 ```python
-class equimo.finetune.FeatureSpec(endpoint: 'str', output_layout: "Literal['BNC', 'BCHW', 'BTC', 'BCT', 'BC']", token_selection: "Literal['all', 'cls', 'patches', 'frames', 'last_valid', 'custom']", pooling: 'str | None', mask_field: 'str | None' = None, exclude_prompt_tokens: 'bool' = True, normalize: "Literal['none', 'l2', 'standardize']" = 'none', layer_aggregation: 'Mapping[str, Any] | None' = None, preprocessing_fingerprint: 'str | None' = None) -> None
+class equimo.finetune.FeatureSpec(endpoint: 'str', output_layout: "Literal['BNC', 'BCHW', 'BTC', 'BCT', 'BC']", token_selection: "Literal['all', 'cls', 'patches', 'frames', 'last_valid', 'custom']", pooling: 'str | None', mask_field: 'str | None' = None, exclude_prompt_tokens: 'bool' = True, normalize: "Literal['none', 'l2', 'standardize']" = 'none', layer_aggregation: 'Mapping[str, Any] | None' = None, preprocessing_fingerprint: 'str | None' = None, endpoint_options: 'Mapping[str, Any] | None' = None, return_metadata: 'bool' = False) -> None
 ```
 
 Defined in `equimo.finetune.config`.

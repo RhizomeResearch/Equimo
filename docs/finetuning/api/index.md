@@ -2,7 +2,7 @@
 
 # `equimo.finetune` API reference
 
-This reference covers all 268 names exported by `equimo.finetune.__all__`.
+This reference covers all 270 names exported by `equimo.finetune.__all__`.
 Signatures and defaults are generated from the installed source objects.
 See the [fine-tuning overview](../index.md) for task-oriented guides.
 
@@ -16,7 +16,7 @@ Utilities for locating, describing, labeling, and filtering PyTree leaves. (17 s
 
 ## [Heads, pooling, and feature extraction](heads-pooling.md)
 
-Task heads, pooling modules, probes, and feature-extraction helpers. (29 symbols)
+Task heads, pooling modules, probes, and feature-extraction helpers. (31 symbols)
 
 ## [Parameter-efficient fine-tuning](peft.md)
 

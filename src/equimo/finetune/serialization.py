@@ -100,7 +100,7 @@ _FORMAT_VERSION = 1
 _ARRAY_MARKER = "__equimo_finetune_array__"
 _TUPLE_MARKER = "__equimo_finetune_tuple__"
 _FEATURE_SPEC_CODEC = "equimo.finetune.FeatureSpec"
-_FEATURE_SPEC_CODEC_VERSION = 1
+_FEATURE_SPEC_CODEC_VERSION = 2
 _CALIBRATION_FORMAT = "equimo.finetune.calibration"
 _CALIBRATION_FORMAT_VERSION = 1
 _ARCHIVE_MEMBERS = frozenset(("manifest.json", "arrays.eqx"))
@@ -469,6 +469,10 @@ def _feature_spec_to_payload(spec: FeatureSpec | None) -> dict[str, Any] | None:
             if spec.layer_aggregation is None
             else dict(spec.layer_aggregation),
             "preprocessing_fingerprint": spec.preprocessing_fingerprint,
+            "endpoint_options": None
+            if spec.endpoint_options is None
+            else dict(spec.endpoint_options),
+            "return_metadata": spec.return_metadata,
         },
     }
 
@@ -484,15 +488,17 @@ def _feature_spec_from_payload(payload: Any) -> FeatureSpec | None:
         raise FineTuneBundleError(
             f"Unsupported FeatureSpec codec {payload['codec']!r}."
         )
-    if payload["version"] != _FEATURE_SPEC_CODEC_VERSION:
+    version = payload["version"]
+    if version not in {1, _FEATURE_SPEC_CODEC_VERSION}:
         raise FineTuneBundleError(
             "Unsupported FeatureSpec codec version="
-            f"{payload['version']!r}; expected {_FEATURE_SPEC_CODEC_VERSION}."
+            f"{version!r}; expected 1 or {_FEATURE_SPEC_CODEC_VERSION}."
         )
     value = payload["value"]
     if not isinstance(value, dict):
         raise FineTuneBundleError("FeatureSpec codec value must be a dictionary.")
-    expected_fields = {
+    value = cast(dict[str, Any], dict(value))
+    version_1_fields = {
         "endpoint",
         "output_layout",
         "token_selection",
@@ -503,13 +509,19 @@ def _feature_spec_from_payload(payload: Any) -> FeatureSpec | None:
         "layer_aggregation",
         "preprocessing_fingerprint",
     }
+    expected_fields = version_1_fields | (
+        {"endpoint_options", "return_metadata"} if version == 2 else set()
+    )
     unknown = set(value) - expected_fields
     missing = expected_fields - set(value)
     if unknown or missing:
         raise FineTuneBundleError(
-            "FeatureSpec codec fields do not match version 1: "
+            f"FeatureSpec codec fields do not match version {version}: "
             f"missing={sorted(missing)}, unknown={sorted(unknown)}."
         )
+    if version == 1:
+        value["endpoint_options"] = None
+        value["return_metadata"] = False
     try:
         return FeatureSpec(**value)
     except (TypeError, ValueError) as error:

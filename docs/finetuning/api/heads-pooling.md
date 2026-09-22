@@ -18,6 +18,8 @@ Task heads, pooling modules, probes, and feature-extraction helpers.
 - [`DenseFeatureAdapter`](#equimo-finetune-densefeatureadapter)
 - [`extract_features`](#equimo-finetune-extract-features)
 - [`FeatureExtractor`](#equimo-finetune-featureextractor)
+- [`FeatureLevelMetadata`](#equimo-finetune-featurelevelmetadata)
+- [`FeatureResult`](#equimo-finetune-featureresult)
 - [`GeMPool`](#equimo-finetune-gempool)
 - [`GlobalAveragePool`](#equimo-finetune-globalaveragepool)
 - [`IdentityHead`](#equimo-finetune-identityhead)
@@ -165,6 +167,30 @@ class equimo.finetune.FeatureExtractor(model: 'PyTree', *, pool: 'PoolName | eqx
 Defined in `equimo.finetune.feature_extraction`.
 
 > Wrap a backbone and return pooled features.
+
+<!-- equimo.finetune:FeatureLevelMetadata -->
+<a id="equimo-finetune-featurelevelmetadata"></a>
+## `FeatureLevelMetadata`
+
+```python
+class equimo.finetune.FeatureLevelMetadata(layer_index: 'int | None', feature_width: 'int', source_layout: 'str', endpoint_normalization: 'str', post_normalization: 'str', prefix_tokens: 'tuple[str, ...]' = (), positional_configuration: 'tuple[tuple[str, str], ...]' = (), input_size: 'tuple[int, int] | None' = None, patch_size: 'tuple[int, int] | None' = None, patch_padding: 'tuple[int, int] | None' = None, grid_size: 'tuple[int, int] | None' = None, flatten_order: "Literal['row-major'] | None" = None) -> None
+```
+
+Defined in `equimo.finetune.feature_extraction`.
+
+> Immutable geometry and provenance for one extracted feature level.
+
+<!-- equimo.finetune:FeatureResult -->
+<a id="equimo-finetune-featureresult"></a>
+## `FeatureResult`
+
+```python
+class equimo.finetune.FeatureResult(features: 'Any', levels: 'tuple[FeatureLevelMetadata, ...]') -> None
+```
+
+Defined in `equimo.finetune.feature_extraction`.
+
+> Extracted arrays paired with static per-level feature metadata.
 
 <!-- equimo.finetune:GeMPool -->
 <a id="equimo-finetune-gempool"></a>

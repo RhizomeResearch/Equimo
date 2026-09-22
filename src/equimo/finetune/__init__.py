@@ -276,6 +276,8 @@ from .surgery import (
 from .feature_extraction import (
     AttentionPoolingProbe,
     FeatureExtractor,
+    FeatureLevelMetadata,
+    FeatureResult,
     LinearProbe,
     extract_features,
     make_attention_pool_input_from_forward_features,
@@ -330,6 +332,8 @@ __all__ = (
     "EVAInitializerConfig",
     "FeatureSpec",
     "FeatureExtractor",
+    "FeatureLevelMetadata",
+    "FeatureResult",
     "FeatureDistillationConfig",
     "FineTuneStage",
     "FisherMergeConfig",

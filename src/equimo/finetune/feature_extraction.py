@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 import inspect
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import equinox as eqx
 import jax
@@ -27,6 +27,31 @@ from .pooling import (
     pool_features,
 )
 from .surgery import replace_head
+
+
+@dataclass(frozen=True)
+class FeatureLevelMetadata:
+    """Immutable geometry and provenance for one extracted feature level."""
+
+    layer_index: int | None
+    feature_width: int
+    source_layout: str
+    endpoint_normalization: str
+    post_normalization: str
+    prefix_tokens: tuple[str, ...] = ()
+    positional_configuration: tuple[tuple[str, str], ...] = ()
+    input_size: tuple[int, int] | None = None
+    patch_size: tuple[int, int] | None = None
+    patch_padding: tuple[int, int] | None = None
+    grid_size: tuple[int, int] | None = None
+    flatten_order: Literal["row-major"] | None = None
+
+
+class FeatureResult(eqx.Module):
+    """Extracted arrays paired with static per-level feature metadata."""
+
+    features: Any
+    levels: tuple[FeatureLevelMetadata, ...] = eqx.field(static=True)
 
 
 @dataclass(frozen=True)
@@ -123,6 +148,8 @@ class LinearProbe(eqx.Module):
             inference=inference,
             **kwargs,
         )
+        if isinstance(features, FeatureResult):
+            features = features.features
         return _call_head(self.head, features, key=key, inference=inference)
 
 
@@ -308,23 +335,72 @@ def _extract_with_policy(
     key: jax.Array | None,
     inference: bool | None,
     observed_preprocessing_fingerprint: str | None,
-) -> jax.Array:
+) -> jax.Array | tuple[jax.Array, ...] | FeatureResult:
     _check_preprocessing_fingerprint(
         model,
         policy.spec.preprocessing_fingerprint,
         observed_preprocessing_fingerprint,
     )
     endpoint = _resolve_feature_endpoint(model, policy.spec.endpoint)
-    mask = _resolve_spec_mask(endpoint, args, kwargs, policy.spec.mask_field)
+    endpoint_kwargs = _merge_endpoint_options(policy.spec, kwargs)
+    mask = _resolve_spec_mask(endpoint, args, endpoint_kwargs, policy.spec.mask_field)
     features = _call_with_optional_key(
         endpoint,
         *args,
         key=key,
         inference=inference,
-        **kwargs,
+        **endpoint_kwargs,
     )
+    raw_features = features
     features = _aggregate_feature_layers(features, policy)
-    return _apply_feature_policy(model, features, mask, policy, key=key)
+    if _keeps_separate_levels(policy.spec):
+        levels = cast(tuple[jax.Array, ...], features)
+        level_keys = (
+            (None,) * len(levels) if key is None else tuple(jr.split(key, len(levels)))
+        )
+        processed_with_axes = tuple(
+            _apply_feature_policy(model, level, mask, policy, key=level_key)
+            for level, level_key in zip(levels, level_keys, strict=True)
+        )
+        processed = tuple(item[0] for item in processed_with_axes)
+        feature_axes = tuple(item[1] for item in processed_with_axes)
+    else:
+        result, feature_axis = _apply_feature_policy(
+            model, features, mask, policy, key=key
+        )
+        processed = result
+        feature_axes = (feature_axis,)
+
+    if not policy.spec.return_metadata:
+        return processed
+    metadata = _feature_level_metadata(
+        model,
+        raw_features,
+        processed,
+        feature_axes,
+        policy,
+        args,
+        dict(policy.spec.endpoint_options or {}),
+    )
+    return cast(FeatureResult, FeatureResult(processed, metadata))
+
+
+def _merge_endpoint_options(spec: FeatureSpec, kwargs: dict) -> dict:
+    options = dict(spec.endpoint_options or {})
+    conflicts = set(options) & set(kwargs)
+    if conflicts:
+        raise ValueError(
+            "FeatureSpec endpoint options conflict with runtime arguments: "
+            f"{sorted(conflicts)}."
+        )
+    return {**kwargs, **options}
+
+
+def _keeps_separate_levels(spec: FeatureSpec) -> bool:
+    return (
+        spec.layer_aggregation is not None
+        and spec.layer_aggregation["method"] == "separate"
+    )
 
 
 def _check_preprocessing_fingerprint(
@@ -414,6 +490,8 @@ def _aggregate_feature_layers(features: Any, policy: _FeaturePolicy) -> Any:
     if any(layer.ndim != first.ndim for layer in layers[1:]):
         raise ValueError("FeatureSpec layer aggregation requires equal layer ranks.")
     method = aggregation["method"]
+    if method == "separate":
+        return layers
     if method == "last":
         return layers[-1]
     if method == "mean":
@@ -440,7 +518,7 @@ def _apply_feature_policy(
     policy: _FeaturePolicy,
     *,
     key: jax.Array | None,
-) -> jax.Array:
+) -> tuple[jax.Array, int]:
     pooling = "none" if policy.spec.pooling is None else policy.spec.pooling
     if pooling == "native":
         carrier = (
@@ -458,7 +536,11 @@ def _apply_feature_policy(
             sequence_axes,
             exclude_prompt_tokens=policy.spec.exclude_prompt_tokens,
         )
-        return _normalize_features(result, result.ndim - 1, policy.spec.normalize)
+        feature_axis = result.ndim - 1
+        return (
+            _normalize_features(result, feature_axis, policy.spec.normalize),
+            feature_axis,
+        )
 
     selected_already = False
     carrier = features
@@ -502,7 +584,187 @@ def _apply_feature_policy(
         exclude_prompt_tokens=policy.spec.exclude_prompt_tokens,
         key=key,
     )
-    return _normalize_features(result, feature_axis, policy.spec.normalize)
+    return _normalize_features(
+        result, feature_axis, policy.spec.normalize
+    ), feature_axis
+
+
+def _feature_level_metadata(
+    model: PyTree,
+    raw_features: Any,
+    processed: jax.Array | tuple[jax.Array, ...],
+    feature_axes: tuple[int, ...],
+    policy: _FeaturePolicy,
+    args: tuple,
+    endpoint_kwargs: dict,
+) -> tuple[FeatureLevelMetadata, ...]:
+    contract = _model_feature_metadata(
+        model,
+        args,
+        endpoint=policy.spec.endpoint,
+        endpoint_options=endpoint_kwargs,
+    )
+    requires_spatial = policy.spec.token_selection == "patches" or (
+        policy.spec.pooling in {"mean_patch", "cls_patch_mean"}
+    )
+    if contract is None and requires_spatial and policy.spec.output_layout != "BCHW":
+        raise ValueError(
+            "FeatureSpec requested spatial token metadata, but the model does "
+            "not publish feature_metadata(...)."
+        )
+
+    raw_levels = (
+        tuple(raw_features)
+        if isinstance(raw_features, (tuple, list))
+        else (raw_features,)
+    )
+    outputs = processed if isinstance(processed, tuple) else (processed,)
+    layer_indices = _metadata_layer_indices(contract, policy, len(outputs))
+    common = {} if contract is None else contract
+    fallback_input_size = (
+        _input_spatial_size(args) if policy.spec.output_layout == "BCHW" else None
+    )
+    prefix_tokens = tuple(common.get("prefix_tokens", ()))
+    grid_size = common.get("grid_size")
+    if grid_size is not None:
+        grid_size = tuple(grid_size)
+        _validate_token_grid(
+            raw_levels,
+            policy,
+            grid_size,
+            prefix_tokens,
+            bool(common.get("tokens_include_prefix", True)),
+        )
+
+    metadata = []
+    for position, (output, feature_axis, layer_index) in enumerate(
+        zip(outputs, feature_axes, layer_indices, strict=True)
+    ):
+        level_grid = grid_size
+        if level_grid is None and policy.spec.output_layout == "BCHW":
+            raw_level = raw_levels[min(position, len(raw_levels) - 1)]
+            level_grid = _dense_grid_size(raw_level, policy)
+        metadata.append(
+            FeatureLevelMetadata(
+                layer_index=layer_index,
+                feature_width=int(output.shape[feature_axis]),
+                source_layout=policy.spec.output_layout,
+                endpoint_normalization=str(
+                    common.get("endpoint_normalization", "none")
+                ),
+                post_normalization=policy.spec.normalize,
+                prefix_tokens=prefix_tokens,
+                positional_configuration=tuple(
+                    tuple(item) for item in common.get("positional_configuration", ())
+                ),
+                input_size=_optional_pair(
+                    common.get("input_size", fallback_input_size)
+                ),
+                patch_size=_optional_pair(common.get("patch_size")),
+                patch_padding=_optional_pair(common.get("patch_padding")),
+                grid_size=_optional_pair(level_grid),
+                flatten_order="row-major" if level_grid is not None else None,
+            )
+        )
+    return tuple(metadata)
+
+
+def _model_feature_metadata(
+    model: PyTree,
+    args: tuple,
+    *,
+    endpoint: str,
+    endpoint_options: dict,
+) -> dict[str, Any] | None:
+    hook = getattr(model, "feature_metadata", None)
+    if hook is None:
+        return None
+    metadata = hook(
+        *args,
+        endpoint=endpoint,
+        endpoint_options=endpoint_options,
+    )
+    if not isinstance(metadata, Mapping):
+        raise ValueError("model.feature_metadata(...) must return a mapping.")
+    return dict(metadata)
+
+
+def _metadata_layer_indices(
+    contract: dict[str, Any] | None,
+    policy: _FeaturePolicy,
+    output_count: int,
+) -> tuple[int | None, ...]:
+    indices = () if contract is None else tuple(contract.get("layer_indices", ()))
+    aggregation = policy.spec.layer_aggregation
+    method = None if aggregation is None else aggregation["method"]
+    if method == "separate":
+        if len(indices) != output_count:
+            raise ValueError(
+                "Feature metadata layer indices do not match the separate "
+                f"feature levels: expected {output_count}, got {len(indices)}."
+            )
+        return tuple(int(index) for index in indices)
+    if method == "last" and indices:
+        return (int(indices[-1]),)
+    return (None,) * output_count
+
+
+def _validate_token_grid(
+    raw_levels: tuple[Any, ...],
+    policy: _FeaturePolicy,
+    grid_size: tuple[int, int],
+    prefix_tokens: tuple[str, ...],
+    tokens_include_prefix: bool,
+) -> None:
+    expected = grid_size[0] * grid_size[1]
+    for level in raw_levels:
+        if isinstance(level, dict):
+            patches = level.get("x_norm_patchtokens")
+            if not eqx.is_array(patches):
+                continue
+            observed = int(patches.shape[-2])
+        elif eqx.is_array(level) and policy.spec.output_layout in {"BNC", "BTC", "BCT"}:
+            _, sequence_axes = policy.axes_for(level.ndim)
+            if len(sequence_axes) != 1:
+                continue
+            observed = int(level.shape[sequence_axes[0]])
+            if tokens_include_prefix:
+                observed -= len(prefix_tokens)
+        else:
+            continue
+        if observed != expected:
+            raise ValueError(
+                "Feature token count does not match the declared patch grid: "
+                f"observed {observed}, expected {grid_size[0]} * {grid_size[1]} "
+                f"= {expected}."
+            )
+
+
+def _dense_grid_size(features: Any, policy: _FeaturePolicy) -> tuple[int, int]:
+    if not eqx.is_array(features):
+        raise ValueError("Dense feature metadata requires an array endpoint.")
+    _, spatial_axes = policy.axes_for(features.ndim)
+    if len(spatial_axes) != 2:
+        raise ValueError("Dense feature metadata requires exactly two spatial axes.")
+    return (
+        int(features.shape[spatial_axes[0]]),
+        int(features.shape[spatial_axes[1]]),
+    )
+
+
+def _optional_pair(value: Any) -> tuple[int, int] | None:
+    if value is None:
+        return None
+    if not isinstance(value, (tuple, list)) or len(value) != 2:
+        raise ValueError("Feature metadata geometry fields must be integer pairs.")
+    pair = tuple(int(item) for item in value)
+    return cast(tuple[int, int], pair)
+
+
+def _input_spatial_size(args: tuple) -> tuple[int, int] | None:
+    if not args or not eqx.is_array(args[0]) or args[0].ndim < 2:
+        return None
+    return int(args[0].shape[-2]), int(args[0].shape[-1])
 
 
 def _feature_dict_carrier(features: dict[str, Any]) -> jax.Array:

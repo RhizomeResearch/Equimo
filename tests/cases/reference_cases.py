@@ -11,6 +11,7 @@ import numpy as np
 import equimo.audio.models as audio_models
 import equimo.tabular.models as tabular_models
 import equimo.vision.models as vision_models
+import equimo.finetune as eqft
 from equimo.timeseries.models import t0_alpha
 
 
@@ -74,12 +75,19 @@ def _dinov2(reference):
 
 def _dinov3(reference):
     model = vision_models.dinov3_vits16_pretrain_lvd1689m(pretrained=True)
-    output = model.forward_features(
+    cls_token = eqft.extract_features(
+        model,
         jnp.asarray(reference["img"]),
+        feature_spec=eqft.FeatureSpec(
+            endpoint="forward_features",
+            output_layout="BNC",
+            token_selection="cls",
+            pooling=None,
+        ),
         key=jr.PRNGKey(42),
         inference=True,
     )
-    return {"cls_token": np.asarray(output["x_norm_cls_token"])}
+    return {"cls_token": np.asarray(cls_token)}
 
 
 def _eupe(reference):
