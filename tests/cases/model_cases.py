@@ -19,6 +19,7 @@ from equimo.vision.models import (
     AttNet,
     ConvNeXt,
     DEQ,
+    EoMT,
     FasterViT,
     IFormer,
     LowFormer,
@@ -118,6 +119,35 @@ def _build_vit(key: jax.Array) -> ModelInvocation:
             "mean_patch",
         ),
         expected=jnp.mean(native["x_norm_patchtokens"], axis=0),
+        key=model_key,
+    )
+
+
+def _build_eomt(key: jax.Array) -> ModelInvocation:
+    backbone_key, model_key, sample_key = jr.split(key, 3)
+    backbone = VisionTransformer(
+        img_size=16,
+        in_channels=3,
+        dim=8,
+        patch_size=8,
+        num_heads=2,
+        depths=[2],
+        reg_tokens=1,
+        num_classes=0,
+        dynamic_img_size=True,
+        key=backbone_key,
+    )
+    model = EoMT(
+        backbone, 3, num_queries=2, num_blocks=1, key=model_key, masked_attention=False
+    )
+    sample = jr.normal(sample_key, (3, 16, 16))
+    tokens = model.features(sample, key=model_key, inference=True)
+    return ModelInvocation(
+        model=model,
+        args=(sample,),
+        kwargs={},
+        spec=eqft.FeatureSpec("features", "BNC", "all", "global_avg"),
+        expected=jnp.mean(tokens, axis=0),
         key=model_key,
     )
 
@@ -569,6 +599,7 @@ MODEL_CASES = (
     ModelCase("vision", "vision_parcae", _build_vision_parcae),
     ModelCase("vision", "vit", _build_vit),
     ModelCase("vision", "vssd", _build_vssd),
+    ModelCase("vision", "eomt", _build_eomt),
 )
 
 

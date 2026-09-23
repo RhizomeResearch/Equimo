@@ -75,6 +75,13 @@ def _parcae(**overrides):
 
 BUILDERS = {
     "vit_tiny": _vit,
+    "eomt_tiny": lambda: em.EoMT(
+        _vit(num_classes=0, dynamic_img_size=True),
+        num_classes=3,
+        num_queries=2,
+        num_blocks=1,
+        key=KEY,
+    ),
     "vit_tiny_rope_mode": lambda: _vit(
         num_heads=2,
         use_local_pos_embed=True,

@@ -15,6 +15,10 @@
     "model_class": "equimo.vision.models.deq.DEQ",
     "model_signature": "sha256:3d902e4d8c5660671b6ed8c117596509c0927234e596c38bd1d0fb008bea5a43"
   },
+  "eomt_tiny": {
+    "model_class": "equimo.vision.models.eomt.EoMT",
+    "model_signature": "sha256:210b329caa5158298ad411ae237fcac3c299a9587824e3cc09a4015a98cb6f06"
+  },
   "fastervit_tiny": {
     "model_class": "equimo.vision.models.fastervit.FasterViT",
     "model_signature": "sha256:7170414cba7da2700948504890348b0aa936151545797f9b943cc4958f122798"

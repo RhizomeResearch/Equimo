@@ -96,6 +96,7 @@ from equimo.core.layers.generic import (
     make_transformer_block_chunk,
 )
 from equimo.core.layers.norm import get_norm
+from equimo.core.layers.rotary import RotaryFactors
 from equimo.vision.layers.patch import PatchEmbedding
 from equimo.vision.models._embedding import build_local_rope, build_token_embeddings
 from equimo.vision.layers.posemb import LearnedPosEmbed, CompositeVisionRoPE
@@ -557,7 +558,7 @@ class VisionTransformer(eqx.Module):
             x = jnp.where(mask, x, value.astype(x.dtype))
 
         H = W = self.embed_size
-        if self.local_pos_embed is not None and self.dynamic_img_size:
+        if self.dynamic_img_size:
             _, H, W = x.shape
 
         if self.global_pos_embed is not None:
@@ -579,6 +580,44 @@ class VisionTransformer(eqx.Module):
                 H=H, W=W, inference=inference, key=key
             )
         return x, H, W, rotary
+
+    def prepare_tokens(
+        self,
+        x: Float[Array, "channels height width"],
+        *,
+        key: PRNGKeyArray,
+        inference: bool,
+    ) -> tuple[jax.Array, int, int, RotaryFactors | None]:
+        """Prepare image tokens and spatial rotary factors for block execution.
+
+        The token order is class, registers, patches. The returned rotary
+        factors follow that same order and may be extended with query rows.
+        """
+        tokens, height, width, rotary = self._prepare_tokens(
+            x, key=key, mask=None, inference=inference
+        )
+        if rotary is None and self.local_pos_embed is not None:
+            rotary = self.local_pos_embed.get_factors(
+                H=height, W=width, inference=inference, key=key
+            )
+        return tokens, height, width, rotary
+
+    @property
+    def num_blocks(self) -> int:
+        """Number of transformer blocks in execution order."""
+        return self._num_block_layers()
+
+    def block_at(self, index: int) -> eqx.Module:
+        """Return one logical transformer block, including chunked models."""
+        if not 0 <= index < self.num_blocks:
+            raise IndexError(f"Transformer block index {index} is out of range.")
+        for chunk in self.blocks:
+            blocks = chunk.blocks or ()
+            size = len(blocks)
+            if index < size:
+                return blocks[index]
+            index -= size
+        raise AssertionError("Block inventory disagrees with num_blocks.")
 
     def _run_blocks(
         self,

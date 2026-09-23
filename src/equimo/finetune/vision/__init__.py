@@ -1,6 +1,7 @@
 """Vision fine-tuning probes and dense-feature utilities."""
 
 from . import dense
+from .eomt import eomt_full_finetune
 from .dense import (
     DenseProbe,
     DenseVisionConfig,
@@ -16,4 +17,5 @@ __all__ = (
     "dense_distillation_config",
     "dense_feature_adapter",
     "make_dense_probe",
+    "eomt_full_finetune",
 )

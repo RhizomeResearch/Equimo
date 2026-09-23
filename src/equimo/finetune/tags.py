@@ -116,6 +116,8 @@ def canonical_tags_for_path(path: Path, leaf: Any | None = None) -> frozenset[st
         tags.update(("embedding", "embedding.mask_token"))
     if "token_embed" in parts or "token_embedding" in parts:
         tags.update(("embedding", "embedding.token"))
+    if "queries" in parts:
+        tags.update(("embedding", "embedding.token"))
 
     depth = infer_depth(path)
     if depth is not None:
@@ -130,6 +132,8 @@ def canonical_tags_for_path(path: Path, leaf: Any | None = None) -> frozenset[st
 
     if "head" in parts or "classifier" in parts:
         tags.update(("head", "head.classifier"))
+    if any(part in parts for part in ("class_head", "mask_head", "upscale")):
+        tags.add("head")
     if "backbone" in parts:
         tags.add("backbone")
     if "projection_head" in parts:

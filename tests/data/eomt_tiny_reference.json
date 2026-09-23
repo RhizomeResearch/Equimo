@@ -1,0 +1,15 @@
+{
+  "author_repository": "https://github.com/tue-mps/eomt",
+  "author_revision": "7bd19ddd621c5c6adedcd260458a34783cd4a45f",
+  "fixture": "tiny timm ViT with pinned author EoMT forward",
+  "torch": "2.11.0+cu130",
+  "timm": "1.0.26",
+  "image_shape": [
+    3,
+    16,
+    16
+  ],
+  "query_count": 2,
+  "query_blocks": 1,
+  "classes": 3
+}
