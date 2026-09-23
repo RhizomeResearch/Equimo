@@ -31,6 +31,25 @@ guarantee that the terms are still current.
 | tips | `tips_` | 12 | Creative Commons Attribution 4.0 International | [snapshot](tips-CC-BY-4.0.txt) | [TIPS](https://github.com/google-deepmind/tips) | [upstream license statement](https://github.com/google-deepmind/tips/blob/main/README.md#license-and-disclaimer) | 2026-08-21 |
 <!-- pretrained-license-table:end -->
 
+## LingBot-Vision
+
+Equimo provides `lingbot_vits16`, `lingbot_vitb16`, `lingbot_vitl16`, and
+`lingbot_vitg16` constructors and a checkpoint converter. The upstream
+[Small](https://huggingface.co/robbyant/lingbot-vision-vit-small),
+[Base](https://huggingface.co/robbyant/lingbot-vision-vit-base),
+[Large](https://huggingface.co/robbyant/lingbot-vision-vit-large), and
+[Giant](https://huggingface.co/robbyant/lingbot-vision-vit-giant) model cards
+each declare Apache 2.0 for their weights. The [bundled snapshot](lingbot-vision-Apache-2.0.txt)
+is the upstream LingBot-Vision [LICENSE](https://github.com/robbyant/lingbot-vision/blob/151e46321bae4399f8568829f190c7bdec216b49/LICENSE)
+at the source revision used by `models/lingbot.py`. The [current upstream
+license](https://github.com/robbyant/lingbot-vision/blob/main/LICENSE) and model
+cards were checked on 2026-09-23.
+
+Equimo converts the upstream parameters to its JAX/Equinox layout and archive
+format. The converted archives remain subject to the upstream Apache 2.0 terms.
+Check the current upstream license and the relevant model card before use or
+redistribution.
+
 For SigLIP 2, the model card declares `apache-2.0`; its bundled legal text was
 copied from the Apache-2.0-licensed
 [`big_vision` project](https://github.com/google-research/big_vision/blob/main/LICENSE),

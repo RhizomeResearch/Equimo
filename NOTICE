@@ -23,6 +23,20 @@ Source: https://github.com/tensorflow/models/blob/b41a080d61cd4298fea9894804e965
 Equimo contributors modified the upstream code's formatting and type
 annotations.
 
+LingBot-Vision
+-------------
+
+The LingBot-Vision model configurations and checkpoint converter in
+src/equimo/vision/models/vit.py and models/lingbot.py implement the upstream
+architecture and checkpoint mapping in JAX/Equinox.
+
+Copyright 2026 LingBot-Vision Contributors
+Source: https://github.com/robbyant/lingbot-vision
+License: Apache-2.0; see LICENSES/pretrained/lingbot-vision-Apache-2.0.txt.
+
+Equimo's converted archives retain the upstream checkpoint license; see
+LICENSES/pretrained/README.md for the model cards and modification notice.
+
 This distribution includes a JAX/Equinox adaptation of portions of T0
 (tfc-t0), modified by Equimo contributors. The affected implementation is
 under src/equimo/timeseries and models/t0.py.

@@ -350,6 +350,8 @@ model = em.dinov2_vitb14(pretrained=True)
 LingBot-Vision also provides `lingbot_vit{s,b,l,g}16` constructors. They start
 without weights; use `models/lingbot.py` to convert a pinned source checkpoint,
 then load the local archive with `equimo.serialization.load_weights(path=...)`.
+The source checkpoints and converted weights are subject to the
+[LingBot-Vision license](LICENSES/pretrained/README.md#lingbot-vision).
 
 > `LowFormer` requires `attention_type` (`"softmax"` or `"sigmoid"`) which has
 > no sensible default and must be supplied by the caller.

@@ -37,6 +37,19 @@ The family prefixes and counts cover the 126 pretrained identifiers currently
 registered by Equimo. Existing checkpoint paths remain under
 `models/default/<family>/`.
 
+## LingBot-Vision
+
+The upstream [Small](https://huggingface.co/robbyant/lingbot-vision-vit-small),
+[Base](https://huggingface.co/robbyant/lingbot-vision-vit-base),
+[Large](https://huggingface.co/robbyant/lingbot-vision-vit-large), and
+[Giant](https://huggingface.co/robbyant/lingbot-vision-vit-giant) checkpoint
+cards declare Apache 2.0. The [bundled license snapshot](LICENSES/pretrained/lingbot-vision-Apache-2.0.txt)
+comes from the upstream [LingBot-Vision source](https://github.com/robbyant/lingbot-vision/blob/151e46321bae4399f8568829f190c7bdec216b49/LICENSE).
+Equimo converts the checkpoint parameters to its JAX/Equinox layout and archive
+format; the converted archives retain the upstream terms. The [current upstream
+license](https://github.com/robbyant/lingbot-vision/blob/main/LICENSE) and model
+cards were checked on 2026-09-23.
+
 ## ConvNeXt conversion validation
 
 The 40 ConvNeXt V1 and 26 ConvNeXt V2 archives were converted from pinned timm

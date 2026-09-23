@@ -222,6 +222,7 @@ def test_hub_markdown_relative_links_target_published_files():
         "NOTICE",
         "convnext-conversion.json",
         "LICENSES/pretrained/README.md",
+        "LICENSES/pretrained/lingbot-vision-Apache-2.0.txt",
         *(f"LICENSES/pretrained/{name}" for name in EXPECTED_SNAPSHOTS.values()),
     }
 

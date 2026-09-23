@@ -44,6 +44,18 @@ The T0-alpha checkpoint is Copyright 2026 The Forecasting Company and is
 provided under the Apache License 2.0. Equimo converted its parameters to the
 JAX/Equinox layout and archive format.
 
+LingBot-Vision
+-------------
+
+Copyright 2026 LingBot-Vision Contributors
+Source: https://github.com/robbyant/lingbot-vision
+License: Apache-2.0; see LICENSES/pretrained/lingbot-vision-Apache-2.0.txt.
+
+Equimo converts the upstream Small, Base, Large, and Giant checkpoint
+parameters to its JAX/Equinox layout and archive format. The converted archives
+retain the upstream checkpoint license. No endorsement by the upstream authors
+is implied.
+
 Other converted checkpoints
 ---------------------------
 
