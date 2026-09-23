@@ -83,6 +83,13 @@ PRETRAINED_PATH_CASES = (
         None,
     ),
     PretrainedPathCase(
+        "lingbot",
+        "author-checkpoint",
+        "lingbot_vits16",
+        vision_models.lingbot_vits16,
+        None,  # Covered by the dedicated LingBot-Vision reference test.
+    ),
+    PretrainedPathCase(
         "siglip2",
         "huggingface-vit",
         "siglip2_vitb16_256",
@@ -134,6 +141,7 @@ PRETRAINED_FAMILY_PREFIXES = {
     "dinov2": "dinov2_",
     "dinov3": "dinov3_",
     "eupe": "eupe_",
+    "lingbot": "lingbot_",
     "siglip2": "siglip2_",
     "t0": "t0_",
     "tabpfn": "tabpfn_",

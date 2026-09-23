@@ -14,8 +14,7 @@ Equimo source-code license does not replace or override those model licenses.
 > link and check the latest version. If you find an outdated license here,
 > please open an [issue or pull request](https://github.com/clementpoiret/equimo/issues).
 
-The checked date for each family is listed below; ConvNeXt entries were added
-on **2026-09-05**.
+The checked date for each family is listed below.
 See the repository [NOTICE](NOTICE) for attribution and conversion notices.
 
 <!-- pretrained-license-table:begin -->
@@ -27,13 +26,14 @@ See the repository [NOTICE](NOTICE) for attribution and conversion notices.
 | dinov2 | `dinov2_` | 8 | Apache 2.0 | [snapshot](LICENSES/pretrained/dinov2-Apache-2.0.txt) | [DINOv2](https://github.com/facebookresearch/dinov2) | [upstream license](https://github.com/facebookresearch/dinov2/blob/main/LICENSE) | 2026-08-21 |
 | dinov3 | `dinov3_` | 8 | DINOv3 License | [snapshot](LICENSES/pretrained/dinov3-License.md) | [DINOv3](https://github.com/facebookresearch/dinov3) | [upstream license](https://github.com/facebookresearch/dinov3/blob/main/LICENSE.md) | 2026-08-21 |
 | eupe | `eupe_` | 6 | FAIR Noncommercial Research License v1 | [snapshot](LICENSES/pretrained/eupe-FAIR-Noncommercial-Research-License.md) | [EUPE](https://github.com/facebookresearch/EUPE) | [upstream license](https://github.com/facebookresearch/EUPE/blob/main/LICENSE.md) | 2026-08-21 |
+| lingbot | `lingbot_` | 4 | Apache 2.0 | [snapshot](LICENSES/pretrained/lingbot-vision-Apache-2.0.txt) | [LingBot-Vision checkpoints](https://huggingface.co/collections/robbyant/lingbot-vision) | [upstream license](https://github.com/robbyant/lingbot-vision/blob/main/LICENSE) | 2026-09-23 |
 | siglip2 | `siglip2_` | 15 | Apache 2.0 | [snapshot](LICENSES/pretrained/siglip2-Apache-2.0.txt) | [SigLIP 2 model](https://huggingface.co/google/siglip2-base-patch16-256) | [current license declaration](https://huggingface.co/google/siglip2-base-patch16-256) | 2026-08-21 |
 | t0 | `t0_` | 1 | Apache 2.0 | [snapshot](LICENSES/pretrained/t0-alpha-Apache-2.0.txt) | [T0-alpha model](https://huggingface.co/theforecastingcompany/t0-alpha) | [upstream license](https://github.com/theforecastingcompany/tfc-t0/blob/main/LICENSE) | 2026-08-21 |
 | tabpfn | `tabpfn_` | 8 | TABPFN-3 License v1.0 | [snapshot](LICENSES/pretrained/tabpfn-3-License-v1.0.txt) | [TabPFN-3 model](https://huggingface.co/Prior-Labs/tabpfn_3) | [upstream license](https://huggingface.co/Prior-Labs/tabpfn_3/blob/main/LICENSE) | 2026-08-21 |
 | tips | `tips_` | 12 | Creative Commons Attribution 4.0 International | [snapshot](LICENSES/pretrained/tips-CC-BY-4.0.txt) | [TIPS](https://github.com/google-deepmind/tips) | [upstream license statement](https://github.com/google-deepmind/tips/blob/main/README.md#license-and-disclaimer) | 2026-08-21 |
 <!-- pretrained-license-table:end -->
 
-The family prefixes and counts cover the 126 pretrained identifiers currently
+The family prefixes and counts cover the 130 pretrained identifiers currently
 registered by Equimo. Existing checkpoint paths remain under
 `models/default/<family>/`.
 

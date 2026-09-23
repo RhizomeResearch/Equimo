@@ -1355,11 +1355,6 @@ def _build_vit(
     Raises:
         KeyError: If *variant* is not found in the registry.
     """
-    if pretrained and variant.startswith("lingbot_"):
-        raise ValueError(
-            "LingBot-Vision checkpoints require local conversion; construct with "
-            "pretrained=False and load the converted archive with load_weights(path=...)."
-        )
     return build_model_variant(
         VisionTransformer,
         _VIT_REGISTRY,

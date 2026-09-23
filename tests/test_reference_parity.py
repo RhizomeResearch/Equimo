@@ -55,6 +55,7 @@ def test_reference_matrix_tracks_every_available_pretrained_path_fixture():
         if case.reference_fixture is None
     } == {
         ("eupe", "convnext"),
+        ("lingbot", "author-checkpoint"),
         ("tabpfn", "regressor"),
         ("tips", "vision"),
         ("tips", "text"),

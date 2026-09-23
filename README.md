@@ -347,10 +347,9 @@ model = em.dinov2_vitb14(pretrained=True)
 | `TabPFN`            | `tabpfn`, `tabpfn_v3_classifier_*`, `tabpfn_regressor`, `tabpfn_v3_regressor_*`                                                                                |
 | `T0`                | `t0`, `t0_alpha`                                                                                                                                               |
 
-LingBot-Vision also provides `lingbot_vit{s,b,l,g}16` constructors. They start
-without weights; use `models/lingbot.py` to convert a pinned source checkpoint,
-then load the local archive with `equimo.serialization.load_weights(path=...)`.
-The source checkpoints and converted weights are subject to the
+LingBot-Vision also provides `lingbot_vit{s,b,l,g}16` constructors. Pass
+`pretrained=True` to load the corresponding checkpoint from Equimo's Hugging
+Face repository. The source checkpoints and converted weights are subject to the
 [LingBot-Vision license](LICENSES/pretrained/README.md#lingbot-vision).
 
 > `LowFormer` requires `attention_type` (`"softmax"` or `"sigmoid"`) which has
@@ -772,6 +771,7 @@ The following models have pretrained weights available in Equimo:
 - [AST](https://arxiv.org/abs/2104.01778)
 - [TabPFN-3](https://arxiv.org/abs/2605.13986)
 - [T0-alpha](https://huggingface.co/theforecastingcompany/t0-alpha)
+- [LingBot-Vision](https://huggingface.co/collections/robbyant/lingbot-vision) (Small, Base, Large, and Giant)
 
 Before using any pretrained weights, review the
 [pretrained-model license index](LICENSES/pretrained/README.md). It links the
@@ -780,7 +780,7 @@ checked. Upstream licenses can change, so the copies in this repository may be
 outdated; always check the latest upstream version. Reports of stale terms are
 welcome as issues or pull requests.
 
-Model identifiers map to filenames in Equimo's [Hugging Face repository](https://huggingface.co/poiretclement/equimo/tree/6916a4a3d460cfa804419454baf3d153885f3b6a/models/default).
+Model identifiers map to filenames in Equimo's [Hugging Face repository](https://huggingface.co/poiretclement/equimo/tree/2ce35f6512516a67ff99c473423e6ca48aa0ae01/models/default).
 
 Published ConvNeXt size factories load the default classifier with `pretrained=True`:
 

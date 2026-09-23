@@ -50,6 +50,7 @@ def test_every_pretrained_family_and_converter_path_has_a_representative_case():
         ("dinov3", "huggingface-vit"),
         ("eupe", "vit"),
         ("eupe", "convnext"),
+        ("lingbot", "author-checkpoint"),
         ("siglip2", "huggingface-vit"),
         ("t0", "tfc-t0"),
         ("tabpfn", "classifier"),
