@@ -8,6 +8,7 @@ import jax.numpy as jnp
 import pytest
 
 import equimo.finetune as eqft
+from equimo.serialization import CheckpointLimits
 import equimo.finetune.serialization as serialization
 
 
@@ -52,6 +53,20 @@ def test_calibration_artifact_codec_roundtrip(tmp_path):
         assert jnp.array_equal(
             actual.statistics["singular_values"],
             expected.statistics["singular_values"],
+        )
+
+
+def test_calibration_reader_enforces_array_limit(tmp_path, monkeypatch):
+    path = tmp_path / "calibration.eqft"
+    eqft.save_calibration_artifacts(path, _artifacts())
+    monkeypatch.setattr(
+        "equimo.finetune.serialization.eqx.tree_deserialise_leaves",
+        lambda *args, **kwargs: pytest.fail("Array allocation started"),
+    )
+    with pytest.raises(eqft.FineTuneBundleError, match="allocation"):
+        eqft.load_calibration_artifacts(
+            path,
+            limits=replace(CheckpointLimits(), max_total_array_bytes=1),
         )
 
 

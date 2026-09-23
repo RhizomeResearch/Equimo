@@ -91,6 +91,7 @@ from equimo.serialization import load_weights, save_model
 model_config = {
     "wrapper": "dense_probe",
     "backbone": backbone_config,
+    "base_checkpoint_sha256": base_checkpoint_sha256,
     "feature_spec": asdict(spatial_features),
     "head": {
         "in_features": 384,
@@ -100,6 +101,8 @@ model_config = {
         "bias_init": 0.0,
     },
     "output_layout": "CHW",
+    "trainability_report": head_and_blocks.report.to_dict(),
+    "evaluated_parameter_view": "optimizer",
 }
 save_model(path, probe, model_config)
 
@@ -112,7 +115,9 @@ restored = load_weights(
 ```
 
 `expected_model_config` rejects a checkpoint recorded for different head
-dimensions, feature extraction, or output layout. See
+dimensions, feature extraction, trainability plan, parameter view, or output
+layout. Validate the restored plan against the recorded fingerprint before an
+optimizer owns its parameters. See
 [Serialization](serialization.md) for integrity and archive behavior. A
 complete offline example is available in
 `examples/finetuning/dense_probe_vit.py`.

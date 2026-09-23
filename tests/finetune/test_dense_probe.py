@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+import hashlib
 
 import equinox as eqx
 import jax
@@ -380,17 +381,40 @@ def test_probe_explicit_two_block_update_changes_only_selected_subtrees(factory)
     ("kind", "factory"),
     (("linear_probe", _classification_probe), ("dense_probe", _dense_probe)),
 )
-def test_probe_checkpoint_roundtrip_before_and_after_update(tmp_path, kind, factory):
+@pytest.mark.parametrize("compression", (False, True))
+@pytest.mark.parametrize("selection", ("head", "last_two_blocks"))
+def test_probe_checkpoint_roundtrip_before_and_after_update(
+    tmp_path, kind, factory, compression, selection
+):
     original = factory(jr.PRNGKey(13))
     spec = original.feature_spec
     config = _model_config(kind, spec)
-    trained = _gradient_step(original, _input(), eqft.TrainableSpec(mode="head"))
+    trainable = (
+        eqft.TrainableSpec(mode="head")
+        if selection == "head"
+        else eqft.TrainableSpec(
+            mode="surgical",
+            target=eqft.TargetSpec(
+                include=("head", "backbone.blocks.2", "backbone.blocks.3")
+            ),
+        )
+    )
+    plan = eqft.prepare_finetune(original, trainable=trainable)
+    base_path = save_model(
+        tmp_path / "base", original.backbone, {"backbone": config["backbone"]}
+    )
+    config.update(
+        base_checkpoint_sha256=hashlib.sha256(base_path.read_bytes()).hexdigest(),
+        trainability_report=plan.report.to_dict(),
+        evaluated_parameter_view="optimizer",
+    )
+    trained = _gradient_step(original, _input(), trainable)
 
     for name, model in (("initialized", original), ("trained", trained)):
         path = tmp_path / name
-        save_model(path, model, config, compression=False)
+        saved = save_model(path, model, config, compression=compression)
         inspected = inspect_checkpoint(
-            path,
+            saved,
             model=model,
             expected_model_config=config,
         )
@@ -398,7 +422,7 @@ def test_probe_checkpoint_roundtrip_before_and_after_update(tmp_path, kind, fact
         template_logits = template(_input())
         loaded = load_weights(
             template,
-            path=path,
+            path=saved,
             expected_model_config=config,
         )
 
@@ -408,11 +432,20 @@ def test_probe_checkpoint_roundtrip_before_and_after_update(tmp_path, kind, fact
         assert jnp.array_equal(loaded(_input()), model(_input()))
         assert loaded.head.linear.in_features == 4
         assert loaded.head.linear.out_features == 3
+        eqft.validate_plan(
+            eqft.prepare_finetune(loaded, trainable=trainable),
+            expected_fingerprint=plan.report.plan_fingerprint,
+        )
+        if name == "trained":
+            assert jnp.array_equal(
+                _gradient_step(loaded, _input(), trainable)(_input()),
+                _gradient_step(model, _input(), trainable)(_input()),
+            )
 
     changed_config = _model_config(kind, spec, out_features=4)
     with pytest.raises(ValueError, match="model_config mismatch"):
         inspect_checkpoint(
-            tmp_path / "initialized",
+            tmp_path / ("initialized.tar.lz4" if compression else "initialized"),
             model=original,
             expected_model_config=changed_config,
         )

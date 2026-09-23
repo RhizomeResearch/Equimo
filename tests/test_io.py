@@ -1,6 +1,6 @@
 """Tests for serialization and vision IO."""
 
-from dataclasses import FrozenInstanceError
+from dataclasses import FrozenInstanceError, replace
 import importlib
 import hashlib
 import io
@@ -23,6 +23,7 @@ import pytest
 
 from equimo.registry import _MODEL_REGISTRY, get_model_cls, register_model
 from equimo.serialization import (
+    CheckpointLimits,
     CheckpointInfo,
     DEFAULT_REPOSITORY_REVISION,
     DEFAULT_REPOSITORY_URL,
@@ -616,22 +617,20 @@ class TestSaveLoadRoundTrip:
     def test_inspect_checkpoint_enforces_directory_weight_size_limit(
         self,
         tmp_path,
-        monkeypatch,
     ):
         path = save_model(
             tmp_path / "model_dir",
-            self._make_model(),
-            self._model_config(),
+            _TinyModel(64, 64, key=KEY),
+            {"in_features": 64, "out_features": 64},
             compression=False,
         )
         weights_size = (path / "weights.eqx").stat().st_size
-        monkeypatch.setattr(
-            "equimo.serialization._MAX_WEIGHTS_BYTES",
-            weights_size - 1,
-        )
 
         with pytest.raises(ValueError, match="weights exceed"):
-            inspect_checkpoint(path)
+            inspect_checkpoint(
+                path,
+                limits=replace(CheckpointLimits(), max_member_bytes=weights_size - 1),
+            )
 
     def test_inspect_checkpoint_rejects_duplicate_archive_members(self, tmp_path):
         path = save_model(

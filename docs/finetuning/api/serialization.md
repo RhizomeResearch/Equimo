@@ -20,36 +20,38 @@ Fine-tuning bundle and delta persistence helpers.
 ## `load_calibration_artifacts`
 
 ```python
-equimo.finetune.load_calibration_artifacts(path: 'str | Path') -> 'dict[str, CalibrationArtifact]'
+equimo.finetune.load_calibration_artifacts(path: 'str | Path', *, limits: 'CheckpointLimits | None' = None) -> 'dict[str, CalibrationArtifact]'
 ```
 
 Defined in `equimo.finetune.serialization`.
 
-> Load and validate calibration artifacts saved by Equimo.
+> Load and validate calibration artifacts with optional reader limits.
 
 <!-- equimo.finetune:load_delta -->
 <a id="equimo-finetune-load-delta"></a>
 ## `load_delta`
 
 ```python
-equimo.finetune.load_delta(base_model: 'PyTree', path_or_bundle: 'str | Path | FineTuneBundle') -> 'PyTree'
+equimo.finetune.load_delta(base_model: 'PyTree', path_or_bundle: 'str | Path | FineTuneBundle', *, limits: 'CheckpointLimits | None' = None) -> 'PyTree'
 ```
 
 Defined in `equimo.finetune.serialization`.
 
 > Load a delta bundle into a compatible base model.
+>
+> ``limits`` bounds archive members and tensor allocation for file inputs.
 
 <!-- equimo.finetune:load_finetune_bundle -->
 <a id="equimo-finetune-load-finetune-bundle"></a>
 ## `load_finetune_bundle`
 
 ```python
-equimo.finetune.load_finetune_bundle(path: 'str | Path', base_model: 'PyTree | None' = None) -> 'FineTuneBundle | PyTree'
+equimo.finetune.load_finetune_bundle(path: 'str | Path', base_model: 'PyTree | None' = None, *, limits: 'CheckpointLimits | None' = None) -> 'FineTuneBundle | PyTree'
 ```
 
 Defined in `equimo.finetune.serialization`.
 
-> Load a bundle, or apply it immediately when ``base_model`` is provided.
+> Load a bounded bundle, or apply it when ``base_model`` is provided.
 
 <!-- equimo.finetune:save_calibration_artifacts -->
 <a id="equimo-finetune-save-calibration-artifacts"></a>

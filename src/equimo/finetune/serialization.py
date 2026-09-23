@@ -20,6 +20,13 @@ import jax.tree_util as jtu
 import lz4.frame
 import numpy as np
 
+from equimo._checkpoint_limits import (
+    DEFAULT_CHECKPOINT_LIMITS,
+    CheckpointLimits,
+    LimitedReader,
+    array_template,
+    scan_array_stream,
+)
 from equimo._io import (
     atomic_file,
     copy_limited,
@@ -109,6 +116,38 @@ _MAX_ARRAY_BYTES = 64 * 1024 * 1024 * 1024
 _SPOOL_MEMORY_BYTES = 64 * 1024 * 1024
 
 
+def _reader_limits(limits: CheckpointLimits | None) -> CheckpointLimits:
+    if limits is not None:
+        if not isinstance(limits, CheckpointLimits):
+            raise TypeError("limits must be a CheckpointLimits instance.")
+        return limits
+    return replace(
+        DEFAULT_CHECKPOINT_LIMITS,
+        max_metadata_bytes=_MAX_MANIFEST_BYTES,
+        max_member_bytes=_MAX_ARRAY_BYTES,
+    )
+
+
+def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise FineTuneBundleError(f"Duplicate manifest key {key!r}.")
+        result[key] = value
+    return result
+
+
+def _scan_bundle_arrays(
+    stream: BinaryIO, template: dict[str, Any], limits: CheckpointLimits
+) -> None:
+    try:
+        scan_array_stream(
+            stream, limits, expected=array_template(jtu.tree_leaves(template))
+        )
+    except ValueError as error:
+        raise FineTuneBundleError(str(error)) from error
+
+
 def save_delta(
     model: PyTree,
     path: str | Path,
@@ -164,13 +203,18 @@ def save_delta(
 def load_delta(
     base_model: PyTree,
     path_or_bundle: str | Path | FineTuneBundle,
+    *,
+    limits: CheckpointLimits | None = None,
 ) -> PyTree:
-    """Load a delta bundle into a compatible base model."""
+    """Load a delta bundle into a compatible base model.
+
+    ``limits`` bounds archive members and tensor allocation for file inputs.
+    """
 
     bundle = (
         path_or_bundle
         if isinstance(path_or_bundle, FineTuneBundle)
-        else _read_bundle(path_or_bundle)
+        else _read_bundle(path_or_bundle, limits=limits)
     )
     _check_schema(bundle)
     _check_base_checkpoint(base_model, bundle)
@@ -228,13 +272,16 @@ def save_calibration_artifacts(
 
 def load_calibration_artifacts(
     path: str | Path,
+    *,
+    limits: CheckpointLimits | None = None,
 ) -> dict[str, CalibrationArtifact]:
-    """Load and validate calibration artifacts saved by Equimo."""
+    """Load and validate calibration artifacts with optional reader limits."""
 
     from .calibration import validate_calibration_artifacts
 
     path = Path(path)
-    manifest, arrays_data = _read_archive(path, label="Calibration file")
+    limits = _reader_limits(limits)
+    manifest, arrays_data = _read_archive(path, label="Calibration file", limits=limits)
     try:
         if manifest.get("format") != _CALIBRATION_FORMAT:
             raise FineTuneBundleError(
@@ -249,6 +296,7 @@ def load_calibration_artifacts(
         encoded = manifest.get("artifacts")
         templates: dict[str, Any] = {}
         _collect_array_templates(encoded, templates)
+        _scan_bundle_arrays(arrays_data, templates, limits)
         arrays = eqx.tree_deserialise_leaves(arrays_data, templates)
         payload = _decode_value(encoded, arrays)
     finally:
@@ -271,20 +319,25 @@ def load_calibration_artifacts(
 def load_finetune_bundle(
     path: str | Path,
     base_model: PyTree | None = None,
+    *,
+    limits: CheckpointLimits | None = None,
 ) -> FineTuneBundle | PyTree:
-    """Load a bundle, or apply it immediately when ``base_model`` is provided."""
+    """Load a bounded bundle, or apply it when ``base_model`` is provided."""
 
-    bundle = _read_bundle(path)
+    bundle = _read_bundle(path, limits=limits)
     if base_model is None:
         return bundle
     return load_delta(base_model, bundle)
 
 
-def _read_bundle(path: str | Path) -> FineTuneBundle:
+def _read_bundle(
+    path: str | Path, *, limits: CheckpointLimits | None = None
+) -> FineTuneBundle:
     path = Path(path)
-    manifest, arrays_data = _read_archive(path, label="Delta file")
+    limits = _reader_limits(limits)
+    manifest, arrays_data = _read_archive(path, label="Delta file", limits=limits)
     try:
-        bundle = _bundle_from_manifest(manifest, arrays_data)
+        bundle = _bundle_from_manifest(manifest, arrays_data, limits=limits)
     finally:
         arrays_data.close()
     _check_schema(bundle)
@@ -316,78 +369,78 @@ def _read_archive(
     path: Path,
     *,
     label: str,
+    limits: CheckpointLimits,
 ) -> tuple[dict[str, Any], BinaryIO]:
+    if path.stat().st_size > limits.max_archive_bytes:
+        raise FineTuneBundleError(f"{label} exceeds its compressed byte limit.")
     arrays_data = tempfile.SpooledTemporaryFile(
         max_size=_SPOOL_MEMORY_BYTES, mode="w+b"
     )
     try:
+        names: set[str] = set()
+        manifest_payload = b""
         with lz4.frame.open(path, "rb") as archive:
-            with tarfile.open(fileobj=archive, mode="r") as tar:
-                members = tar.getmembers()
-                names = [member.name for member in members]
-                if len(names) != len(set(names)):
-                    raise FineTuneBundleError(
-                        f"{label} {path!s} contains duplicate archive members."
-                    )
-                unexpected = set(names) - _ARCHIVE_MEMBERS
-                missing = _ARCHIVE_MEMBERS - set(names)
-                if unexpected:
-                    raise FineTuneBundleError(
-                        f"{label} {path!s} contains unexpected archive members: "
-                        + ", ".join(sorted(unexpected))
-                        + "."
-                    )
-                if missing:
-                    raise FineTuneBundleError(
-                        f"{label} {path!s} is missing: "
-                        + ", ".join(sorted(missing))
-                        + "."
-                    )
-                by_name = {member.name: member for member in members}
-                manifest_member = by_name["manifest.json"]
-                arrays_member = by_name["arrays.eqx"]
-                for member in members:
+            decoded = LimitedReader(archive, limits.max_expanded_bytes)
+            with tarfile.open(fileobj=cast(BinaryIO, decoded), mode="r|") as tar:
+                for member in tar:
+                    if member.name not in _ARCHIVE_MEMBERS:
+                        raise FineTuneBundleError(
+                            f"{label} {path!s} contains unexpected archive member "
+                            f"{member.name!r}."
+                        )
+                    if member.name in names:
+                        raise FineTuneBundleError(
+                            f"{label} {path!s} contains duplicate archive members."
+                        )
+                    if len(names) >= limits.max_member_count:
+                        raise FineTuneBundleError(
+                            f"{label} exceeds its member count limit."
+                        )
                     if not member.isfile():
                         raise FineTuneBundleError(
                             f"{label} member {member.name!r} must be a regular file."
                         )
-                if manifest_member.size > _MAX_MANIFEST_BYTES:
-                    raise FineTuneBundleError(
-                        f"{label} manifest.json exceeds the "
-                        f"{_MAX_MANIFEST_BYTES}-byte size limit."
+                    member_limit = (
+                        min(limits.max_metadata_bytes, limits.max_member_bytes)
+                        if member.name == "manifest.json"
+                        else limits.max_member_bytes
                     )
-                if arrays_member.size > _MAX_ARRAY_BYTES:
-                    raise FineTuneBundleError(
-                        f"{label} arrays.eqx exceeds the "
-                        f"{_MAX_ARRAY_BYTES}-byte size limit."
-                    )
-
-                manifest_file = tar.extractfile(manifest_member)
-                arrays_file = tar.extractfile(arrays_member)
-                if manifest_file is None or arrays_file is None:
-                    raise FineTuneBundleError(
-                        f"{label} {path!s} contains unreadable archive members."
-                    )
-                try:
-                    manifest_payload = read_limited(
-                        manifest_file,
-                        _MAX_MANIFEST_BYTES,
-                        label=f"{label} manifest.json",
-                    )
-                    copied = copy_limited(
-                        arrays_file,
-                        arrays_data,
-                        _MAX_ARRAY_BYTES,
-                        label=f"{label} arrays.eqx",
-                    )
-                except ValueError as error:
-                    raise FineTuneBundleError(str(error)) from error
-                if len(manifest_payload) != manifest_member.size:
-                    raise FineTuneBundleError(f"{label} manifest.json is truncated.")
-                if copied != arrays_member.size:
-                    raise FineTuneBundleError(f"{label} arrays.eqx is truncated.")
+                    if member.size > member_limit:
+                        raise FineTuneBundleError(
+                            f"{label} {member.name} exceeds the "
+                            f"{member_limit}-byte size limit."
+                        )
+                    source = tar.extractfile(member)
+                    if source is None:
+                        raise FineTuneBundleError(
+                            f"{label} {member.name} could not be read."
+                        )
+                    if member.name == "manifest.json":
+                        manifest_payload = read_limited(
+                            source, member_limit, label=f"{label} manifest.json"
+                        )
+                        copied = len(manifest_payload)
+                    else:
+                        copied = copy_limited(
+                            source,
+                            arrays_data,
+                            member_limit,
+                            label=f"{label} arrays.eqx",
+                        )
+                    if copied != member.size:
+                        raise FineTuneBundleError(
+                            f"{label} {member.name} is truncated."
+                        )
+                    names.add(member.name)
+            while decoded.read(1024 * 1024):
+                pass
+        missing = _ARCHIVE_MEMBERS - names
+        if missing:
+            raise FineTuneBundleError(
+                f"{label} {path!s} is missing: " + ", ".join(sorted(missing)) + "."
+            )
         try:
-            manifest = json.loads(manifest_payload)
+            manifest = json.loads(manifest_payload, object_pairs_hook=_unique_object)
         except (UnicodeDecodeError, json.JSONDecodeError) as error:
             raise FineTuneBundleError(
                 f"{label} manifest.json is not valid JSON: {error}"
@@ -418,6 +471,11 @@ def _read_archive(
                 )
         arrays_data.seek(0)
         return manifest, cast(BinaryIO, arrays_data)
+    except (EOFError, RuntimeError, tarfile.TarError, ValueError) as error:
+        arrays_data.close()
+        raise FineTuneBundleError(
+            f"Invalid {label.lower()} {path!s}: {error}"
+        ) from error
     except BaseException:
         arrays_data.close()
         raise
@@ -533,6 +591,8 @@ def _feature_spec_from_payload(payload: Any) -> FeatureSpec | None:
 def _bundle_from_manifest(
     manifest: dict[str, Any],
     arrays_data: BinaryIO,
+    *,
+    limits: CheckpointLimits,
 ) -> FineTuneBundle:
     if manifest.get("format") != _FORMAT:
         raise FineTuneBundleError(
@@ -546,6 +606,7 @@ def _bundle_from_manifest(
     encoded = manifest["bundle"]
     template: dict[str, Any] = {}
     _collect_array_templates(encoded, template)
+    _scan_bundle_arrays(arrays_data, template, limits)
     arrays = eqx.tree_deserialise_leaves(arrays_data, template)
     payload = _decode_value(encoded, arrays)
     if isinstance(payload.get("lineage"), dict):
@@ -594,10 +655,30 @@ def _encode_value(value: Any, arrays: dict[str, Any]) -> Any:
 def _collect_array_templates(encoded: Any, template: dict[str, Any]) -> None:
     if isinstance(encoded, dict):
         if _ARRAY_MARKER in encoded:
-            template[encoded[_ARRAY_MARKER]] = jax.ShapeDtypeStruct(
-                tuple(encoded["shape"]),
-                jnp.dtype(encoded["dtype"]),
+            key = encoded[_ARRAY_MARKER]
+            if not isinstance(key, str) or key in template:
+                raise FineTuneBundleError("Invalid or duplicate tensor identifier.")
+            shape = encoded.get("shape")
+            if not isinstance(shape, list) or any(
+                type(dimension) is not int or dimension < 0 for dimension in shape
+            ):
+                raise FineTuneBundleError("Invalid tensor shape in bundle manifest.")
+            try:
+                dtype = jnp.dtype(encoded["dtype"])
+            except (KeyError, TypeError, ValueError) as error:
+                raise FineTuneBundleError(
+                    "Invalid tensor dtype in bundle manifest."
+                ) from error
+            low_precision = (
+                dtype.kind == "V"
+                and dtype.itemsize in (1, 2)
+                and str(dtype).startswith(("bfloat", "float", "int", "uint"))
             )
+            if dtype.kind not in "biufc" and not low_precision:
+                raise FineTuneBundleError(
+                    "Unsupported tensor dtype in bundle manifest."
+                )
+            template[key] = jax.ShapeDtypeStruct(tuple(shape), dtype)
             return
         for value in encoded.values():
             _collect_array_templates(value, template)

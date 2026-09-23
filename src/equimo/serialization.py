@@ -1,9 +1,10 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import hashlib
 import json
 import tarfile
 import tempfile
 from pathlib import Path
+from typing import BinaryIO, cast
 import warnings
 
 import equinox as eqx
@@ -14,6 +15,13 @@ import requests
 from loguru import logger
 
 from equimo import __version__
+from equimo._checkpoint_limits import (
+    DEFAULT_CHECKPOINT_LIMITS,
+    CheckpointLimits,
+    LimitedReader,
+    array_template,
+    scan_array_stream,
+)
 from equimo._io import (
     atomic_directory,
     atomic_file,
@@ -21,6 +29,7 @@ from equimo._io import (
     file_lock,
     read_limited,
     sha256_file,
+    sha256_stream,
     validate_sha256,
 )
 from equimo._pretrained import DEFAULT_REPOSITORY_REVISION, PRETRAINED_ARCHIVE_SHA256
@@ -47,6 +56,18 @@ _VERSIONED_METADATA_FIELDS = frozenset(
 _MAX_METADATA_BYTES = 16 * 1024 * 1024
 _MAX_WEIGHTS_BYTES = 64 * 1024 * 1024 * 1024
 _MAX_DOWNLOAD_BYTES = 64 * 1024 * 1024 * 1024
+
+
+def _reader_limits(limits: CheckpointLimits | None) -> CheckpointLimits:
+    if limits is not None:
+        if not isinstance(limits, CheckpointLimits):
+            raise TypeError("limits must be a CheckpointLimits instance.")
+        return limits
+    return replace(
+        DEFAULT_CHECKPOINT_LIMITS,
+        max_metadata_bytes=_MAX_METADATA_BYTES,
+        max_member_bytes=_MAX_WEIGHTS_BYTES,
+    )
 
 
 @dataclass(frozen=True)
@@ -85,6 +106,7 @@ def _decompress_archive(
     path: Path,
     *,
     allow_legacy_cache: bool = True,
+    limits: CheckpointLimits | None = None,
 ) -> Path:
     """Decompress a ``.tar.lz4`` archive to a managed sibling directory.
 
@@ -98,6 +120,11 @@ def _decompress_archive(
     """
     if not path.is_file():
         raise FileNotFoundError(f"Checkpoint archive does not exist: {path!s}")
+    limits = _reader_limits(limits)
+    if path.stat().st_size > limits.max_archive_bytes:
+        raise ValueError("Checkpoint archive exceeds its compressed byte limit.")
+    if limits.max_expanded_bytes < DEFAULT_CHECKPOINT_LIMITS.max_expanded_bytes:
+        _check_archive_expansion(path, limits)
 
     decompressed_dir = path.with_name(f"{path.name}.extracted")
     sentinel = decompressed_dir / ".complete"
@@ -119,7 +146,7 @@ def _decompress_archive(
 
         archive_identity = _archive_identity(path)
         with atomic_directory(decompressed_dir) as temporary:
-            _extract_model_archive(path, temporary)
+            _extract_model_archive(path, temporary, limits=limits)
             if _archive_identity(path) != archive_identity:
                 raise ValueError(
                     f"Checkpoint archive changed while it was being extracted: {path!s}."
@@ -127,6 +154,18 @@ def _decompress_archive(
             (temporary / ".complete").write_text(_canonical_json(archive_identity))
 
     return decompressed_dir
+
+
+def _check_archive_expansion(path: Path, limits: CheckpointLimits) -> None:
+    """Apply a caller's lower expanded-byte ceiling on cache hits too."""
+
+    try:
+        with lz4.frame.open(path, "rb") as source:
+            decoded = LimitedReader(source, limits.max_expanded_bytes)
+            while decoded.read(1024 * 1024):
+                pass
+    except (EOFError, RuntimeError) as error:
+        raise ValueError(f"Invalid checkpoint archive {path!s}: {error}") from error
 
 
 def _log_legacy_extraction(legacy_dir: Path, decompressed_dir: Path) -> None:
@@ -166,18 +205,23 @@ def _legacy_extraction_is_current(path: Path, directory: Path) -> bool:
         return False
 
 
-def _extract_model_archive(path: Path, destination: Path) -> None:
+def _extract_model_archive(
+    path: Path, destination: Path, *, limits: CheckpointLimits | None = None
+) -> None:
     try:
-        _extract_model_archive_stream(path, destination)
+        _extract_model_archive_stream(path, destination, limits=_reader_limits(limits))
     except (EOFError, RuntimeError, tarfile.TarError) as error:
         raise ValueError(f"Invalid checkpoint archive {path!s}: {error}") from error
 
 
-def _extract_model_archive_stream(path: Path, destination: Path) -> None:
+def _extract_model_archive_stream(
+    path: Path, destination: Path, *, limits: CheckpointLimits
+) -> None:
     found: set[str] = set()
     total_size = 0
     with lz4.frame.open(path, "rb") as compressed:
-        with tarfile.open(fileobj=compressed, mode="r|") as archive:
+        decoded = LimitedReader(compressed, limits.max_expanded_bytes)
+        with tarfile.open(fileobj=cast(BinaryIO, decoded), mode="r|") as archive:
             for member in archive:
                 if member.name not in _CHECKPOINT_MEMBERS:
                     raise ValueError(
@@ -187,14 +231,18 @@ def _extract_model_archive_stream(path: Path, destination: Path) -> None:
                     raise ValueError(
                         f"Checkpoint archive contains duplicate member {member.name!r}."
                     )
+                if len(found) >= limits.max_member_count:
+                    raise ValueError(
+                        "Checkpoint archive exceeds its member count limit."
+                    )
                 if not member.isfile():
                     raise ValueError(
                         f"Checkpoint archive member {member.name!r} must be a file."
                     )
                 member_limit = (
-                    _MAX_METADATA_BYTES
+                    min(limits.max_metadata_bytes, limits.max_member_bytes)
                     if member.name == "metadata.json"
-                    else _MAX_WEIGHTS_BYTES
+                    else limits.max_member_bytes
                 )
                 if member.size > member_limit:
                     raise ValueError(
@@ -202,7 +250,7 @@ def _extract_model_archive_stream(path: Path, destination: Path) -> None:
                         f"{member_limit}-byte size limit."
                     )
                 total_size += member.size
-                if total_size > _MAX_METADATA_BYTES + _MAX_WEIGHTS_BYTES:
+                if total_size > limits.max_expanded_bytes:
                     raise ValueError("Checkpoint archive exceeds its size limit.")
                 source = archive.extractfile(member)
                 if source is None:
@@ -221,6 +269,8 @@ def _extract_model_archive_stream(path: Path, destination: Path) -> None:
                         f"Checkpoint archive member {member.name!r} is truncated."
                     )
                 found.add(member.name)
+        while decoded.read(1024 * 1024):
+            pass
     missing = _CHECKPOINT_MEMBERS - found
     if missing:
         raise ValueError(
@@ -361,6 +411,8 @@ def download(
     repository: str,
     timeout: int = 60,
     expected_sha256: str | None = None,
+    *,
+    limits: CheckpointLimits | None = None,
 ) -> Path:
     """Download a model archive from a remote repository.
 
@@ -371,6 +423,8 @@ def download(
         repository: Base URL of the repository.
         timeout: HTTP request timeout in seconds. Defaults to 60.
         expected_sha256: Optional trusted SHA-256 digest for the complete archive.
+        limits: Optional byte and array limits. The compressed-byte limit also
+            applies when a cached archive is reused.
 
     Returns:
         Local path to the downloaded (and cached) archive.
@@ -379,6 +433,7 @@ def download(
         ValueError: If *identifier* contains unsafe characters.
         requests.HTTPError: If the server returns a 4xx or 5xx response.
     """
+    limits = _reader_limits(limits)
     _validate_identifier(identifier)
     if expected_sha256 is None and repository.rstrip("/") == DEFAULT_REPOSITORY_URL:
         expected_sha256 = PRETRAINED_ARCHIVE_SHA256.get(identifier)
@@ -393,6 +448,8 @@ def download(
     path.parent.mkdir(parents=True, exist_ok=True)
 
     if path.exists():
+        if path.stat().st_size > limits.max_archive_bytes:
+            raise ValueError("Cached archive exceeds its compressed byte limit.")
         _verify_cached_download(path, checksum_path, expected_sha256)
         logger.info("Archive already downloaded, using cached file.")
         return path
@@ -403,10 +460,11 @@ def download(
             header_checksum = _response_checksum(res.headers)
             trusted_checksum = expected_sha256 or header_checksum
             content_length = _response_content_length(res.headers)
-            if content_length is not None and content_length > _MAX_DOWNLOAD_BYTES:
+            byte_limit = min(_MAX_DOWNLOAD_BYTES, limits.max_archive_bytes)
+            if content_length is not None and content_length > byte_limit:
                 raise ValueError(
                     f"Download for {identifier!r} exceeds the "
-                    f"{_MAX_DOWNLOAD_BYTES}-byte size limit."
+                    f"{byte_limit}-byte size limit."
                 )
             digest = hashlib.sha256()
             total = 0
@@ -415,10 +473,10 @@ def download(
                     if not chunk:
                         continue
                     total += len(chunk)
-                    if total > _MAX_DOWNLOAD_BYTES:
+                    if total > byte_limit:
                         raise ValueError(
                             f"Download for {identifier!r} exceeds the "
-                            f"{_MAX_DOWNLOAD_BYTES}-byte size limit."
+                            f"{byte_limit}-byte size limit."
                         )
                     digest.update(chunk)
                     output.write(chunk)
@@ -539,6 +597,7 @@ def _resolve_weights_dir(
     path: Path | None,
     repository: str,
     expected_sha256: str | None,
+    limits: CheckpointLimits,
 ) -> Path:
     """Return the local directory containing ``weights.eqx``.
 
@@ -558,7 +617,9 @@ def _resolve_weights_dir(
         )
 
     if identifier is not None:
-        path = download(identifier, repository, expected_sha256=expected_sha256)
+        path = download(
+            identifier, repository, expected_sha256=expected_sha256, limits=limits
+        )
     elif expected_sha256 is not None:
         assert path is not None
         if path.is_dir() or path.suffixes != [".tar", ".lz4"]:
@@ -577,7 +638,7 @@ def _resolve_weights_dir(
     assert path is not None
     if path.suffixes == [".tar", ".lz4"]:
         logger.info("Decompressing...")
-        path = _decompress_archive(path, allow_legacy_cache=False)
+        path = _decompress_archive(path, allow_legacy_cache=False, limits=limits)
 
     return path
 
@@ -589,6 +650,7 @@ def inspect_checkpoint(
     allow_legacy: bool = False,
     expected_weights_sha256: str | None = None,
     expected_model_config: dict | None = None,
+    limits: CheckpointLimits | None = None,
 ) -> CheckpointInfo:
     """Inspect and validate a local checkpoint without deserializing its weights.
 
@@ -616,12 +678,15 @@ def inspect_checkpoint(
             Object order is ignored and tuples compare as JSON arrays. This
             checks recorded configuration, not the supplied model's static
             fields; construct that model using the same admitted configuration.
+        limits: Optional checkpoint resource limits. Tensor headers and payload
+            sizes are checked without allocating arrays.
 
     Returns:
         Immutable checkpoint identity and verification information. ``path`` is
         the exact path supplied by the caller, not an extraction-cache path.
     """
 
+    limits = _reader_limits(limits)
     if expected_weights_sha256 is not None:
         expected_weights_sha256 = validate_sha256(
             expected_weights_sha256, label="expected_weights_sha256"
@@ -641,6 +706,7 @@ def inspect_checkpoint(
         checkpoint_dir = _decompress_archive(
             source_path,
             allow_legacy_cache=False,
+            limits=limits,
         )
     elif not source_path.exists():
         raise FileNotFoundError(f"Checkpoint does not exist: {source_path!s}")
@@ -656,6 +722,7 @@ def inspect_checkpoint(
         allow_legacy=allow_legacy,
         expected_weights_sha256=expected_weights_sha256,
         expected_model_config=expected_model_config,
+        limits=limits,
     )
 
 
@@ -667,6 +734,7 @@ def _inspect_checkpoint_directory(
     allow_legacy: bool,
     expected_weights_sha256: str | None,
     expected_model_config: dict | None,
+    limits: CheckpointLimits,
 ) -> CheckpointInfo:
     metadata_path = path / "metadata.json"
     weights_path = path / "weights.eqx"
@@ -674,17 +742,27 @@ def _inspect_checkpoint_directory(
         raise ValueError(
             f"Checkpoint {path!s} must contain metadata.json and weights.eqx."
         )
-    if metadata_path.stat().st_size > _MAX_METADATA_BYTES:
+    if limits.max_member_count < 2:
+        raise ValueError("Checkpoint exceeds its member count limit.")
+    if metadata_path.is_symlink() or weights_path.is_symlink():
+        raise ValueError("Checkpoint members must be regular files.")
+    if (
+        metadata_path.stat().st_size + weights_path.stat().st_size
+        > limits.max_expanded_bytes
+    ):
+        raise ValueError("Checkpoint exceeds its expanded byte limit.")
+    metadata_limit = min(limits.max_metadata_bytes, limits.max_member_bytes)
+    if metadata_path.stat().st_size > metadata_limit:
         raise ValueError(
-            f"Checkpoint metadata exceeds the {_MAX_METADATA_BYTES}-byte size limit."
+            f"Checkpoint metadata exceeds the {metadata_limit}-byte size limit."
         )
-    if weights_path.stat().st_size > _MAX_WEIGHTS_BYTES:
+    if weights_path.stat().st_size > limits.max_member_bytes:
         raise ValueError(
-            f"Checkpoint weights exceed the {_MAX_WEIGHTS_BYTES}-byte size limit."
+            f"Checkpoint weights exceed the {limits.max_member_bytes}-byte size limit."
         )
 
     with metadata_path.open("rb") as handle:
-        payload = read_limited(handle, _MAX_METADATA_BYTES, label="Checkpoint metadata")
+        payload = read_limited(handle, metadata_limit, label="Checkpoint metadata")
     try:
         metadata = json.loads(payload, object_pairs_hook=_unique_metadata_object)
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
@@ -715,6 +793,16 @@ def _inspect_checkpoint_directory(
                 "allow_legacy=True to inspect it as unverified."
             )
         actual_checksum = _weights_checksum(weights_path, expected_weights_sha256)
+        with weights_path.open("rb") as handle:
+            scan_array_stream(
+                handle,
+                limits,
+                expected=(
+                    array_template(jtu.tree_leaves(model))
+                    if model is not None
+                    else None
+                ),
+            )
         equimo_version = metadata.get("equimo_version")
         return CheckpointInfo(
             path=result_path,
@@ -780,6 +868,15 @@ def _inspect_checkpoint_directory(
                 f"{expected_signature!r}, got {actual_signature!r}."
             )
 
+    with weights_path.open("rb") as handle:
+        scan_array_stream(
+            handle,
+            limits,
+            expected=(
+                array_template(jtu.tree_leaves(model)) if model is not None else None
+            ),
+        )
+
     return CheckpointInfo(
         path=result_path,
         format=_CHECKPOINT_FORMAT,
@@ -832,6 +929,7 @@ def load_weights(
     *,
     expected_weights_sha256: str | None = None,
     expected_model_config: dict | None = None,
+    limits: CheckpointLimits | None = None,
 ) -> eqx.Module:
     """Deserialise saved weights into an already-constructed model.
 
@@ -860,12 +958,17 @@ def load_weights(
             to compare with the recorded ``model_config``. Construct *model*
             with the same admitted configuration; this comparison does not
             inspect its static fields. See :func:`inspect_checkpoint`.
+        limits: Optional checkpoint resource limits. Applies to archives,
+            metadata, and every serialized tensor before loading arrays.
 
     Returns:
         Model with deserialised weights.  Dtype is whatever was stored
         (bf16 checkpoints are loaded as bf16).
     """
-    load_path = _resolve_weights_dir(identifier, path, repository, expected_sha256)
+    limits = _reader_limits(limits)
+    load_path = _resolve_weights_dir(
+        identifier, path, repository, expected_sha256, limits
+    )
     logger.info("Loading weights...")
 
     alpha_archive_verified = expected_sha256 is not None or (
@@ -881,6 +984,7 @@ def load_weights(
         allow_legacy=True,
         expected_weights_sha256=expected_weights_sha256,
         expected_model_config=expected_model_config,
+        limits=limits,
     )
     if checkpoint.legacy:
         message = (
@@ -897,9 +1001,20 @@ def load_weights(
                 RuntimeWarning,
                 stacklevel=2,
             )
-    with (load_path / "weights.eqx").open("rb") as handle:
-        model = eqx.tree_deserialise_leaves(handle, model)
-        if handle.read(1):
+    with tempfile.SpooledTemporaryFile(max_size=64 * 1024 * 1024, mode="w+b") as staged:
+        with (load_path / "weights.eqx").open("rb") as source:
+            copy_limited(
+                source, staged, limits.max_member_bytes, label="Checkpoint weights"
+            )
+        if sha256_stream(staged) != checkpoint.weights_sha256:
+            raise ValueError("Checkpoint weights changed during loading.")
+        scan_array_stream(
+            staged,
+            limits,
+            expected=array_template(jtu.tree_leaves(model)),
+        )
+        model = eqx.tree_deserialise_leaves(staged, model)
+        if staged.read(1):
             raise ValueError(
                 "Checkpoint weights contain trailing data after model leaves."
             )

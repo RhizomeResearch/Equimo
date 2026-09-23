@@ -57,6 +57,40 @@ Ordinary linear probes, spatial probes, and partially tuned backbones should be
 stored as full models with `equimo.serialization.save_model`. Reconstruct the
 same wrapper before `load_weights` and pass an `expected_model_config` that
 records the backbone constructor, executable feature specification, head
-dimensions and initialization, and output layout. The
+dimensions and initialization, output layout, base checkpoint digest,
+trainability report, and evaluated parameter view. The
 [spatial linear probe guide](dense_probe.md) contains a complete configuration
 example.
+
+All model, delta, and calibration readers accept `limits=` with an
+`equimo.serialization.CheckpointLimits` value. A caller can set lower ceilings
+for archive bytes, metadata, members, tensor count and shape, and total array
+allocation. Limits are checked before arrays are deserialized and also apply to
+cached archives. Defaults retain the existing large-checkpoint byte ceilings.
+For example:
+
+```python
+from dataclasses import replace
+from equimo.serialization import CheckpointLimits, load_weights
+
+limits = replace(
+    CheckpointLimits(),
+    max_archive_bytes=1 << 30,
+    max_member_bytes=1 << 30,
+    max_expanded_bytes=1 << 30,
+    max_total_array_bytes=1 << 30,
+)
+restored = load_weights(
+    template,
+    path=checkpoint_archive,
+    expected_sha256=trusted_archive_sha256,
+    expected_model_config=recorded_config,
+    limits=limits,
+)
+```
+
+Use an independently admitted archive or weights digest to establish content
+identity. Checkpoint integrity and model compatibility do not grant permission
+to use a particular artifact. For local `.eqft` files, pass the same `limits`
+value to `load_delta`, `load_finetune_bundle`, or
+`load_calibration_artifacts`.

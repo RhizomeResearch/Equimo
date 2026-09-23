@@ -16,6 +16,7 @@ import pytest
 
 import equimo.finetune as eqft
 import equimo.finetune.serialization as serialization
+from equimo.serialization import CheckpointLimits
 
 
 def _read_archive(path):
@@ -285,6 +286,52 @@ def test_bundle_rejects_oversized_arrays_member(tmp_path, monkeypatch):
     monkeypatch.setattr(serialization, "_MAX_ARRAY_BYTES", 1)
 
     with pytest.raises(eqft.FineTuneBundleError, match="size limit"):
+        eqft.load_finetune_bundle(path)
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    (
+        ("max_archive_bytes", 1, "compressed byte limit"),
+        ("max_expanded_bytes", 1, "expanded byte limit"),
+        ("max_member_count", 1, "member count"),
+        ("max_tensor_count", 1, "count"),
+        ("max_total_array_bytes", 1, "allocation"),
+    ),
+)
+def test_bundle_reader_limits_precede_array_loading(
+    tmp_path, monkeypatch, field, value, message
+):
+    path = tmp_path / "bundle.eqft"
+    bundle = eqft.FineTuneBundle(
+        method="lora",
+        delta_tree={"first": jnp.ones((2,)), "second": jnp.ones((2,))},
+    )
+    eqft.save_finetune_bundle(path, bundle)
+    monkeypatch.setattr(
+        serialization.eqx,
+        "tree_deserialise_leaves",
+        lambda *args, **kwargs: pytest.fail("Array allocation started"),
+    )
+    with pytest.raises(eqft.FineTuneBundleError, match=message):
+        eqft.load_finetune_bundle(
+            path,
+            limits=replace(CheckpointLimits(), **{field: value}),
+        )
+
+
+def test_bundle_rejects_duplicate_manifest_keys(tmp_path):
+    path = tmp_path / "bundle.eqft"
+    eqft.save_finetune_bundle(
+        path,
+        eqft.FineTuneBundle(method="lora", delta_tree={"value": jnp.ones((1,))}),
+    )
+    members = _read_archive(path)
+    members["manifest.json"] = (
+        b'{"format":"equimo.finetune.bundle","format":"equimo.finetune.bundle"}'
+    )
+    _write_archive(path, members)
+    with pytest.raises(eqft.FineTuneBundleError, match="Duplicate manifest key"):
         eqft.load_finetune_bundle(path)
 
 

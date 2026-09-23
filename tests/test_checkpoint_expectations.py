@@ -3,7 +3,9 @@
 import hashlib
 import io
 import json
+import struct
 import warnings
+from dataclasses import replace
 
 import equinox as eqx
 import jax.numpy as jnp
@@ -11,7 +13,12 @@ import jax.random as jr
 import numpy as np
 import pytest
 
-from equimo.serialization import inspect_checkpoint, load_weights, save_model
+from equimo.serialization import (
+    CheckpointLimits,
+    inspect_checkpoint,
+    load_weights,
+    save_model,
+)
 
 
 class ScaledLinear(eqx.Module):
@@ -199,9 +206,8 @@ def test_serialized_tensor_inventory_is_validated(tmp_path, damage):
     metadata = json.loads(metadata_path.read_text())
     metadata["weights_sha256"] = digest(weights_path)
     metadata_path.write_text(json.dumps(metadata))
-    error = ValueError if damage == "extra" else RuntimeError
-    message = "trailing" if damage == "extra" else "leaf|shape|dtype"
-    with pytest.raises(error, match=message):
+    message = "trailing" if damage == "extra" else "leaf|leaves|shape|dtype"
+    with pytest.raises(ValueError, match=message):
         load_weights(ScaledLinear(), path=path)
 
 
@@ -223,3 +229,136 @@ def test_bfloat16_checkpoint_preserves_dtype(tmp_path):
     np.testing.assert_array_equal(
         loaded(jnp.ones(3, dtype=jnp.bfloat16)), model(jnp.ones(3, dtype=jnp.bfloat16))
     )
+
+
+@pytest.mark.parametrize("field", ("max_metadata_bytes", "max_member_bytes"))
+def test_reader_accepts_exact_byte_limit_and_rejects_one_below(tmp_path, field):
+    path = make_checkpoint(tmp_path / "model")
+    member = "metadata.json" if field == "max_metadata_bytes" else "weights.eqx"
+    size = (path / member).stat().st_size
+    if field == "max_member_bytes":
+        size = max(size, (path / "metadata.json").stat().st_size)
+    limits = replace(CheckpointLimits(), **{field: size})
+    assert inspect_checkpoint(path, model=ScaledLinear(), limits=limits).verified
+    with pytest.raises(ValueError, match="size limit"):
+        inspect_checkpoint(
+            path,
+            model=ScaledLinear(),
+            limits=replace(limits, **{field: size - 1}),
+        )
+
+
+def test_archive_compressed_limit_precedes_extraction(tmp_path, monkeypatch):
+    path = save_model(tmp_path / "model", ScaledLinear(), CONFIG)
+    monkeypatch.setattr(
+        "equimo.serialization._extract_model_archive",
+        lambda *args, **kwargs: pytest.fail("Extraction started"),
+    )
+    with pytest.raises(ValueError, match="compressed byte limit"):
+        inspect_checkpoint(
+            path,
+            limits=replace(
+                CheckpointLimits(), max_archive_bytes=path.stat().st_size - 1
+            ),
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "limit", "message"),
+    (
+        ("max_tensor_count", 1, "count"),
+        ("max_total_array_bytes", 1, "allocation"),
+        ("max_tensor_rank", 1, "shape"),
+    ),
+)
+def test_array_limits_reject_before_deserialization(
+    tmp_path, monkeypatch, field, limit, message
+):
+    path = make_checkpoint(tmp_path / "model")
+    monkeypatch.setattr(
+        "equimo.serialization.eqx.tree_deserialise_leaves",
+        lambda *args, **kwargs: pytest.fail("Array allocation started"),
+    )
+    with pytest.raises(ValueError, match=message):
+        load_weights(
+            ScaledLinear(),
+            path=path,
+            limits=replace(CheckpointLimits(), **{field: limit}),
+        )
+
+
+def test_declared_oversized_tensor_rejected_before_allocation(tmp_path, monkeypatch):
+    path = make_checkpoint(tmp_path / "model")
+    weights = path / "weights.eqx"
+    with weights.open("wb") as stream:
+        np.lib.format.write_array_header_1_0(
+            stream,
+            {"descr": "<f4", "fortran_order": False, "shape": (2**35,)},
+        )
+    metadata_path = path / "metadata.json"
+    metadata = json.loads(metadata_path.read_text())
+    metadata["weights_sha256"] = digest(weights)
+    metadata_path.write_text(json.dumps(metadata))
+    monkeypatch.setattr(
+        "equimo.serialization.eqx.tree_deserialise_leaves",
+        lambda *args, **kwargs: pytest.fail("Array allocation started"),
+    )
+    with pytest.raises(ValueError, match="shape|allocation"):
+        load_weights(ScaledLinear(), path=path)
+
+
+def test_reader_rechecks_bytes_after_inspection(tmp_path, monkeypatch):
+    path = make_checkpoint(tmp_path / "model")
+    from equimo import serialization
+
+    inspect = serialization.inspect_checkpoint
+
+    def changed_after_inspection(*args, **kwargs):
+        result = inspect(*args, **kwargs)
+        weights = path / "weights.eqx"
+        payload = bytearray(weights.read_bytes())
+        payload[-1] ^= 1
+        weights.write_bytes(payload)
+        return result
+
+    monkeypatch.setattr(serialization, "inspect_checkpoint", changed_after_inspection)
+    with pytest.raises(ValueError, match="changed during loading"):
+        load_weights(ScaledLinear(), path=path)
+
+
+@pytest.mark.parametrize("field", ("max_member_count", "max_expanded_bytes"))
+def test_directory_member_and_expansion_limits(tmp_path, field):
+    path = make_checkpoint(tmp_path / "model")
+    with pytest.raises(ValueError, match="member count|expanded byte"):
+        inspect_checkpoint(path, limits=replace(CheckpointLimits(), **{field: 1}))
+
+
+def test_huge_declared_header_rejected_before_header_parse(tmp_path, monkeypatch):
+    path = make_checkpoint(tmp_path / "model")
+    weights = path / "weights.eqx"
+    weights.write_bytes(b"\x93NUMPY\x02\x00" + struct.pack("<I", 2**31))
+    metadata_path = path / "metadata.json"
+    metadata = json.loads(metadata_path.read_text())
+    metadata["weights_sha256"] = digest(weights)
+    metadata_path.write_text(json.dumps(metadata))
+    monkeypatch.setattr(
+        np.lib.format,
+        "read_array_header_2_0",
+        lambda *args, **kwargs: pytest.fail("Header was allocated"),
+    )
+    with pytest.raises(ValueError, match="header.*byte limit"):
+        inspect_checkpoint(path)
+
+
+def test_cached_archive_still_enforces_expanded_limit(tmp_path):
+    archive = save_model(tmp_path / "model", ScaledLinear(), CONFIG)
+    inspect_checkpoint(archive)
+    extracted = archive.with_name(f"{archive.name}.extracted")
+    payload_size = sum(
+        (extracted / name).stat().st_size for name in ("metadata.json", "weights.eqx")
+    )
+    with pytest.raises(ValueError, match="expanded byte limit"):
+        inspect_checkpoint(
+            archive,
+            limits=replace(CheckpointLimits(), max_expanded_bytes=payload_size),
+        )

@@ -50,6 +50,31 @@ The direct T0-vs-upstream API check is intentionally manual because the gated
 upstream snapshot is not redistributable. Set `T0_ALPHA_CHECKPOINT` and run
 `uv run pytest -m live_reference_parity tests/test_models.py`.
 
+For a selected local ViT probe, the offline qualification runner checks
+admitted upstream reference tensors and attempts ONNX Runtime parity for pooled
+and spatial feature/head graphs. Supply a digest-bound reference directory
+containing `checkpoint-record.json`, `qualification-report.json`,
+`numerical-results.json`, and its named NPZ fixtures:
+
+```bash
+JAX_PLATFORMS=cpu HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 \
+  uv run python models/qualify_vit_probes.py \
+  --checkpoint /path/to/verified-checkpoint.tar.lz4 \
+  --reference-dir /path/to/reference-package \
+  --output /path/to/qualification-report.json \
+  --portable-output /path/to/portable-qualification-report.json
+```
+
+The runner enforces a 1 GiB checkpoint profile with explicit tensor and
+metadata limits. The report records exact source and checkpoint digests,
+per-case numerical results, and separate export results. A failed export
+retains the exception and can be reproduced for one graph with
+`--export-only --head pooled` or
+`--export-only --head spatial`, using the same checkpoint and reference
+arguments. The selected offline result is retained in
+`tests/data/vit_probe_qualification.json`. An exporter result is not inferred
+from native JAX inference.
+
 Regenerate the small Equimo-only model-family regression file after an intended
 numerical change, then review its diff:
 
