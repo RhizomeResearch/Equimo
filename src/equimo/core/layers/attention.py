@@ -127,7 +127,7 @@ class Attention(eqx.Module):
     ) -> Float[Array, "... seqlen dim"]:
         key1, key2 = split_for_mode(key, 2, inference=inference)
 
-        qkv = _apply_module_last_dim(self.qkv, x).reshape(
+        qkv = self._project_qkv(x).reshape(
             *x.shape[:-1], 3, self.num_heads, self.head_dim
         )
         q, k, v = jnp.moveaxis(qkv, -3, 0)
@@ -163,6 +163,10 @@ class Attention(eqx.Module):
         x = jnp.swapaxes(x, -3, -2).reshape(*x.shape[:-3], x.shape[-2], self.dim)
         x = _apply_module_last_dim(self.proj, x)
         return self.proj_drop(x, inference=inference, key=key2)
+
+    def _project_qkv(self, x: jax.Array) -> jax.Array:
+        """Project tokens to queries, keys, and values."""
+        return _apply_module_last_dim(self.qkv, x)
 
 
 @register_attn_block()

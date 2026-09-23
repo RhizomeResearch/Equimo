@@ -220,6 +220,41 @@
         "img": {"dtype": "float32", "shape": [3, 224, 224]}
       }
     },
+    "lingbot_vits16_reference.npz": {
+      "generator": "uv run --with omegaconf python models/qualify_lingbot.py --variant small --precision float32 --quick --fixture-dir tests/data --author-dir /path/to/author --source-dir /path/to/source-checkpoints --archive-dir /path/to/converted --output-dir /tmp/equimo-references",
+      "upstream": {
+        "repository": "robbyant/lingbot-vision-vit-small",
+        "revision": "127cbcec380de0bcd55bdc1b1fad3819850a6514",
+        "checkpoint": "model.pt",
+        "checkpoint_sha256": "dca36562cb6b0b34504df6edc18fa282c5ef06fb375c3e91d5487247a1096f9d"
+      },
+      "author_code_revision": "151e46321bae4399f8568829f190c7bdec216b49",
+      "converted_archive_sha256": "b6fc152475a8d4f7fc48f586848b22fea6d2d4a94d0cce805c3f016f25a0d27f",
+      "seed": 42,
+      "input_shape": [3, 32, 48],
+      "tolerance": 0.00015,
+      "comparison": {
+        "metric": "allclose",
+        "atol": 0.00015,
+        "rtol": 0.0001
+      },
+      "sha256": "1b89e33652a16deeb78f61a90e37261e59129df7904e0ca68a85a1f4a4d58030",
+      "arrays": {
+        "input": {"dtype": "float32", "shape": [3, 32, 48]},
+        "class": {"dtype": "float32", "shape": [384]},
+        "registers": {"dtype": "float32", "shape": [4, 384]},
+        "patches": {"dtype": "float32", "shape": [6, 384]},
+        "prenorm": {"dtype": "float32", "shape": [11, 384]},
+        "tap_2_raw": {"dtype": "float32", "shape": [11, 384]},
+        "tap_2_norm": {"dtype": "float32", "shape": [11, 384]},
+        "tap_5_raw": {"dtype": "float32", "shape": [11, 384]},
+        "tap_5_norm": {"dtype": "float32", "shape": [11, 384]},
+        "tap_8_raw": {"dtype": "float32", "shape": [11, 384]},
+        "tap_8_norm": {"dtype": "float32", "shape": [11, 384]},
+        "tap_11_raw": {"dtype": "float32", "shape": [11, 384]},
+        "tap_11_norm": {"dtype": "float32", "shape": [11, 384]}
+      }
+    },
     "siglip2_vitb16_256_reference.npz": {
       "generator": "uv run python models/torch_models.py siglip2_vitb16_256 --output-dir /tmp/equimo-references",
       "identifier": "siglip2_vitb16_256",

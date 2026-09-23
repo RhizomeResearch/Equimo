@@ -1,0 +1,42 @@
+{
+  "converted_archive_sha256": "b6fc152475a8d4f7fc48f586848b22fea6d2d4a94d0cce805c3f016f25a0d27f",
+  "input_shape": [
+    3,
+    32,
+    48
+  ],
+  "jax_version": "0.9.2",
+  "onnx_version": "1.22.0",
+  "onnxruntime_version": "1.28.0",
+  "opset": 18,
+  "results": {
+    "dense_probe": {
+      "graph": "lingbot_vits16_dense_probe.onnx",
+      "graph_sha256": "878ed6aa19d64055ee5c6699f1f9157264c6e0a3ebc7b6bfd9576d6c41010104",
+      "max_absolute_error": 5.0067901611328125e-06,
+      "shape": [
+        3,
+        2,
+        3
+      ],
+      "status": "passed",
+      "violations": 0
+    },
+    "patch_features": {
+      "graph": "lingbot_vits16_patch_features.onnx",
+      "graph_sha256": "183997f1171fd724baa555d488686cb6510f0bfe7601377a61a6d28ca2634e44",
+      "max_absolute_error": 4.7206878662109375e-05,
+      "shape": [
+        6,
+        384
+      ],
+      "status": "passed",
+      "violations": 0
+    }
+  },
+  "tolerance": {
+    "atol": 0.00015,
+    "rtol": 0.0001
+  },
+  "variant": "lingbot_vits16"
+}

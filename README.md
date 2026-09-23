@@ -347,6 +347,10 @@ model = em.dinov2_vitb14(pretrained=True)
 | `TabPFN`            | `tabpfn`, `tabpfn_v3_classifier_*`, `tabpfn_regressor`, `tabpfn_v3_regressor_*`                                                                                |
 | `T0`                | `t0`, `t0_alpha`                                                                                                                                               |
 
+LingBot-Vision also provides `lingbot_vit{s,b,l,g}16` constructors. They start
+without weights; use `models/lingbot.py` to convert a pinned source checkpoint,
+then load the local archive with `equimo.serialization.load_weights(path=...)`.
+
 > `LowFormer` requires `attention_type` (`"softmax"` or `"sigmoid"`) which has
 > no sensible default and must be supplied by the caller.
 

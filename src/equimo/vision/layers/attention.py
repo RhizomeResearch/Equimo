@@ -55,6 +55,22 @@ register_attn_block()(AttentionBlock)
 
 
 @register_attn()
+class MaskedKeyAttention(Attention):
+    """Self-attention with no additive key bias in a fused QKV projection."""
+
+    def _project_qkv(self, x: jax.Array) -> jax.Array:
+        if self.qkv.bias is None:
+            return super()._project_qkv(x)
+        bias = self.qkv.bias
+        width = self.dim
+        masked = jnp.concatenate(
+            (bias[:width], jnp.zeros_like(bias[width : 2 * width]), bias[2 * width :])
+        )
+        qkv = eqx.tree_at(lambda linear: linear.bias, self.qkv, masked)
+        return jax.vmap(qkv)(x)
+
+
+@register_attn()
 class WindowedAttention(eqx.Module):
     """Windowed multi-head self attention module.
 

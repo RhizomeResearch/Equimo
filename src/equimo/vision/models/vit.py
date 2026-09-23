@@ -34,6 +34,11 @@ __all__ = [
     "dinov3_vit7b16_pretrain_lvd1689m",
     "dinov3_vitl16_pretrain_sat493m",
     "dinov3_vit7b16_pretrain_sat493m",
+    # LingBot-Vision
+    "lingbot_vits16",
+    "lingbot_vitb16",
+    "lingbot_vitl16",
+    "lingbot_vitg16",
     # EUPE
     "eupe_vitt16",
     "eupe_vits16",
@@ -783,6 +788,23 @@ _DINOV3_BASE_CFG: dict = {
     "dynamic_img_size": True,
     "act_layer": "exactgelu",
 }
+_LINGBOT_BASE_CFG: dict = {
+    "img_size": 512,
+    "in_channels": 3,
+    "patch_size": 16,
+    "num_classes": 0,
+    "use_mask_token": True,
+    "use_global_pos_embed": False,
+    "use_local_pos_embed": True,
+    "local_pos_embed_config_patch": _DINOV3_LOCAL_ROPE_CFG,
+    "reg_tokens": 4,
+    "init_values": 1e-5,
+    "eps": 1e-5,
+    "dynamic_img_size": True,
+    "act_layer": "exactgelu",
+    "attn_layer": "maskedkeyattention",
+    "global_pool": "token",
+}
 _EUPE_BASE_CFG: dict = {
     "img_size": 224,
     "in_channels": 3,
@@ -1016,6 +1038,29 @@ _VIT_REGISTRY: dict[str, tuple[dict, dict]] = {
             "untie_global_and_local_cls_norm": True,
             "ffn_layer": "swiglu",
             "ffn_kwargs": {"align_to": 64},
+            "qkv_bias": False,
+        },
+    ),
+    # LingBot-Vision
+    "lingbot_vits16": (
+        _LINGBOT_BASE_CFG,
+        {"dim": 384, "num_heads": 6, "depths": [12]},
+    ),
+    "lingbot_vitb16": (
+        _LINGBOT_BASE_CFG,
+        {"dim": 768, "num_heads": 12, "depths": [12]},
+    ),
+    "lingbot_vitl16": (
+        _LINGBOT_BASE_CFG,
+        {"dim": 1024, "num_heads": 16, "depths": [24]},
+    ),
+    "lingbot_vitg16": (
+        _LINGBOT_BASE_CFG,
+        {
+            "dim": 1536,
+            "num_heads": 24,
+            "depths": [40],
+            "ffn_layer": "swiglu",
             "qkv_bias": False,
         },
     ),
@@ -1271,6 +1316,11 @@ def _build_vit(
     Raises:
         KeyError: If *variant* is not found in the registry.
     """
+    if pretrained and variant.startswith("lingbot_"):
+        raise ValueError(
+            "LingBot-Vision checkpoints require local conversion; construct with "
+            "pretrained=False and load the converted archive with load_weights(path=...)."
+        )
     return build_model_variant(
         VisionTransformer,
         _VIT_REGISTRY,
@@ -1440,6 +1490,26 @@ def dinov3_vit7b16_pretrain_sat493m(
     return _build_vit(
         "dinov3_vit7b16_pretrain_sat493m", pretrained=pretrained, **kwargs
     )
+
+
+def lingbot_vits16(pretrained: bool = False, **kwargs) -> VisionTransformer:
+    """LingBot-Vision Small backbone with 16-pixel patches."""
+    return _build_vit("lingbot_vits16", pretrained=pretrained, **kwargs)
+
+
+def lingbot_vitb16(pretrained: bool = False, **kwargs) -> VisionTransformer:
+    """LingBot-Vision Base backbone with 16-pixel patches."""
+    return _build_vit("lingbot_vitb16", pretrained=pretrained, **kwargs)
+
+
+def lingbot_vitl16(pretrained: bool = False, **kwargs) -> VisionTransformer:
+    """LingBot-Vision Large backbone with 16-pixel patches."""
+    return _build_vit("lingbot_vitl16", pretrained=pretrained, **kwargs)
+
+
+def lingbot_vitg16(pretrained: bool = False, **kwargs) -> VisionTransformer:
+    """LingBot-Vision Giant backbone with SwiGLU feed-forward layers."""
+    return _build_vit("lingbot_vitg16", pretrained=pretrained, **kwargs)
 
 
 def eupe_vitt16(pretrained: bool = False, **kwargs) -> VisionTransformer:

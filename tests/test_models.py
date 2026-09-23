@@ -1,3 +1,4 @@
+import json
 import os
 from pathlib import Path
 
@@ -8,6 +9,7 @@ import numpy as np
 import pytest
 
 import equimo.vision.models as em
+from equimo.serialization import load_weights
 from equimo.timeseries.models import t0_alpha
 from equimo.core.layers.activation import get_act
 from equimo.core.layers.rotary import apply_rotary
@@ -418,6 +420,94 @@ def test_dinov3_local_rope_config_matches_official():
     np.testing.assert_allclose(
         np.asarray(rope.freqs), np.asarray(expected), rtol=0, atol=0
     )
+
+
+def test_lingbot_vits16_rectangular_features():
+    model = em.lingbot_vits16()
+    image = jr.normal(KEY, (3, 32, 48))
+    features = model.forward_features(image, key=KEY, inference=True)
+
+    assert features["x_norm_cls_token"].shape == (384,)
+    assert features["x_norm_reg_tokens"].shape == (4, 384)
+    assert features["x_norm_patchtokens"].shape == (6, 384)
+    assert jnp.isfinite(features["x_norm_patchtokens"]).all()
+
+    metadata = model.feature_metadata(
+        image,
+        endpoint="intermediate_features",
+        endpoint_options={"indices": (2, 5, 8, 11), "apply_norm": True},
+    )
+    assert metadata["grid_size"] == (2, 3)
+    assert metadata["prefix_tokens"] == (
+        "cls",
+        "register_0",
+        "register_1",
+        "register_2",
+        "register_3",
+    )
+
+
+@pytest.mark.live_reference_parity
+def test_lingbot_vits16_matches_pinned_reference():
+    directory = Path(
+        os.environ.get("EQUIMO_LINGBOT_ARCHIVE_DIR", "~/.cache/equimo/lingbot")
+    ).expanduser()
+    archive = directory / "lingbot_vits16.tar.lz4"
+    if not archive.is_file():
+        pytest.skip("converted LingBot-Vision Small checkpoint is not cached locally")
+
+    record = json.loads((directory / "lingbot_vits16.conversion.json").read_text())
+    data_dir = Path(__file__).parent / "data"
+    reference_path = data_dir / "lingbot_vits16_reference.npz"
+    provenance = json.loads((data_dir / "reference_provenance.json").read_text())[
+        "fixtures"
+    ][reference_path.name]
+    assert record["source_code_revision"] == provenance["author_code_revision"]
+    assert record["source_checkpoint_revision"] == provenance["upstream"]["revision"]
+    assert (
+        record["source_checkpoint_sha256"]
+        == provenance["upstream"]["checkpoint_sha256"]
+    )
+    assert record["converted_archive_sha256"] == provenance["converted_archive_sha256"]
+    jax.config.update("jax_default_matmul_precision", "highest")
+    with np.load(reference_path, allow_pickle=False) as reference:
+        model = load_weights(
+            em.lingbot_vits16(),
+            path=archive,
+            expected_sha256=provenance["converted_archive_sha256"],
+            expected_model_config=record["model_config"],
+        )
+        image = jnp.asarray(reference["input"])
+        key = jr.PRNGKey(42)
+        output = model.forward_features(image, key=key, inference=True)
+        values = {
+            "class": output["x_norm_cls_token"],
+            "registers": output["x_norm_reg_tokens"],
+            "patches": output["x_norm_patchtokens"],
+            "prenorm": output["x_prenorm"],
+        }
+        taps = (2, 5, 8, 11)
+        raw = model.intermediate_features(image, key=key, inference=True, indices=taps)
+        norm = model.intermediate_features(
+            image, key=key, inference=True, indices=taps, apply_norm=True
+        )
+        values.update(
+            {f"tap_{tap}_raw": value for tap, value in zip(taps, raw, strict=True)}
+        )
+        values.update(
+            {f"tap_{tap}_norm": value for tap, value in zip(taps, norm, strict=True)}
+        )
+        for name, value in values.items():
+            actual = np.asarray(value)
+            expected = reference[name]
+            assert actual.shape == expected.shape
+            assert actual.dtype == expected.dtype
+            np.testing.assert_allclose(
+                actual,
+                expected,
+                atol=provenance["comparison"]["atol"],
+                rtol=provenance["comparison"]["rtol"],
+            )
 
 
 @pytest.mark.live_reference_parity

@@ -1,0 +1,325 @@
+{
+  "author_code_revision": "151e46321bae4399f8568829f190c7bdec216b49",
+  "cases": [
+    {
+      "image_size": [
+        512,
+        512
+      ],
+      "metrics": {
+        "class": {
+          "max_absolute_error": 6.020069122314453e-06,
+          "shape": [
+            384
+          ],
+          "violations": 0
+        },
+        "patches": {
+          "max_absolute_error": 9.059906005859375e-06,
+          "shape": [
+            1024,
+            384
+          ],
+          "violations": 0
+        },
+        "prenorm": {
+          "max_absolute_error": 0.0007171630859375,
+          "shape": [
+            1029,
+            384
+          ],
+          "violations": 0
+        },
+        "registers": {
+          "max_absolute_error": 1.430511474609375e-05,
+          "shape": [
+            4,
+            384
+          ],
+          "violations": 0
+        },
+        "tap_11_norm": {
+          "max_absolute_error": 1.430511474609375e-05,
+          "shape": [
+            1029,
+            384
+          ],
+          "violations": 0
+        },
+        "tap_11_raw": {
+          "max_absolute_error": 0.0007171630859375,
+          "shape": [
+            1029,
+            384
+          ],
+          "violations": 0
+        },
+        "tap_2_norm": {
+          "max_absolute_error": 0.00018453598022460938,
+          "shape": [
+            1029,
+            384
+          ],
+          "violations": 0
+        },
+        "tap_2_raw": {
+          "max_absolute_error": 0.000732421875,
+          "shape": [
+            1029,
+            384
+          ],
+          "violations": 0
+        },
+        "tap_5_norm": {
+          "max_absolute_error": 0.00015735626220703125,
+          "shape": [
+            1029,
+            384
+          ],
+          "violations": 0
+        },
+        "tap_5_raw": {
+          "max_absolute_error": 0.000732421875,
+          "shape": [
+            1029,
+            384
+          ],
+          "violations": 0
+        },
+        "tap_8_norm": {
+          "max_absolute_error": 5.14984130859375e-05,
+          "shape": [
+            1029,
+            384
+          ],
+          "violations": 0
+        },
+        "tap_8_raw": {
+          "max_absolute_error": 0.000732421875,
+          "shape": [
+            1029,
+            384
+          ],
+          "violations": 0
+        }
+      }
+    },
+    {
+      "image_size": [
+        320,
+        512
+      ],
+      "metrics": {
+        "class": {
+          "max_absolute_error": 9.179115295410156e-06,
+          "shape": [
+            384
+          ],
+          "violations": 0
+        },
+        "patches": {
+          "max_absolute_error": 1.33514404296875e-05,
+          "shape": [
+            640,
+            384
+          ],
+          "violations": 0
+        },
+        "prenorm": {
+          "max_absolute_error": 0.000762939453125,
+          "shape": [
+            645,
+            384
+          ],
+          "violations": 0
+        },
+        "registers": {
+          "max_absolute_error": 1.049041748046875e-05,
+          "shape": [
+            4,
+            384
+          ],
+          "violations": 0
+        },
+        "tap_11_norm": {
+          "max_absolute_error": 1.33514404296875e-05,
+          "shape": [
+            645,
+            384
+          ],
+          "violations": 0
+        },
+        "tap_11_raw": {
+          "max_absolute_error": 0.000762939453125,
+          "shape": [
+            645,
+            384
+          ],
+          "violations": 0
+        },
+        "tap_2_norm": {
+          "max_absolute_error": 0.00012254714965820312,
+          "shape": [
+            645,
+            384
+          ],
+          "violations": 0
+        },
+        "tap_2_raw": {
+          "max_absolute_error": 0.00079345703125,
+          "shape": [
+            645,
+            384
+          ],
+          "violations": 0
+        },
+        "tap_5_norm": {
+          "max_absolute_error": 0.00010013580322265625,
+          "shape": [
+            645,
+            384
+          ],
+          "violations": 0
+        },
+        "tap_5_raw": {
+          "max_absolute_error": 0.00079345703125,
+          "shape": [
+            645,
+            384
+          ],
+          "violations": 0
+        },
+        "tap_8_norm": {
+          "max_absolute_error": 6.508827209472656e-05,
+          "shape": [
+            645,
+            384
+          ],
+          "violations": 0
+        },
+        "tap_8_raw": {
+          "max_absolute_error": 0.00079345703125,
+          "shape": [
+            645,
+            384
+          ],
+          "violations": 0
+        }
+      }
+    },
+    {
+      "image_size": [
+        512,
+        320
+      ],
+      "metrics": {
+        "class": {
+          "max_absolute_error": 6.3478946685791016e-06,
+          "shape": [
+            384
+          ],
+          "violations": 0
+        },
+        "patches": {
+          "max_absolute_error": 1.33514404296875e-05,
+          "shape": [
+            640,
+            384
+          ],
+          "violations": 0
+        },
+        "prenorm": {
+          "max_absolute_error": 0.001129150390625,
+          "shape": [
+            645,
+            384
+          ],
+          "violations": 0
+        },
+        "registers": {
+          "max_absolute_error": 1.33514404296875e-05,
+          "shape": [
+            4,
+            384
+          ],
+          "violations": 0
+        },
+        "tap_11_norm": {
+          "max_absolute_error": 1.33514404296875e-05,
+          "shape": [
+            645,
+            384
+          ],
+          "violations": 0
+        },
+        "tap_11_raw": {
+          "max_absolute_error": 0.001129150390625,
+          "shape": [
+            645,
+            384
+          ],
+          "violations": 0
+        },
+        "tap_2_norm": {
+          "max_absolute_error": 0.00015354156494140625,
+          "shape": [
+            645,
+            384
+          ],
+          "violations": 0
+        },
+        "tap_2_raw": {
+          "max_absolute_error": 0.001129150390625,
+          "shape": [
+            645,
+            384
+          ],
+          "violations": 0
+        },
+        "tap_5_norm": {
+          "max_absolute_error": 0.00019168853759765625,
+          "shape": [
+            645,
+            384
+          ],
+          "violations": 0
+        },
+        "tap_5_raw": {
+          "max_absolute_error": 0.001129150390625,
+          "shape": [
+            645,
+            384
+          ],
+          "violations": 0
+        },
+        "tap_8_norm": {
+          "max_absolute_error": 0.0001068115234375,
+          "shape": [
+            645,
+            384
+          ],
+          "violations": 0
+        },
+        "tap_8_raw": {
+          "max_absolute_error": 0.001129150390625,
+          "shape": [
+            645,
+            384
+          ],
+          "violations": 0
+        }
+      }
+    }
+  ],
+  "checkpoint_weight_precision": "float32",
+  "converted_archive_sha256": "b6fc152475a8d4f7fc48f586848b22fea6d2d4a94d0cce805c3f016f25a0d27f",
+  "evaluation_precision": "float32",
+  "passed": true,
+  "source_checkpoint_revision": "127cbcec380de0bcd55bdc1b1fad3819850a6514",
+  "source_checkpoint_sha256": "dca36562cb6b0b34504df6edc18fa282c5ef06fb375c3e91d5487247a1096f9d",
+  "tolerance": {
+    "atol": 0.00015,
+    "rtol": 0.0001
+  },
+  "variant": "lingbot_vits16"
+}
