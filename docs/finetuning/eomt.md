@@ -41,6 +41,13 @@ additional no-object class in the query classifier. Class indices and the
 `stuff_classes` sequence must follow the checkpoint's ontology. The image size
 must be divisible by the patch size.
 
+`joint_features(image, key=..., inference=..., mask_state=...)` returns final
+normalized tokens in query/prefix/patch order. `token_trace(...)`
+returns the joint tokens at every prediction point. The existing `features(...)`
+method returns the same final joint tokens. For code that accepts either EoMT
+or PMT predictions, annotate the result with
+`equimo.vision.segmentation.QuerySegmentationOutput`.
+
 `semantic_scores` softmaxes query class logits, excludes the no-object class,
 sigmoids each mask, and sums their products. Resize mask **logits** before
 calling it when output geometry differs. `semantic_class_map` returns the

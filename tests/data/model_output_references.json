@@ -276,6 +276,23 @@
         0.9281470775604248
       ]
     },
+    "pmt": {
+      "dtype": "float32",
+      "modality": "vision",
+      "shape": [
+        8
+      ],
+      "values": [
+        0.5229806303977966,
+        -0.6105072498321533,
+        -0.015024887397885323,
+        -0.5398357510566711,
+        0.9826765060424805,
+        -0.5233601331710815,
+        0.23748180270195007,
+        -0.05441107600927353
+      ]
+    },
     "reduceformer": {
       "dtype": "float32",
       "modality": "vision",
@@ -454,5 +471,5 @@
   "jax_version": "0.9.2",
   "rtol": 1e-05,
   "seed_base": 100,
-  "source_revision": "c4eddffd"
+  "source_revision": "rwoywoxy"
 }

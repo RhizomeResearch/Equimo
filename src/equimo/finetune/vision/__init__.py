@@ -2,6 +2,7 @@
 
 from . import dense
 from .eomt import eomt_full_finetune
+from .pmt import pmt_head_finetune
 from .dense import (
     DenseProbe,
     DenseVisionConfig,
@@ -18,4 +19,5 @@ __all__ = (
     "dense_feature_adapter",
     "make_dense_probe",
     "eomt_full_finetune",
+    "pmt_head_finetune",
 )

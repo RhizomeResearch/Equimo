@@ -19,7 +19,7 @@ from equimo.core.layers.norm import LayerNorm2d
 from equimo.core.layers.rotary import insert_rotary_identity
 from equimo.registry import register_model
 from equimo.vision.models.vit import VisionTransformer
-from equimo.vision.segmentation import resize_mask_logits
+from equimo.vision.segmentation import _anneal_mask_probabilities, resize_mask_logits
 
 
 class MaskPrediction(eqx.Module):
@@ -58,17 +58,9 @@ def anneal_mask_state(
     power: float = 0.9,
 ) -> EoMTMaskState:
     """Polynomially remove masked attention at declared optimizer steps."""
-    if not start_steps or len(start_steps) != len(end_steps):
-        raise ValueError("Mask annealing boundaries must have equal nonzero lengths.")
-    if any(end <= start for start, end in zip(start_steps, end_steps, strict=True)):
-        raise ValueError("Each mask annealing end must follow its start.")
-    if power <= 0:
-        raise ValueError("Mask annealing power must be positive.")
-    step = jnp.asarray(step, dtype=jnp.int32)
-    start = jnp.asarray(start_steps, dtype=jnp.float32)
-    end = jnp.asarray(end_steps, dtype=jnp.float32)
-    progress = jnp.clip((step.astype(jnp.float32) - start) / (end - start), 0, 1)
-    return EoMTMaskState((1 - progress) ** power, step)
+    return EoMTMaskState(
+        _anneal_mask_probabilities(step, start_steps, end_steps, power), step
+    )
 
 
 class ScaleBlock(eqx.Module):
@@ -298,7 +290,7 @@ class EoMT(eqx.Module):
         assert output is not None
         return output
 
-    def features(
+    def joint_features(
         self,
         x: jax.Array,
         *,
@@ -315,6 +307,19 @@ class EoMT(eqx.Module):
             predict_final=False,
             collect_trace=False,
         )[1]
+
+    def features(
+        self,
+        x: jax.Array,
+        *,
+        key: jax.Array | None = None,
+        inference: bool = True,
+        mask_state: EoMTMaskState | None = None,
+    ) -> jax.Array:
+        """Return joint tokens; use ``joint_features`` for an explicit name."""
+        return self.joint_features(
+            x, key=key, inference=inference, mask_state=mask_state
+        )
 
     def token_trace(
         self,

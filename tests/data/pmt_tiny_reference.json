@@ -1,0 +1,19 @@
+{
+  "author_repository": "https://github.com/tue-mps/pmt",
+  "author_revision": "0e803722aa5737a242b383dec1b90c2c66b86baa",
+  "fixture": "random PMD with two frozen-feature levels and BatchNorm",
+  "torch": "2.11.0+cu130",
+  "numpy": "2.4.4",
+  "image_shape": [
+    3,
+    16,
+    24
+  ],
+  "token_shape": [
+    8,
+    8
+  ],
+  "query_count": 2,
+  "decoder_blocks": 2,
+  "classes": 3
+}

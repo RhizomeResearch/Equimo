@@ -378,7 +378,7 @@ class VisionTransformer(eqx.Module):
     def intermediate_features(
         self,
         x: Float[Array, "channels height width"],
-        key: PRNGKeyArray,
+        key: PRNGKeyArray | None,
         mask: Optional[Int[Array, "embed_h embed_w"]] = None,
         inference: Optional[bool] = None,
         indices: Sequence[int] | None = None,
@@ -539,7 +539,7 @@ class VisionTransformer(eqx.Module):
         self,
         x: Float[Array, "channels height width"],
         *,
-        key: PRNGKeyArray,
+        key: PRNGKeyArray | None,
         mask: Optional[Int[Array, "embed_h embed_w"]],
         inference: Optional[bool],
     ):
@@ -585,7 +585,7 @@ class VisionTransformer(eqx.Module):
         self,
         x: Float[Array, "channels height width"],
         *,
-        key: PRNGKeyArray,
+        key: PRNGKeyArray | None,
         inference: bool,
     ) -> tuple[jax.Array, int, int, RotaryFactors | None]:
         """Prepare image tokens and spatial rotary factors for block execution.

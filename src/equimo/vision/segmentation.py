@@ -4,11 +4,32 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import Protocol
 
 import equinox as eqx
 import jax
 import jax.numpy as jnp
 from jax import lax
+
+
+class QueryMaskPrediction(Protocol):
+    """Readable class and mask logits from a query segmentation model."""
+
+    @property
+    def class_logits(self) -> jax.Array: ...
+
+    @property
+    def mask_logits(self) -> jax.Array: ...
+
+
+class QuerySegmentationOutput(Protocol):
+    """Shared prediction view for query segmentation model outputs."""
+
+    @property
+    def final(self) -> QueryMaskPrediction: ...
+
+    @property
+    def auxiliary(self) -> tuple[QueryMaskPrediction, ...]: ...
 
 
 class PanopticPrediction(eqx.Module):
@@ -25,6 +46,26 @@ def resize_mask_logits(mask_logits: jax.Array, size: tuple[int, int]) -> jax.Arr
     return jax.image.resize(
         mask_logits, (mask_logits.shape[0], *size), "linear", antialias=False
     )
+
+
+def _anneal_mask_probabilities(
+    step: int | jax.Array,
+    start_steps: tuple[int, ...],
+    end_steps: tuple[int, ...],
+    power: float,
+) -> jax.Array:
+    """Compute per-block polynomial mask retention probabilities."""
+    if not start_steps or len(start_steps) != len(end_steps):
+        raise ValueError("Mask annealing boundaries must have equal nonzero lengths.")
+    if any(end <= start for start, end in zip(start_steps, end_steps, strict=True)):
+        raise ValueError("Each mask annealing end must follow its start.")
+    if power <= 0:
+        raise ValueError("Mask annealing power must be positive.")
+    step = jnp.asarray(step, dtype=jnp.int32)
+    start = jnp.asarray(start_steps, dtype=jnp.float32)
+    end = jnp.asarray(end_steps, dtype=jnp.float32)
+    progress = jnp.clip((step.astype(jnp.float32) - start) / (end - start), 0, 1)
+    return (1 - progress) ** power
 
 
 def semantic_scores(
@@ -183,6 +224,8 @@ def _validate_logits(mask_logits: jax.Array, class_logits: jax.Array) -> None:
 
 __all__ = [
     "PanopticPrediction",
+    "QueryMaskPrediction",
+    "QuerySegmentationOutput",
     "merge_semantic_crops",
     "panoptic_predictions",
     "resize_mask_logits",

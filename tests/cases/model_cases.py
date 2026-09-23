@@ -20,6 +20,8 @@ from equimo.vision.models import (
     ConvNeXt,
     DEQ,
     EoMT,
+    PMT,
+    PMTConfig,
     FasterViT,
     IFormer,
     LowFormer,
@@ -142,6 +144,47 @@ def _build_eomt(key: jax.Array) -> ModelInvocation:
     )
     sample = jr.normal(sample_key, (3, 16, 16))
     tokens = model.features(sample, key=model_key, inference=True)
+    return ModelInvocation(
+        model=model,
+        args=(sample,),
+        kwargs={},
+        spec=eqft.FeatureSpec("features", "BNC", "all", "global_avg"),
+        expected=jnp.mean(tokens, axis=0),
+        key=model_key,
+    )
+
+
+def _build_pmt(key: jax.Array) -> ModelInvocation:
+    backbone_key, model_key, sample_key = jr.split(key, 3)
+    backbone = VisionTransformer(
+        img_size=16,
+        in_channels=3,
+        dim=8,
+        patch_size=8,
+        num_heads=2,
+        depths=[2],
+        reg_tokens=1,
+        num_classes=0,
+        dynamic_img_size=True,
+        use_local_pos_embed=True,
+        global_pos_embed_reg=True,
+        key=backbone_key,
+    )
+    model = PMT(
+        backbone,
+        3,
+        key=model_key,
+        config=PMTConfig.small(
+            dim=8,
+            num_heads=2,
+            hidden_dim=8,
+            taps=(0, 1),
+            num_queries=2,
+            num_blocks=2,
+        ),
+    )
+    sample = jr.normal(sample_key, (3, 16, 16))
+    tokens = model.features(sample)
     return ModelInvocation(
         model=model,
         args=(sample,),
@@ -600,6 +643,7 @@ MODEL_CASES = (
     ModelCase("vision", "vit", _build_vit),
     ModelCase("vision", "vssd", _build_vssd),
     ModelCase("vision", "eomt", _build_eomt),
+    ModelCase("vision", "pmt", _build_pmt),
 )
 
 
