@@ -23,7 +23,16 @@ from optimizer state entirely.
 - `labels`: optimizer-group labels matching trainable leaves.
 - `group_specs`: learning-rate multiplier and weight-decay metadata.
 - `param_info`: per-leaf path, tags, labels, and trainability.
-- `report`: parameter counts and selected target paths.
+- `report`: parameter counts, selected target paths, per-leaf metadata, a
+  parameter signature, and a plan fingerprint.
+
+`plan.report.to_dict()` produces a JSON-compatible inventory of logical IDs,
+shapes, dtypes, roles, tags, selected leaves, and effective optimizer groups.
+Save its `plan_fingerprint` with the optimizer checkpoint. After rebuilding a
+plan from a restored model, call
+`eqft.validate_plan(plan, expected_fingerprint=saved_fingerprint)` before
+restoring optimizer state. The fingerprint covers structure and group policy;
+ordinary parameter updates do not change it.
 
 `GroupSpec.role` and `GroupSpec.tags` preserve the first leaf's representative
 metadata for compatibility. Use `GroupSpec.roles`, `GroupSpec.tags_all`, and

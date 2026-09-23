@@ -18,6 +18,7 @@ Plan inspection and general model-surgery utilities.
 - [`set_dropout_rate`](#equimo-finetune-set-dropout-rate)
 - [`set_stochastic_depth_rate`](#equimo-finetune-set-stochastic-depth-rate)
 - [`transfer_head`](#equimo-finetune-transfer-head)
+- [`validate_plan`](#equimo-finetune-validate-plan)
 
 <!-- equimo.finetune:disable_dropout -->
 <a id="equimo-finetune-disable-dropout"></a>
@@ -138,3 +139,15 @@ equimo.finetune.transfer_head(target_model: 'PyTree', source_model: 'PyTree', *,
 Defined in `equimo.finetune.surgery`.
 
 > Return ``target_model`` with the selected head copied from ``source_model``.
+
+<!-- equimo.finetune:validate_plan -->
+<a id="equimo-finetune-validate-plan"></a>
+## `validate_plan`
+
+```python
+equimo.finetune.validate_plan(plan: 'FineTunePlan', *, expected_fingerprint: 'str | None' = None) -> 'None'
+```
+
+Defined in `equimo.finetune.inspection`.
+
+> Check a prepared partition and an optional saved plan fingerprint.

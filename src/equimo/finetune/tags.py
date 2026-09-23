@@ -10,7 +10,8 @@ import jax.tree_util as jtu
 
 from ._typing import Path, PyTree
 from .config import ParamInfo
-from .paths import iter_param_leaves, key_path_to_path
+from .paths import iter_param_leaves, key_path_to_path, path_to_str
+from ._blocks import model_block_depth, vision_block_depths
 
 Tagger = Callable[[Path, Any], Iterable[str]]
 
@@ -129,6 +130,8 @@ def canonical_tags_for_path(path: Path, leaf: Any | None = None) -> frozenset[st
 
     if "head" in parts or "classifier" in parts:
         tags.update(("head", "head.classifier"))
+    if "backbone" in parts:
+        tags.add("backbone")
     if "projection_head" in parts:
         tags.update(("head", "head.projection"))
     if "pool" in parts or "pooler" in parts:
@@ -178,9 +181,17 @@ def make_tag_tree(
     """Replace parameter-like leaves with tagged ``ParamInfo`` records."""
 
     filtered = eqx.filter(tree, eqx.is_inexact_array)
+    block_depths = vision_block_depths(tree)
+    adalora_roles = _adalora_roles(tree)
 
     def make_info(key_path: tuple[Any, ...], leaf: Any) -> ParamInfo:
-        return make_param_info(key_path_to_path(key_path), leaf, tagger=tagger)
+        return make_param_info(
+            key_path_to_path(key_path),
+            leaf,
+            tagger=tagger,
+            block_depths=block_depths,
+            adalora_roles=adalora_roles,
+        )
 
     return jtu.tree_map_with_path(make_info, filtered)
 
@@ -192,8 +203,16 @@ def iter_param_infos(
 ) -> tuple[ParamInfo, ...]:
     """Return tagged ``ParamInfo`` records for inexact array leaves."""
 
+    block_depths = vision_block_depths(tree)
+    adalora_roles = _adalora_roles(tree)
     return tuple(
-        make_param_info(path, leaf, tagger=tagger)
+        make_param_info(
+            path,
+            leaf,
+            tagger=tagger,
+            block_depths=block_depths,
+            adalora_roles=adalora_roles,
+        )
         for path, leaf in iter_param_leaves(tree)
     )
 
@@ -203,20 +222,42 @@ def make_param_info(
     leaf: Any,
     *,
     tagger: Tagger = canonical_tags_for_path,
+    block_depths: dict[Path, int] | None = None,
+    adalora_roles: dict[Path, str] | None = None,
 ) -> ParamInfo:
     """Build one tagged ``ParamInfo`` record."""
 
-    tags = frozenset(tagger(path, leaf))
-    path_string = ".".join(str(part) for part in path)
+    tags = set(tagger(path, leaf))
+    if adalora_roles is not None and path in adalora_roles:
+        tags.update(("peft", "adalora", f"adalora.{adalora_roles[path]}"))
+    actual_depth = (
+        model_block_depth(path, block_depths) if block_depths is not None else None
+    )
+    if actual_depth is not None:
+        tags.difference_update(
+            {tag for tag in tags if tag.startswith("block.") and tag[6:].isdecimal()}
+        )
+        tags.update(("block", f"block.{actual_depth}"))
+    path_string = path_to_str(path)
     return ParamInfo(
         path=path,
         logical_id=path_string,
-        tags=tags,
+        tags=frozenset(tags),
         role=infer_role(tags),
-        depth=infer_depth(path),
+        depth=actual_depth if actual_depth is not None else infer_depth(path),
         is_array=eqx.is_array(leaf),
         is_inexact_array=eqx.is_inexact_array(leaf),
     )
+
+
+def _adalora_roles(tree: PyTree) -> dict[Path, str]:
+    from .peft.lora import iter_adalora_modules
+
+    return {
+        (*path, leaf): leaf
+        for path, _ in iter_adalora_modules(tree)
+        for leaf in ("P", "singular", "Q")
+    }
 
 
 def infer_role(tags: Iterable[str]) -> str:
@@ -224,6 +265,9 @@ def infer_role(tags: Iterable[str]) -> str:
 
     tag_set = frozenset(tags)
     for tag, role in (
+        ("adalora.P", "adalora.P"),
+        ("adalora.singular", "adalora.singular"),
+        ("adalora.Q", "adalora.Q"),
         ("lora.factor_A", "lora.factor_A"),
         ("lora.factor_B", "lora.factor_B"),
         ("lora_fa.factor_B", "lora_fa.factor_B"),
@@ -296,13 +340,14 @@ def _add_mlp_tags(parts: tuple[str, ...], tags: set[str]) -> None:
 
 
 def _add_norm_tags(parts: tuple[str, ...], tags: set[str]) -> None:
-    norm_parts = {"norm", "norm1", "norm2", "ln", "layer_norm"}
+    norm_parts = {"norm", "prenorm", "norm1", "norm2", "ln", "layer_norm"}
     matched = norm_parts.intersection(parts)
+    matched.update(part for part in parts if part.endswith("_norm"))
     if not matched:
         return
 
     tags.add("norm")
-    if "norm1" in matched:
+    if "norm1" in matched or "prenorm" in matched:
         tags.add("block.norm.pre")
     if "norm2" in matched:
         tags.add("block.norm.post")

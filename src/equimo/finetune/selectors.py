@@ -69,9 +69,30 @@ def resolve_target(
     }
 
     resolved = tuple(info for info in infos if info.path in selected_paths)
+    if target.expected_logical_ids is not None:
+        _check_expected_ids(
+            {info.logical_id for info in resolved},
+            target.expected_logical_ids,
+            label="TargetSpec",
+        )
     if not resolved and not allow_empty:
         raise ValueError(_empty_selector_message(target))
     return resolved
+
+
+def _check_expected_ids(
+    actual: set[str], expected_ids: tuple[str, ...], *, label: str
+) -> None:
+    expected = set(expected_ids)
+    if len(expected) != len(expected_ids):
+        raise ValueError(f"{label} expected_logical_ids contains duplicates.")
+    missing = sorted(expected - actual)
+    unexpected = sorted(actual - expected)
+    if missing or unexpected:
+        raise ValueError(
+            f"{label} logical IDs differ: missing={missing!r}, "
+            f"unexpected={unexpected!r}."
+        )
 
 
 def resolve_target_paths(

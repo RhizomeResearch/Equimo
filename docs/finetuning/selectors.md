@@ -21,3 +21,8 @@ Empty selectors raise by default. Use explicit tags and inspect the result:
 ```python
 paths = eqft.resolve_target_paths(model, eqft.TargetSpec(tags_any=("attention.qkv",)))
 ```
+
+For a required selection, set `expected_logical_ids` on `TargetSpec` or
+`TrainableSpec`. Equimo compares the resolved set after exclusions and raises
+with missing or unexpected IDs. Logical IDs use escaped paths, so a string key
+containing a dot differs from two nested path components.

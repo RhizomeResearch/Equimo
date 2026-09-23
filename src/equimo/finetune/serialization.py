@@ -1501,6 +1501,7 @@ def _target_spec_to_dict(target: TargetSpec) -> dict[str, Any]:
         "max_depth": target.max_depth,
         "target_kind": target.target_kind,
         "allow_empty": target.allow_empty,
+        "expected_logical_ids": target.expected_logical_ids,
         "predicate": None
         if target.predicate is None
         else getattr(target.predicate, "__name__", "<callable>"),

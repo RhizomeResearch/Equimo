@@ -9,9 +9,16 @@ import equinox as eqx
 import jax.tree_util as jtu
 
 from ._typing import Path, PyTree
+from ._blocks import model_block_depth, vision_block_depths
 from .config import GroupSpec, LLRDConfig, ParamInfo
 from .paths import key_path_to_path
-from .tags import Tagger, canonical_tags_for_path, infer_block_depth, make_param_info
+from .tags import (
+    Tagger,
+    _adalora_roles,
+    canonical_tags_for_path,
+    infer_block_depth,
+    make_param_info,
+)
 
 
 def make_param_labels(
@@ -42,11 +49,14 @@ def make_labeled_param_info_tree(
     """Build a ``ParamInfo`` tree with trainability, labels, and group specs."""
 
     config = LLRDConfig(decay=1.0) if llrd_config is None else llrd_config
-    all_depths = _all_depths(model, config)
+    block_depths = vision_block_depths(model)
+    adalora_roles = _adalora_roles(model)
+    all_depths = _all_depths(model, config, block_depths)
     selected_depths = _selected_depths(
         model,
         trainable_paths,
         config,
+        block_depths,
         tagger=tagger,
     )
     filtered = eqx.filter(model, eqx.is_inexact_array)
@@ -57,8 +67,14 @@ def make_labeled_param_info_tree(
             return None
 
         path = key_path_to_path(key_path)
-        base = make_param_info(path, leaf, tagger=tagger)
-        base = replace(base, depth=_depth_for_path(path, config))
+        base = make_param_info(
+            path,
+            leaf,
+            tagger=tagger,
+            block_depths=block_depths,
+            adalora_roles=adalora_roles,
+        )
+        base = replace(base, depth=_depth_for_path(path, config, block_depths))
         trainable = trainable_paths is None or path in trainable_paths
         weight_decay = trainable and _uses_weight_decay(base, config)
         lr_multiplier = (
@@ -95,6 +111,14 @@ def make_labeled_param_info_tree(
 
 
 def _merge_group_spec(group: GroupSpec, info: ParamInfo) -> GroupSpec:
+    if (
+        group.lr_multiplier != info.lr_multiplier
+        or group.weight_decay != info.weight_decay
+    ):
+        raise ValueError(
+            f"Optimizer label {group.label!r} has inconsistent learning rate "
+            f"or weight decay at {info.logical_id!r}."
+        )
     tags_all = tuple(sorted(set(group.tags_all).union(info.tags)))
     roles = set(group.roles)
     if info.role:
@@ -132,8 +156,12 @@ def _label_base(info: ParamInfo, config: LLRDConfig) -> str:
         return "lora_B"
     if "lora_fa.factor_B" in info.tags:
         return "lora_fa_B"
+    if "adalora.P" in info.tags:
+        return "adalora_P"
     if "adalora.singular" in info.tags:
         return "adalora_singular"
+    if "adalora.Q" in info.tags:
+        return "adalora_Q"
     if "fourierft" in info.tags:
         return "fourierft"
     if "orthogonal" in info.tags:
@@ -205,8 +233,7 @@ def _lr_multiplier(
 
 
 def _all_depths(
-    model: PyTree,
-    config: LLRDConfig,
+    model: PyTree, config: LLRDConfig, block_depths: dict[Path, int]
 ) -> tuple[int, ...]:
     filtered = eqx.filter(model, eqx.is_inexact_array)
     depths: set[int] = set()
@@ -214,7 +241,7 @@ def _all_depths(
         if not eqx.is_inexact_array(leaf):
             continue
         del leaf
-        depth = _depth_for_path(key_path_to_path(key_path), config)
+        depth = _depth_for_path(key_path_to_path(key_path), config, block_depths)
         if depth is not None:
             depths.add(depth)
     return tuple(sorted(depths))
@@ -224,11 +251,12 @@ def _selected_depths(
     model: PyTree,
     trainable_paths: frozenset[Path] | None,
     config: LLRDConfig,
+    block_depths: dict[Path, int],
     *,
     tagger: Tagger,
 ) -> tuple[int, ...]:
     if trainable_paths is None:
-        return _all_depths(model, config)
+        return _all_depths(model, config, block_depths)
 
     filtered = eqx.filter(model, eqx.is_inexact_array)
     depths: set[int] = set()
@@ -239,15 +267,20 @@ def _selected_depths(
         if path not in trainable_paths:
             continue
         del leaf
-        depth = _depth_for_path(path, config)
+        depth = _depth_for_path(path, config, block_depths)
         if depth is not None:
             depths.add(depth)
     return tuple(sorted(depths))
 
 
-def _depth_for_path(path: Path, config: LLRDConfig) -> int | None:
+def _depth_for_path(
+    path: Path, config: LLRDConfig, block_depths: dict[Path, int]
+) -> int | None:
     parts = tuple(str(part) for part in path)
     if config.depth_axis == "block":
+        actual = model_block_depth(path, block_depths)
+        if actual is not None:
+            return actual
         return infer_block_depth(path)
     if config.depth_axis == "stage":
         return _indexed_depth(parts, {"stages", "stage"})

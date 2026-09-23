@@ -2,13 +2,13 @@
 
 # `equimo.finetune` API reference
 
-This reference covers all 270 names exported by `equimo.finetune.__all__`.
+This reference covers all 272 names exported by `equimo.finetune.__all__`.
 Signatures and defaults are generated from the installed source objects.
 See the [fine-tuning overview](../index.md) for task-oriented guides.
 
 ## [Configs and plans](configs-plans.md)
 
-Configuration records, plan metadata, and the core public typing aliases. (28 symbols)
+Configuration records, plan metadata, and the core public typing aliases. (29 symbols)
 
 ## [Selectors, paths, labels, and tags](selectors-tags.md)
 
@@ -44,4 +44,4 @@ Public audio, language, tabular, and vision modality namespaces. (3 symbols)
 
 ## [Inspection and model surgery](inspection-surgery.md)
 
-Plan inspection and general model-surgery utilities. (10 symbols)
+Plan inspection and general model-surgery utilities. (11 symbols)

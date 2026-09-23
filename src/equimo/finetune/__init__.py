@@ -13,6 +13,7 @@ from .config import (
     ModelLineage,
     ParamIdentity,
     ParamInfo,
+    ParameterReport,
     ProjectionSegment,
     StatePolicy,
     TargetSpec,
@@ -169,7 +170,7 @@ from .peft import (
     unmerge_orthogonal_adapters,
     unmerge_randlora,
 )
-from .inspection import inspect_plan, inspect_trainables
+from .inspection import inspect_plan, inspect_trainables, validate_plan
 from .labels import make_param_labels
 from .masks import make_trainable_filter
 from .merging import (
@@ -376,6 +377,7 @@ __all__ = (
     "MultiLabelHead",
     "ParamInfo",
     "ParamIdentity",
+    "ParameterReport",
     "Path",
     "PEFTConfig",
     "PTuningV2Config",
@@ -414,6 +416,7 @@ __all__ = (
     "TaskVectorConfig",
     "TrainableReport",
     "TrainableSpec",
+    "validate_plan",
     "UniformSoupConfig",
     "VPTDeepConfig",
     "VPTShallowConfig",

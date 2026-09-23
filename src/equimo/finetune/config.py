@@ -40,6 +40,7 @@ class TargetSpec:
     max_depth: int | None = None
     target_kind: TargetKind = "leaf"
     allow_empty: bool = False
+    expected_logical_ids: tuple[str, ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -54,6 +55,7 @@ class TrainableSpec:
     train_bias: bool = False
     depth_range: tuple[int, int] | None = None
     method_name: str | None = None
+    expected_logical_ids: tuple[str, ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -431,6 +433,23 @@ class GroupSpec:
 
 
 @dataclass(frozen=True)
+class ParameterReport:
+    """Serializable metadata for one floating parameter leaf."""
+
+    logical_id: str
+    physical_path: Path
+    shape: tuple[int, ...]
+    dtype: str
+    role: str
+    tags: tuple[str, ...]
+    depth: int | None
+    trainable: bool
+    label: str | None
+    lr_multiplier: float | None
+    weight_decay: bool
+
+
+@dataclass(frozen=True)
 class TrainableReport:
     """Summary of trainable and frozen parameter leaves."""
 
@@ -444,6 +463,45 @@ class TrainableReport:
     mergeable: bool = False
     estimated_delta_size_bytes: int = 0
     target_paths: tuple[str, ...] = ()
+    parameters: tuple[ParameterReport, ...] = ()
+    model_signature: str = ""
+    plan_fingerprint: str = ""
+    schema_version: int = 1
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-compatible plan report for persistence and review."""
+
+        return {
+            "schema_version": self.schema_version,
+            "total_params": self.total_params,
+            "trainable_params": self.trainable_params,
+            "trainable_fraction": self.trainable_fraction,
+            "trainable_by_label": dict(self.trainable_by_label),
+            "frozen_by_label": dict(self.frozen_by_label),
+            "adapter_params": self.adapter_params,
+            "head_params": self.head_params,
+            "mergeable": self.mergeable,
+            "estimated_delta_size_bytes": self.estimated_delta_size_bytes,
+            "target_paths": list(self.target_paths),
+            "model_signature": self.model_signature,
+            "plan_fingerprint": self.plan_fingerprint,
+            "parameters": [
+                {
+                    "logical_id": parameter.logical_id,
+                    "physical_path": list(parameter.physical_path),
+                    "shape": list(parameter.shape),
+                    "dtype": parameter.dtype,
+                    "role": parameter.role,
+                    "tags": list(parameter.tags),
+                    "depth": parameter.depth,
+                    "trainable": parameter.trainable,
+                    "label": parameter.label,
+                    "lr_multiplier": parameter.lr_multiplier,
+                    "weight_decay": parameter.weight_decay,
+                }
+                for parameter in self.parameters
+            ],
+        }
 
 
 @dataclass(frozen=True)

@@ -10,7 +10,7 @@ import jax.tree_util as jtu
 from ._typing import Path, PyTree
 from .config import ParamInfo, TargetSpec, TrainableSpec
 from .paths import key_path_to_path
-from .selectors import resolve_target
+from .selectors import _check_expected_ids, resolve_target
 from .tags import Tagger, canonical_tags_for_path, iter_param_infos
 
 
@@ -51,6 +51,16 @@ def resolve_trainable_paths(
 
     selected.difference_update(_paths_with_any_tag(infos, {"peft.metadata"}))
     selected.difference_update(_nontrainable_peft_scale_paths(model))
+
+    if not selected and spec.mode != "frozen":
+        raise ValueError("Trainability plan selected no trainable floating leaves.")
+    if spec.expected_logical_ids is not None:
+        by_path = {info.path: info.logical_id for info in infos}
+        _check_expected_ids(
+            {by_path[path] for path in selected},
+            spec.expected_logical_ids,
+            label="TrainableSpec",
+        )
 
     return frozenset(selected)
 
@@ -152,14 +162,20 @@ def _paths_in_depth_range(
     infos: tuple[ParamInfo, ...],
     depth_range: tuple[int, int] | None,
 ) -> set[Path]:
-    depths = [info.depth for info in infos if info.depth is not None]
+    depths = {info.depth for info in infos if info.depth is not None}
     if not depths:
+        if depth_range is not None:
+            raise ValueError("Partial depth range requires model blocks.")
         return set()
 
     if depth_range is None:
         start, stop = max(depths), max(depths) + 1
     else:
         start, stop = depth_range
+        if start < 0 or start >= stop or not set(range(start, stop)) <= depths:
+            raise ValueError(
+                f"Partial depth range {depth_range!r} does not match model blocks."
+            )
 
     return {
         info.path

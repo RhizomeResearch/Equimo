@@ -24,6 +24,7 @@ Configuration records, plan metadata, and the core public typing aliases.
 - [`LeafPredicate`](#equimo-finetune-leafpredicate)
 - [`LLRDConfig`](#equimo-finetune-llrdconfig)
 - [`ModelLineage`](#equimo-finetune-modellineage)
+- [`ParameterReport`](#equimo-finetune-parameterreport)
 - [`ParamIdentity`](#equimo-finetune-paramidentity)
 - [`ParamInfo`](#equimo-finetune-paraminfo)
 - [`Path`](#equimo-finetune-path)
@@ -225,6 +226,18 @@ Defined in `equimo.finetune.config`.
 
 > Lineage binding for plans, deltas, merges, and checkpoints.
 
+<!-- equimo.finetune:ParameterReport -->
+<a id="equimo-finetune-parameterreport"></a>
+## `ParameterReport`
+
+```python
+class equimo.finetune.ParameterReport(logical_id: 'str', physical_path: 'Path', shape: 'tuple[int, ...]', dtype: 'str', role: 'str', tags: 'tuple[str, ...]', depth: 'int | None', trainable: 'bool', label: 'str | None', lr_multiplier: 'float | None', weight_decay: 'bool') -> None
+```
+
+Defined in `equimo.finetune.config`.
+
+> Serializable metadata for one floating parameter leaf.
+
 <!-- equimo.finetune:ParamIdentity -->
 <a id="equimo-finetune-paramidentity"></a>
 ## `ParamIdentity`
@@ -294,7 +307,7 @@ Defined in `equimo.finetune.config`.
 ## `TargetSpec`
 
 ```python
-class equimo.finetune.TargetSpec(tags_all: 'tuple[str, ...]' = (), tags_any: 'tuple[str, ...]' = (), include: 'tuple[str, ...]' = (), exclude: 'tuple[str, ...]' = (), predicate: 'LeafPredicate | None' = None, min_depth: 'int | None' = None, max_depth: 'int | None' = None, target_kind: 'TargetKind' = 'leaf', allow_empty: 'bool' = False) -> None
+class equimo.finetune.TargetSpec(tags_all: 'tuple[str, ...]' = (), tags_any: 'tuple[str, ...]' = (), include: 'tuple[str, ...]' = (), exclude: 'tuple[str, ...]' = (), predicate: 'LeafPredicate | None' = None, min_depth: 'int | None' = None, max_depth: 'int | None' = None, target_kind: 'TargetKind' = 'leaf', allow_empty: 'bool' = False, expected_logical_ids: 'tuple[str, ...] | None' = None) -> None
 ```
 
 Defined in `equimo.finetune.config`.
@@ -306,7 +319,7 @@ Defined in `equimo.finetune.config`.
 ## `TrainableReport`
 
 ```python
-class equimo.finetune.TrainableReport(total_params: 'int' = 0, trainable_params: 'int' = 0, trainable_fraction: 'float' = 0.0, trainable_by_label: 'Mapping[str, int]' = <factory>, frozen_by_label: 'Mapping[str, int]' = <factory>, adapter_params: 'int' = 0, head_params: 'int' = 0, mergeable: 'bool' = False, estimated_delta_size_bytes: 'int' = 0, target_paths: 'tuple[str, ...]' = ()) -> None
+class equimo.finetune.TrainableReport(total_params: 'int' = 0, trainable_params: 'int' = 0, trainable_fraction: 'float' = 0.0, trainable_by_label: 'Mapping[str, int]' = <factory>, frozen_by_label: 'Mapping[str, int]' = <factory>, adapter_params: 'int' = 0, head_params: 'int' = 0, mergeable: 'bool' = False, estimated_delta_size_bytes: 'int' = 0, target_paths: 'tuple[str, ...]' = (), parameters: 'tuple[ParameterReport, ...]' = (), model_signature: 'str' = '', plan_fingerprint: 'str' = '', schema_version: 'int' = 1) -> None
 ```
 
 Defined in `equimo.finetune.config`.
@@ -318,7 +331,7 @@ Defined in `equimo.finetune.config`.
 ## `TrainableSpec`
 
 ```python
-class equimo.finetune.TrainableSpec(mode: 'TrainableMode', target: 'TargetSpec | None' = None, freeze: 'TargetSpec | None' = None, train_head: 'bool' = True, train_norm: 'bool' = False, train_bias: 'bool' = False, depth_range: 'tuple[int, int] | None' = None, method_name: 'str | None' = None) -> None
+class equimo.finetune.TrainableSpec(mode: 'TrainableMode', target: 'TargetSpec | None' = None, freeze: 'TargetSpec | None' = None, train_head: 'bool' = True, train_norm: 'bool' = False, train_bias: 'bool' = False, depth_range: 'tuple[int, int] | None' = None, method_name: 'str | None' = None, expected_logical_ids: 'tuple[str, ...] | None' = None) -> None
 ```
 
 Defined in `equimo.finetune.config`.

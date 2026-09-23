@@ -10,6 +10,7 @@ import equinox as eqx
 import jax
 
 from ._typing import Path, PyTree
+from ._blocks import model_block_depth, vision_block_depths
 from .config import FineTunePlan, LLRDConfig, TargetSpec, TrainableSpec
 from .peft.adapters import (
     AdaptFormerConfig,
@@ -322,11 +323,10 @@ def partial_ft_last_k_blocks(
         }
     )
     if not depths:
-        depth_range = None
-    else:
-        count = _resolve_last_k(k, len(depths))
-        selected = depths[-count:]
-        depth_range = (selected[0], selected[-1] + 1)
+        raise ValueError("Model has no transformer blocks for partial fine-tuning.")
+    count = _resolve_last_k(k, len(depths))
+    selected = depths[-count:]
+    depth_range = (selected[0], selected[-1] + 1)
 
     return prepare_finetune(
         model,
@@ -364,10 +364,13 @@ def partial_unfreeze(
     selected_depths = frozenset(
         _last_fraction_depths(depths, config.fraction, config.min_blocks)
     )
+    block_depths = vision_block_depths(model)
 
     def predicate(path: Path, leaf: Any) -> bool:
         tags = frozenset(tagger(path, leaf))
-        depth = _path_depth(path)
+        depth = model_block_depth(path, block_depths)
+        if depth is None:
+            depth = infer_depth(path)
         if depth in selected_depths:
             return True
         if config.train_embeddings and "embedding.patch" in tags:
@@ -518,7 +521,9 @@ def _resolve_last_k(k: int | str, depth_count: int) -> int:
     if isinstance(k, int):
         if k < 1:
             raise ValueError("k must be >= 1.")
-        return min(k, depth_count)
+        if k > depth_count:
+            raise ValueError(f"k={k} exceeds {depth_count} transformer blocks.")
+        return k
     if k == "one_third":
         return max(1, depth_count // 3)
     raise ValueError("k must be an integer or 'one_third'.")
@@ -541,10 +546,6 @@ def _span_count(depth_count: int, fraction: float, min_blocks: int) -> int:
     if min_blocks < 1:
         raise ValueError("min_blocks must be >= 1.")
     return min(depth_count, max(min_blocks, math.ceil(depth_count * fraction)))
-
-
-def _path_depth(path: Path) -> int | None:
-    return infer_depth(path)
 
 
 __all__ = (

@@ -182,7 +182,7 @@ Defined in `equimo.finetune.peft.adapters`.
 ## `AdapterConfig`
 
 ```python
-class equimo.finetune.AdapterConfig(bottleneck: 'int | None' = None, reduction_factor: 'int' = 16, bottleneck_min: 'int' = 16, bottleneck_max: 'int' = 64, placement: 'AdapterPlacement' = 'after_mlp', activation: 'ActivationName' = 'gelu', dropout: 'float' = 0.0, down_init: 'str' = 'kaiming_uniform', up_init: 'str' = 'zeros', residual_scale_init: 'float' = 1.0, pre_norm: 'bool' = False, train_base: 'bool' = False, target: 'TargetSpec' = TargetSpec(tags_all=(), tags_any=('block',), include=(), exclude=(), predicate=None, min_depth=None, max_depth=None, target_kind='leaf', allow_empty=False)) -> None
+class equimo.finetune.AdapterConfig(bottleneck: 'int | None' = None, reduction_factor: 'int' = 16, bottleneck_min: 'int' = 16, bottleneck_max: 'int' = 64, placement: 'AdapterPlacement' = 'after_mlp', activation: 'ActivationName' = 'gelu', dropout: 'float' = 0.0, down_init: 'str' = 'kaiming_uniform', up_init: 'str' = 'zeros', residual_scale_init: 'float' = 1.0, pre_norm: 'bool' = False, train_base: 'bool' = False, target: 'TargetSpec' = TargetSpec(tags_all=(), tags_any=('block',), include=(), exclude=(), predicate=None, min_depth=None, max_depth=None, target_kind='leaf', allow_empty=False, expected_logical_ids=None)) -> None
 ```
 
 Defined in `equimo.finetune.peft.adapters`.
@@ -242,7 +242,7 @@ Defined in `equimo.finetune.peft.adapters`.
 ## `AdaptFormerConfig`
 
 ```python
-class equimo.finetune.AdaptFormerConfig(bottleneck: 'int' = 64, placement: "Literal['parallel_mlp']" = 'parallel_mlp', activation: 'ActivationName' = 'gelu', dropout: 'float' = 0.0, up_init: 'str' = 'zeros', scale_init: 'float' = 1.0, scale_trainable: 'bool' = True, train_head: 'bool' = True, target: 'TargetSpec' = TargetSpec(tags_all=(), tags_any=('block',), include=(), exclude=(), predicate=None, min_depth=None, max_depth=None, target_kind='leaf', allow_empty=False)) -> None
+class equimo.finetune.AdaptFormerConfig(bottleneck: 'int' = 64, placement: "Literal['parallel_mlp']" = 'parallel_mlp', activation: 'ActivationName' = 'gelu', dropout: 'float' = 0.0, up_init: 'str' = 'zeros', scale_init: 'float' = 1.0, scale_trainable: 'bool' = True, train_head: 'bool' = True, target: 'TargetSpec' = TargetSpec(tags_all=(), tags_any=('block',), include=(), exclude=(), predicate=None, min_depth=None, max_depth=None, target_kind='leaf', allow_empty=False, expected_logical_ids=None)) -> None
 ```
 
 Defined in `equimo.finetune.peft.adapters`.
@@ -630,7 +630,7 @@ Defined in `equimo.finetune.peft.lora`.
 ## `IA3Config`
 
 ```python
-class equimo.finetune.IA3Config(target: 'TargetSpec' = TargetSpec(tags_all=(), tags_any=('attention.k', 'attention.v', 'mlp.hidden'), include=(), exclude=(), predicate=None, min_depth=None, max_depth=None, target_kind='leaf', allow_empty=False), init: 'float' = 1.0, axis: "Literal['feature']" = 'feature', train_head: 'bool' = True, mergeable: 'bool' = True) -> None
+class equimo.finetune.IA3Config(target: 'TargetSpec' = TargetSpec(tags_all=(), tags_any=('attention.k', 'attention.v', 'mlp.hidden'), include=(), exclude=(), predicate=None, min_depth=None, max_depth=None, target_kind='leaf', allow_empty=False, expected_logical_ids=None), init: 'float' = 1.0, axis: "Literal['feature']" = 'feature', train_head: 'bool' = True, mergeable: 'bool' = True) -> None
 ```
 
 Defined in `equimo.finetune.peft.ia3`.
@@ -990,7 +990,7 @@ Defined in `equimo.finetune.peft.vera`.
 ## `OrthogonalAdapterConfig`
 
 ```python
-class equimo.finetune.OrthogonalAdapterConfig(side: "Literal['input', 'output']" = 'input', parameterization: "Literal['cayley', 'butterfly_cayley']" = 'cayley', block_size: 'int | None' = None, num_factors: 'int' = 1, eps: 'float' = 1e-06, train_base: 'bool' = False, mergeable: 'bool' = True, target: 'TargetSpec' = TargetSpec(tags_all=(), tags_any=('attention.qkv', 'attention.proj', 'mlp.fc1', 'mlp.fc2'), include=(), exclude=(), predicate=None, min_depth=None, max_depth=None, target_kind='leaf', allow_empty=False)) -> None
+class equimo.finetune.OrthogonalAdapterConfig(side: "Literal['input', 'output']" = 'input', parameterization: "Literal['cayley', 'butterfly_cayley']" = 'cayley', block_size: 'int | None' = None, num_factors: 'int' = 1, eps: 'float' = 1e-06, train_base: 'bool' = False, mergeable: 'bool' = True, target: 'TargetSpec' = TargetSpec(tags_all=(), tags_any=('attention.qkv', 'attention.proj', 'mlp.fc1', 'mlp.fc2'), include=(), exclude=(), predicate=None, min_depth=None, max_depth=None, target_kind='leaf', allow_empty=False, expected_logical_ids=None)) -> None
 ```
 
 Defined in `equimo.finetune.peft.adapters`.
@@ -1038,7 +1038,7 @@ Defined in `equimo.finetune.peft.adapters`.
 ## `ParallelAdapterConfig`
 
 ```python
-class equimo.finetune.ParallelAdapterConfig(bottleneck: 'int | None' = 64, reduction_factor: 'int' = 16, bottleneck_min: 'int' = 16, bottleneck_max: 'int' = 64, placement: "Literal['parallel']" = 'parallel', activation: 'ActivationName' = 'gelu', dropout: 'float' = 0.0, down_init: 'str' = 'kaiming_uniform', up_init: 'str' = 'zeros', residual_scale_init: 'float' = 1.0, pre_norm: 'bool' = False, train_base: 'bool' = False, target: 'TargetSpec' = TargetSpec(tags_all=(), tags_any=('block',), include=(), exclude=(), predicate=None, min_depth=None, max_depth=None, target_kind='leaf', allow_empty=False), branch: 'str' = 'mlp', fusion: "Literal['residual_sum']" = 'residual_sum') -> None
+class equimo.finetune.ParallelAdapterConfig(bottleneck: 'int | None' = 64, reduction_factor: 'int' = 16, bottleneck_min: 'int' = 16, bottleneck_max: 'int' = 64, placement: "Literal['parallel']" = 'parallel', activation: 'ActivationName' = 'gelu', dropout: 'float' = 0.0, down_init: 'str' = 'kaiming_uniform', up_init: 'str' = 'zeros', residual_scale_init: 'float' = 1.0, pre_norm: 'bool' = False, train_base: 'bool' = False, target: 'TargetSpec' = TargetSpec(tags_all=(), tags_any=('block',), include=(), exclude=(), predicate=None, min_depth=None, max_depth=None, target_kind='leaf', allow_empty=False, expected_logical_ids=None), branch: 'str' = 'mlp', fusion: "Literal['residual_sum']" = 'residual_sum') -> None
 ```
 
 Defined in `equimo.finetune.peft.adapters`.
@@ -1202,7 +1202,7 @@ Defined in `equimo.finetune.peft.scale_shift`.
 ## `ScaleShiftConfig`
 
 ```python
-class equimo.finetune.ScaleShiftConfig(scale_init: 'float' = 1.0, shift_init: 'float' = 0.0, init: "Literal['identity', 'normal']" = 'identity', init_std: 'float' = 0.02, axis: "Literal['feature', 'channel']" = 'feature', target: 'TargetSpec' = TargetSpec(tags_all=(), tags_any=('attention', 'mlp', 'norm'), include=(), exclude=(), predicate=None, min_depth=None, max_depth=None, target_kind='leaf', allow_empty=False), train_head: 'bool' = True, mergeable: 'bool' = True) -> None
+class equimo.finetune.ScaleShiftConfig(scale_init: 'float' = 1.0, shift_init: 'float' = 0.0, init: "Literal['identity', 'normal']" = 'identity', init_std: 'float' = 0.02, axis: "Literal['feature', 'channel']" = 'feature', target: 'TargetSpec' = TargetSpec(tags_all=(), tags_any=('attention', 'mlp', 'norm'), include=(), exclude=(), predicate=None, min_depth=None, max_depth=None, target_kind='leaf', allow_empty=False, expected_logical_ids=None), train_head: 'bool' = True, mergeable: 'bool' = True) -> None
 ```
 
 Defined in `equimo.finetune.peft.scale_shift`.
