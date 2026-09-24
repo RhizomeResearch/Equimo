@@ -23,6 +23,18 @@ Source: https://github.com/tensorflow/models/blob/b41a080d61cd4298fea9894804e965
 Equimo contributors modified the upstream code's formatting and type
 annotations.
 
+Query assignment
+----------------
+
+src/equimo/vision/query_training/_assignment.py adapts the Hungarian algorithm
+from Optax, licensed under Apache-2.0 (LICENSES/Apache-2.0.txt).
+Copyright 2024 DeepMind Technologies Limited. All Rights Reserved.
+Source: https://github.com/google-deepmind/optax/blob/225a7079f4630bf75bee94ec78de9aa69c60fab3/optax/assignment/_hungarian_algorithm.py
+
+Equimo contributors added target-slot validity, bounded loops, numerical-failure reporting,
+fixed-capacity target-ordered outputs, explicit float32 arithmetic and stopped
+gradients, and documented deterministic tie handling.
+
 LingBot-Vision
 -------------
 

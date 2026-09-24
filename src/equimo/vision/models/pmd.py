@@ -29,6 +29,7 @@ from equimo.vision.segmentation import (
 
 
 _MISSING = object()
+NormOption = float | bool | str | tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -57,7 +58,7 @@ class PMTConfig:
     num_blocks: int = 6
     norm_layer: str = "groupnorm"
     norm_max_group: int = 32
-    norm_kwargs: tuple[tuple[str, float | bool], ...] | Mapping[str, float | bool] = ()
+    norm_kwargs: tuple[tuple[str, NormOption], ...] | Mapping[str, NormOption] = ()
     masked_attention: bool = True
 
     def __post_init__(self) -> None:
@@ -96,7 +97,7 @@ class PMTConfig:
             raise ValueError("Unsupported PMT lateral norm_layer.")
         allowed = {
             "groupnorm": {"eps", "channelwise_affine"},
-            "batchnorm": {"eps", "momentum"},
+            "batchnorm": {"eps", "momentum", "axis_name"},
             "layernorm": {"eps", "use_weight", "use_bias"},
             "rmsnorm": {"eps", "use_weight", "use_bias"},
             "none": set(),
@@ -179,11 +180,14 @@ def anneal_pmt_mask_state(
 
 
 class ReferenceBatchNorm(eqx.nn.StatefulLayer):
-    """Single-host counterpart of the author's lateral SyncBatchNorm.
+    """Padding-aware counterpart of the author's lateral SyncBatchNorm.
 
     Call over one image inside ``jax.vmap(..., axis_name="pmt_batch")`` in
     training. Statistics cover batch and tokens, including prefix tokens.
     Inference uses the stored running mean and unbiased running variance.
+    Supply multiple axis names to synchronize over a local batch and devices.
+    False ``example_valid`` excludes an image from moments and counts. A global
+    batch with no valid observations returns zeros and leaves state unchanged.
     """
 
     weight: jax.Array
@@ -193,8 +197,16 @@ class ReferenceBatchNorm(eqx.nn.StatefulLayer):
     count_index: eqx.nn.StateIndex
     eps: float = eqx.field(static=True)
     momentum: float = eqx.field(static=True)
+    axis_name: str | tuple[str, ...] = eqx.field(static=True)
 
-    def __init__(self, dim: int, *, eps: float = 1e-5, momentum: float = 0.1):
+    def __init__(
+        self,
+        dim: int,
+        *,
+        eps: float = 1e-5,
+        momentum: float = 0.1,
+        axis_name: str | tuple[str, ...] = "pmt_batch",
+    ):
         if dim <= 0 or eps <= 0 or not 0 < momentum <= 1:
             raise ValueError("Invalid reference BatchNorm dimensions or options.")
         self.weight = jnp.ones((dim,), dtype=jnp.float32)
@@ -204,39 +216,70 @@ class ReferenceBatchNorm(eqx.nn.StatefulLayer):
         self.count_index = eqx.nn.StateIndex(jnp.asarray(0, dtype=jnp.int32))
         self.eps = eps
         self.momentum = momentum
+        names = (axis_name,) if isinstance(axis_name, str) else axis_name
+        if (
+            not isinstance(names, tuple)
+            or not names
+            or any(not isinstance(name, str) or not name for name in names)
+            or len(set(names)) != len(names)
+        ):
+            raise ValueError(
+                "BatchNorm axis_name requires nonempty distinct axis names."
+            )
+        self.axis_name = axis_name
 
     def __call__(
-        self, x: jax.Array, state: eqx.nn.State, *, inference: bool
+        self,
+        x: jax.Array,
+        state: eqx.nn.State,
+        *,
+        inference: bool,
+        example_valid: bool | jax.Array = True,
     ) -> tuple[jax.Array, eqx.nn.State]:
         if x.ndim != 2 or x.shape[0] != self.weight.shape[0]:
             raise ValueError("Reference BatchNorm expects (channels, tokens).")
-        value = x.astype(jnp.float32)
+        valid = jnp.asarray(example_valid)
+        if valid.shape != () or valid.dtype != jnp.bool_:
+            raise ValueError("BatchNorm example_valid must be a boolean scalar.")
+        value = jnp.where(valid, x, 0).astype(jnp.float32)
         if inference:
             mean = state.get(self.mean_index)
             variance = state.get(self.variance_index)
         else:
-            if x.shape[1] * lax.axis_size("pmt_batch") < 2:
+            if example_valid is True and x.shape[1] * lax.axis_size(self.axis_name) < 2:
                 raise ValueError("BatchNorm requires at least two observations.")
-            mean = lax.pmean(jnp.mean(value, axis=1), "pmt_batch")
-            variance = lax.pmean(
-                jnp.mean(jnp.square(value - mean[:, None]), axis=1), "pmt_batch"
+            count = lax.psum(valid.astype(jnp.float32) * x.shape[1], self.axis_name)
+            count = eqx.error_if(
+                count, count == 1, "BatchNorm requires at least two valid observations."
             )
-            count = lax.psum(jnp.asarray(x.shape[1], dtype=jnp.float32), "pmt_batch")
-            unbiased = variance * count / (count - 1)
+            denominator = jnp.maximum(count, 1)
+            mean = lax.psum(jnp.sum(value, axis=1), self.axis_name) / denominator
+            centered = jnp.where(valid, value - mean[:, None], 0)
+            variance = (
+                lax.psum(jnp.sum(jnp.square(centered), axis=1), self.axis_name)
+                / denominator
+            )
+            unbiased = variance * count / jnp.maximum(count - 1, 1)
+            old_mean = state.get(self.mean_index)
+            old_variance = state.get(self.variance_index)
+            mean_update = (1 - self.momentum) * old_mean + self.momentum * mean
+            variance_update = (
+                1 - self.momentum
+            ) * old_variance + self.momentum * unbiased
             state = state.set(
-                self.mean_index,
-                (1 - self.momentum) * state.get(self.mean_index) + self.momentum * mean,
+                self.mean_index, jnp.where(count > 0, mean_update, old_mean)
             )
             state = state.set(
-                self.variance_index,
-                (1 - self.momentum) * state.get(self.variance_index)
-                + self.momentum * unbiased,
+                self.variance_index, jnp.where(count > 0, variance_update, old_variance)
             )
-            state = state.set(self.count_index, state.get(self.count_index) + 1)
+            state = state.set(
+                self.count_index,
+                state.get(self.count_index) + (count > 0).astype(jnp.int32),
+            )
         normalized = (value - mean[:, None]) * lax.rsqrt(variance[:, None] + self.eps)
-        return (normalized * self.weight[:, None] + self.bias[:, None]).astype(
-            x.dtype
-        ), state
+        return jnp.where(
+            valid, normalized * self.weight[:, None] + self.bias[:, None], 0
+        ).astype(x.dtype), state
 
 
 class PMDAttention(Attention):
@@ -295,10 +338,13 @@ class Lateral(eqx.Module):
         state: eqx.nn.State | None,
         *,
         inference: bool,
+        example_valid: bool | jax.Array = True,
     ) -> tuple[jax.Array, eqx.nn.State | None]:
         if self.norm_layer == "batchnorm":
             assert state is not None
-            normalized, state = self.norm(tokens.T, state, inference=inference)
+            normalized, state = self.norm(
+                tokens.T, state, inference=inference, example_valid=example_valid
+            )
             normalized = normalized.T
         elif self.norm_layer in ("groupnorm", "none"):
             normalized = self.norm(tokens.T).T
@@ -397,6 +443,7 @@ class PlainMaskDecoder(eqx.Module):
         inference: bool = True,
         key: jax.Array | None = None,
         mask_state: PMTMaskState | None = None,
+        example_valid: bool | jax.Array = True,
     ) -> PMTOutput | tuple[PMTOutput, eqx.nn.State | None]:
         """Run PMD; explicit state gives the same tuple interface for every norm."""
         supplied = state is not _MISSING
@@ -431,7 +478,9 @@ class PlainMaskDecoder(eqx.Module):
         )
         lateral = []
         for layer, tokens in zip(self.lateral, features.levels, strict=True):
-            result, running_state = layer(tokens, running_state, inference=inference)
+            result, running_state = layer(
+                tokens, running_state, inference=inference, example_valid=example_valid
+            )
             lateral.append(result)
         tokens = jnp.sum(jnp.stack(lateral), axis=0)
         tokens = jnp.concatenate((self.queries.astype(tokens.dtype), tokens), axis=0)

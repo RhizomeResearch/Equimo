@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
+import subprocess
+import sys
 
 import equinox as eqx
 import jax
@@ -30,7 +33,9 @@ from equimo.vision.pmt_checkpoint import (
 )
 
 
-def _model(seed: int = 0, *, norm: str = "groupnorm") -> tuple[PMT, eqx.nn.State]:
+def _model(
+    seed: int = 0, *, norm: str = "groupnorm", norm_kwargs: dict | None = None
+) -> tuple[PMT, eqx.nn.State]:
     backbone = VisionTransformer(
         img_size=16,
         in_channels=3,
@@ -53,6 +58,7 @@ def _model(seed: int = 0, *, norm: str = "groupnorm") -> tuple[PMT, eqx.nn.State
         num_blocks=2,
         num_queries=2,
         norm_layer=norm,
+        norm_kwargs=norm_kwargs or {},
     )
     return eqx.nn.make_with_state(PMT)(
         backbone, 3, key=jr.PRNGKey(1), config=config, backbone_id="tiny-base"
@@ -205,6 +211,99 @@ def test_reference_batchnorm_counts_images_with_one_token_each():
         )(samples[:1])
 
 
+def test_reference_batchnorm_excludes_padding_and_empty_batch_preserves_state():
+    norm, state = eqx.nn.make_with_state(ReferenceBatchNorm)(2)
+    samples = jnp.array(
+        [
+            [[1.0, 3.0], [2.0, 4.0]],
+            [[100.0, 900.0], [-900.0, 800.0]],
+            [[5.0, 7.0], [6.0, 8.0]],
+        ]
+    )
+    validity = jnp.array([True, False, True])
+
+    def forward(x, valid, state):
+        return jax.vmap(
+            lambda value, keep: norm(value, state, inference=False, example_valid=keep),
+            axis_name="pmt_batch",
+            out_axes=(0, None),
+        )(x, valid)
+
+    output, updated = eqx.filter_jit(forward)(samples, validity, state)
+    data = np.asarray(samples)[np.asarray(validity)].transpose(1, 0, 2).reshape(2, -1)
+    expected = (
+        np.asarray(samples)[np.asarray(validity)] - data.mean(-1)[None, :, None]
+    ) / np.sqrt(data.var(-1)[None, :, None] + 1e-5)
+    np.testing.assert_allclose(output[validity], expected, atol=1e-6)
+    np.testing.assert_array_equal(output[~validity], 0)
+    np.testing.assert_allclose(updated.get(norm.mean_index), 0.1 * data.mean(-1))
+    np.testing.assert_allclose(
+        updated.get(norm.variance_index), 0.9 + 0.1 * data.var(-1, ddof=1)
+    )
+    assert int(updated.get(norm.count_index)) == 1
+    empty, unchanged = eqx.filter_jit(forward)(
+        jnp.full_like(samples, jnp.nan), jnp.zeros(3, bool), updated
+    )
+    np.testing.assert_array_equal(empty, 0)
+    for left, right in zip(
+        jtu.tree_leaves(updated), jtu.tree_leaves(unchanged), strict=True
+    ):
+        np.testing.assert_array_equal(left, right)
+
+
+def test_reference_batchnorm_rejects_one_valid_observation_under_jit():
+    norm, state = eqx.nn.make_with_state(ReferenceBatchNorm)(1)
+    forward = eqx.filter_jit(
+        lambda valid: jax.vmap(
+            lambda x, v: norm(x, state, inference=False, example_valid=v),
+            axis_name="pmt_batch",
+            out_axes=(0, None),
+        )(jnp.ones((2, 1, 1)), valid)
+    )
+    with pytest.raises(eqx.EquinoxRuntimeError, match="at least two valid"):
+        forward(jnp.array([True, False]))
+
+
+def test_reference_batchnorm_synchronizes_across_devices():
+    environment = dict(os.environ)
+    environment["JAX_PLATFORMS"] = "cpu"
+    environment["XLA_FLAGS"] = (
+        environment.get("XLA_FLAGS", "") + " --xla_force_host_platform_device_count=2"
+    )
+    result = subprocess.run(
+        [sys.executable, "tests/cases/pmt_batchnorm_distributed.py"],
+        cwd=Path(__file__).parents[1],
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_padding_does_not_change_real_predictions_or_statistics():
+    model, state = _model(norm="batchnorm")
+    images = jr.normal(jr.PRNGKey(70), (3, 3, 16, 16))
+    keys = jr.split(jr.PRNGKey(71), 3)
+
+    @eqx.filter_jit
+    def forward(images, keep, keys, state):
+        return jax.vmap(
+            lambda x, v, k: model(x, state, inference=False, key=k, example_valid=v),
+            axis_name="pmt_batch",
+            out_axes=(0, None),
+        )(images, keep, keys)
+
+    real = forward(images[:2], jnp.ones(2, bool), keys[:2], state)
+    padded, padded_state = forward(images, jnp.array([True, True, False]), keys, state)
+    for left, right in zip(
+        jtu.tree_leaves(real),
+        jtu.tree_leaves((jtu.tree_map(lambda x: x[:2], padded), padded_state)),
+        strict=True,
+    ):
+        np.testing.assert_allclose(left, right, rtol=1e-5, atol=2e-6)
+
+
 def test_decoder_plan_gradients_and_frozen_encoder():
     model, _ = _model()
     plan = pmt_head_finetune(model)
@@ -343,6 +442,17 @@ def test_native_checkpoints_and_exact_base_rejection(tmp_path: Path, norm: str):
             wrong_ontology,
             state=ontology_state if norm == "batchnorm" else None,
         )
+
+
+def test_batchnorm_collective_axes_are_bound_to_checkpoints(tmp_path: Path):
+    synchronized = {"axis_name": ("pmt_batch", "devices")}
+    model, state = _model(norm="batchnorm", norm_kwargs=synchronized)
+    path = save_pmt_checkpoint(tmp_path / "model", model, state=state)
+    template, template_state = _model(norm="batchnorm", norm_kwargs=synchronized)
+    load_pmt_checkpoint(path, template, state=template_state)
+    default, default_state = _model(norm="batchnorm")
+    with pytest.raises(ValueError, match="configuration"):
+        load_pmt_checkpoint(path, default, state=default_state)
 
 
 def test_low_precision_and_direct_state_round_trip():

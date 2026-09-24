@@ -27,6 +27,7 @@ Start with these pages:
 - [Spatial linear probe](dense_probe.md)
 - [EoMT segmentation](eomt.md)
 - [Plain mask transformer segmentation](pmt.md)
+- [Query-segmentation training](query_training.md)
 - [LP-FT](lpft.md)
 - [LLRD](llrd.md)
 - [LoRA](lora.md)

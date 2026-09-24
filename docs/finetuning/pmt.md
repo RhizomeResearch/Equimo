@@ -54,9 +54,13 @@ outputs, state = jax.vmap(
 )(image_batch, keys)
 ```
 
-Each `image_batch` entry must be an actual independently sampled image. Carry the returned state into the next step and
-save it with the model. Inference uses its stored statistics; GroupNorm callers can omit the state argument and receive
-only the output. Passing state explicitly always returns `(output, state)`, which is useful for a shared call site.
+Each included `image_batch` entry must be an actual independently sampled image. For padded batches, pass
+`example_valid=False` for padded rows so BatchNorm excludes them from statistics and counts. Configure additional named
+device axes through `norm_kwargs={"axis_name": ("pmt_batch", "devices")}` for synchronized statistics. See
+[query-segmentation training](query_training.md) for distributed reductions, empty-batch behavior, and state replay.
+Carry the returned state into the next step and save it with the model. Inference uses its stored statistics; GroupNorm
+callers can omit the state argument and receive only the output. Passing state explicitly always returns
+`(output, state)`, which is useful for a shared call site.
 
 `encode(image)` yields immutable-to-training frozen features before lateral normalization. `decode(features, ...)` can
 reuse them for later decoder steps when the encoder, input preprocessing, and view are unchanged. The cache stores all
@@ -64,11 +68,12 @@ selected normalized encoder tokens in class/register/patch order, its grid and p
 of the encoder arrays plus the declared input view. Decoding rejects features from a different encoder even when its
 descriptive `backbone_id` matches. The digest is computed when PMT is constructed; construct a new PMT if the encoder
 arrays are replaced or cast. `pmt_head_finetune` selects every decoder and lateral parameter while excluding the entire
-encoder, including its final norm, position components, and tokens. The caller provides task matching and losses.
-`encoder_features(image)` returns the final normalized frozen encoder tap in class/register/patch order. The existing
-`features(image)` endpoint returns the same array and accepts unused `key` and `inference` arguments for the library's
-generic feature interface. It does not contain decoder query tokens. For code that accepts either PMT or EoMT
-predictions, annotate the result with `equimo.vision.segmentation.QuerySegmentationOutput`.
+encoder, including its final norm, position components, and tokens. Matching and losses are available through
+`equimo.vision.query_training`; the caller supplies target sets and the training transaction. `encoder_features(image)`
+returns the final normalized frozen encoder tap in class/register/patch order. The existing `features(image)` endpoint
+returns the same array and accepts unused `key` and `inference` arguments for the library's generic feature interface.
+It does not contain decoder query tokens. For code that accepts either PMT or EoMT predictions, annotate the result with
+`equimo.vision.segmentation.QuerySegmentationOutput`.
 
 For either Small backbone above with three output classes, the native `pmt_head_finetune` plan reports 29,204,756 total
 and 7,603,588 trainable parameters. GroupNorm has zero model-state bytes; BatchNorm has 12,304 bytes of running state

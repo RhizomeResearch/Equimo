@@ -57,8 +57,9 @@ default to `0.8`.
 ## Training and inference state
 
 Use `eomt_full_finetune(model)` from `equimo.finetune.vision` to prepare the full-encoder plan. This includes the query
-embeddings, encoder, class and mask heads, and upscaler. Task losses and target matching are supplied by the training
-loop.
+embeddings, encoder, class and mask heads, and upscaler. Use the optional
+[query-segmentation training utilities](query_training.md) for matching, validity-aware point sampling, and class/mask
+losses. The caller owns targets, optimization, and the training loop.
 
 `anneal_mask_state(step, start_steps, end_steps)` computes a polynomial mask-retention probability for each
 query-processing block at a given optimizer step. Pass its `EoMTMaskState` and an explicit PRNG key to the model during

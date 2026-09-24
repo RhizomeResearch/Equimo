@@ -2,6 +2,15 @@
 
 All notable changes to Equimo are documented here. Equimo follows Semantic Versioning from version 2.0.0 onward.
 
+## [Unreleased]
+
+### Added
+
+- JAX-native query-segmentation assignment, validity-aware point sampling, class/mask/Dice losses, auxiliary-output
+  composition, and inspectable batch/device reductions, with pinned upstream numerical references.
+- Padding-aware PMT BatchNorm and configurable collective axes for synchronized statistics, preserving default model
+  checkpoint layouts.
+
 ## [2.3.0] - 2026-09-24
 
 ### Added

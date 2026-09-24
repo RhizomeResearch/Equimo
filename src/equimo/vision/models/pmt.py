@@ -31,9 +31,10 @@ class PMT(eqx.Module):
 
     ``norm_layer="batchnorm"`` reproduces the author's lateral architecture.
     Construct that model with ``eqx.nn.make_with_state(PMT)`` and pass its state
-    on each call. Training must vmap across real images with
-    ``axis_name="pmt_batch"``. Normalization runs after ``encode`` so cached
-    frozen features can be reused while the decoder learns.
+    on each call. Training uses a named batch axis (default ``pmt_batch``).
+    Pass ``example_valid=False`` for padding; ``norm_kwargs['axis_name']`` may
+    include device axes for synchronized statistics. Normalization runs after
+    ``encode`` so cached frozen features can be reused while the decoder learns.
     """
 
     backbone: VisionTransformer
@@ -158,6 +159,7 @@ class PMT(eqx.Module):
         inference: bool = True,
         key: jax.Array | None = None,
         mask_state: PMTMaskState | None = None,
+        example_valid: bool | jax.Array = True,
     ) -> PMTOutput | tuple[PMTOutput, eqx.nn.State | None]:
         """Decode retained features with the selected normalization state."""
         if (
@@ -169,7 +171,12 @@ class PMT(eqx.Module):
         ):
             raise ValueError("PMT features disagree with encoder or input view.")
         return self.head(
-            features, state, inference=inference, key=key, mask_state=mask_state
+            features,
+            state,
+            inference=inference,
+            key=key,
+            mask_state=mask_state,
+            example_valid=example_valid,
         )
 
     def __call__(
@@ -180,6 +187,7 @@ class PMT(eqx.Module):
         inference: bool = True,
         key: jax.Array | None = None,
         mask_state: PMTMaskState | None = None,
+        example_valid: bool | jax.Array = True,
     ) -> PMTOutput | tuple[PMTOutput, eqx.nn.State | None]:
         """Return mask/class predictions; state is optional with GroupNorm."""
         return self.decode(
@@ -188,6 +196,7 @@ class PMT(eqx.Module):
             inference=inference,
             key=key,
             mask_state=mask_state,
+            example_valid=example_valid,
         )
 
 
