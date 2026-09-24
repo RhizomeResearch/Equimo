@@ -86,20 +86,21 @@ For the complete upgrade checklist and compatibility boundary, see the [v2 migra
 
 Beyond a standard ViT (e.g., DINOv2 or SigLIP), Equimo provides other SotA architectures:
 
-| Model         | Paper                                                                                                                                                           | Year | Status    |
-| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | --------- |
-| FasterViT     | [FasterViT: Fast Vision Transformers with Hierarchical Attention](https://arxiv.org/abs/2306.06189)                                                             | 2023 | ✅        |
-| Castling-ViT  | [Castling-ViT: Compressing Self-Attention via Switching Towards Linear-Angular Attention During Vision Transformer Inference](https://arxiv.org/abs/2211.10526) | 2023 | Partial\* |
-| MLLA          | [Mamba-like Linear Attention](https://arxiv.org/abs/2405.16605)                                                                                                 | 2024 | ✅        |
-| PartialFormer | [Efficient Vision Transformers with Partial Attention](https://eccv.ecva.net/virtual/2024/poster/1877)                                                          | 2024 | ✅        |
-| SHViT         | [SHViT: Single-Head Vision Transformer with Memory Efficient Macro Design](https://arxiv.org/abs/2401.16456)                                                    | 2024 | ✅        |
-| VSSD          | [VSSD: Vision Mamba with Non-Causal State Space Duality](https://arxiv.org/abs/2407.18559)                                                                      | 2024 | ✅        |
-| ReduceFormer  | [ReduceFormer: Attention with Tensor Reduction by Summation](https://arxiv.org/abs/2406.07488)                                                                  | 2024 | ✅        |
-| LowFormer     | [LowFormer: Hardware Efficient Design for Convolutional Transformer Backbones](https://arxiv.org/abs/2409.03460)                                                | 2024 | ✅        |
-| DINOv3        | [DINOv3](https://arxiv.org/abs/2508.10104)                                                                                                                      | 2025 | ✅†       |
-| FreeNet       | [FreeNet: Liberating Depth-Wise Separable Operations for Building Faster Mobile Vision Architectures](https://ojs.aaai.org/index.php/AAAI/article/view/33041)   | 2025 | ✅‡       |
-| EUPE          | [Efficient Universal Perception Encoder](https://arxiv.org/abs/2603.22387)                                                                                      | 2026 | ✅        |
-| ViT-5         | [ViT-5: Vision Transformers for The Mid-2020s](https://arxiv.org/abs/2602.08071)                                                                                | 2026 | ✅        |
+| Model          | Paper                                                                                                                                                           | Year | Status    |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | --------- |
+| FasterViT      | [FasterViT: Fast Vision Transformers with Hierarchical Attention](https://arxiv.org/abs/2306.06189)                                                             | 2023 | ✅        |
+| Castling-ViT   | [Castling-ViT: Compressing Self-Attention via Switching Towards Linear-Angular Attention During Vision Transformer Inference](https://arxiv.org/abs/2211.10526) | 2023 | Partial\* |
+| MLLA           | [Mamba-like Linear Attention](https://arxiv.org/abs/2405.16605)                                                                                                 | 2024 | ✅        |
+| PartialFormer  | [Efficient Vision Transformers with Partial Attention](https://eccv.ecva.net/virtual/2024/poster/1877)                                                          | 2024 | ✅        |
+| SHViT          | [SHViT: Single-Head Vision Transformer with Memory Efficient Macro Design](https://arxiv.org/abs/2401.16456)                                                    | 2024 | ✅        |
+| VSSD           | [VSSD: Vision Mamba with Non-Causal State Space Duality](https://arxiv.org/abs/2407.18559)                                                                      | 2024 | ✅        |
+| ReduceFormer   | [ReduceFormer: Attention with Tensor Reduction by Summation](https://arxiv.org/abs/2406.07488)                                                                  | 2024 | ✅        |
+| LowFormer      | [LowFormer: Hardware Efficient Design for Convolutional Transformer Backbones](https://arxiv.org/abs/2409.03460)                                                | 2024 | ✅        |
+| DINOv3         | [DINOv3](https://arxiv.org/abs/2508.10104)                                                                                                                      | 2025 | ✅†       |
+| FreeNet        | [FreeNet: Liberating Depth-Wise Separable Operations for Building Faster Mobile Vision Architectures](https://ojs.aaai.org/index.php/AAAI/article/view/33041)   | 2025 | ✅‡       |
+| EUPE           | [Efficient Universal Perception Encoder](https://arxiv.org/abs/2603.22387)                                                                                      | 2026 | ✅        |
+| LingBot-Vision | [Vision Pretraining for Dense Spatial Perception](https://arxiv.org/abs/2607.05247)                                                                             | 2026 | ✅§       |
+| ViT-5          | [ViT-5: Vision Transformers for The Mid-2020s](https://arxiv.org/abs/2602.08071)                                                                                | 2026 | ✅        |
 
 \*: Only contains the Linear Angular Attention module. It is straightforward to build a ViT around it, but may require
 an additional `__call__` kwarg to control the `sparse_reg` bool.
@@ -110,6 +111,10 @@ available — see [pretrained models](#list-of-pretrained-models).
 ‡: FreeNet building blocks (`FreeNetBlock`, `S2Mixer`, `ShiftNeck`) are implemented in `equimo.vision.layers` and
 registered in the convolution registry. There is no standalone `FreeNet` model class; use `BlockChunk` to compose a full
 network from these blocks.
+
+§: LingBot-Vision is a `VisionTransformer` configuration using DINOv3-style RoPE positional embeddings, four register
+tokens, and self-attention without a key bias; the Giant variant uses a SwiGLU FFN. Pretrained Small, Base, Large, and
+Giant backbones are available — see [pretrained models](#list-of-pretrained-models).
 
 ## Implemented Audio Models
 
@@ -314,21 +319,21 @@ model = em.dinov2_vitb14(pretrained=True)
 
 ### Available variants
 
-| Family                        | Constructors                                                                                                                                                   |
-| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `VisionTransformer`           | `vit_tiny/small/base/large/huge_patch{16,32}_224`, `vit_huge_patch14_224`, `dinov2_vit{s,b,l,g}14{_reg}`, `dinov3_vit*`, `siglip2_vit*`, `tips_vit*`, `vit5_*` |
-| `ConvNeXt`                    | `convnext_*`, `eupe_convnext_tiny/small/base`                                                                                                                  |
-| `AttNet`                      | `attnet_{xxs,xs,s,t1,t2,t3,t4}`                                                                                                                                |
-| `IFormer`                     | `iformer_{t,s,m,m_faster,l,l_faster}`                                                                                                                          |
-| `LowFormer`                   | `lowformer_backbone_{b0,b1,b2,b3}`                                                                                                                             |
-| `ReduceFormer`                | `reduceformer_backbone_{b1,b2,b3}`                                                                                                                             |
-| `MobileNetv3`                 | `mobilenetv3_{small,large}`                                                                                                                                    |
-| `AudioSpectrogramTransformer` | `ast_{tiny,small,base}_patch16_224`, `ast_base_patch16_384`, `ast_base_patch16_audioset_10_10_0_4593`, `ast_base_patch16_speechcommands_v2_10_10_0_9812`       |
-| `TabPFN`                      | `tabpfn`, `tabpfn_v3_classifier_*`, `tabpfn_regressor`, `tabpfn_v3_regressor_*`                                                                                |
-| `T0`                          | `t0`, `t0_alpha`                                                                                                                                               |
+| Family                        | Constructors                                                                                                                                                                             |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `VisionTransformer`           | `vit_tiny/small/base/large/huge_patch{16,32}_224`, `vit_huge_patch14_224`, `dinov2_vit{s,b,l,g}14{_reg}`, `dinov3_vit*`, `siglip2_vit*`, `tips_vit*`, `vit5_*`, `lingbot_vit{s,b,l,g}16` |
+| `ConvNeXt`                    | `convnext_*`, `eupe_convnext_tiny/small/base`                                                                                                                                            |
+| `AttNet`                      | `attnet_{xxs,xs,s,t1,t2,t3,t4}`                                                                                                                                                          |
+| `IFormer`                     | `iformer_{t,s,m,m_faster,l,l_faster}`                                                                                                                                                    |
+| `LowFormer`                   | `lowformer_backbone_{b0,b1,b2,b3}`                                                                                                                                                       |
+| `ReduceFormer`                | `reduceformer_backbone_{b1,b2,b3}`                                                                                                                                                       |
+| `MobileNetv3`                 | `mobilenetv3_{small,large}`                                                                                                                                                              |
+| `AudioSpectrogramTransformer` | `ast_{tiny,small,base}_patch16_224`, `ast_base_patch16_384`, `ast_base_patch16_audioset_10_10_0_4593`, `ast_base_patch16_speechcommands_v2_10_10_0_9812`                                 |
+| `TabPFN`                      | `tabpfn`, `tabpfn_v3_classifier_*`, `tabpfn_regressor`, `tabpfn_v3_regressor_*`                                                                                                          |
+| `T0`                          | `t0`, `t0_alpha`                                                                                                                                                                         |
 
-LingBot-Vision also provides `lingbot_vit{s,b,l,g}16` constructors. Pass `pretrained=True` to load the corresponding
-checkpoint from Equimo's Hugging Face repository. The source checkpoints and converted weights are subject to the
+The LingBot-Vision `lingbot_vit{s,b,l,g}16` constructors accept `pretrained=True` to load the corresponding checkpoint
+from Equimo's Hugging Face repository. The source checkpoints and converted weights are subject to the
 [LingBot-Vision license](LICENSES/pretrained/README.md#lingbot-vision).
 
 > `LowFormer` requires `attention_type` (`"softmax"` or `"sigmoid"`) which has no sensible default and must be supplied
@@ -740,7 +745,7 @@ The following models have pretrained weights available in Equimo:
 - [AST](https://arxiv.org/abs/2104.01778)
 - [TabPFN-3](https://arxiv.org/abs/2605.13986)
 - [T0-alpha](https://huggingface.co/theforecastingcompany/t0-alpha)
-- [LingBot-Vision](https://huggingface.co/collections/robbyant/lingbot-vision) (Small, Base, Large, and Giant)
+- [LingBot-Vision](https://arxiv.org/abs/2607.05247) (Small, Base, Large, and Giant)
 
 Before using any pretrained weights, review the [pretrained-model license index](LICENSES/pretrained/README.md). It
 links the current upstream terms and records when each bundled license snapshot was last checked. Upstream licenses can
@@ -805,6 +810,10 @@ The remaining advertised identifiers are legacy entries not yet covered by the c
 - `siglip2_vitl16_512`
 - `siglip2_vitso400m16_384`
 - `tips_vitg14_lr`
+- `lingbot_vits16`
+- `lingbot_vitb16`
+- `lingbot_vitl16`
+- `lingbot_vitg16`
 - `ast_base_patch16_speechcommands_v2_10_10_0_9812`
 - `tabpfn_v3_classifier_binary`
 - `tabpfn_v3_classifier_multiclass`
