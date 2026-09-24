@@ -1,5 +1,3 @@
-# ty: ignore[invalid-assignment]
-# ty: ignore[too-many-positional-arguments]
 import math
 from typing import List, Tuple
 

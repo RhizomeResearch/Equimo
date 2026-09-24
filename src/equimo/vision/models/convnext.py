@@ -1,6 +1,3 @@
-# ty: ignore[invalid-assignment]
-# ty: ignore[too-many-positional-arguments]
-# ty: ignore[unknown-argument]
 __all__ = [
     "ConvNeXt",
     "convnext_sizes",

@@ -1492,93 +1492,81 @@ def load_lora_delta(base_model: PyTree, bundle: FineTuneBundle) -> PyTree:
                 f"{expected_bias_shape}, got {actual_bias_shape}."
             )
         if entry["class"] == "LoRAFALinear":
-            lora_module = cast(
-                LoRAFALinear,
-                LoRAFALinear(
-                    module,
-                    rank=int(entry["rank"]),
-                    alpha=float(entry["alpha"]),
-                    scaling=entry["scaling"],
-                    A_init="orthonormal_rows",
-                    gradient_mode=entry["gradient_mode"],
-                    gram_ridge=float(entry["gram_ridge"]),
-                    custom_vjp=bool(entry["custom_vjp"]),
-                    train_base=bool(entry["train_base"]),
-                    mergeable=bool(entry["mergeable"]),
-                    key=jr.PRNGKey(0),
-                    frozen_A=entry["frozen_A"],
-                    lora_fa_B=entry["lora_fa_B"],
-                    correction_matrix=entry["correction_matrix"],
-                ),
+            lora_module = LoRAFALinear(
+                module,
+                rank=int(entry["rank"]),
+                alpha=float(entry["alpha"]),
+                scaling=entry["scaling"],
+                A_init="orthonormal_rows",
+                gradient_mode=entry["gradient_mode"],
+                gram_ridge=float(entry["gram_ridge"]),
+                custom_vjp=bool(entry["custom_vjp"]),
+                train_base=bool(entry["train_base"]),
+                mergeable=bool(entry["mergeable"]),
+                key=jr.PRNGKey(0),
+                frozen_A=entry["frozen_A"],
+                lora_fa_B=entry["lora_fa_B"],
+                correction_matrix=entry["correction_matrix"],
             )
         elif entry["class"] == "FourierFTLinear":
-            lora_module = cast(
-                FourierFTLinear,
-                FourierFTLinear(
-                    module,
-                    frequency_indices=entry["frequency_indices"],
-                    coefficient_dtype=entry["coefficient_dtype"],
-                    reconstruction=entry["reconstruction"],
-                    frequency_selection=entry["frequency_selection"],
-                    seed=entry.get("seed"),
-                    scale=float(entry["scale"]),
-                    train_base=bool(entry["train_base"]),
-                    mergeable=bool(entry["mergeable"]),
-                    coefficients_real=entry["coefficients_real"],
-                    coefficients_imag=entry["coefficients_imag"],
-                ),
+            lora_module = FourierFTLinear(
+                module,
+                frequency_indices=entry["frequency_indices"],
+                coefficient_dtype=entry["coefficient_dtype"],
+                reconstruction=entry["reconstruction"],
+                frequency_selection=entry["frequency_selection"],
+                seed=entry.get("seed"),
+                scale=float(entry["scale"]),
+                train_base=bool(entry["train_base"]),
+                mergeable=bool(entry["mergeable"]),
+                coefficients_real=entry["coefficients_real"],
+                coefficients_imag=entry["coefficients_imag"],
             )
         elif entry["class"] == "AdaLoRAModule":
             metadata = entry.get("metadata", {})
-            lora_module = cast(
-                AdaLoRAModule,
-                AdaLoRAModule(
-                    module,
-                    rank=int(entry["rank"]),
-                    alpha=float(entry["alpha"]),
-                    train_base=bool(entry["train_base"]),
-                    mergeable=bool(entry["mergeable"]),
-                    key=jr.PRNGKey(0),
-                    P=entry["P"],
-                    singular=entry["singular"],
-                    Q=entry["Q"],
-                    final_mask=entry.get("final_mask"),
-                    metadata=AdaLoRAMetadata(
-                        logical_id=str(metadata.get("logical_id", "")),
-                        profile_id=str(metadata.get("profile_id", "safe_default")),
-                    ),
+            lora_module = AdaLoRAModule(
+                module,
+                rank=int(entry["rank"]),
+                alpha=float(entry["alpha"]),
+                train_base=bool(entry["train_base"]),
+                mergeable=bool(entry["mergeable"]),
+                key=jr.PRNGKey(0),
+                P=entry["P"],
+                singular=entry["singular"],
+                Q=entry["Q"],
+                final_mask=entry.get("final_mask"),
+                metadata=AdaLoRAMetadata(
+                    logical_id=str(metadata.get("logical_id", "")),
+                    profile_id=str(metadata.get("profile_id", "safe_default")),
                 ),
             )
         elif entry["class"] == "RandLoRALinear":
             entry_metadata = _entry_metadata(entry)
-            lora_module = cast(
-                RandLoRALinear,
-                RandLoRALinear(
-                    module,
-                    rank=int(entry["rank"]),
-                    basis_count=int(entry["basis_count"]),
-                    alpha=float(entry["alpha"]),
-                    scaling=entry["scaling"],
-                    init_scale=1.0,
-                    train_base=bool(entry["train_base"]),
-                    mergeable=bool(entry["mergeable"]),
-                    key=jr.PRNGKey(0),
-                    seed=entry.get("seed"),
-                    random_A=entry["random_A"],
-                    random_B=entry["random_B"],
-                    basis_scales=entry["basis_scales"],
-                    merged=False,
-                    projection_segments=tuple(
-                        ProjectionSegment(
-                            name=item["name"],
-                            axis=int(item["axis"]),
-                            start=int(item["start"]),
-                            stop=int(item["stop"]),
-                        )
-                        for item in entry.get("projection_segments", ())
-                    ),
-                    metadata=tuple(sorted(entry_metadata.items())),
+            lora_module = RandLoRALinear(
+                module,
+                rank=int(entry["rank"]),
+                basis_count=int(entry["basis_count"]),
+                alpha=float(entry["alpha"]),
+                scaling=entry["scaling"],
+                init_scale=1.0,
+                train_base=bool(entry["train_base"]),
+                mergeable=bool(entry["mergeable"]),
+                key=jr.PRNGKey(0),
+                seed=entry.get("seed"),
+                random_A=entry["random_A"],
+                random_B=entry["random_B"],
+                basis_scales=entry["basis_scales"],
+                merged=False,
+                projection_segments=tuple(
+                    ProjectionSegment(
+                        name=item["name"],
+                        axis=int(item["axis"]),
+                        start=int(item["start"]),
+                        stop=int(item["stop"]),
+                    )
+                    for item in entry.get("projection_segments", ())
                 ),
+                metadata=tuple(sorted(entry_metadata.items())),
             )
         else:
             base_weight_delta = entry.get("base_weight_delta")
@@ -1594,34 +1582,31 @@ def load_lora_delta(base_model: PyTree, bundle: FineTuneBundle) -> PyTree:
             wrapper_type = (
                 LoRAMergedLinear if entry["class"] == "LoRAMergedLinear" else LoRALinear
             )
-            lora_module = cast(
-                LoRALinear,
-                wrapper_type(
-                    module,
-                    rank=int(entry["rank"]),
-                    alpha=float(entry["alpha"]),
-                    scaling=entry["scaling"],
-                    dropout=float(entry["dropout"]),
-                    train_base=bool(entry["train_base"]),
-                    mergeable=bool(entry["mergeable"]),
-                    fan_in_fan_out=bool(entry.get("fan_in_fan_out", False)),
-                    key=jr.PRNGKey(0),
-                    lora_A=entry["lora_A"],
-                    lora_B=entry["lora_B"],
-                    rank_mask=entry.get("rank_mask"),
-                    base_weight_delta=base_weight_delta,
-                    merged=False,
-                    projection_segments=tuple(
-                        ProjectionSegment(
-                            name=item["name"],
-                            axis=int(item["axis"]),
-                            start=int(item["start"]),
-                            stop=int(item["stop"]),
-                        )
-                        for item in entry.get("projection_segments", ())
-                    ),
-                    metadata=tuple(sorted(entry_metadata.items())),
+            lora_module = wrapper_type(
+                module,
+                rank=int(entry["rank"]),
+                alpha=float(entry["alpha"]),
+                scaling=entry["scaling"],
+                dropout=float(entry["dropout"]),
+                train_base=bool(entry["train_base"]),
+                mergeable=bool(entry["mergeable"]),
+                fan_in_fan_out=bool(entry.get("fan_in_fan_out", False)),
+                key=jr.PRNGKey(0),
+                lora_A=entry["lora_A"],
+                lora_B=entry["lora_B"],
+                rank_mask=entry.get("rank_mask"),
+                base_weight_delta=base_weight_delta,
+                merged=False,
+                projection_segments=tuple(
+                    ProjectionSegment(
+                        name=item["name"],
+                        axis=int(item["axis"]),
+                        start=int(item["start"]),
+                        stop=int(item["stop"]),
+                    )
+                    for item in entry.get("projection_segments", ())
                 ),
+                metadata=tuple(sorted(entry_metadata.items())),
             )
         if entry["merged"]:
             lora_module = lora_module.merge()
@@ -2408,25 +2393,22 @@ def _replace_lora_rank_mask(
     module: LoRALinear,
     rank_mask: jax.Array | None,
 ) -> LoRALinear:
-    return cast(
-        LoRALinear,
-        module.__class__(
-            module.base,
-            rank=module.rank,
-            alpha=module.alpha,
-            scaling=module.scaling_mode,
-            dropout=module.dropout,
-            train_base=module.train_base,
-            mergeable=module.mergeable,
-            fan_in_fan_out=module.fan_in_fan_out,
-            key=jr.PRNGKey(0),
-            lora_A=module.lora_A,
-            lora_B=module.lora_B,
-            rank_mask=rank_mask,
-            base_weight_delta=module.base_weight_delta,
-            merged=module.merged,
-            projection_segments=module.projection_segments,
-        ),
+    return module.__class__(
+        module.base,
+        rank=module.rank,
+        alpha=module.alpha,
+        scaling=module.scaling_mode,
+        dropout=module.dropout,
+        train_base=module.train_base,
+        mergeable=module.mergeable,
+        fan_in_fan_out=module.fan_in_fan_out,
+        key=jr.PRNGKey(0),
+        lora_A=module.lora_A,
+        lora_B=module.lora_B,
+        rank_mask=rank_mask,
+        base_weight_delta=module.base_weight_delta,
+        merged=module.merged,
+        projection_segments=module.projection_segments,
     )
 
 
@@ -2437,21 +2419,18 @@ def _replace_adalora_support(
     final: bool,
 ) -> AdaLoRAModule:
     singular = jnp.where(rank_mask, module.singular, jnp.zeros_like(module.singular))
-    return cast(
-        AdaLoRAModule,
-        AdaLoRAModule(
-            module.base,
-            rank=int(module.singular.shape[0]),
-            alpha=float(module.scaling * module.singular.shape[0]),
-            train_base=module.train_base,
-            mergeable=module.mergeable,
-            key=jr.PRNGKey(0),
-            P=module.P,
-            singular=singular,
-            Q=module.Q,
-            final_mask=rank_mask if final else None,
-            metadata=module.metadata,
-        ),
+    return AdaLoRAModule(
+        module.base,
+        rank=int(module.singular.shape[0]),
+        alpha=float(module.scaling * module.singular.shape[0]),
+        train_base=module.train_base,
+        mergeable=module.mergeable,
+        key=jr.PRNGKey(0),
+        P=module.P,
+        singular=singular,
+        Q=module.Q,
+        final_mask=rank_mask if final else None,
+        metadata=module.metadata,
     )
 
 

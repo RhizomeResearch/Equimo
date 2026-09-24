@@ -1,4 +1,3 @@
-# ty: ignore[invalid-return-type]
 """Bounded native checkpoints for plain mask transformers."""
 
 from __future__ import annotations
@@ -69,9 +68,7 @@ def _mask_state(model: PMT, mask_state: PMTMaskState | None) -> PMTMaskState:
 def _configuration(model: PMT, *, kind: str, base_digest: str) -> dict:
     config = model.head.config
     groups = (
-        model.head.lateral[0].norm.groups  # ty: ignore[unresolved-attribute]
-        if config.norm_layer == "groupnorm"
-        else None
+        model.head.lateral[0].norm.groups if config.norm_layer == "groupnorm" else None
     )
     return {
         "schema": 1,

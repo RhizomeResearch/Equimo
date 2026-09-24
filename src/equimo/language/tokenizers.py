@@ -14,8 +14,8 @@ DEFAULT_TOKENIZER_REPOSITORY = (
 
 def _require_tensorflow_text():
     try:
-        import tensorflow as tf  # ty: ignore[unresolved-import]
-        import tensorflow_text  # ty: ignore[unresolved-import]
+        import tensorflow as tf
+        import tensorflow_text
     except ImportError as exc:
         raise ImportError(
             "`tensorflow` and `tensorflow_text` are required for language "

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import cast
 
 import equinox as eqx
 import jax
@@ -142,9 +141,8 @@ def make_dense_probe(
         key=key,
         context="make_dense_probe",
     )
-    return cast(
-        DenseProbe,
-        DenseProbe(_headless_backbone(backbone), probe_head, feature_spec=feature_spec),
+    return DenseProbe(
+        _headless_backbone(backbone), probe_head, feature_spec=feature_spec
     )
 
 
@@ -179,16 +177,13 @@ def dense_feature_adapter(
     """Create a dense feature adapter for spatial or token features."""
 
     config = DenseVisionConfig() if config is None else config
-    return cast(
-        DenseFeatureAdapter,
-        DenseFeatureAdapter(
-            in_features,
-            out_features,
-            key=key,
-            activation=config.activation,
-            dropout=config.dropout,
-            bias=config.bias,
-        ),
+    return DenseFeatureAdapter(
+        in_features,
+        out_features,
+        key=key,
+        activation=config.activation,
+        dropout=config.dropout,
+        bias=config.bias,
     )
 
 

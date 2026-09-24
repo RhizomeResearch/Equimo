@@ -1,4 +1,3 @@
-# ty: ignore[invalid-assignment]
 __all__ = [
     "SpectrogramPatchEmbedding",
     "get_patch",

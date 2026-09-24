@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from typing import cast
 
 import jax
 
@@ -56,10 +55,7 @@ def projection_head(
 ) -> ProjectionHead:
     """Create a projection head for language embeddings."""
 
-    return cast(
-        ProjectionHead,
-        ProjectionHead(in_features, out_features, key=key),
-    )
+    return ProjectionHead(in_features, out_features, key=key)
 
 
 __all__ = (

@@ -382,7 +382,7 @@ def _extract_with_policy(
         args,
         dict(policy.spec.endpoint_options or {}),
     )
-    return cast(FeatureResult, FeatureResult(processed, metadata))
+    return FeatureResult(processed, metadata)
 
 
 def _merge_endpoint_options(spec: FeatureSpec, kwargs: dict) -> dict:
@@ -1256,14 +1256,11 @@ def make_linear_probe(
         key=key,
         context="make_linear_probe",
     )
-    return cast(
-        LinearProbe,
-        LinearProbe(
-            _headless_backbone(backbone),
-            probe_head,
-            pool=pool,
-            feature_spec=feature_spec,
-        ),
+    return LinearProbe(
+        _headless_backbone(backbone),
+        probe_head,
+        pool=pool,
+        feature_spec=feature_spec,
     )
 
 
@@ -1283,27 +1280,21 @@ def make_attention_pool_probe(
 ) -> AttentionPoolingProbe:
     """Build an attention-pooling probe with an identity backbone head."""
 
-    head = cast(
-        AttentionPoolingClassifierHead,
-        AttentionPoolingClassifierHead(
-            in_features,
-            out_features,
-            key=key,
-            embed_dim=embed_dim,
-            num_heads=num_heads,
-            dropout=dropout,
-            bias=bias,
-        ),
+    head = AttentionPoolingClassifierHead(
+        in_features,
+        out_features,
+        key=key,
+        embed_dim=embed_dim,
+        num_heads=num_heads,
+        dropout=dropout,
+        bias=bias,
     )
-    return cast(
-        AttentionPoolingProbe,
-        AttentionPoolingProbe(
-            _headless_backbone(backbone),
-            head,
-            n_last_blocks=n_last_blocks,
-            prepend_cls_token=prepend_cls_token,
-            l2_normalize_cls=l2_normalize_cls,
-        ),
+    return AttentionPoolingProbe(
+        _headless_backbone(backbone),
+        head,
+        n_last_blocks=n_last_blocks,
+        prepend_cls_token=prepend_cls_token,
+        l2_normalize_cls=l2_normalize_cls,
     )
 
 
@@ -1570,22 +1561,16 @@ def _is_convnet_model(model: PyTree) -> bool:
 
 
 def _mean_patch_pool_for_model(model: PyTree) -> MeanPatchPool:
-    return cast(
-        MeanPatchPool,
-        MeanPatchPool(
-            num_prefix_tokens=_model_prefix_count(model),
-            num_prompt_tokens=int(getattr(model, "num_prompt_tokens", 0)),
-        ),
+    return MeanPatchPool(
+        num_prefix_tokens=_model_prefix_count(model),
+        num_prompt_tokens=int(getattr(model, "num_prompt_tokens", 0)),
     )
 
 
 def _cls_patch_mean_pool_for_model(model: PyTree) -> CLSPatchMeanPool:
-    return cast(
-        CLSPatchMeanPool,
-        CLSPatchMeanPool(
-            num_prefix_tokens=_model_prefix_count(model),
-            num_prompt_tokens=int(getattr(model, "num_prompt_tokens", 0)),
-        ),
+    return CLSPatchMeanPool(
+        num_prefix_tokens=_model_prefix_count(model),
+        num_prompt_tokens=int(getattr(model, "num_prompt_tokens", 0)),
     )
 
 

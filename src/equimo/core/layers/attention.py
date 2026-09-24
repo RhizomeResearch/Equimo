@@ -1,7 +1,3 @@
-# ty: ignore[unknown-argument]
-# ty: ignore[invalid-assignment]
-# ty: ignore[too-many-positional-arguments]
-# ty: ignore[call-non-callable]
 from typing import Callable, List, Optional
 
 import equinox as eqx

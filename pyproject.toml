@@ -109,6 +109,23 @@ reference = [
 [tool.ruff.lint]
 ignore = ["E731", "E741", "F722"]
 
+[tool.ty.analysis]
+# ty infers the return type of Equinox's unannotated metaclass `__call__` as the
+# bare `Module` base, so every Equinox constructor call would lose its concrete
+# class. Treating that base as `Any` restores the concrete module types.
+replace-imports-with-any = ["equinox._module._module"]
+# Optional extras are imported lazily and may be absent from the checked environment.
+allowed-unresolved-imports = [
+  "matplotlib.**",
+  "PIL.**",
+  "sklearn.**",
+  "tensorflow.**",
+  "tensorflow_text.**",
+  "timm.**",
+  "torch.**",
+  "torchaudio.**",
+]
+
 [tool.pytest.ini_options]
 addopts = "-m 'not reference_parity and not live_reference_parity'"
 markers = [

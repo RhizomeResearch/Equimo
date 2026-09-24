@@ -48,7 +48,7 @@ class VeRALinear(eqx.Module):
     mergeable: bool = eqx.field(static=True)
     basis_generation: str = eqx.field(static=True)
     basis_key_data: tuple[int, ...] = eqx.field(static=True)
-    basis_pool_key: tuple[str, ...] = eqx.field(static=True)
+    basis_pool_key: tuple[int | str, ...] = eqx.field(static=True)
     share_scope: str = eqx.field(static=True)
 
     def __init__(
@@ -69,7 +69,7 @@ class VeRALinear(eqx.Module):
         vera_output_scale: jax.Array | None = None,
         basis_generation: str = "jax.random.PRNGKey_split",
         basis_key_data: tuple[int, ...] = (),
-        basis_pool_key: tuple[str, ...] = (),
+        basis_pool_key: tuple[int | str, ...] = (),
         share_scope: str = "shape_compatible",
     ):
         key_a, key_b = jr.split(key, 2)

@@ -1,5 +1,3 @@
-# ty: ignore[invalid-assignment]
-# ty: ignore[call-non-callable]
 """Input injectors for DEQ cells.
 
 Every injector combines the current recurrent state ``z`` with (features of)
@@ -79,7 +77,7 @@ class Add(AbstractInjector):
         z: jax.Array,
         x_ctx: InputContext,
         *,
-        inference: bool = False,
+        inference: bool | None = False,
         key: PRNGKeyArray | None = None,
     ) -> jax.Array:
         raw_x = x_ctx[0] if isinstance(x_ctx, tuple) else x_ctx
@@ -122,7 +120,7 @@ class ProjAdd(AbstractInjector):
         z: jax.Array,
         x_ctx: jax.Array,
         *,
-        inference: bool = False,
+        inference: bool | None = False,
         key: PRNGKeyArray | None = None,
     ) -> jax.Array:
         return z + x_ctx
@@ -171,7 +169,7 @@ class PreNormAdd(AbstractInjector):
         z: jax.Array,
         x_ctx: jax.Array,
         *,
-        inference: bool = False,
+        inference: bool | None = False,
         key: PRNGKeyArray | None = None,
     ) -> jax.Array:
         return self.norm(z) + x_ctx
@@ -216,7 +214,7 @@ class Gated(AbstractInjector):
         z: jax.Array,
         x_ctx: InputContext,
         *,
-        inference: bool = False,
+        inference: bool | None = False,
         key: PRNGKeyArray | None = None,
     ) -> jax.Array:
         raw_x = x_ctx[0] if isinstance(x_ctx, tuple) else x_ctx
@@ -271,7 +269,7 @@ class FiLM(AbstractInjector):
         z: jax.Array,
         x_ctx: tuple[jax.Array, jax.Array],
         *,
-        inference: bool = False,
+        inference: bool | None = False,
         key: PRNGKeyArray | None = None,
     ) -> jax.Array:
         gamma, beta = x_ctx

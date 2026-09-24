@@ -138,6 +138,19 @@ class TestConvolutionLayers:
         assert get_conv("doubleconvblock") is DoubleConvBlock
         assert get_conv("stem") is Stem
 
+    @pytest.mark.parametrize("fuse", [False, True])
+    def test_mbconv_none_activation_is_identity(self, fuse):
+        x = jr.normal(KEY, (IN_CHANNELS, H, W))
+        outs = [
+            MBConv(IN_CHANNELS, OUT_CHANNELS, act_layer=act, fuse=fuse, key=KEY)(
+                x, inference=True
+            )
+            for act in (None, lambda value: value)
+        ]
+
+        assert outs[0].shape == (OUT_CHANNELS, H, W)
+        assert jnp.array_equal(outs[0], outs[1])
+
     def test_low_precision(self):
         model = SingleConvBlock(IN_CHANNELS, OUT_CHANNELS, key=KEY)
         model = jax.tree_util.tree_map(

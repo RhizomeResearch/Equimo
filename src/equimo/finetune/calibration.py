@@ -102,25 +102,20 @@ def initialize_calibration_collector(
         raise ValueError("Calibration accumulation_dtype must be float32 or float64.")
     if dtype == jnp.dtype(jnp.float64) and not jax.config.read("jax_enable_x64"):
         raise ValueError("float64 accumulation requires JAX_ENABLE_X64=1.")
-    return cast(
-        CalibrationCollectorState,
-        CalibrationCollectorState(
-            counts=tuple(jnp.zeros((), dtype=jnp.int32) for _ in logical_ids),
-            means=tuple(jnp.zeros((dim,), dtype=dtype) for dim in feature_dims),
-            centered_sums=tuple(
-                jnp.zeros((dim, dim), dtype=dtype) for dim in feature_dims
-            ),
-            kind=kind,
-            logical_parameter_ids=logical_ids,
-            feature_dims=feature_dims,
-            base_checkpoint_hash=base_checkpoint_hash,
-            data_fingerprint=data_fingerprint,
-            centered=centered,
-            normalization=normalization,
-            accumulation_dtype=str(dtype),
-            rank=rank,
-            distributed_reduction=distributed_reduction,
-        ),
+    return CalibrationCollectorState(
+        counts=tuple(jnp.zeros((), dtype=jnp.int32) for _ in logical_ids),
+        means=tuple(jnp.zeros((dim,), dtype=dtype) for dim in feature_dims),
+        centered_sums=tuple(jnp.zeros((dim, dim), dtype=dtype) for dim in feature_dims),
+        kind=kind,
+        logical_parameter_ids=logical_ids,
+        feature_dims=feature_dims,
+        base_checkpoint_hash=base_checkpoint_hash,
+        data_fingerprint=data_fingerprint,
+        centered=centered,
+        normalization=normalization,
+        accumulation_dtype=str(dtype),
+        rank=rank,
+        distributed_reduction=distributed_reduction,
     )
 
 
@@ -418,23 +413,20 @@ def _replace_dynamic_state(
     means: tuple[jax.Array, ...],
     centered_sums: tuple[jax.Array, ...],
 ) -> CalibrationCollectorState:
-    return cast(
-        CalibrationCollectorState,
-        CalibrationCollectorState(
-            counts=counts,
-            means=means,
-            centered_sums=centered_sums,
-            kind=state.kind,
-            logical_parameter_ids=state.logical_parameter_ids,
-            feature_dims=state.feature_dims,
-            base_checkpoint_hash=state.base_checkpoint_hash,
-            data_fingerprint=state.data_fingerprint,
-            centered=state.centered,
-            normalization=state.normalization,
-            accumulation_dtype=state.accumulation_dtype,
-            rank=state.rank,
-            distributed_reduction=state.distributed_reduction,
-        ),
+    return CalibrationCollectorState(
+        counts=counts,
+        means=means,
+        centered_sums=centered_sums,
+        kind=state.kind,
+        logical_parameter_ids=state.logical_parameter_ids,
+        feature_dims=state.feature_dims,
+        base_checkpoint_hash=state.base_checkpoint_hash,
+        data_fingerprint=state.data_fingerprint,
+        centered=state.centered,
+        normalization=state.normalization,
+        accumulation_dtype=state.accumulation_dtype,
+        rank=state.rank,
+        distributed_reduction=state.distributed_reduction,
     )
 
 

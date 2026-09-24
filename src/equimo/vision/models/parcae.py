@@ -1,9 +1,3 @@
-# ty: ignore[call-non-callable]
-# ty: ignore[invalid-assignment]
-# ty: ignore[too-many-positional-arguments]
-# ty: ignore[unknown-argument]
-# ty: ignore[unresolved-attribute]
-# ty: ignore[invalid-argument-type]
 """Vision Parcae for Equimo.
 
 A ViT-style image model with a Parcae middle loop.
@@ -1062,7 +1056,7 @@ class VisionParcae(eqx.Module):
     ):
         if pos_embed is None:
             return None
-        return pos_embed.get_factors(H=H, W=W, inference=inference, key=key)
+        return pos_embed.get_factors(H=H, W=W, inference=bool(inference), key=key)
 
     def _run_chunk(
         self,

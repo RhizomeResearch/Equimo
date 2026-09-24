@@ -1,5 +1,3 @@
-# ty: ignore[invalid-return-type]
-# ty: ignore[invalid-assignment]
 __all__ = [
     "LowFormer",
     "lowformer_backbone_b0",

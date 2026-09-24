@@ -1,6 +1,3 @@
-# ty: ignore[call-non-callable]
-# ty: ignore[invalid-return-type]
-# ty: ignore[invalid-assignment]
 __all__ = [
     "ReduceFormer",
     "reduceformer_backbone_b1",

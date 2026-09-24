@@ -1,7 +1,5 @@
-# ty: ignore[invalid-assignment]
-# ty: ignore[unsupported-operator]
 import math
-from typing import Literal, Optional, Tuple, cast
+from typing import Literal, Optional, Tuple
 
 import equinox as eqx
 import jax
@@ -469,13 +467,10 @@ class RoPE(eqx.Module):
         rotations_ng = jax.lax.stop_gradient(self.rotations)
         cos = jnp.repeat(rotations_ng[..., 0], 2, axis=-1).astype(x.dtype)
         sin = jnp.repeat(rotations_ng[..., 1], 2, axis=-1).astype(x.dtype)
-        factors = cast(
-            RotaryFactors,
-            RotaryFactors(
-                sin=sin.reshape(-1, x.shape[-1]),
-                cos=cos.reshape(-1, x.shape[-1]),
-                layout="interleaved",
-            ),
+        factors = RotaryFactors(
+            sin=sin.reshape(-1, x.shape[-1]),
+            cos=cos.reshape(-1, x.shape[-1]),
+            layout="interleaved",
         )
         flat = x.reshape(-1, x.shape[-1])
         return apply_rotary(flat, factors).reshape(x.shape)
@@ -672,10 +667,7 @@ class DinoRoPE(eqx.Module):
         cos = jnp.cos(angles).astype(dtype)  # [HW, D_head]
         sin = jnp.sin(angles).astype(dtype)  # [HW, D_head]
 
-        return cast(
-            RotaryFactors,
-            RotaryFactors(sin=sin, cos=cos, layout="split_half"),
-        )
+        return RotaryFactors(sin=sin, cos=cos, layout="split_half")
 
 
 @register_posemb()
@@ -901,6 +893,7 @@ class VisionRoPE(eqx.Module):
         freqs = jax.lax.stop_gradient(self.freqs).astype(dtype)
 
         if self.strategy == "period":
+            assert self.D_head is not None
             if key is None and not inference:
                 raise ValueError(
                     "A PRNG key is required for period-based RoPE during training."
@@ -929,10 +922,7 @@ class VisionRoPE(eqx.Module):
         sin = jnp.sin(angles).astype(dtype)
         cos = jnp.cos(angles).astype(dtype)
 
-        factors = cast(
-            RotaryFactors,
-            RotaryFactors(sin=sin, cos=cos, layout=self.layout),
-        )
+        factors = RotaryFactors(sin=sin, cos=cos, layout=self.layout)
 
         # Prepend identity rotation for prefix tokens (CLS, registers, etc.)
         if num_prefix_tokens > 0:
@@ -1085,13 +1075,10 @@ class CompositeVisionRoPE(eqx.Module):
         parts_sin.append(sin_p)
         parts_cos.append(cos_p)
 
-        return cast(
-            RotaryFactors,
-            RotaryFactors(
-                sin=jnp.concatenate(parts_sin, axis=0),
-                cos=jnp.concatenate(parts_cos, axis=0),
-                layout=patch_factors.layout,
-            ),
+        return RotaryFactors(
+            sin=jnp.concatenate(parts_sin, axis=0),
+            cos=jnp.concatenate(parts_cos, axis=0),
+            layout=patch_factors.layout,
         )
 
     def __call__(

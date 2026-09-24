@@ -1,7 +1,3 @@
-# ty: ignore[call-non-callable]
-# ty: ignore[invalid-assignment]
-# ty: ignore[unknown-argument]
-# ty: ignore[too-many-positional-arguments]
 __all__ = ["FasterViT"]
 
 from typing import Callable, List, Literal, Optional, Sequence, Tuple
@@ -112,7 +108,7 @@ class BlockChunk(eqx.Module):
 
     blocks: Tuple[eqx.Module, ...]
     downsample: eqx.Module
-    global_tokenizer: Optional[TokenInitializer]
+    global_tokenizer: TokenInitializer | eqx.nn.Identity
 
     def __init__(
         self,
@@ -185,7 +181,7 @@ class BlockChunk(eqx.Module):
         ):
             self.do_gt = True
             self.global_tokenizer = TokenInitializer(
-                kwargs.get("dim"),
+                kwargs["dim"],
                 input_resolution,
                 window_size,
                 ct_size=self.ct_size,

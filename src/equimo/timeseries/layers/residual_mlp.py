@@ -1,4 +1,3 @@
-# ty: ignore[invalid-assignment]
 # Adapted from tfc-t0 and modified for JAX/Equinox; see NOTICE.
 import equinox as eqx
 import jax

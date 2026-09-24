@@ -1,7 +1,3 @@
-# ty: ignore[invalid-assignment]
-# ty: ignore[call-non-callable]
-# ty: ignore[too-many-positional-arguments]
-# ty: ignore[unknown-argument]
 __all__ = [
     "AudioSpectrogramTransformer",
     "ast_tiny_patch16_224",

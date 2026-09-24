@@ -1,7 +1,3 @@
-# ty: ignore[invalid-assignment]
-# ty: ignore[invalid-argument-type]
-# ty: ignore[invalid-parameter-default]
-# ty: ignore[unknown-argument]
 """DEQ cell and block.
 
 :class:`DEQCell` is the pure function ``f(z, x)`` whose fixed point the solver
@@ -41,7 +37,7 @@ def _init_z0(
     x: jax.Array,
     z0: jax.Array | None,
     mode: str = "zeros",
-    inference: bool = False,
+    inference: bool | None = False,
     key: PRNGKeyArray = jr.PRNGKey(42),
 ) -> jax.Array:
     """Initialize ``z0`` for the fixed-point solver.
@@ -134,7 +130,7 @@ class DEQCell(eqx.Module):
         x: jax.Array,
         key: PRNGKeyArray,
         *,
-        inference: bool = False,
+        inference: bool | None = False,
     ) -> tuple[InputContext, InputContext]:
         """Precompute (injector_ctx, stabilizer_ctx) from ``x``.
 
@@ -151,7 +147,7 @@ class DEQCell(eqx.Module):
         z: jax.Array,
         x: tuple[InputContext, InputContext],
         *,
-        inference: bool = False,
+        inference: bool | None = False,
         key: PRNGKeyArray,
     ) -> jax.Array:
         inj_ctx, stab_ctx = x
@@ -221,7 +217,7 @@ class DEQBlock(eqx.Module):
         x: jax.Array,
         z0: jax.Array | None = None,
         *,
-        inference: bool = False,
+        inference: bool | None = False,
         key: PRNGKeyArray,
     ):
         key_prep, key_solve, key_init = split_for_mode(key, 3, inference=inference)

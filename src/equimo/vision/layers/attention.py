@@ -1,10 +1,4 @@
-# ty: ignore[invalid-assignment]
-# ty: ignore[unknown-argument]
-# ty: ignore[call-non-callable]
-# ty: ignore[too-many-positional-arguments]
-# ty: ignore[invalid-argument-type]
-# ty: ignore[invalid-return-type]
-from typing import Callable, List, Literal, Optional, Sequence, Tuple
+from typing import Any, Callable, List, Literal, Optional, Sequence, Tuple
 
 import equinox as eqx
 import jax
@@ -127,8 +121,8 @@ class WindowedAttention(eqx.Module):
         self.proj = eqx.nn.Linear(dim, dim, use_bias=proj_bias, key=key_proj)
 
         self.pos_emb_funct = PosEmbMLPSwinv2D(
-            window_size=[resolution, resolution],
-            pretrained_window_size=[resolution, resolution],
+            window_size=(resolution, resolution),
+            pretrained_window_size=(resolution, resolution),
             num_heads=num_heads,
             seq_len=seq_len,
             key=key_posemb,
@@ -196,7 +190,7 @@ class HATBlock(eqx.Module):
     """
 
     do_propagation: bool = eqx.field(static=True)
-    sr_ratio: float = eqx.field(static=True)
+    sr_ratio: int = eqx.field(static=True)
     window_size: int = eqx.field(static=True)
     ct_size: int = eqx.field(static=True)
     last: bool = eqx.field(static=True)
@@ -241,7 +235,7 @@ class HATBlock(eqx.Module):
         ffn_bias: bool = True,
         norm_layer: str | type[eqx.Module] = "layernorm",
         init_values: float | None = None,
-        sr_ratio: float = 1.0,
+        sr_ratio: int = 1,
         ct_size: int = 1,
         last: bool = False,
         do_propagation: bool = False,
@@ -369,7 +363,7 @@ class HATBlock(eqx.Module):
         carrier_tokens: Float[Array, "..."],
         key: PRNGKeyArray,
         inference: Optional[bool] = None,
-    ) -> Float[Array, "seqlen dim"]:
+    ) -> Tuple[Float[Array, "seqlen dim"], Float[Array, "..."]]:
         key_attn, key_hattn, key_dr1, key_hdr1, key_dr2, key_hdr2, key_mlp, key_hmlp = (
             split_for_mode(key, 8, inference=inference)
         )
@@ -380,6 +374,14 @@ class HATBlock(eqx.Module):
 
         if self.sr_ratio > 1:
             # do hierarchical attention via carrier tokens
+            assert (
+                self.hat_pos_embed is not None
+                and self.hat_drop_path is not None
+                and self.hat_attn is not None
+                and self.hat_mlp is not None
+                and self.hat_ls1 is not None
+                and self.hat_ls2 is not None
+            )
             # first do attention for carrier tokens
             ng, hg = ct.shape
 
@@ -463,6 +465,7 @@ class HATBlock(eqx.Module):
 
             if self.last and self.do_propagation:
                 # propagate carrier token information into the image
+                assert self.hat_ls3 is not None
                 ctr_image_space = rearrange(
                     ctr,
                     "(h w) c -> c h w",
@@ -625,7 +628,7 @@ class SHMA(eqx.Module):
         self.scale = self.dim_head**-0.5
         self.window_size = window_size
 
-        common_cfg = {
+        common_cfg: dict[str, Any] = {
             "norm_layer": norm_layer,
             "act_layer": None,
             "padding": "SAME",
@@ -661,7 +664,9 @@ class SHMA(eqx.Module):
 
         self.attn_drop = eqx.nn.Dropout(attn_drop)
 
-    def _calculate_attention(self, x, key: PRNGKeyArray, inference: bool = False):
+    def _calculate_attention(
+        self, x, key: PRNGKeyArray, inference: Optional[bool] = None
+    ):
         """Core attention logic applied to a single spatial map (image or window).
 
         Args:

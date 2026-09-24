@@ -1,8 +1,3 @@
-# ty: ignore[invalid-assignment]
-# ty: ignore[invalid-argument-type]
-# ty: ignore[too-many-positional-arguments]
-# ty: ignore[unknown-argument]
-# ty: ignore[unresolved-attribute]
 from typing import Callable, Optional
 
 import equinox as eqx
@@ -196,7 +191,7 @@ class Mlp(eqx.Module):
         out_dim: int | None = None,
         hidden_dim: int | None = None,
         act_layer: str | Callable = "gelu",
-        norm_layer: str | Callable | None = None,
+        norm_layer: str | type[eqx.Module] | None = None,
         dropout_rate: float = 0.0,
         bias: bool = True,
         eps: float = 1e-5,

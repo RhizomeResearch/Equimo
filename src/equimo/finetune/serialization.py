@@ -824,17 +824,14 @@ def _prefix_projection_state(projection: PrefixProjection) -> dict[str, Any]:
 def _prefix_projection_from_state(state: dict[str, Any]) -> PrefixProjection:
     down = _linear_from_state(state["down"])
     up = _linear_from_state(state["up"])
-    return cast(
-        PrefixProjection,
-        PrefixProjection(
-            int(down.in_features),
-            int(down.out_features),
-            int(state["num_heads"]),
-            int(state["head_dim"]),
-            key=jr.PRNGKey(0),
-            down=down,
-            up=up,
-        ),
+    return PrefixProjection(
+        int(down.in_features),
+        int(down.out_features),
+        int(state["num_heads"]),
+        int(state["head_dim"]),
+        key=jr.PRNGKey(0),
+        down=down,
+        up=up,
     )
 
 

@@ -1,8 +1,3 @@
-# ty: ignore[invalid-assignment]
-# ty: ignore[call-non-callable]
-# ty: ignore[too-many-positional-arguments]
-# ty: ignore[unknown-argument]
-# ty: ignore[invalid-argument-type]
 __all__ = [
     "VisionTransformer",
     # Standard ViT presets
@@ -408,7 +403,7 @@ class VisionTransformer(eqx.Module):
             if self.local_pos_embed is not None and not inference:
                 key_pos, key_rope = jr.split(key_pos, 2)
                 rotary = self.local_pos_embed.get_factors(
-                    H=H, W=W, inference=inference, key=key_rope
+                    H=H, W=W, inference=False, key=key_rope
                 )
             blocks = blk.blocks
             n_blocks = 0 if blocks is None else len(blocks)
@@ -655,7 +650,7 @@ class VisionTransformer(eqx.Module):
             if self.local_pos_embed is not None and not inference:
                 key_pos, key_rope = jr.split(key_pos, 2)
                 rotary = self.local_pos_embed.get_factors(
-                    H=H, W=W, inference=inference, key=key_rope
+                    H=H, W=W, inference=False, key=key_rope
                 )
 
             if token_transform is None:

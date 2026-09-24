@@ -1,8 +1,3 @@
-# ty: ignore[unknown-argument]
-# ty: ignore[call-non-callable]
-# ty: ignore[invalid-assignment]
-# ty: ignore[invalid-argument-type]
-# ty: ignore[too-many-positional-arguments]
 """DEQ model (ConvNeXt variant).
 
 Thin wrapper around :class:`~.implicit.DEQBlock` embedded in a standard
@@ -233,7 +228,7 @@ class BlockChunk(eqx.Module):
         *,
         z0: Float[Array, "..."] | None = None,
         key: PRNGKeyArray,
-        inference: bool = False,
+        inference: Optional[bool] = False,
         **kwargs,
     ) -> Tuple[Float[Array, "..."], list]:
         key_down, key_z0, *keys = split_for_mode(

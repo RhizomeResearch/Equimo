@@ -1,4 +1,3 @@
-# ty: ignore[invalid-assignment]
 """Output stabilizers for DEQ cells.
 
 A stabilizer is applied at the **exit** of ``f(z, x)`` — it sees both the
@@ -72,7 +71,7 @@ class Identity(AbstractStabilizer):
         z_out: jax.Array,
         x_ctx: InputContext,
         *,
-        inference: bool = False,
+        inference: bool | None = False,
         key: PRNGKeyArray | None = None,
     ) -> jax.Array:
         return z_out
@@ -99,7 +98,7 @@ class GroupNormProject(AbstractStabilizer):
         z_out: jax.Array,
         x_ctx: InputContext,
         *,
-        inference: bool = False,
+        inference: bool | None = False,
         key: PRNGKeyArray | None = None,
     ) -> jax.Array:
         return self.norm(z_out)
@@ -156,7 +155,7 @@ class Damped(AbstractStabilizer):
         z_out: jax.Array,
         x_ctx: InputContext,
         *,
-        inference: bool = False,
+        inference: bool | None = False,
         key: PRNGKeyArray | None = None,
     ) -> jax.Array:
         a = self._alpha()
@@ -215,7 +214,7 @@ class DampedProject(AbstractStabilizer):
         z_out: jax.Array,
         x_ctx: InputContext,
         *,
-        inference: bool = False,
+        inference: bool | None = False,
         key: PRNGKeyArray | None = None,
     ) -> jax.Array:
         a = self._alpha()

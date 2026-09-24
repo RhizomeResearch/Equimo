@@ -69,7 +69,8 @@ def build_token_embeddings(
         dynamic_img_pad=dynamic_img_pad,
         key=key_patchemb,
     )
-    num_patches = patch_embed.num_patches  # ty: ignore[unresolved-attribute]
+    num_patches = patch_embed.num_patches
+    assert num_patches is not None
     cls_token = jr.normal(key_cls, (1, dim)) if class_token else None
     reg_tokens_array = jr.normal(key_reg, (reg_tokens, dim)) if reg_tokens > 0 else None
     mask_token = jnp.zeros((1, dim)) if use_mask_token else None
@@ -99,7 +100,7 @@ def build_token_embeddings(
         global_pos_embed = None
 
     return TokenEmbeddings(
-        patch_embed=patch_embed,  # ty: ignore[invalid-argument-type]
+        patch_embed=patch_embed,
         num_patches=num_patches,
         cls_token=cls_token,
         reg_tokens=reg_tokens_array,
@@ -107,7 +108,7 @@ def build_token_embeddings(
         num_prefix_tokens=num_prefix_tokens,
         num_embedded_prefix_tokens=num_embedded_prefix_tokens,
         embed_len=embed_len,
-        global_pos_embed=global_pos_embed,  # ty: ignore[invalid-argument-type]
+        global_pos_embed=global_pos_embed,
     )
 
 
@@ -146,7 +147,7 @@ def build_local_rope(
         if n_reg > 0
         else None
     )
-    return CompositeVisionRoPE(  # ty: ignore[invalid-return-type]
+    return CompositeVisionRoPE(
         patch_rope,
         reg_rope=reg_rope,
         num_prefix_tokens=n_prefix,

@@ -1,6 +1,3 @@
-# ty: ignore[call-non-callable]
-# ty: ignore[unknown-argument]
-# ty: ignore[invalid-assignment]
 from typing import Callable, Optional, Sequence, Tuple
 
 import equinox as eqx
@@ -99,10 +96,9 @@ class Residual(eqx.Module):
                       (default: 0)
         """
         self.module = module
-        use_ls = all(v is not None for v in [init_values, dim, axis])
         self.ls = (
             LayerScale(dim, axis=axis, init_values=init_values)
-            if use_ls
+            if dim is not None and axis is not None and init_values is not None
             else eqx.nn.Identity()
         )
         self.drop_path = DropPathAdd(drop_path)
@@ -480,7 +476,7 @@ def make_transformer_block_chunk(
     if depth <= 0:
         return None
 
-    return BlockChunk(  # ty: ignore[invalid-return-type]
+    return BlockChunk(
         depth=depth,
         module=block,
         module_kwargs={

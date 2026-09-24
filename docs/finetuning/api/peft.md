@@ -1593,7 +1593,7 @@ Defined in `equimo.finetune.peft.vera`.
 ## `VeRALinear`
 
 ```python
-class equimo.finetune.VeRALinear(base: 'eqx.nn.Linear', *, rank: 'int', key: 'jax.Array', shared: 'bool' = True, frozen_A_init: 'str' = 'kaiming_uniform', frozen_B_init: 'str' = 'kaiming_uniform', input_scale_init: 'float' = 1.0, output_scale_init: 'float' = 0.0, mergeable: 'bool' = True, vera_A: 'jax.Array | None' = None, vera_B: 'jax.Array | None' = None, vera_input_scale: 'jax.Array | None' = None, vera_output_scale: 'jax.Array | None' = None, basis_generation: 'str' = 'jax.random.PRNGKey_split', basis_key_data: 'tuple[int, ...]' = (), basis_pool_key: 'tuple[str, ...]' = (), share_scope: 'str' = 'shape_compatible')
+class equimo.finetune.VeRALinear(base: 'eqx.nn.Linear', *, rank: 'int', key: 'jax.Array', shared: 'bool' = True, frozen_A_init: 'str' = 'kaiming_uniform', frozen_B_init: 'str' = 'kaiming_uniform', input_scale_init: 'float' = 1.0, output_scale_init: 'float' = 0.0, mergeable: 'bool' = True, vera_A: 'jax.Array | None' = None, vera_B: 'jax.Array | None' = None, vera_input_scale: 'jax.Array | None' = None, vera_output_scale: 'jax.Array | None' = None, basis_generation: 'str' = 'jax.random.PRNGKey_split', basis_key_data: 'tuple[int, ...]' = (), basis_pool_key: 'tuple[int | str, ...]' = (), share_scope: 'str' = 'shape_compatible')
 ```
 
 Defined in `equimo.finetune.peft.vera`.

@@ -1,4 +1,3 @@
-# ty: ignore[invalid-assignment]
 __all__ = ["MobileNetv3", "mobilenetv3_small", "mobilenetv3_large"]
 
 

@@ -1,4 +1,3 @@
-# ty: ignore[call-non-callable]
 """Stack strategies for DEQ cells.
 
 A strategy defines **how** the inner block stack is executed and **where**
@@ -92,7 +91,7 @@ class EntryInjection(AbstractStackStrategy):
         x_ctx: InputContext,
         injector: AbstractInjector,
         *,
-        inference: bool = False,
+        inference: bool | None = False,
         key: PRNGKeyArray,
     ) -> jax.Array:
         k_inj, *k_blocks = split_for_mode(key, len(blocks) + 1, inference=inference)
@@ -133,7 +132,7 @@ class PerBlockInjection(AbstractStackStrategy):
         x_ctx: InputContext,
         injector: AbstractInjector,
         *,
-        inference: bool = False,
+        inference: bool | None = False,
         key: PRNGKeyArray,
     ) -> jax.Array:
         keys = split_for_mode(key, 2 * len(blocks), inference=inference)
@@ -176,7 +175,7 @@ class ScheduledInjection(AbstractStackStrategy):
         x_ctx: InputContext,
         injector: AbstractInjector,
         *,
-        inference: bool = False,
+        inference: bool | None = False,
         key: PRNGKeyArray,
     ) -> jax.Array:
         n = len(blocks)

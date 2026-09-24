@@ -213,9 +213,9 @@ def get_ast_preprocessing_spec(variant: str) -> AudioPreprocessingSpec:
 
 def _require_audio_dependencies():
     try:
-        import torch  # ty: ignore[unresolved-import]
-        from torchaudio.compliance.kaldi import fbank  # ty: ignore[unresolved-import]
-        from torchaudio.functional import resample  # ty: ignore[unresolved-import]
+        import torch
+        from torchaudio.compliance.kaldi import fbank
+        from torchaudio.functional import resample
     except ImportError as exc:
         raise ImportError(
             "PyTorch and TorchAudio are required for checkpoint-faithful AST waveform "

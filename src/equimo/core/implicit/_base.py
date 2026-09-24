@@ -56,7 +56,7 @@ class AbstractInjector(eqx.Module):
         z: jax.Array,
         x_ctx: InputContext,
         *,
-        inference: bool = False,
+        inference: bool | None = False,
         key: PRNGKeyArray,
     ) -> jax.Array:
         """Return ``z`` with input injected."""
@@ -84,7 +84,7 @@ class AbstractStabilizer(eqx.Module):
         z_out: jax.Array,
         x_ctx: InputContext,
         *,
-        inference: bool = False,
+        inference: bool | None = False,
         key: PRNGKeyArray,
     ) -> jax.Array: ...
 
@@ -106,6 +106,6 @@ class AbstractStackStrategy(eqx.Module):
         x_ctx: InputContext,
         injector: AbstractInjector,
         *,
-        inference: bool = False,
+        inference: bool | None = False,
         key: PRNGKeyArray,
     ) -> jax.Array: ...

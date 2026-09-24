@@ -23,6 +23,10 @@ All notable changes to Equimo are documented here. Equimo follows Semantic Versi
 - Pretrained loading verifies pinned archive identities. Selected probes have offline numerical and ONNX qualification
   records; EoMT and PMT have pinned numerical references.
 
+### Fixed
+
+- `MBConv` no longer fails when its pre-pointwise activation is `None`; a missing activation is applied as identity.
+
 ## [2.2.0] - 2026-09-05
 
 ### Added

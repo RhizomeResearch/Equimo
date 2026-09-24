@@ -1,9 +1,3 @@
-# ty: ignore[invalid-assignment]
-# ty: ignore[call-non-callable]
-# ty: ignore[invalid-argument-type]
-# ty: ignore[too-many-positional-arguments]
-# ty: ignore[unknown-argument]
-# ty: ignore[unresolved-attribute]
 import math
 import operator
 from collections.abc import Callable, Sequence
@@ -270,7 +264,7 @@ class Stem(eqx.Module):
     """
 
     num_patches: int = eqx.field(static=True)
-    patches_resolution: int = eqx.field(static=True)
+    patches_resolution: tuple[int, int] = eqx.field(static=True)
 
     conv1: SingleConvBlock
     conv2: eqx.nn.Sequential
@@ -297,7 +291,7 @@ class Stem(eqx.Module):
             **kwargs: Additional arguments passed to convolution blocks
         """
         self.num_patches = (img_size // patch_size) ** 2
-        self.patches_resolution = [img_size // patch_size] * 2
+        self.patches_resolution = (img_size // patch_size, img_size // patch_size)
         (
             key_conv1,
             key_conv2,
@@ -784,7 +778,7 @@ class MBConv(eqx.Module):
 
         if not isinstance(norm_layer, tuple):
             norm_layer = (norm_layer,) * 3
-        if not isinstance(act_layer, tuple):
+        if act_layer is None or isinstance(act_layer, str) or callable(act_layer):
             act_layer = (act_layer,) * 3
 
         # Resolve registry names
@@ -867,7 +861,8 @@ class MBConv(eqx.Module):
 
         # NOTE: I am separating act from the convblock because if SE blocks are
         # requested, they are applied before the act.
-        self.pre_pw_act = act_layer[0] if self.fused else act_layer[1]
+        pre_pw_act = act_layer[0] if self.fused else act_layer[1]
+        self.pre_pw_act = pre_pw_act if pre_pw_act is not None else eqx.nn.Identity()
 
         self.point_conv = SingleConvBlock(
             in_channels=mid_channels,
@@ -913,8 +908,10 @@ class MBConv(eqx.Module):
             key, 5, inference=inference
         )
         if self.fused:
+            assert self.spatial_conv is not None
             out = self.spatial_conv(x, inference=inference, key=key_spatial)
         else:
+            assert self.inverted_conv is not None and self.depth_conv is not None
             out = self.inverted_conv(x, inference=inference, key=key_inverted)
             out = self.depth_conv(out, inference=inference, key=key_depth)
 
@@ -965,7 +962,7 @@ class DSConv(eqx.Module):
 
         if not isinstance(norm_layer, tuple):
             norm_layer = (norm_layer,) * 2
-        if not isinstance(act_layer, tuple):
+        if act_layer is None or isinstance(act_layer, str) or callable(act_layer):
             act_layer = (act_layer,) * 2
 
         # Resolve registry names
@@ -1834,7 +1831,7 @@ class GhostBottleneck(eqx.Module):
             )
         else:
             # No depthwise stage when stride == 1
-            self.dw_rpr_conv = []
+            self.dw_rpr_conv = ()
             self.dw_rpr_scale = eqx.nn.Identity()
             self.dw_shared_norm = eqx.nn.Identity()
             self.dw_conv = eqx.nn.Identity()

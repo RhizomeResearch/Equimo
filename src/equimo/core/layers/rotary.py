@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal, cast
+from typing import Literal
 
 import equinox as eqx
 import jax
@@ -194,13 +194,10 @@ def make_1d_rotary_factors(
             f"layout must be either 'split_half' or 'interleaved'; got {layout!r}."
         )
     dtype = jnp.dtype(dtype)
-    return cast(
-        RotaryFactors,
-        RotaryFactors(
-            sin=jnp.sin(angles).astype(dtype),
-            cos=jnp.cos(angles).astype(dtype),
-            layout=layout,
-        ),
+    return RotaryFactors(
+        sin=jnp.sin(angles).astype(dtype),
+        cos=jnp.cos(angles).astype(dtype),
+        layout=layout,
     )
 
 
@@ -238,10 +235,7 @@ def insert_rotary_identity(
             ),
             axis=0,
         )
-    return cast(
-        RotaryFactors,
-        RotaryFactors(sin=sin, cos=cos, layout=factors.layout, scale=scale),
-    )
+    return RotaryFactors(sin=sin, cos=cos, layout=factors.layout, scale=scale)
 
 
 __all__ = [

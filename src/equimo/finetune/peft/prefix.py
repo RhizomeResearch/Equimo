@@ -210,10 +210,7 @@ class PrefixProjection(eqx.Module):
         down_key, up_key = jr.split(key, 2)
         self.down = (
             _init_projection_linear(
-                cast(
-                    eqx.nn.Linear,
-                    eqx.nn.Linear(dim, hidden_dim, key=down_key),
-                ),
+                eqx.nn.Linear(dim, hidden_dim, key=down_key),
                 down_key,
                 init_std,
             )
@@ -222,10 +219,7 @@ class PrefixProjection(eqx.Module):
         )
         self.up = (
             _init_projection_linear(
-                cast(
-                    eqx.nn.Linear,
-                    eqx.nn.Linear(hidden_dim, 2 * num_heads * head_dim, key=up_key),
-                ),
+                eqx.nn.Linear(hidden_dim, 2 * num_heads * head_dim, key=up_key),
                 up_key,
                 init_std,
             )
@@ -277,10 +271,7 @@ def apply_prefixes(
         for path, subkey in zip(paths, projection_keys, strict=True)
     )
     updated = _wrap_prefix_attentions(model, paths, prefixes, projections, config)
-    return cast(
-        PrefixTunedModel,
-        PrefixTunedModel(updated, prefixes, config, projections),
-    )
+    return PrefixTunedModel(updated, prefixes, config, projections)
 
 
 def strip_prefixes(model: PyTree) -> PyTree:
@@ -426,16 +417,13 @@ def _init_prefix_projection(
         if config.projection_hidden_dim == "model_dim"
         else int(config.projection_hidden_dim)
     )
-    return cast(
-        PrefixProjection,
-        PrefixProjection(
-            module.qkv.in_features,
-            hidden_dim,
-            num_heads,
-            head_dim,
-            key=key,
-            init_std=config.init_std,
-        ),
+    return PrefixProjection(
+        module.qkv.in_features,
+        hidden_dim,
+        num_heads,
+        head_dim,
+        key=key,
+        init_std=config.init_std,
     )
 
 

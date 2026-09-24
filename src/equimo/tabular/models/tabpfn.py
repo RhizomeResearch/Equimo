@@ -1,7 +1,3 @@
-# ty: ignore[invalid-assignment]
-# ty: ignore[call-non-callable]
-# ty: ignore[too-many-positional-arguments]
-# ty: ignore[unknown-argument]
 __all__ = [
     "TabPFN",
     "tabpfn",
@@ -65,8 +61,8 @@ class TabPFN(eqx.Module):
     task_type: str = eqx.field(static=True)
     dim: int = eqx.field(static=True)
     context_dim: int = eqx.field(static=True)
-    depths: Tuple[int, int, int] = eqx.field(static=True)
-    num_heads: Tuple[int, int, int] = eqx.field(static=True)
+    depths: Tuple[int, ...] = eqx.field(static=True)
+    num_heads: Tuple[int, ...] = eqx.field(static=True)
     feature_group_size: int = eqx.field(static=True)
     num_cls_tokens: int = eqx.field(static=True)
     use_nan_indicators: bool = eqx.field(static=True)

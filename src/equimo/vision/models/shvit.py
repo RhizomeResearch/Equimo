@@ -1,6 +1,3 @@
-# ty: ignore[call-non-callable]
-# ty: ignore[invalid-assignment]
-# ty: ignore[too-many-positional-arguments]
 __all__ = ["SHViT"]
 
 

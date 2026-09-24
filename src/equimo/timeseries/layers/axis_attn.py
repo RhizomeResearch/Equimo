@@ -1,7 +1,5 @@
-# ty: ignore[invalid-assignment]
 # Adapted from tfc-t0 and modified for JAX/Equinox; see NOTICE.
 
-from typing import cast
 
 import equinox as eqx
 import jax.numpy as jnp
@@ -30,14 +28,11 @@ def _time_rotary_factors(seq_len: int, dim: int) -> RotaryFactors:
     power = (positions - (seq_len - 1) // 2) / 512.0
     half_scale = base[None] ** power[:, None]
     scale = jnp.concatenate((half_scale, half_scale), axis=-1)
-    return cast(
-        RotaryFactors,
-        RotaryFactors(
-            sin=factors.sin,
-            cos=factors.cos,
-            layout=factors.layout,
-            scale=scale,
-        ),
+    return RotaryFactors(
+        sin=factors.sin,
+        cos=factors.cos,
+        layout=factors.layout,
+        scale=scale,
     )
 
 

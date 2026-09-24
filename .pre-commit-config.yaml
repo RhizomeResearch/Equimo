@@ -13,3 +13,10 @@ repos:
         language: system
         files: ^(src|tests|examples|models)/
         types: [python]
+      - id: ty
+        name: ty check
+        entry: uv run ty check src
+        language: system
+        files: ^src/
+        types: [python]
+        pass_filenames: false

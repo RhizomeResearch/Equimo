@@ -1,7 +1,3 @@
-# ty: ignore[call-non-callable]
-# ty: ignore[invalid-assignment]
-# ty: ignore[too-many-positional-arguments]
-# ty: ignore[unknown-argument]
 __all__ = [
     "AttNet",
     "attnet_xxs",

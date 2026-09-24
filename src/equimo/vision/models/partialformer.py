@@ -1,12 +1,6 @@
-# ty: ignore[call-non-callable]
-# ty: ignore[unknown-argument]
-# ty: ignore[invalid-assignment]
-# ty: ignore[too-many-positional-arguments]
-# ty: ignore[unsupported-operator]
-# ty: ignore[invalid-return-type]
 __all__ = ["PartialFormer"]
 
-from typing import Callable, List, Optional, Sequence, Tuple
+from typing import Callable, List, Literal, Optional, Sequence, Tuple, overload
 
 import equinox as eqx
 import jax
@@ -89,7 +83,7 @@ class BlockChunk(eqx.Module):
             k for k, v in kwargs.items() if isinstance(v, list) and len(v) == depth
         ]
 
-        dim = kwargs.get("dim")
+        dim = kwargs["dim"]
         self.posemb = (
             PosCNN(
                 dim,
@@ -307,13 +301,35 @@ class PartialFormer(eqx.Module):
             else eqx.nn.Identity()
         )
 
+    @overload
+    def features(
+        self,
+        x: Float[Array, "channels height width"],
+        key: PRNGKeyArray = ...,
+        inference: Optional[bool] = ...,
+        return_qa: Literal[False] = ...,
+    ) -> Float[Array, "seqlen dim"]: ...
+
+    @overload
+    def features(
+        self,
+        x: Float[Array, "channels height width"],
+        key: PRNGKeyArray = ...,
+        inference: Optional[bool] = ...,
+        *,
+        return_qa: Literal[True],
+    ) -> Tuple[Float[Array, "seqlen dim"], Float[Array, "..."]]: ...
+
     def features(
         self,
         x: Float[Array, "channels height width"],
         key: PRNGKeyArray = jr.PRNGKey(42),
         inference: Optional[bool] = None,
         return_qa: bool = False,
-    ) -> Float[Array, "seqlen dim"]:
+    ) -> (
+        Float[Array, "seqlen dim"]
+        | Tuple[Float[Array, "seqlen dim"], Float[Array, "..."]]
+    ):
         """Extract features from input image using partial attention.
 
         Args:
@@ -323,7 +339,8 @@ class PartialFormer(eqx.Module):
             key: PRNG key for random operations
 
         Returns:
-            Tuple of (processed features, final query attention token)
+            Processed features, or a tuple of (processed features, final query
+            attention token) when ``return_qa`` is True.
         """
         key_posdrop, *block_subkeys = split_for_mode(
             key, len(self.blocks) + 1, inference=inference

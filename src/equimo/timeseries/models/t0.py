@@ -1,4 +1,3 @@
-# ty: ignore[invalid-assignment]
 # Adapted from tfc-t0 and modified for JAX/Equinox; see NOTICE.
 """T0 patch-transformer time-series foundation model."""
 

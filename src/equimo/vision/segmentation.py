@@ -1,4 +1,3 @@
-# ty: ignore[invalid-return-type]
 """Prediction adapters for query-based image segmentation."""
 
 from __future__ import annotations

@@ -1,6 +1,3 @@
-# ty: ignore[invalid-assignment]
-# ty: ignore[invalid-return-type]
-# ty: ignore[unresolved-attribute]
 """Plain mask transformer with a deterministic frozen vision encoder."""
 
 from __future__ import annotations

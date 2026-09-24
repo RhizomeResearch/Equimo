@@ -1,8 +1,3 @@
-# ty: ignore[invalid-assignment]
-# ty: ignore[call-non-callable]
-# ty: ignore[too-many-positional-arguments]
-# ty: ignore[unknown-argument]
-# ty: ignore[invalid-argument-type]
 import math
 from typing import Callable, Optional, Tuple
 
@@ -77,7 +72,7 @@ class PatchEmbedding(eqx.Module):
         flatten: bool = True,
         dynamic_img_size: bool = False,
         dynamic_img_pad: bool = False,
-        norm_layer: Optional[str | Callable] = None,
+        norm_layer: Optional[str | type[eqx.Module]] = None,
         eps: float = 1e-5,
         **kwargs,
     ):
@@ -216,7 +211,7 @@ class ConvPatchEmbed(eqx.Module):
         *,
         key: PRNGKeyArray,
         act_layer: str | Callable = "relu",
-        norm_layer: str | Callable = "layernorm",
+        norm_layer: str | type[eqx.Module] = "layernorm",
         eps: float = 1e-5,
         **kwargs,
     ):

@@ -262,9 +262,7 @@ def pool_features(
     if pool == "attention":
         if pool_key is None:
             raise ValueError("pool='attention' requires a PRNG key.")
-        attention_pool = cast(
-            AttentionPool, AttentionPool(features.shape[-1], key=pool_key)
-        )
+        attention_pool = AttentionPool(features.shape[-1], key=pool_key)
         return attention_pool(
             features,
             **pool_kwargs,

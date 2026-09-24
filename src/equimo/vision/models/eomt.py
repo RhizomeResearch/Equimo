@@ -1,7 +1,3 @@
-# ty: ignore[invalid-assignment]
-# ty: ignore[invalid-return-type]
-# ty: ignore[unresolved-attribute]
-# ty: ignore[call-non-callable]
 """Encoder-only mask transformer for image segmentation."""
 
 from __future__ import annotations
@@ -86,12 +82,12 @@ class ScaleBlock(eqx.Module):
 class MaskEmbedding(eqx.Module):
     """Three linear layers with exact GELU between them."""
 
-    layers: tuple[eqx.nn.Linear, eqx.nn.Linear, eqx.nn.Linear]
+    layers: tuple[eqx.nn.Linear, ...]
 
     def __init__(self, dim: int, *, key: jax.Array):
         self.layers = tuple(
             eqx.nn.Linear(dim, dim, key=subkey) for subkey in jr.split(key, 3)
-        )  # type: ignore[assignment]
+        )
 
     def __call__(self, queries: jax.Array) -> jax.Array:
         x = queries

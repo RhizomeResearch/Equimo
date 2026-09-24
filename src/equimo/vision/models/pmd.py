@@ -1,12 +1,9 @@
-# ty: ignore[invalid-assignment]
-# ty: ignore[invalid-return-type]
-# ty: ignore[call-non-callable]
 """Plain mask decoder for frozen vision features."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from typing import Mapping
+from typing import Any, Mapping
 
 import equinox as eqx
 import jax
@@ -273,7 +270,7 @@ class Lateral(eqx.Module):
 
     def __init__(self, config: PMTConfig, *, key: jax.Array):
         dim = config.dim
-        options = dict(config.norm_kwargs)
+        options: dict[str, Any] = dict(config.norm_kwargs)
         if config.norm_layer == "groupnorm":
             self.norm = eqx.nn.GroupNorm(
                 nearest_power_of_2_divisor(dim, config.norm_max_group), dim, **options

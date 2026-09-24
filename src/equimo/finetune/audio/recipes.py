@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from typing import cast
 
 import jax
 
@@ -42,13 +41,13 @@ def multilabel_tagging_head(
 ) -> MultiLabelHead:
     """Create a raw-logit audio tagging head."""
 
-    return cast(MultiLabelHead, MultiLabelHead(in_features, out_features, key=key))
+    return MultiLabelHead(in_features, out_features, key=key)
 
 
 def mean_frame_pool() -> MeanFramePool:
     """Create a frame-mean pooling module."""
 
-    return cast(MeanFramePool, MeanFramePool())
+    return MeanFramePool()
 
 
 def ctc_head(
@@ -60,10 +59,7 @@ def ctc_head(
 ) -> CTCHead:
     """Create a raw-logit CTC head."""
 
-    return cast(
-        CTCHead,
-        CTCHead(in_features, vocab_size, key=key, blank_id=blank_id),
-    )
+    return CTCHead(in_features, vocab_size, key=key, blank_id=blank_id)
 
 
 def adapter_ast(

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Iterable, Mapping
-from typing import Any, cast
+from typing import Any
 
 import equinox as eqx
 import jax
@@ -77,14 +77,11 @@ def linear_state(linear: eqx.nn.Linear) -> dict[str, Any]:
 def linear_from_state(state: dict[str, Any]) -> eqx.nn.Linear:
     """Decode the stable Equinox linear-layer state schema."""
 
-    linear = cast(
-        eqx.nn.Linear,
-        eqx.nn.Linear(
-            int(state["in_features"]),
-            int(state["out_features"]),
-            use_bias=bool(state["use_bias"]),
-            key=jr.PRNGKey(0),
-        ),
+    linear = eqx.nn.Linear(
+        int(state["in_features"]),
+        int(state["out_features"]),
+        use_bias=bool(state["use_bias"]),
+        key=jr.PRNGKey(0),
     )
     linear = eqx.tree_at(lambda layer: layer.weight, linear, state["weight"])
     if state["bias"] is not None:

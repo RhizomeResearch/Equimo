@@ -73,7 +73,7 @@ class PCAVisualizer:
     ) -> None:
         """Creates a PCA object for visualizing features of shape [..., F]."""
         try:
-            from sklearn import decomposition  # ty: ignore[unresolved-import]
+            from sklearn import decomposition
         except ImportError as exc:
             raise ImportError(
                 "scikit-learn is required to use PCAVisualizer. Install Equimo "
@@ -110,7 +110,7 @@ def plot_image_and_feature_map(
     Plots an image and its feature map side by side and saves the figure.
     """
     try:
-        import matplotlib.pyplot as plt  # ty: ignore[unresolved-import]
+        import matplotlib.pyplot as plt
     except ImportError as exc:
         raise ImportError(
             "Matplotlib is required to plot an image. Install Equimo with the "
