@@ -1,4 +1,3 @@
-# ty: ignore[not-subscriptable]
 # ty: ignore[invalid-assignment]
 # ty: ignore[call-non-callable]
 # ty: ignore[too-many-positional-arguments]
@@ -54,7 +53,7 @@ class PatchEmbedding(eqx.Module):
         norm: Normalization layer applied per patch token
     """
 
-    patch_size: int | Tuple[int, int] = eqx.field(static=True)
+    patch_size: Tuple[int, int] = eqx.field(static=True)
 
     img_size: Optional[Tuple[int, int]] = eqx.field(static=True)
     grid_size: Optional[Tuple[int, int]] = eqx.field(static=True)

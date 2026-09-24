@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, fields, replace
 from math import prod
 import struct
 from typing import BinaryIO, Iterable, Protocol
@@ -46,6 +46,18 @@ class CheckpointLimits:
 DEFAULT_CHECKPOINT_LIMITS = CheckpointLimits()
 
 
+def resolve_limits(
+    limits: CheckpointLimits | None, **defaults: int
+) -> CheckpointLimits:
+    """Return caller limits, or the defaults with reader-specific overrides."""
+
+    if limits is None:
+        return replace(DEFAULT_CHECKPOINT_LIMITS, **defaults)
+    if not isinstance(limits, CheckpointLimits):
+        raise TypeError("limits must be a CheckpointLimits instance.")
+    return limits
+
+
 class SeekableReader(Protocol):
     def read(self, size: int = -1, /) -> bytes: ...
 
@@ -72,6 +84,11 @@ class LimitedReader:
         if self.total > self.max_bytes:
             raise ValueError("Checkpoint archive exceeds its expanded byte limit.")
         return data
+
+    def drain(self) -> None:
+        """Read to the end so trailing bytes also count toward the limit."""
+        while self.read(1024 * 1024):
+            pass
 
 
 def array_template(leaves: Iterable[object]) -> list[tuple[tuple[int, ...], jnp.dtype]]:

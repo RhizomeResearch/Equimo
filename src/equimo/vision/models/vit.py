@@ -455,12 +455,8 @@ class VisionTransformer(eqx.Module):
                 "VisionTransformer feature metadata requires one CHW image."
             )
         input_size = (int(x.shape[-2]), int(x.shape[-1]))
-        raw_patch_size = self.patch_embed.patch_size
-        patch_size = (
-            (raw_patch_size, raw_patch_size)
-            if isinstance(raw_patch_size, int)
-            else (int(raw_patch_size[0]), int(raw_patch_size[1]))
-        )
+        patch_height, patch_width = self.patch_embed.patch_size
+        patch_size = (int(patch_height), int(patch_width))
         grid_size = self.patch_embed.dynamic_feat_size(input_size)
         patch_padding = (
             grid_size[0] * patch_size[0] - input_size[0],

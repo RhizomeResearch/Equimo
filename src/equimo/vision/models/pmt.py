@@ -11,6 +11,7 @@ import jax
 from equimo.registry import register_model
 from equimo.vision._encoder_identity import encoder_array_digest
 from equimo.vision.models.pmd import (
+    _MISSING,
     PMTConfig,
     PMTFeatures,
     PMTMaskState,
@@ -18,9 +19,6 @@ from equimo.vision.models.pmd import (
     PlainMaskDecoder,
 )
 from equimo.vision.models.vit import VisionTransformer
-
-
-_MISSING = object()
 
 
 @register_model("pmt", modality="vision")
@@ -79,9 +77,6 @@ class PMT(eqx.Module):
         attention = backbone.block_at(0).attn
         if attention.num_heads != config.num_heads:
             raise ValueError("PMT attention heads disagree with the backbone.")
-        patch_size = backbone.patch_embed.patch_size
-        if isinstance(patch_size, int):
-            patch_size = (patch_size, patch_size)
         if not backbone_id or not input_view:
             raise ValueError("PMT backbone_id and input_view must be nonempty.")
         ontology = (
@@ -96,7 +91,7 @@ class PMT(eqx.Module):
             config,
             num_classes=num_classes,
             num_prefix_tokens=backbone.num_prefix_tokens,
-            patch_size=patch_size,
+            patch_size=backbone.patch_embed.patch_size,
             key=key,
         )
         self.backbone_id = backbone_id
@@ -176,10 +171,6 @@ class PMT(eqx.Module):
             != self.backbone._feature_position_configuration()
         ):
             raise ValueError("PMT features disagree with encoder or input view.")
-        if state is _MISSING:
-            return self.head(
-                features, inference=inference, key=key, mask_state=mask_state
-            )
         return self.head(
             features, state, inference=inference, key=key, mask_state=mask_state
         )
@@ -194,13 +185,12 @@ class PMT(eqx.Module):
         mask_state: PMTMaskState | None = None,
     ) -> PMTOutput | tuple[PMTOutput, eqx.nn.State | None]:
         """Return mask/class predictions; state is optional with GroupNorm."""
-        features = self.encode(image)
-        if state is _MISSING:
-            return self.decode(
-                features, inference=inference, key=key, mask_state=mask_state
-            )
         return self.decode(
-            features, state, inference=inference, key=key, mask_state=mask_state
+            self.encode(image),
+            state,
+            inference=inference,
+            key=key,
+            mask_state=mask_state,
         )
 
 

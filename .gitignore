@@ -228,3 +228,40 @@ devenv.local.nix
 
 # direnv
 .direnv
+
+# Sandbox mount placeholders
+#   Sandboxed agent tools mount over these paths and leave empty files behind.
+#   Trailing-slash negations keep real directories with these names visible.
+/.bash_profile
+/.bashrc
+/.gitconfig
+/.gitmodules
+/.mcp.json
+/.profile
+/.ripgreprc
+/.zprofile
+/.zshrc
+/.idea
+!/.idea/
+/.vscode
+!/.vscode/
+/.claude/launch.json
+/.claude/loop.md
+/.claude/scheduled_tasks.json
+/.claude/settings.json
+/.claude/settings.local.json
+/.claude/agents
+!/.claude/agents/
+/.claude/commands
+!/.claude/commands/
+/.claude/hooks
+!/.claude/hooks/
+/.claude/output-styles
+!/.claude/output-styles/
+/.claude/routines
+!/.claude/routines/
+/.claude/skills
+!/.claude/skills/
+/.claude/workflows
+!/.claude/workflows/
+

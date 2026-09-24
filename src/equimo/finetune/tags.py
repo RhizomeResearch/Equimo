@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable
+from functools import partial
 from typing import Any
 
 import equinox as eqx
@@ -184,20 +185,11 @@ def make_tag_tree(
 ) -> PyTree:
     """Replace parameter-like leaves with tagged ``ParamInfo`` records."""
 
-    filtered = eqx.filter(tree, eqx.is_inexact_array)
-    block_depths = vision_block_depths(tree)
-    adalora_roles = _adalora_roles(tree)
-
-    def make_info(key_path: tuple[Any, ...], leaf: Any) -> ParamInfo:
-        return make_param_info(
-            key_path_to_path(key_path),
-            leaf,
-            tagger=tagger,
-            block_depths=block_depths,
-            adalora_roles=adalora_roles,
-        )
-
-    return jtu.tree_map_with_path(make_info, filtered)
+    param_info = _model_param_info(tree, tagger)
+    return jtu.tree_map_with_path(
+        lambda key_path, leaf: param_info(key_path_to_path(key_path), leaf),
+        eqx.filter(tree, eqx.is_inexact_array),
+    )
 
 
 def iter_param_infos(
@@ -207,18 +199,8 @@ def iter_param_infos(
 ) -> tuple[ParamInfo, ...]:
     """Return tagged ``ParamInfo`` records for inexact array leaves."""
 
-    block_depths = vision_block_depths(tree)
-    adalora_roles = _adalora_roles(tree)
-    return tuple(
-        make_param_info(
-            path,
-            leaf,
-            tagger=tagger,
-            block_depths=block_depths,
-            adalora_roles=adalora_roles,
-        )
-        for path, leaf in iter_param_leaves(tree)
-    )
+    param_info = _model_param_info(tree, tagger)
+    return tuple(param_info(path, leaf) for path, leaf in iter_param_leaves(tree))
 
 
 def make_param_info(
@@ -251,6 +233,17 @@ def make_param_info(
         depth=actual_depth if actual_depth is not None else infer_depth(path),
         is_array=eqx.is_array(leaf),
         is_inexact_array=eqx.is_inexact_array(leaf),
+    )
+
+
+def _model_param_info(tree: PyTree, tagger: Tagger) -> Callable[[Path, Any], ParamInfo]:
+    """Bind ``make_param_info`` to the block depths and AdaLoRA roles of *tree*."""
+
+    return partial(
+        make_param_info,
+        tagger=tagger,
+        block_depths=vision_block_depths(tree),
+        adalora_roles=_adalora_roles(tree),
     )
 
 

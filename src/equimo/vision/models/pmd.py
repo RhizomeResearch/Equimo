@@ -18,8 +18,17 @@ from equimo.core._prng import split_for_mode
 from equimo.core.layers.attention import Attention, AttentionBlock
 from equimo.core.layers.rotary import RotaryFactors, insert_rotary_identity
 from equimo.utils import nearest_power_of_2_divisor
-from equimo.vision.models.eomt import MaskEmbedding, MaskPrediction, ScaleBlock
-from equimo.vision.segmentation import _anneal_mask_probabilities, resize_mask_logits
+from equimo.vision.models.eomt import (
+    MaskEmbedding,
+    MaskPrediction,
+    ScaleBlock,
+    _build_upscale,
+    _predict_query_masks,
+)
+from equimo.vision.segmentation import (
+    _anneal_mask_probabilities,
+    _query_attention_mask,
+)
 
 
 _MISSING = object()
@@ -365,43 +374,23 @@ class PlainMaskDecoder(eqx.Module):
         self.decoder_norm = eqx.nn.LayerNorm(config.dim, eps=1e-5)
         self.class_head = eqx.nn.Linear(config.dim, num_classes + 1, key=keys[tail])
         self.mask_head = MaskEmbedding(config.dim, key=keys[tail + 1])
-        scale_count = max(1, patch_size[0].bit_length() - 3)
-        self.upscale = tuple(
-            ScaleBlock(config.dim, key=k) for k in jr.split(keys[tail + 2], scale_count)
-        )
+        self.upscale = _build_upscale(config.dim, patch_size[0], key=keys[tail + 2])
 
     def is_stateful(self) -> bool:
         """Whether lateral BatchNorm requires mutable running statistics."""
         return self.config.norm_layer == "batchnorm"
 
     def _predict(self, tokens: jax.Array, grid: tuple[int, int]) -> MaskPrediction:
-        normed = jax.vmap(self.decoder_norm)(tokens)
-        queries = normed[: self.config.num_queries]
-        patches = normed[self.config.num_queries + self.num_prefix_tokens :]
-        features = patches.T.reshape(self.config.dim, *grid)
-        for layer in self.upscale:
-            features = layer(features)
-        return MaskPrediction(
-            jax.vmap(self.class_head)(queries),
-            jnp.einsum("qc,chw->qhw", self.mask_head(queries), features),
+        return _predict_query_masks(
+            tokens,
+            grid,
+            norm=self.decoder_norm,
+            class_head=self.class_head,
+            mask_head=self.mask_head,
+            upscale=self.upscale,
+            num_queries=self.config.num_queries,
+            num_prefix_tokens=self.num_prefix_tokens,
         )
-
-    def _attention_mask(
-        self,
-        mask_logits: jax.Array,
-        grid: tuple[int, int],
-        probability: jax.Array,
-        key: jax.Array,
-    ) -> jax.Array:
-        allowed = resize_mask_logits(mask_logits, grid) > 0
-        keep = jr.uniform(key, (self.config.num_queries,)) <= probability
-        allowed = jnp.where(keep[:, None, None], allowed, True)
-        length = self.config.num_queries + self.num_prefix_tokens + grid[0] * grid[1]
-        mask = jnp.ones((length, length), dtype=jnp.bool_)
-        return mask.at[
-            : self.config.num_queries,
-            self.config.num_queries + self.num_prefix_tokens :,
-        ].set(allowed.reshape(self.config.num_queries, -1))
 
     def __call__(
         self,
@@ -465,11 +454,12 @@ class PlainMaskDecoder(eqx.Module):
             if self.masked_attention:
                 prediction = self._predict(tokens, grid)
                 auxiliary.append(prediction)
-                mask = self._attention_mask(
+                mask = _query_attention_mask(
                     prediction.mask_logits,
                     grid,
                     active_mask_state.probabilities[index],
                     keys[index],
+                    num_prefix_tokens=self.num_prefix_tokens,
                 )
             tokens = block(
                 tokens,

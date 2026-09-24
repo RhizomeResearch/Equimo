@@ -11,10 +11,15 @@ import jax.numpy as jnp
 
 from .._typing import PyTree
 from ..config import FeatureSpec
-from ..feature_extraction import FeatureResult, extract_features
-from ..heads import ActivationName, DenseFeatureAdapter, IdentityHead, LinearHead
+from ..feature_extraction import (
+    FeatureResult,
+    _headless_backbone,
+    _keeps_separate_levels,
+    _linear_probe_head,
+    extract_features,
+)
+from ..heads import ActivationName, DenseFeatureAdapter, LinearHead
 from ..regularization import FeatureDistillationConfig
-from ..surgery import _validate_declared_head_dimensions, replace_head
 
 
 @dataclass(frozen=True)
@@ -130,20 +135,17 @@ def make_dense_probe(
     """Build a pointwise linear probe with an identity backbone head."""
 
     _validate_dense_feature_spec(feature_spec)
-    probe_head = (
-        LinearHead(in_features, out_features, key=key) if head is None else head
-    )
-    _validate_declared_head_dimensions(
-        probe_head,
+    probe_head = _linear_probe_head(
+        head,
         in_features=in_features,
         out_features=out_features,
+        key=key,
         context="make_dense_probe",
     )
-    try:
-        backbone = replace_head(backbone, IdentityHead())
-    except ValueError:
-        pass
-    return cast(DenseProbe, DenseProbe(backbone, probe_head, feature_spec=feature_spec))
+    return cast(
+        DenseProbe,
+        DenseProbe(_headless_backbone(backbone), probe_head, feature_spec=feature_spec),
+    )
 
 
 def _validate_dense_feature_spec(feature_spec: FeatureSpec) -> None:
@@ -152,7 +154,7 @@ def _validate_dense_feature_spec(feature_spec: FeatureSpec) -> None:
         raise ValueError("DenseProbe requires an unpooled FeatureSpec.")
     if not feature_spec.return_metadata:
         raise ValueError("DenseProbe requires FeatureSpec.return_metadata=True.")
-    if feature_spec.layer_aggregation == {"method": "separate"}:
+    if _keeps_separate_levels(feature_spec):
         raise ValueError("DenseProbe does not accept separate feature levels.")
     valid_tokens = (
         feature_spec.output_layout == "BNC"

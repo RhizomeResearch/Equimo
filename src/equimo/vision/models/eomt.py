@@ -6,8 +6,6 @@
 
 from __future__ import annotations
 
-import math
-
 import equinox as eqx
 import jax
 import jax.numpy as jnp
@@ -19,7 +17,10 @@ from equimo.core.layers.norm import LayerNorm2d
 from equimo.core.layers.rotary import insert_rotary_identity
 from equimo.registry import register_model
 from equimo.vision.models.vit import VisionTransformer
-from equimo.vision.segmentation import _anneal_mask_probabilities, resize_mask_logits
+from equimo.vision.segmentation import (
+    _anneal_mask_probabilities,
+    _query_attention_mask,
+)
 
 
 class MaskPrediction(eqx.Module):
@@ -99,6 +100,38 @@ class MaskEmbedding(eqx.Module):
         return jax.vmap(self.layers[-1])(x)
 
 
+def _build_upscale(
+    dim: int, patch_size: int, *, key: jax.Array
+) -> tuple[ScaleBlock, ...]:
+    """Build the twofold upscaling blocks that bring patch features to stride 4."""
+    count = max(1, patch_size.bit_length() - 3)
+    return tuple(ScaleBlock(dim, key=subkey) for subkey in jr.split(key, count))
+
+
+def _predict_query_masks(
+    tokens: jax.Array,
+    grid: tuple[int, int],
+    *,
+    norm: eqx.Module,
+    class_head: eqx.nn.Linear,
+    mask_head: MaskEmbedding,
+    upscale: tuple[ScaleBlock, ...],
+    num_queries: int,
+    num_prefix_tokens: int,
+) -> MaskPrediction:
+    """Predict query class and mask logits from query/prefix/patch tokens."""
+    normalized = jax.vmap(norm)(tokens)
+    queries = normalized[:num_queries]
+    patches = normalized[num_queries + num_prefix_tokens :]
+    features = patches.T.reshape(tokens.shape[-1], *grid)
+    for layer in upscale:
+        features = layer(features)
+    return MaskPrediction(
+        class_logits=jax.vmap(class_head)(queries),
+        mask_logits=jnp.einsum("qc,chw->qhw", mask_head(queries), features),
+    )
+
+
 @register_model("eomt", modality="vision")
 class EoMT(eqx.Module):
     """Inject learned queries into the final blocks of a plain ViT."""
@@ -143,11 +176,9 @@ class EoMT(eqx.Module):
                 not isinstance(block, AttentionBlock) for block in chunk.blocks or ()
             ):
                 raise ValueError("EoMT requires plain attention blocks.")
-        patch_size = backbone.patch_embed.patch_size
-        if isinstance(patch_size, tuple):
-            if patch_size[0] != patch_size[1]:
-                raise ValueError("EoMT requires square patches.")
-            patch_size = patch_size[0]
+        patch_size, patch_width = backbone.patch_embed.patch_size
+        if patch_size != patch_width:
+            raise ValueError("EoMT requires square patches.")
         if patch_size < 8 or patch_size & (patch_size - 1):
             raise ValueError("EoMT requires power-of-two patch size of at least 8.")
 
@@ -156,27 +187,22 @@ class EoMT(eqx.Module):
         self.queries = jr.normal(query_key, (num_queries, backbone.dim))
         self.class_head = eqx.nn.Linear(backbone.dim, num_classes + 1, key=class_key)
         self.mask_head = MaskEmbedding(backbone.dim, key=mask_key)
-        scale_count = max(1, int(math.log2(patch_size)) - 2)
-        self.upscale = tuple(
-            ScaleBlock(backbone.dim, key=k) for k in jr.split(upscale_key, scale_count)
-        )
+        self.upscale = _build_upscale(backbone.dim, patch_size, key=upscale_key)
         self.num_classes = num_classes
         self.num_queries = num_queries
         self.num_blocks = num_blocks
         self.masked_attention = masked_attention
 
     def _predict(self, tokens: jax.Array, height: int, width: int) -> MaskPrediction:
-        normalized = jax.vmap(self.backbone.norm)(tokens)
-        query_tokens = normalized[: self.num_queries]
-        patches = normalized[self.num_queries + self.backbone.num_prefix_tokens :]
-        features = patches.T.reshape(self.backbone.dim, height, width)
-        for layer in self.upscale:
-            features = layer(features)
-        return MaskPrediction(
-            class_logits=jax.vmap(self.class_head)(query_tokens),
-            mask_logits=jnp.einsum(
-                "qc,chw->qhw", self.mask_head(query_tokens), features
-            ),
+        return _predict_query_masks(
+            tokens,
+            (height, width),
+            norm=self.backbone.norm,
+            class_head=self.class_head,
+            mask_head=self.mask_head,
+            upscale=self.upscale,
+            num_queries=self.num_queries,
+            num_prefix_tokens=self.backbone.num_prefix_tokens,
         )
 
     def _attention_mask(
@@ -188,16 +214,13 @@ class EoMT(eqx.Module):
         probability: jax.Array,
         key: jax.Array,
     ) -> jax.Array:
-        allowed = resize_mask_logits(mask_logits, (height, width)) > 0
-        keep = jr.uniform(key, (self.num_queries,)) <= probability
-        allowed = jnp.where(keep[:, None, None], allowed, True)
-        token_count = (
-            self.num_queries + self.backbone.num_prefix_tokens + height * width
+        return _query_attention_mask(
+            mask_logits,
+            (height, width),
+            probability,
+            key,
+            num_prefix_tokens=self.backbone.num_prefix_tokens,
         )
-        mask = jnp.ones((token_count, token_count), dtype=jnp.bool_)
-        return mask.at[
-            : self.num_queries, self.num_queries + self.backbone.num_prefix_tokens :
-        ].set(allowed.reshape(self.num_queries, height * width))
 
     def _forward(
         self,

@@ -1,4 +1,4 @@
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 import hashlib
 import json
 import tarfile
@@ -19,7 +19,9 @@ from equimo._checkpoint_limits import (
     DEFAULT_CHECKPOINT_LIMITS,
     CheckpointLimits,
     LimitedReader,
+    SeekableReader,
     array_template,
+    resolve_limits,
     scan_array_stream,
 )
 from equimo._io import (
@@ -53,21 +55,7 @@ _VERSIONED_METADATA_FIELDS = frozenset(
         "model_signature",
     )
 )
-_MAX_METADATA_BYTES = 16 * 1024 * 1024
-_MAX_WEIGHTS_BYTES = 64 * 1024 * 1024 * 1024
 _MAX_DOWNLOAD_BYTES = 64 * 1024 * 1024 * 1024
-
-
-def _reader_limits(limits: CheckpointLimits | None) -> CheckpointLimits:
-    if limits is not None:
-        if not isinstance(limits, CheckpointLimits):
-            raise TypeError("limits must be a CheckpointLimits instance.")
-        return limits
-    return replace(
-        DEFAULT_CHECKPOINT_LIMITS,
-        max_metadata_bytes=_MAX_METADATA_BYTES,
-        max_member_bytes=_MAX_WEIGHTS_BYTES,
-    )
 
 
 @dataclass(frozen=True)
@@ -120,7 +108,7 @@ def _decompress_archive(
     """
     if not path.is_file():
         raise FileNotFoundError(f"Checkpoint archive does not exist: {path!s}")
-    limits = _reader_limits(limits)
+    limits = resolve_limits(limits)
     if path.stat().st_size > limits.max_archive_bytes:
         raise ValueError("Checkpoint archive exceeds its compressed byte limit.")
     if limits.max_expanded_bytes < DEFAULT_CHECKPOINT_LIMITS.max_expanded_bytes:
@@ -161,9 +149,7 @@ def _check_archive_expansion(path: Path, limits: CheckpointLimits) -> None:
 
     try:
         with lz4.frame.open(path, "rb") as source:
-            decoded = LimitedReader(source, limits.max_expanded_bytes)
-            while decoded.read(1024 * 1024):
-                pass
+            LimitedReader(source, limits.max_expanded_bytes).drain()
     except (EOFError, RuntimeError) as error:
         raise ValueError(f"Invalid checkpoint archive {path!s}: {error}") from error
 
@@ -209,7 +195,7 @@ def _extract_model_archive(
     path: Path, destination: Path, *, limits: CheckpointLimits | None = None
 ) -> None:
     try:
-        _extract_model_archive_stream(path, destination, limits=_reader_limits(limits))
+        _extract_model_archive_stream(path, destination, limits=resolve_limits(limits))
     except (EOFError, RuntimeError, tarfile.TarError) as error:
         raise ValueError(f"Invalid checkpoint archive {path!s}: {error}") from error
 
@@ -269,8 +255,7 @@ def _extract_model_archive_stream(
                         f"Checkpoint archive member {member.name!r} is truncated."
                     )
                 found.add(member.name)
-        while decoded.read(1024 * 1024):
-            pass
+        decoded.drain()
     missing = _CHECKPOINT_MEMBERS - found
     if missing:
         raise ValueError(
@@ -433,7 +418,7 @@ def download(
         ValueError: If *identifier* contains unsafe characters.
         requests.HTTPError: If the server returns a 4xx or 5xx response.
     """
-    limits = _reader_limits(limits)
+    limits = resolve_limits(limits)
     _validate_identifier(identifier)
     if expected_sha256 is None and repository.rstrip("/") == DEFAULT_REPOSITORY_URL:
         expected_sha256 = PRETRAINED_ARCHIVE_SHA256.get(identifier)
@@ -686,7 +671,7 @@ def inspect_checkpoint(
         the exact path supplied by the caller, not an extraction-cache path.
     """
 
-    limits = _reader_limits(limits)
+    limits = resolve_limits(limits)
     if expected_weights_sha256 is not None:
         expected_weights_sha256 = validate_sha256(
             expected_weights_sha256, label="expected_weights_sha256"
@@ -794,15 +779,7 @@ def _inspect_checkpoint_directory(
             )
         actual_checksum = _weights_checksum(weights_path, expected_weights_sha256)
         with weights_path.open("rb") as handle:
-            scan_array_stream(
-                handle,
-                limits,
-                expected=(
-                    array_template(jtu.tree_leaves(model))
-                    if model is not None
-                    else None
-                ),
-            )
+            _scan_weights(handle, model, limits)
         equimo_version = metadata.get("equimo_version")
         return CheckpointInfo(
             path=result_path,
@@ -869,13 +846,7 @@ def _inspect_checkpoint_directory(
             )
 
     with weights_path.open("rb") as handle:
-        scan_array_stream(
-            handle,
-            limits,
-            expected=(
-                array_template(jtu.tree_leaves(model)) if model is not None else None
-            ),
-        )
+        _scan_weights(handle, model, limits)
 
     return CheckpointInfo(
         path=result_path,
@@ -888,6 +859,14 @@ def _inspect_checkpoint_directory(
         verified=True,
         legacy=False,
     )
+
+
+def _scan_weights(
+    stream: SeekableReader, model: eqx.Module | None, limits: CheckpointLimits
+) -> None:
+    """Check tensor headers against *limits* and, when given, *model*'s leaves."""
+    expected = None if model is None else array_template(jtu.tree_leaves(model))
+    scan_array_stream(stream, limits, expected=expected)
 
 
 def _weights_checksum(path: Path, expected: str | None) -> str:
@@ -965,7 +944,7 @@ def load_weights(
         Model with deserialised weights.  Dtype is whatever was stored
         (bf16 checkpoints are loaded as bf16).
     """
-    limits = _reader_limits(limits)
+    limits = resolve_limits(limits)
     load_path = _resolve_weights_dir(
         identifier, path, repository, expected_sha256, limits
     )
@@ -1008,11 +987,7 @@ def load_weights(
             )
         if sha256_stream(staged) != checkpoint.weights_sha256:
             raise ValueError("Checkpoint weights changed during loading.")
-        scan_array_stream(
-            staged,
-            limits,
-            expected=array_template(jtu.tree_leaves(model)),
-        )
+        _scan_weights(staged, model, limits)
         model = eqx.tree_deserialise_leaves(staged, model)
         if staged.read(1):
             raise ValueError(

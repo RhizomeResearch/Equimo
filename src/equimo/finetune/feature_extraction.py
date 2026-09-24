@@ -1249,23 +1249,17 @@ def make_linear_probe(
 ) -> LinearProbe:
     """Build a linear-probe wrapper with an identity backbone head."""
 
-    probe_head = (
-        LinearHead(in_features, out_features, key=key) if head is None else head
-    )
-    _validate_declared_head_dimensions(
-        probe_head,
+    probe_head = _linear_probe_head(
+        head,
         in_features=in_features,
         out_features=out_features,
+        key=key,
         context="make_linear_probe",
     )
-    try:
-        backbone = replace_head(backbone, IdentityHead())
-    except ValueError:
-        pass
     return cast(
         LinearProbe,
         LinearProbe(
-            backbone,
+            _headless_backbone(backbone),
             probe_head,
             pool=pool,
             feature_spec=feature_spec,
@@ -1301,20 +1295,47 @@ def make_attention_pool_probe(
             bias=bias,
         ),
     )
-    try:
-        backbone = replace_head(backbone, IdentityHead())
-    except ValueError:
-        pass
     return cast(
         AttentionPoolingProbe,
         AttentionPoolingProbe(
-            backbone,
+            _headless_backbone(backbone),
             head,
             n_last_blocks=n_last_blocks,
             prepend_cls_token=prepend_cls_token,
             l2_normalize_cls=l2_normalize_cls,
         ),
     )
+
+
+def _linear_probe_head(
+    head: eqx.Module | None,
+    *,
+    in_features: int,
+    out_features: int,
+    key: jax.Array,
+    context: str,
+) -> eqx.Module:
+    """Return *head* or a new linear head, checked against the declared widths."""
+
+    probe_head = (
+        LinearHead(in_features, out_features, key=key) if head is None else head
+    )
+    _validate_declared_head_dimensions(
+        probe_head,
+        in_features=in_features,
+        out_features=out_features,
+        context=context,
+    )
+    return probe_head
+
+
+def _headless_backbone(backbone: PyTree) -> PyTree:
+    """Replace a recognized backbone head with identity; keep others unchanged."""
+
+    try:
+        return replace_head(backbone, IdentityHead())
+    except ValueError:
+        return backbone
 
 
 def _call_with_optional_key(fn, *args, key, inference, **kwargs):

@@ -21,10 +21,10 @@ import lz4.frame
 import numpy as np
 
 from equimo._checkpoint_limits import (
-    DEFAULT_CHECKPOINT_LIMITS,
     CheckpointLimits,
     LimitedReader,
     array_template,
+    resolve_limits,
     scan_array_stream,
 )
 from equimo._io import (
@@ -117,12 +117,8 @@ _SPOOL_MEMORY_BYTES = 64 * 1024 * 1024
 
 
 def _reader_limits(limits: CheckpointLimits | None) -> CheckpointLimits:
-    if limits is not None:
-        if not isinstance(limits, CheckpointLimits):
-            raise TypeError("limits must be a CheckpointLimits instance.")
-        return limits
-    return replace(
-        DEFAULT_CHECKPOINT_LIMITS,
+    return resolve_limits(
+        limits,
         max_metadata_bytes=_MAX_MANIFEST_BYTES,
         max_member_bytes=_MAX_ARRAY_BYTES,
     )
@@ -432,8 +428,7 @@ def _read_archive(
                             f"{label} {member.name} is truncated."
                         )
                     names.add(member.name)
-            while decoded.read(1024 * 1024):
-                pass
+            decoded.drain()
         missing = _ARCHIVE_MEMBERS - names
         if missing:
             raise FineTuneBundleError(

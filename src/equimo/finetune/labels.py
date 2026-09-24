@@ -11,13 +11,12 @@ import jax.tree_util as jtu
 from ._typing import Path, PyTree
 from ._blocks import model_block_depth, vision_block_depths
 from .config import GroupSpec, LLRDConfig, ParamInfo
-from .paths import key_path_to_path
+from .paths import iter_param_leaves, key_path_to_path
 from .tags import (
     Tagger,
-    _adalora_roles,
+    _model_param_info,
     canonical_tags_for_path,
     infer_block_depth,
-    make_param_info,
 )
 
 
@@ -50,15 +49,9 @@ def make_labeled_param_info_tree(
 
     config = LLRDConfig(decay=1.0) if llrd_config is None else llrd_config
     block_depths = vision_block_depths(model)
-    adalora_roles = _adalora_roles(model)
-    all_depths = _all_depths(model, config, block_depths)
-    selected_depths = _selected_depths(
-        model,
-        trainable_paths,
-        config,
-        block_depths,
-        tagger=tagger,
-    )
+    param_info = _model_param_info(model, tagger)
+    all_depths = _depths(model, config, block_depths)
+    selected_depths = _depths(model, config, block_depths, trainable_paths)
     filtered = eqx.filter(model, eqx.is_inexact_array)
     group_specs: dict[str, GroupSpec] = {}
 
@@ -67,13 +60,7 @@ def make_labeled_param_info_tree(
             return None
 
         path = key_path_to_path(key_path)
-        base = make_param_info(
-            path,
-            leaf,
-            tagger=tagger,
-            block_depths=block_depths,
-            adalora_roles=adalora_roles,
-        )
+        base = param_info(path, leaf)
         base = replace(base, depth=_depth_for_path(path, config, block_depths))
         trainable = trainable_paths is None or path in trainable_paths
         weight_decay = trainable and _uses_weight_decay(base, config)
@@ -232,41 +219,18 @@ def _lr_multiplier(
     return 1.0
 
 
-def _all_depths(
-    model: PyTree, config: LLRDConfig, block_depths: dict[Path, int]
-) -> tuple[int, ...]:
-    filtered = eqx.filter(model, eqx.is_inexact_array)
-    depths: set[int] = set()
-    for key_path, leaf in jtu.tree_leaves_with_path(filtered):
-        if not eqx.is_inexact_array(leaf):
-            continue
-        del leaf
-        depth = _depth_for_path(key_path_to_path(key_path), config, block_depths)
-        if depth is not None:
-            depths.add(depth)
-    return tuple(sorted(depths))
-
-
-def _selected_depths(
+def _depths(
     model: PyTree,
-    trainable_paths: frozenset[Path] | None,
     config: LLRDConfig,
     block_depths: dict[Path, int],
-    *,
-    tagger: Tagger,
+    paths: frozenset[Path] | None = None,
 ) -> tuple[int, ...]:
-    if trainable_paths is None:
-        return _all_depths(model, config, block_depths)
+    """Sorted depths of parameter leaves, optionally restricted to *paths*."""
 
-    filtered = eqx.filter(model, eqx.is_inexact_array)
     depths: set[int] = set()
-    for key_path, leaf in jtu.tree_leaves_with_path(filtered):
-        if not eqx.is_inexact_array(leaf):
+    for path, _ in iter_param_leaves(model):
+        if paths is not None and path not in paths:
             continue
-        path = key_path_to_path(key_path)
-        if path not in trainable_paths:
-            continue
-        del leaf
         depth = _depth_for_path(path, config, block_depths)
         if depth is not None:
             depths.add(depth)

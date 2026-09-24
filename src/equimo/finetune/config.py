@@ -177,47 +177,8 @@ class FeatureSpec:
             )
         if not isinstance(self.return_metadata, bool):
             raise ValueError("FeatureSpec.return_metadata must be a boolean.")
-
         if self.endpoint_options is not None:
-            if not isinstance(self.endpoint_options, Mapping):
-                raise ValueError("FeatureSpec.endpoint_options must be a mapping.")
-            keys = set(self.endpoint_options)
-            supported = {"indices", "n_last_blocks", "apply_norm"}
-            unknown = keys - supported
-            if unknown:
-                raise ValueError(
-                    "FeatureSpec.endpoint_options contains unsupported fields: "
-                    f"{sorted(unknown)}."
-                )
-            indices = self.endpoint_options.get("indices")
-            n_last_blocks = self.endpoint_options.get("n_last_blocks")
-            apply_norm = self.endpoint_options.get("apply_norm", False)
-            if indices is not None and n_last_blocks is not None:
-                raise ValueError(
-                    "FeatureSpec endpoint indices and n_last_blocks are mutually "
-                    "exclusive."
-                )
-            if indices is not None and (
-                not isinstance(indices, (tuple, list))
-                or not indices
-                or any(
-                    not isinstance(index, int) or isinstance(index, bool)
-                    for index in indices
-                )
-            ):
-                raise ValueError(
-                    "FeatureSpec endpoint indices must be a non-empty integer sequence."
-                )
-            if n_last_blocks is not None and (
-                not isinstance(n_last_blocks, int)
-                or isinstance(n_last_blocks, bool)
-                or n_last_blocks < 1
-            ):
-                raise ValueError(
-                    "FeatureSpec endpoint n_last_blocks must be an integer >= 1."
-                )
-            if not isinstance(apply_norm, bool):
-                raise ValueError("FeatureSpec endpoint apply_norm must be a boolean.")
+            self._validate_endpoint_options(self.endpoint_options)
 
         pooling = "none" if self.pooling is None else self.pooling
         if self.output_layout == "BC" and (
@@ -287,6 +248,45 @@ class FeatureSpec:
                 raise ValueError(
                     f"Unsupported FeatureSpec layer aggregation method {method!r}."
                 )
+
+    @staticmethod
+    def _validate_endpoint_options(options: Mapping[str, Any]) -> None:
+        if not isinstance(options, Mapping):
+            raise ValueError("FeatureSpec.endpoint_options must be a mapping.")
+        unknown = set(options) - {"indices", "n_last_blocks", "apply_norm"}
+        if unknown:
+            raise ValueError(
+                "FeatureSpec.endpoint_options contains unsupported fields: "
+                f"{sorted(unknown)}."
+            )
+        indices = options.get("indices")
+        n_last_blocks = options.get("n_last_blocks")
+        apply_norm = options.get("apply_norm", False)
+        if indices is not None and n_last_blocks is not None:
+            raise ValueError(
+                "FeatureSpec endpoint indices and n_last_blocks are mutually exclusive."
+            )
+        if indices is not None and (
+            not isinstance(indices, (tuple, list))
+            or not indices
+            or any(
+                not isinstance(index, int) or isinstance(index, bool)
+                for index in indices
+            )
+        ):
+            raise ValueError(
+                "FeatureSpec endpoint indices must be a non-empty integer sequence."
+            )
+        if n_last_blocks is not None and (
+            not isinstance(n_last_blocks, int)
+            or isinstance(n_last_blocks, bool)
+            or n_last_blocks < 1
+        ):
+            raise ValueError(
+                "FeatureSpec endpoint n_last_blocks must be an integer >= 1."
+            )
+        if not isinstance(apply_norm, bool):
+            raise ValueError("FeatureSpec endpoint apply_norm must be a boolean.")
 
 
 @dataclass(frozen=True)

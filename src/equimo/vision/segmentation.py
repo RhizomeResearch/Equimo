@@ -9,6 +9,7 @@ from typing import Protocol
 import equinox as eqx
 import jax
 import jax.numpy as jnp
+import jax.random as jr
 from jax import lax
 
 
@@ -45,6 +46,31 @@ def resize_mask_logits(mask_logits: jax.Array, size: tuple[int, int]) -> jax.Arr
         raise ValueError("Expected (queries, height, width) logits and positive size.")
     return jax.image.resize(
         mask_logits, (mask_logits.shape[0], *size), "linear", antialias=False
+    )
+
+
+def _query_attention_mask(
+    mask_logits: jax.Array,
+    grid: tuple[int, int],
+    probability: jax.Array,
+    key: jax.Array,
+    *,
+    num_prefix_tokens: int,
+) -> jax.Array:
+    """Restrict each query to its predicted patches in query/prefix/patch order.
+
+    Each query keeps its mask with ``probability``; otherwise, like every
+    non-query row, it attends to all tokens.
+    """
+    num_queries = mask_logits.shape[0]
+    allowed = resize_mask_logits(mask_logits, grid) > 0
+    keep = jr.uniform(key, (num_queries,)) <= probability
+    allowed = jnp.where(keep[:, None, None], allowed, True)
+    patch_start = num_queries + num_prefix_tokens
+    length = patch_start + grid[0] * grid[1]
+    mask = jnp.ones((length, length), dtype=jnp.bool_)
+    return mask.at[:num_queries, patch_start:].set(
+        allowed.reshape(num_queries, grid[0] * grid[1])
     )
 
 

@@ -12,11 +12,10 @@ import equinox as eqx
 import jax.numpy as jnp
 import jax.tree_util as jtu
 
-from equimo._checkpoint_limits import CheckpointLimits
+from equimo._checkpoint_limits import CheckpointLimits, resolve_limits
 from equimo.vision._encoder_identity import encoder_array_digest
 from equimo.serialization import (
     DEFAULT_REPOSITORY_URL,
-    _reader_limits,
     _resolve_weights_dir,
     inspect_checkpoint,
     load_weights,
@@ -101,7 +100,7 @@ def _recorded_configuration(
 ) -> dict:
     info = inspect_checkpoint(path, model=template, allow_legacy=False, limits=limits)
     directory = _resolve_weights_dir(
-        None, info.path, DEFAULT_REPOSITORY_URL, None, _reader_limits(limits)
+        None, info.path, DEFAULT_REPOSITORY_URL, None, resolve_limits(limits)
     )
     with (directory / "metadata.json").open("r", encoding="utf-8") as source:
         metadata = json.load(source)
