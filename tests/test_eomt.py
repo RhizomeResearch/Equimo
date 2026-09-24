@@ -12,7 +12,6 @@ import jax.numpy as jnp
 import jax.random as jr
 import jax.tree_util as jtu
 import numpy as np
-import optax
 import pytest
 
 from equimo.finetune.vision import eomt_full_finetune
@@ -419,11 +418,10 @@ def test_full_encoder_plan_gradients_and_reload(tmp_path):
         assert bool(jnp.all(jnp.isfinite(gradient)))
         assert bool(jnp.any(gradient != 0))
 
-    optimizer = optax.sgd(1e-4)
     trainable_gradients = eqx.filter_grad(lambda params: loss(plan.combine(params)))(
         plan.trainable
     )
-    updates, _ = optimizer.update(trainable_gradients, optimizer.init(plan.trainable))
+    updates = jtu.tree_map(lambda gradient: -1e-4 * gradient, trainable_gradients)
     updated = plan.combine(eqx.apply_updates(plan.trainable, updates))
     assert not jnp.array_equal(
         updated.backbone.patch_embed.proj.weight, model.backbone.patch_embed.proj.weight

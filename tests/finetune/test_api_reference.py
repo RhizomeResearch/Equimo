@@ -6,6 +6,8 @@ import sys
 from collections import Counter
 from pathlib import Path
 
+import pytest
+
 import equimo.finetune as ft
 
 
@@ -53,6 +55,7 @@ def test_type_aliases_do_not_report_runtime_implementation_modules():
 
 
 def test_reference_is_current_and_links_are_valid():
+    pytest.importorskip("mdformat")
     result = subprocess.run(
         [sys.executable, GENERATOR, "--check"],
         cwd=ROOT,
