@@ -122,8 +122,8 @@ class PMTFeatures(eqx.Module):
     """Cached encoder output before all trainable lateral normalization.
 
     Levels contain normalized encoder tokens in class/register/patch order.
-    ``backbone_id`` and the static geometry identify the feature-producing
-    encoder and input view; a cache must be discarded if either changes.
+    The encoder digest, input view, and static geometry identify the feature
+    source; a cache must be discarded if any of them changes.
     """
 
     levels: tuple[jax.Array, ...]
@@ -134,6 +134,7 @@ class PMTFeatures(eqx.Module):
     taps: tuple[int, ...] = eqx.field(static=True)
     positional_configuration: tuple[tuple[str, str], ...] = eqx.field(static=True)
     backbone_id: str = eqx.field(static=True)
+    backbone_digest: str = eqx.field(static=True)
     input_view: str = eqx.field(static=True)
 
 

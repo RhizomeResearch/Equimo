@@ -71,10 +71,13 @@ receive only the output. Passing state explicitly always returns
 normalization. `decode(features, ...)` can reuse them for later decoder steps
 when the encoder, input preprocessing, and view are unchanged. The cache stores
 all selected normalized encoder tokens in class/register/patch order, its grid
-and positional geometry, and the encoder/view identity. `pmt_head_finetune`
-selects every decoder and lateral parameter while excluding the entire encoder,
-including its final norm, position components, and tokens. The caller provides
-task matching and losses.
+and positional geometry, and a SHA-256 digest of the encoder arrays plus the
+declared input view. Decoding rejects features from a different encoder even
+when its descriptive `backbone_id` matches. The digest is computed when PMT is
+constructed; construct a new PMT if the encoder arrays are replaced or cast.
+`pmt_head_finetune` selects every decoder and lateral parameter while excluding
+the entire encoder, including its final norm, position components, and tokens.
+The caller provides task matching and losses.
 `encoder_features(image)` returns the final normalized frozen encoder tap in
 class/register/patch order. The existing `features(image)` endpoint returns
 the same array and accepts unused `key` and `inference` arguments for the

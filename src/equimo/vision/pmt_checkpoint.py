@@ -4,18 +4,16 @@
 from __future__ import annotations
 
 from dataclasses import asdict
-import hashlib
 import json
 from pathlib import Path
 from typing import cast
 
 import equinox as eqx
-import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
-import numpy as np
 
 from equimo._checkpoint_limits import CheckpointLimits
+from equimo.vision._encoder_identity import encoder_array_digest
 from equimo.serialization import (
     DEFAULT_REPOSITORY_URL,
     _reader_limits,
@@ -41,19 +39,7 @@ class _DecoderCheckpoint(eqx.Module):
 
 
 def _base_digest(model: PMT) -> str:
-    """Hash paths, shapes, dtypes, and bytes of every actual encoder array."""
-    digest = hashlib.sha256()
-    for path, leaf in jtu.tree_leaves_with_path(model.backbone):
-        if not eqx.is_array(leaf):
-            continue
-        value = np.asarray(jax.device_get(leaf))
-        descriptor = json.dumps(
-            [jtu.keystr(path), value.shape, str(value.dtype)], separators=(",", ":")
-        ).encode()
-        digest.update(len(descriptor).to_bytes(8, "big"))
-        digest.update(descriptor)
-        digest.update(np.ascontiguousarray(value).tobytes())
-    return digest.hexdigest()
+    return encoder_array_digest(model.backbone)
 
 
 def _check_state(model: PMT, state: eqx.nn.State | None) -> eqx.nn.State | None:
@@ -176,7 +162,12 @@ def load_pmt_checkpoint(
     )
     if _base_digest(loaded.model) != recorded["base_digest"]:
         raise ValueError("Full PMT checkpoint encoder digest mismatch.")
-    return loaded.model, loaded.state, loaded.mask_state
+    model = eqx.tree_at(
+        lambda candidate: candidate.backbone_digest,
+        loaded.model,
+        recorded["base_digest"],
+    )
+    return model, loaded.state, loaded.mask_state
 
 
 def save_pmt_decoder(

@@ -2,6 +2,27 @@
 
 All notable changes to Equimo are documented here. Equimo follows Semantic Versioning from version 2.0.0 onward.
 
+## [2.3.0] - 2026-09-24
+
+### Added
+
+- Exact spatial and intermediate ViT feature contracts, including patch grids, prefix-token order, normalization stage,
+  positional metadata, and executable `FeatureSpec` endpoint options.
+- A pointwise spatial linear probe with explicit feature geometry, ten-class pooled-probe qualification, and tested
+  head-only and final-block fine-tuning plans.
+- Native LingBot-Vision Small support with strict checkpoint conversion, pinned source and weight identities, and
+  intermediate-feature reference checks.
+- Native EoMT query segmentation with encoder-block query insertion, mask annealing, auxiliary predictions, semantic
+  score reduction, and a full-encoder fine-tuning plan.
+- A reusable plain mask decoder and frozen-encoder PMT compositions for DINOv3 Small and LingBot-Vision Small, with
+  explicit lateral normalization state, encoder-bound feature caches, and full or decoder-only checkpoints.
+
+### Changed
+
+- Checkpoint readers accept caller-selected resource limits and validate array declarations before allocation.
+- Pretrained loading verifies pinned archive identities. Selected probes have offline numerical and ONNX qualification
+  records; EoMT and PMT have pinned numerical references.
+
 ## [2.2.0] - 2026-09-05
 
 ### Added

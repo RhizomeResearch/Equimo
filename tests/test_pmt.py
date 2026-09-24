@@ -113,6 +113,7 @@ def test_groupnorm_no_state_batch_independence_and_geometry():
     )
     assert alone.final.mask_logits.shape == (2, 4, 6)
     assert alone.final.class_logits.shape == (2, 4)
+
     assert len(alone.auxiliary) == 2
     features = model.encode(first)
     assert features.grid_size == (2, 3)
@@ -131,6 +132,20 @@ def test_groupnorm_no_state_batch_independence_and_geometry():
     np.testing.assert_allclose(
         compiled.final.mask_logits, alone.final.mask_logits, atol=2e-5
     )
+
+
+def test_cached_features_reject_a_different_encoder_with_the_same_name():
+    original, _ = _model(seed=0)
+    different, _ = _model(seed=99)
+    image = jr.normal(jr.PRNGKey(17), (3, 16, 24))
+
+    features = original.encode(image)
+
+    assert features.backbone_id == different.backbone_id
+    assert features.backbone_digest == original.backbone_digest
+    assert features.backbone_digest != different.backbone_digest
+    with pytest.raises(ValueError, match="encoder"):
+        different.decode(features, key=jr.PRNGKey(18))
 
 
 @pytest.mark.parametrize("norm", ["layernorm", "rmsnorm", "none"])
@@ -277,6 +292,7 @@ def test_native_checkpoints_and_exact_base_rejection(tmp_path: Path, norm: str):
     restored, restored_state, mask_state = load_pmt_checkpoint(
         full, random_template, state=random_state if norm == "batchnorm" else None
     )
+    assert restored.backbone_digest == model.backbone_digest
     np.testing.assert_array_equal(mask_state.probabilities, [0, 1])
     assert int(mask_state.step) == 5
     image = jr.normal(jr.PRNGKey(2), (3, 16, 16))
@@ -284,6 +300,12 @@ def test_native_checkpoints_and_exact_base_rejection(tmp_path: Path, norm: str):
     new_output = restored(image, restored_state, key=jr.PRNGKey(3))
     np.testing.assert_array_equal(
         original_output[0].final.mask_logits, new_output[0].final.mask_logits
+    )
+    cached = model.encode(image)
+    restored_cached = restored.decode(cached, restored_state, key=jr.PRNGKey(3))
+    np.testing.assert_array_equal(
+        original_output[0].final.mask_logits,
+        restored_cached[0].final.mask_logits,
     )
     matching_template, matching_state = _model(norm=norm)
     restored_decoder, decoder_state, decoded_mask_state = load_pmt_decoder(

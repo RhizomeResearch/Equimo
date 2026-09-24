@@ -9,6 +9,7 @@ import equinox as eqx
 import jax
 
 from equimo.registry import register_model
+from equimo.vision._encoder_identity import encoder_array_digest
 from equimo.vision.models.pmd import (
     PMTConfig,
     PMTFeatures,
@@ -43,6 +44,7 @@ class PMT(eqx.Module):
     backbone: VisionTransformer
     head: PlainMaskDecoder
     backbone_id: str = eqx.field(static=True)
+    backbone_digest: str
     input_view: str = eqx.field(static=True)
     class_ontology: tuple[str, ...] = eqx.field(static=True)
 
@@ -98,6 +100,7 @@ class PMT(eqx.Module):
             key=key,
         )
         self.backbone_id = backbone_id
+        self.backbone_digest = encoder_array_digest(backbone)
         self.input_view = input_view
         self.class_ontology = ontology
 
@@ -136,6 +139,7 @@ class PMT(eqx.Module):
             taps=metadata["layer_indices"],
             positional_configuration=metadata["positional_configuration"],
             backbone_id=self.backbone_id,
+            backbone_digest=self.backbone_digest,
             input_view=self.input_view,
         )
 
@@ -166,6 +170,7 @@ class PMT(eqx.Module):
         """Decode retained features with the selected normalization state."""
         if (
             features.backbone_id != self.backbone_id
+            or features.backbone_digest != self.backbone_digest
             or features.input_view != self.input_view
             or features.positional_configuration
             != self.backbone._feature_position_configuration()

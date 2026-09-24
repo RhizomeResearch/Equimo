@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 import re
@@ -175,6 +176,7 @@ def test_author_decoder_numerical_parity(masked: bool):
             taps=(0, 1),
             positional_configuration=(),
             backbone_id="fixture",
+            backbone_digest=hashlib.sha256(REFERENCE.read_bytes()).hexdigest(),
             input_view="native",
         )
         projected = []
