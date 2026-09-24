@@ -39,7 +39,9 @@ Configuration records, plan metadata, and the core public typing aliases.
 - [`WeightLayout`](#equimo-finetune-weightlayout)
 
 <!-- equimo.finetune:AuxLossSpec -->
+
 <a id="equimo-finetune-auxlossspec"></a>
+
 ## `AuxLossSpec`
 
 ```python
@@ -51,7 +53,9 @@ Defined in `equimo.finetune.config`.
 > Optimizer-neutral auxiliary-loss declaration.
 
 <!-- equimo.finetune:CalibrationArtifact -->
+
 <a id="equimo-finetune-calibrationartifact"></a>
+
 ## `CalibrationArtifact`
 
 ```python
@@ -63,7 +67,9 @@ Defined in `equimo.finetune.config`.
 > Immutable statistics consumed by data-aware fine-tuning methods.
 
 <!-- equimo.finetune:CalibrationCollectorState -->
+
 <a id="equimo-finetune-calibrationcollectorstate"></a>
+
 ## `CalibrationCollectorState`
 
 ```python
@@ -75,7 +81,9 @@ Defined in `equimo.finetune.calibration`.
 > Bounded-memory, PyTree-compatible state for named covariance streams.
 
 <!-- equimo.finetune:combine_calibration_collectors -->
+
 <a id="equimo-finetune-combine-calibration-collectors"></a>
+
 ## `combine_calibration_collectors`
 
 ```python
@@ -87,7 +95,9 @@ Defined in `equimo.finetune.calibration`.
 > Associatively combine compatible streaming states using Chan's update.
 
 <!-- equimo.finetune:FeatureSpec -->
+
 <a id="equimo-finetune-featurespec"></a>
+
 ## `FeatureSpec`
 
 ```python
@@ -99,7 +109,9 @@ Defined in `equimo.finetune.config`.
 > Executable feature endpoint, layout, readout, and preprocessing contract.
 
 <!-- equimo.finetune:FilterSpec -->
+
 <a id="equimo-finetune-filterspec"></a>
+
 ## `FilterSpec`
 
 ```python
@@ -107,7 +119,9 @@ type equimo.finetune.FilterSpec = Any
 ```
 
 <!-- equimo.finetune:finalize_calibration_collector -->
+
 <a id="equimo-finetune-finalize-calibration-collector"></a>
+
 ## `finalize_calibration_collector`
 
 ```python
@@ -119,7 +133,9 @@ Defined in `equimo.finetune.calibration`.
 > Finalize each logical ID into a validated immutable artifact.
 
 <!-- equimo.finetune:FineTuneBundle -->
+
 <a id="equimo-finetune-finetunebundle"></a>
+
 ## `FineTuneBundle`
 
 ```python
@@ -131,7 +147,9 @@ Defined in `equimo.finetune.config`.
 > Portable fine-tuning delta bundle schema shell.
 
 <!-- equimo.finetune:FineTuneBundleError -->
+
 <a id="equimo-finetune-finetunebundleerror"></a>
+
 ## `FineTuneBundleError`
 
 ```python
@@ -143,7 +161,9 @@ Defined in `equimo.finetune.config`.
 > Raised when a fine-tuning bundle is malformed or incompatible.
 
 <!-- equimo.finetune:FineTunePlan -->
+
 <a id="equimo-finetune-finetuneplan"></a>
+
 ## `FineTunePlan`
 
 ```python
@@ -155,7 +175,9 @@ Defined in `equimo.finetune.config`.
 > Partitioned model state and metadata prepared for external optimizers.
 
 <!-- equimo.finetune:GroupSpec -->
+
 <a id="equimo-finetune-groupspec"></a>
+
 ## `GroupSpec`
 
 ```python
@@ -167,7 +189,9 @@ Defined in `equimo.finetune.config`.
 > Metadata for one optimizer group label.
 
 <!-- equimo.finetune:initialize_calibration_collector -->
+
 <a id="equimo-finetune-initialize-calibration-collector"></a>
+
 ## `initialize_calibration_collector`
 
 ```python
@@ -178,12 +202,13 @@ Defined in `equimo.finetune.calibration`.
 
 > Initialize named streaming statistics without retaining samples.
 >
-> Logical IDs are EVA module paths for activation statistics and matrix-weight
-> logical IDs for RegMean input statistics. Each observation is one row after
-> flattening all leading dimensions of an update value.
+> Logical IDs are EVA module paths for activation statistics and matrix-weight logical IDs for RegMean input statistics.
+> Each observation is one row after flattening all leading dimensions of an update value.
 
 <!-- equimo.finetune:input_covariance_from_artifact -->
+
 <a id="equimo-finetune-input-covariance-from-artifact"></a>
+
 ## `input_covariance_from_artifact`
 
 ```python
@@ -192,10 +217,12 @@ equimo.finetune.input_covariance_from_artifact(artifact: 'CalibrationArtifact') 
 
 Defined in `equimo.finetune.calibration`.
 
-> Return a RegMean-compatible ``(input_dim, input_dim)`` Gram matrix.
+> Return a RegMean-compatible `(input_dim, input_dim)` Gram matrix.
 
 <!-- equimo.finetune:LeafPredicate -->
+
 <a id="equimo-finetune-leafpredicate"></a>
+
 ## `LeafPredicate`
 
 ```python
@@ -203,7 +230,9 @@ type equimo.finetune.LeafPredicate = Callable[[tuple[str | int, ...], Any], bool
 ```
 
 <!-- equimo.finetune:LLRDConfig -->
+
 <a id="equimo-finetune-llrdconfig"></a>
+
 ## `LLRDConfig`
 
 ```python
@@ -215,7 +244,9 @@ Defined in `equimo.finetune.config`.
 > Layer-wise learning-rate decay metadata.
 
 <!-- equimo.finetune:ModelLineage -->
+
 <a id="equimo-finetune-modellineage"></a>
+
 ## `ModelLineage`
 
 ```python
@@ -227,7 +258,9 @@ Defined in `equimo.finetune.config`.
 > Lineage binding for plans, deltas, merges, and checkpoints.
 
 <!-- equimo.finetune:ParameterReport -->
+
 <a id="equimo-finetune-parameterreport"></a>
+
 ## `ParameterReport`
 
 ```python
@@ -239,7 +272,9 @@ Defined in `equimo.finetune.config`.
 > Serializable metadata for one floating parameter leaf.
 
 <!-- equimo.finetune:ParamIdentity -->
+
 <a id="equimo-finetune-paramidentity"></a>
+
 ## `ParamIdentity`
 
 ```python
@@ -251,7 +286,9 @@ Defined in `equimo.finetune.config`.
 > Stable logical identity for an optimizable or mergeable parameter.
 
 <!-- equimo.finetune:ParamInfo -->
+
 <a id="equimo-finetune-paraminfo"></a>
+
 ## `ParamInfo`
 
 ```python
@@ -263,7 +300,9 @@ Defined in `equimo.finetune.config`.
 > Per-leaf metadata produced by later planning phases.
 
 <!-- equimo.finetune:Path -->
+
 <a id="equimo-finetune-path"></a>
+
 ## `Path`
 
 ```python
@@ -271,7 +310,9 @@ type equimo.finetune.Path = tuple[str | int, ...]
 ```
 
 <!-- equimo.finetune:ProjectionSegment -->
+
 <a id="equimo-finetune-projectionsegment"></a>
+
 ## `ProjectionSegment`
 
 ```python
@@ -283,7 +324,9 @@ Defined in `equimo.finetune.config`.
 > Logical segment inside a fused projection weight.
 
 <!-- equimo.finetune:PyTree -->
+
 <a id="equimo-finetune-pytree"></a>
+
 ## `PyTree`
 
 ```python
@@ -291,7 +334,9 @@ type equimo.finetune.PyTree = Any
 ```
 
 <!-- equimo.finetune:StatePolicy -->
+
 <a id="equimo-finetune-statepolicy"></a>
+
 ## `StatePolicy`
 
 ```python
@@ -303,7 +348,9 @@ Defined in `equimo.finetune.config`.
 > Training-state semantics for stateful Equinox models.
 
 <!-- equimo.finetune:TargetSpec -->
+
 <a id="equimo-finetune-targetspec"></a>
+
 ## `TargetSpec`
 
 ```python
@@ -315,7 +362,9 @@ Defined in `equimo.finetune.config`.
 > Describe model leaves selected by paths, semantic tags, or predicates.
 
 <!-- equimo.finetune:TrainableReport -->
+
 <a id="equimo-finetune-trainablereport"></a>
+
 ## `TrainableReport`
 
 ```python
@@ -327,7 +376,9 @@ Defined in `equimo.finetune.config`.
 > Summary of trainable and frozen parameter leaves.
 
 <!-- equimo.finetune:TrainableSpec -->
+
 <a id="equimo-finetune-trainablespec"></a>
+
 ## `TrainableSpec`
 
 ```python
@@ -339,7 +390,9 @@ Defined in `equimo.finetune.config`.
 > Describe the intended trainability policy for a model.
 
 <!-- equimo.finetune:update_calibration_collector -->
+
 <a id="equimo-finetune-update-calibration-collector"></a>
+
 ## `update_calibration_collector`
 
 ```python
@@ -351,7 +404,9 @@ Defined in `equimo.finetune.calibration`.
 > Update a state from caller-supplied rows and an explicit mask or count.
 
 <!-- equimo.finetune:validate_calibration_artifacts -->
+
 <a id="equimo-finetune-validate-calibration-artifacts"></a>
+
 ## `validate_calibration_artifacts`
 
 ```python
@@ -363,7 +418,9 @@ Defined in `equimo.finetune.calibration`.
 > Validate the identity, provenance, and statistic schema of an artifact set.
 
 <!-- equimo.finetune:WeightLayout -->
+
 <a id="equimo-finetune-weightlayout"></a>
+
 ## `WeightLayout`
 
 ```python

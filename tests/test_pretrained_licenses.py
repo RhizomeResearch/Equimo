@@ -23,7 +23,7 @@ def _license_rows(path: Path) -> dict[str, list[str]]:
         if not line.startswith("|"):
             continue
         cells = [cell.strip() for cell in line.strip("| ").split("|")]
-        if cells[0] in {"Family", "---"}:
+        if cells[0] == "Family" or re.fullmatch(r"-{3,}", cells[0]):
             continue
         assert len(cells) == 8
         assert cells[0] not in rows

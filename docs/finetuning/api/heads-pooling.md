@@ -41,7 +41,9 @@ Task heads, pooling modules, probes, and feature-extraction helpers.
 - [`ProjectionHead`](#equimo-finetune-projectionhead)
 
 <!-- equimo.finetune:AttentionPool -->
+
 <a id="equimo-finetune-attentionpool"></a>
+
 ## `AttentionPool`
 
 ```python
@@ -53,7 +55,9 @@ Defined in `equimo.finetune.pooling`.
 > Single-query attention pooling over token features.
 
 <!-- equimo.finetune:AttentionPoolingClassifierHead -->
+
 <a id="equimo-finetune-attentionpoolingclassifierhead"></a>
+
 ## `AttentionPoolingClassifierHead`
 
 ```python
@@ -64,13 +68,14 @@ Defined in `equimo.finetune.heads`.
 
 > FINO/DINOv3-style attention-pooling classifier head.
 >
-> The head consumes one example's token matrix ``[tokens, in_features]`` and
-> returns raw logits ``[out_features]``. It projects tokens to ``embed_dim``,
-> layer-normalizes them, pools them with one learned multi-head query over
-> K/V-projected tokens, and applies a final linear classifier.
+> The head consumes one example's token matrix `[tokens, in_features]` and returns raw logits `[out_features]`. It
+> projects tokens to `embed_dim`, layer-normalizes them, pools them with one learned multi-head query over K/V-projected
+> tokens, and applies a final linear classifier.
 
 <!-- equimo.finetune:AttentionPoolingProbe -->
+
 <a id="equimo-finetune-attentionpoolingprobe"></a>
+
 ## `AttentionPoolingProbe`
 
 ```python
@@ -82,7 +87,9 @@ Defined in `equimo.finetune.feature_extraction`.
 > Backbone plus a FINO-style attention-pooling classifier head.
 
 <!-- equimo.finetune:CLSPatchMeanPool -->
+
 <a id="equimo-finetune-clspatchmeanpool"></a>
+
 ## `CLSPatchMeanPool`
 
 ```python
@@ -94,7 +101,9 @@ Defined in `equimo.finetune.pooling`.
 > Concatenate the CLS token with the mean over patch tokens.
 
 <!-- equimo.finetune:CLSPool -->
+
 <a id="equimo-finetune-clspool"></a>
+
 ## `CLSPool`
 
 ```python
@@ -103,10 +112,12 @@ class equimo.finetune.CLSPool(index: 'int' = 0)
 
 Defined in `equimo.finetune.pooling`.
 
-> Return the CLS/prefix token at ``index``.
+> Return the CLS/prefix token at `index`.
 
 <!-- equimo.finetune:ContrastiveProjectionHead -->
+
 <a id="equimo-finetune-contrastiveprojectionhead"></a>
+
 ## `ContrastiveProjectionHead`
 
 ```python
@@ -118,7 +129,9 @@ Defined in `equimo.finetune.heads`.
 > Projection head with optional L2 normalization.
 
 <!-- equimo.finetune:CTCHead -->
+
 <a id="equimo-finetune-ctchead"></a>
+
 ## `CTCHead`
 
 ```python
@@ -130,7 +143,9 @@ Defined in `equimo.finetune.heads`.
 > Frame-level CTC head that returns raw logits.
 
 <!-- equimo.finetune:DenseFeatureAdapter -->
+
 <a id="equimo-finetune-densefeatureadapter"></a>
+
 ## `DenseFeatureAdapter`
 
 ```python
@@ -142,7 +157,9 @@ Defined in `equimo.finetune.heads`.
 > Project dense or token features along the last axis.
 
 <!-- equimo.finetune:extract_features -->
+
 <a id="equimo-finetune-extract-features"></a>
+
 ## `extract_features`
 
 ```python
@@ -153,11 +170,13 @@ Defined in `equimo.finetune.feature_extraction`.
 
 > Extract features through an explicit spec or the compatibility fallback.
 >
-> A supplied ``feature_spec`` controls endpoint traversal and tensor
-> post-processing. Without one, the native/heuristic behavior is unchanged.
+> A supplied `feature_spec` controls endpoint traversal and tensor post-processing. Without one, the native/heuristic
+> behavior is unchanged.
 
 <!-- equimo.finetune:FeatureExtractor -->
+
 <a id="equimo-finetune-featureextractor"></a>
+
 ## `FeatureExtractor`
 
 ```python
@@ -169,7 +188,9 @@ Defined in `equimo.finetune.feature_extraction`.
 > Wrap a backbone and return pooled features.
 
 <!-- equimo.finetune:FeatureLevelMetadata -->
+
 <a id="equimo-finetune-featurelevelmetadata"></a>
+
 ## `FeatureLevelMetadata`
 
 ```python
@@ -181,7 +202,9 @@ Defined in `equimo.finetune.feature_extraction`.
 > Immutable geometry and provenance for one extracted feature level.
 
 <!-- equimo.finetune:FeatureResult -->
+
 <a id="equimo-finetune-featureresult"></a>
+
 ## `FeatureResult`
 
 ```python
@@ -193,7 +216,9 @@ Defined in `equimo.finetune.feature_extraction`.
 > Extracted arrays paired with static per-level feature metadata.
 
 <!-- equimo.finetune:GeMPool -->
+
 <a id="equimo-finetune-gempool"></a>
+
 ## `GeMPool`
 
 ```python
@@ -205,7 +230,9 @@ Defined in `equimo.finetune.pooling`.
 > Generalized mean pooling over a token/frame axis.
 
 <!-- equimo.finetune:GlobalAveragePool -->
+
 <a id="equimo-finetune-globalaveragepool"></a>
+
 ## `GlobalAveragePool`
 
 ```python
@@ -217,7 +244,9 @@ Defined in `equimo.finetune.pooling`.
 > Mean-pool all non-channel axes of dense channel-first features.
 
 <!-- equimo.finetune:IdentityHead -->
+
 <a id="equimo-finetune-identityhead"></a>
+
 ## `IdentityHead`
 
 ```python
@@ -229,7 +258,9 @@ Defined in `equimo.finetune.heads`.
 > Head that returns inputs unchanged.
 
 <!-- equimo.finetune:IdentityPool -->
+
 <a id="equimo-finetune-identitypool"></a>
+
 ## `IdentityPool`
 
 ```python
@@ -241,7 +272,9 @@ Defined in `equimo.finetune.pooling`.
 > Return features unchanged.
 
 <!-- equimo.finetune:LastTokenPool -->
+
 <a id="equimo-finetune-lasttokenpool"></a>
+
 ## `LastTokenPool`
 
 ```python
@@ -250,10 +283,12 @@ class equimo.finetune.LastTokenPool() -> None
 
 Defined in `equimo.finetune.pooling`.
 
-> Return the last token, or the last valid token under ``mask``.
+> Return the last token, or the last valid token under `mask`.
 
 <!-- equimo.finetune:LayerNormReadoutHead -->
+
 <a id="equimo-finetune-layernormreadouthead"></a>
+
 ## `LayerNormReadoutHead`
 
 ```python
@@ -265,7 +300,9 @@ Defined in `equimo.finetune.heads`.
 > LayerNorm followed by a task head.
 
 <!-- equimo.finetune:LinearHead -->
+
 <a id="equimo-finetune-linearhead"></a>
+
 ## `LinearHead`
 
 ```python
@@ -277,7 +314,9 @@ Defined in `equimo.finetune.heads`.
 > Linear task head with Equimo's fine-tuning defaults.
 
 <!-- equimo.finetune:LinearProbe -->
+
 <a id="equimo-finetune-linearprobe"></a>
+
 ## `LinearProbe`
 
 ```python
@@ -289,7 +328,9 @@ Defined in `equimo.finetune.feature_extraction`.
 > Backbone feature extractor plus a trainable task head.
 
 <!-- equimo.finetune:make_attention_pool_input_from_forward_features -->
+
 <a id="equimo-finetune-make-attention-pool-input-from-forward-features"></a>
+
 ## `make_attention_pool_input_from_forward_features`
 
 ```python
@@ -301,7 +342,9 @@ Defined in `equimo.finetune.feature_extraction`.
 > Build attention-pool tokens from a normalized feature dictionary.
 
 <!-- equimo.finetune:make_attention_pool_input_from_intermediates -->
+
 <a id="equimo-finetune-make-attention-pool-input-from-intermediates"></a>
+
 ## `make_attention_pool_input_from_intermediates`
 
 ```python
@@ -313,7 +356,9 @@ Defined in `equimo.finetune.feature_extraction`.
 > Concatenate final intermediate token features along the feature axis.
 
 <!-- equimo.finetune:make_attention_pool_probe -->
+
 <a id="equimo-finetune-make-attention-pool-probe"></a>
+
 ## `make_attention_pool_probe`
 
 ```python
@@ -325,7 +370,9 @@ Defined in `equimo.finetune.feature_extraction`.
 > Build an attention-pooling probe with an identity backbone head.
 
 <!-- equimo.finetune:make_linear_probe -->
+
 <a id="equimo-finetune-make-linear-probe"></a>
+
 ## `make_linear_probe`
 
 ```python
@@ -337,7 +384,9 @@ Defined in `equimo.finetune.feature_extraction`.
 > Build a linear-probe wrapper with an identity backbone head.
 
 <!-- equimo.finetune:MeanFramePool -->
+
 <a id="equimo-finetune-meanframepool"></a>
+
 ## `MeanFramePool`
 
 ```python
@@ -349,7 +398,9 @@ Defined in `equimo.finetune.pooling`.
 > Alias module for audio/frame feature pooling.
 
 <!-- equimo.finetune:MeanPatchPool -->
+
 <a id="equimo-finetune-meanpatchpool"></a>
+
 ## `MeanPatchPool`
 
 ```python
@@ -361,7 +412,9 @@ Defined in `equimo.finetune.pooling`.
 > Mean-pool patch tokens while excluding prefix/prompt tokens.
 
 <!-- equimo.finetune:MeanTokenPool -->
+
 <a id="equimo-finetune-meantokenpool"></a>
+
 ## `MeanTokenPool`
 
 ```python
@@ -373,7 +426,9 @@ Defined in `equimo.finetune.pooling`.
 > Mean-pool token or frame features.
 
 <!-- equimo.finetune:MLPHead -->
+
 <a id="equimo-finetune-mlphead"></a>
+
 ## `MLPHead`
 
 ```python
@@ -385,7 +440,9 @@ Defined in `equimo.finetune.heads`.
 > Small MLP task head.
 
 <!-- equimo.finetune:MultiLabelHead -->
+
 <a id="equimo-finetune-multilabelhead"></a>
+
 ## `MultiLabelHead`
 
 ```python
@@ -397,7 +454,9 @@ Defined in `equimo.finetune.heads`.
 > Linear multi-label head that returns raw logits.
 
 <!-- equimo.finetune:pool_features -->
+
 <a id="equimo-finetune-pool-features"></a>
+
 ## `pool_features`
 
 ```python
@@ -409,7 +468,9 @@ Defined in `equimo.finetune.pooling`.
 > Apply a pooling policy to feature arrays or return dictionaries unchanged.
 
 <!-- equimo.finetune:ProjectionHead -->
+
 <a id="equimo-finetune-projectionhead"></a>
+
 ## `ProjectionHead`
 
 ```python

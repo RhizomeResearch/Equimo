@@ -27,6 +27,7 @@ lint:
   script:
     - uv run ruff check src tests examples models
     - uv run ruff format --check src tests examples models
+    - uv run mdformat --check --wrap 120 ./*.md LICENSES docs examples models src tests
     - uv run ty check src
     - uv run python tests/ci_shards.py validate
 

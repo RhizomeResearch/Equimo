@@ -2,9 +2,8 @@
 
 Linear probing freezes the backbone and trains only a new head.
 
-For reproducible endpoint, layout, mask, and pooling behavior across
-modalities, pass an executable [`FeatureSpec`](feature_specs.md). Without one,
-the compatibility native/heuristic extraction route remains in use.
+For reproducible endpoint, layout, mask, and pooling behavior across modalities, pass an executable
+[`FeatureSpec`](feature_specs.md). Without one, the compatibility native/heuristic extraction route remains in use.
 
 ```python
 classification_features = eqft.FeatureSpec(
@@ -27,20 +26,16 @@ plan = eqft.prepare_finetune(
 )
 ```
 
-The wrapper replaces the original backbone head with an identity head so
-head-only training selects only the probe head.
+The wrapper replaces the original backbone head with an identity head so head-only training selects only the probe head.
 
-When a custom head exposes inspectable linear dimensions, `make_linear_probe`
-checks them against `in_features` and `out_features`. A mismatch fails during
-construction rather than producing logits with an undeclared width.
+When a custom head exposes inspectable linear dimensions, `make_linear_probe` checks them against `in_features` and
+`out_features`. A mismatch fails during construction rather than producing logits with an undeclared width.
 
-For a pointwise readout that preserves a patch grid, use the
-[spatial linear probe](dense_probe.md).
+For a pointwise readout that preserves a patch grid, use the [spatial linear probe](dense_probe.md).
 
-For ViT-like backbones, `pool="cls_patch_mean"` concatenates the CLS token with
-the mean over patch tokens. Prefix/register/distillation tokens are excluded
-from the patch mean when model metadata is available, so the probe head input
-width is `2 * dim`:
+For ViT-like backbones, `pool="cls_patch_mean"` concatenates the CLS token with the mean over patch tokens.
+Prefix/register/distillation tokens are excluded from the patch mean when model metadata is available, so the probe head
+input width is `2 * dim`:
 
 ```python
 probe = eqft.make_linear_probe(
@@ -52,8 +47,8 @@ probe = eqft.make_linear_probe(
 )
 ```
 
-If the transfer setup should train a fresh normalization layer for the
-concatenated readout, wrap the probe head with `LayerNormReadoutHead`:
+If the transfer setup should train a fresh normalization layer for the concatenated readout, wrap the probe head with
+`LayerNormReadoutHead`:
 
 ```python
 head = eqft.LayerNormReadoutHead(
@@ -72,11 +67,9 @@ probe = eqft.make_linear_probe(
 
 ## Attention-Pooling Probe
 
-`AttentionPoolingClassifierHead` is a FINO/DINOv3-style classifier for token
-features. It is different from `AttentionPool`: `AttentionPool` is a lightweight
-pooling policy, while `AttentionPoolingClassifierHead` is a trainable head with
-an input projection, `LayerNorm`, learned multi-head query, K/V projection,
-dropout, and final classifier.
+`AttentionPoolingClassifierHead` is a FINO/DINOv3-style classifier for token features. It is different from
+`AttentionPool`: `AttentionPool` is a lightweight pooling policy, while `AttentionPoolingClassifierHead` is a trainable
+head with an input projection, `LayerNorm`, learned multi-head query, K/V projection, dropout, and final classifier.
 
 The head consumes one example at a time:
 
@@ -93,10 +86,9 @@ head = eqft.AttentionPoolingClassifierHead(
 logits = head(tokens, key=key, inference=True)
 ```
 
-For DINOv3/FINO-style probing over the last `n` transformer blocks, use the
-probe wrapper. It calls `intermediate_features(...)`, builds the FINO token
-matrix by concatenating patch tokens along the feature axis, and trains only
-the probe head under `TrainableSpec(mode="head")`:
+For DINOv3/FINO-style probing over the last `n` transformer blocks, use the probe wrapper. It calls
+`intermediate_features(...)`, builds the FINO token matrix by concatenating patch tokens along the feature axis, and
+trains only the probe head under `TrainableSpec(mode="head")`:
 
 ```python
 probe = eqft.make_attention_pool_probe(
@@ -116,9 +108,8 @@ plan = eqft.prepare_finetune(
 )
 ```
 
-For a final-layer baseline, omit `n_last_blocks`. The probe then consumes the
-model's `forward_features()` dictionary and uses `x_norm_patchtokens`, with an
-optional prepended `x_norm_cls_token`:
+For a final-layer baseline, omit `n_last_blocks`. The probe then consumes the model's `forward_features()` dictionary
+and uses `x_norm_patchtokens`, with an optional prepended `x_norm_cls_token`:
 
 ```python
 probe = eqft.make_attention_pool_probe(
@@ -130,6 +121,5 @@ probe = eqft.make_attention_pool_probe(
 )
 ```
 
-Set `prepend_cls_token=True` to prepend the concatenated CLS token before patch
-tokens. Set `l2_normalize_cls=True` to L2-normalize that CLS token before
-prepending, matching FINO's optional CLS normalization behavior.
+Set `prepend_cls_token=True` to prepend the concatenated CLS token before patch tokens. Set `l2_normalize_cls=True` to
+L2-normalize that CLS token before prepending, matching FINO's optional CLS normalization behavior.

@@ -1,7 +1,6 @@
 # Rollfast Integration
 
-Rollfast remains external. Use Equimo plans as structural metadata and compile
-the optimizer in Rollfast:
+Rollfast remains external. Use Equimo plans as structural metadata and compile the optimizer in Rollfast:
 
 ```python
 import jax.numpy as jnp
@@ -21,18 +20,15 @@ optim = rfft.adamw_from_plan(
 opt_state = optim.init(plan.trainable)
 ```
 
-Rollfast validates that `plan.trainable` and `plan.labels` have matching
-PyTree structure, applies `plan.group_specs` learning-rate multipliers exactly
-once, and keeps frozen leaves absent from optimizer state. Equimo core does not
-import Rollfast.
+Rollfast validates that `plan.trainable` and `plan.labels` have matching PyTree structure, applies `plan.group_specs`
+learning-rate multipliers exactly once, and keeps frozen leaves absent from optimizer state. Equimo core does not import
+Rollfast.
 
-For tag- or role-aware policies, prefer `group.tags_all`, `group.roles`, and
-`group.mixed_roles`. The older `group.tags` and `group.role` fields are
-representative metadata from the first leaf assigned to that optimizer label.
+For tag- or role-aware policies, prefer `group.tags_all`, `group.roles`, and `group.mixed_roles`. The older `group.tags`
+and `group.role` fields are representative metadata from the first leaf assigned to that optimizer label.
 
-For memory-sensitive runs, Rollfast can use blockwise 8-bit AdamW state for
-eligible optimizer moments. Equimo still emits the same plan; Rollfast decides
-which groups are large and safe enough to quantize:
+For memory-sensitive runs, Rollfast can use blockwise 8-bit AdamW state for eligible optimizer moments. Equimo still
+emits the same plan; Rollfast decides which groups are large and safe enough to quantize:
 
 ```python
 optim = rfft.adamw8_from_plan(
@@ -58,13 +54,11 @@ optim = rfft.hybrid_aurora_adam_from_plan(
 )
 ```
 
-Use `hybrid_prism_adam_from_plan` for PRISM/Adam or
-`hybrid_kron_adam_from_plan` for PSGD/Kron. Rollfast keeps the optimizer
-partitioning and state; Equimo still owns the model-side plan and merge step.
+Use `hybrid_prism_adam_from_plan` for PRISM/Adam or `hybrid_kron_adam_from_plan` for PSGD/Kron. Rollfast keeps the
+optimizer partitioning and state; Equimo still owns the model-side plan and merge step.
 
-SAM and ASAM also stay optimizer-side. Rollfast wraps a base optimizer with a
-dedicated two-pass step and calls `plan.combine(...)` before each loss
-evaluation:
+SAM and ASAM also stay optimizer-side. Rollfast wraps a base optimizer with a dedicated two-pass step and calls
+`plan.combine(...)` before each loss evaluation:
 
 ```python
 base = rfft.adamw_from_plan(
@@ -82,10 +76,9 @@ step = rfft.make_sam_step(
 )
 ```
 
-For ASAM, start with `ASAMConfig(rho=0.5, eta=0.01)` and sweep
-the values for the task. Set `microbatch_axis` when the batch carries a leading
-microbatch dimension; Rollfast accumulates both SAM gradient passes before the
-single base optimizer update.
+For ASAM, start with `ASAMConfig(rho=0.5, eta=0.01)` and sweep the values for the task. Set `microbatch_axis` when the
+batch carries a leading microbatch dimension; Rollfast accumulates both SAM gradient passes before the single base
+optimizer update.
 
 LoRA+ is an optimizer-side policy:
 
@@ -99,9 +92,8 @@ optim = rfft.adamw_from_plan(
 )
 ```
 
-AdaLoRA follows the same boundary. Equimo creates SVD-triplet AdaLoRA modules
-and applies fixed-shape rank support masks; Rollfast owns the dynamic
-rank-budget controller:
+AdaLoRA follows the same boundary. Equimo creates SVD-triplet AdaLoRA modules and applies fixed-shape rank support
+masks; Rollfast owns the dynamic rank-budget controller:
 
 ```python
 rank_groups = eqft.lora_rank_groups(lora_model)
@@ -117,8 +109,7 @@ lora_model = eqft.apply_lora_rank_pattern(lora_model, rank_pattern)
 
 `rank_pattern` keys use Equimo's canonical dot-separated LoRA module paths.
 
-For staged workflows such as LP-FT, build a new Equimo plan and ask Rollfast to
-migrate compatible optimizer state:
+For staged workflows such as LP-FT, build a new Equimo plan and ask Rollfast to migrate compatible optimizer state:
 
 ```python
 stage2_bundle, stage2_state, migration = rfft.reconfigure_optimizer(
@@ -132,14 +123,12 @@ stage2_bundle, stage2_state, migration = rfft.reconfigure_optimizer(
 )
 ```
 
-The migration report accounts for preserved, initialized, dropped, incompatible,
-and group-changed leaves. With `state_policy="preserve_by_path_and_shape"`,
-Rollfast can also preserve compatible Kron/PSGD preconditioner and Lipschitz
-leaves by parameter path and factor shape. Equimo model parameters and deltas
-remain separate.
+The migration report accounts for preserved, initialized, dropped, incompatible, and group-changed leaves. With
+`state_policy="preserve_by_path_and_shape"`, Rollfast can also preserve compatible Kron/PSGD preconditioner and
+Lipschitz leaves by parameter path and factor shape. Equimo model parameters and deltas remain separate.
 
-Before initializing a Rollfast optimizer, estimate optimizer-family moment state
-and Kron/PSGD preconditioner factors from the Equimo plan:
+Before initializing a Rollfast optimizer, estimate optimizer-family moment state and Kron/PSGD preconditioner factors
+from the Equimo plan:
 
 ```python
 estimate = rfft.estimate_optimizer_state_memory(
@@ -151,8 +140,7 @@ print(estimate.preconditioner_bytes)
 print(estimate.warnings)
 ```
 
-After initialization, inspect measured state memory from the actual optimizer
-state:
+After initialization, inspect measured state memory from the actual optimizer state:
 
 ```python
 summary = rfft.optimizer_state_memory_summary(optim, opt_state)
@@ -160,12 +148,11 @@ print(summary.by_category)
 print(summary.preconditioner_factors)
 ```
 
-This is useful for Kron/PSGD and 8-bit AdamW, where actual state storage can
-differ materially from a first-order AdamW estimate.
+This is useful for Kron/PSGD and 8-bit AdamW, where actual state storage can differ materially from a first-order AdamW
+estimate.
 
-Schedule-Free Adam is also plan-aware. For validation and checkpointing, ask
-Rollfast for the averaged evaluation parameters and combine them with the frozen
-Equimo tree:
+Schedule-Free Adam is also plan-aware. For validation and checkpointing, ask Rollfast for the averaged evaluation
+parameters and combine them with the frozen Equimo tree:
 
 ```python
 optim = rfft.schedule_free_adam_from_plan(
@@ -205,8 +192,7 @@ checkpoint = rfft.make_state_checkpoint(
 opt_state = rfft.restore_state_checkpoint(optim, checkpoint)
 ```
 
-For multi-device `pmap` training, pass the mapped axis name so global-norm
-clipping reduces across devices:
+For multi-device `pmap` training, pass the mapped axis name so global-norm clipping reduces across devices:
 
 ```python
 optim = rfft.adamw_from_plan(

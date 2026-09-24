@@ -16,7 +16,9 @@ Fine-tuning bundle and delta persistence helpers.
 - [`save_finetune_bundle`](#equimo-finetune-save-finetune-bundle)
 
 <!-- equimo.finetune:load_calibration_artifacts -->
+
 <a id="equimo-finetune-load-calibration-artifacts"></a>
+
 ## `load_calibration_artifacts`
 
 ```python
@@ -28,7 +30,9 @@ Defined in `equimo.finetune.serialization`.
 > Load and validate calibration artifacts with optional reader limits.
 
 <!-- equimo.finetune:load_delta -->
+
 <a id="equimo-finetune-load-delta"></a>
+
 ## `load_delta`
 
 ```python
@@ -39,10 +43,12 @@ Defined in `equimo.finetune.serialization`.
 
 > Load a delta bundle into a compatible base model.
 >
-> ``limits`` bounds archive members and tensor allocation for file inputs.
+> `limits` bounds archive members and tensor allocation for file inputs.
 
 <!-- equimo.finetune:load_finetune_bundle -->
+
 <a id="equimo-finetune-load-finetune-bundle"></a>
+
 ## `load_finetune_bundle`
 
 ```python
@@ -51,10 +57,12 @@ equimo.finetune.load_finetune_bundle(path: 'str | Path', base_model: 'PyTree | N
 
 Defined in `equimo.finetune.serialization`.
 
-> Load a bounded bundle, or apply it when ``base_model`` is provided.
+> Load a bounded bundle, or apply it when `base_model` is provided.
 
 <!-- equimo.finetune:save_calibration_artifacts -->
+
 <a id="equimo-finetune-save-calibration-artifacts"></a>
+
 ## `save_calibration_artifacts`
 
 ```python
@@ -66,7 +74,9 @@ Defined in `equimo.finetune.serialization`.
 > Write a validated set of calibration artifacts using the safe array codec.
 
 <!-- equimo.finetune:save_delta -->
+
 <a id="equimo-finetune-save-delta"></a>
+
 ## `save_delta`
 
 ```python
@@ -77,13 +87,14 @@ Defined in `equimo.finetune.serialization`.
 
 > Save a method delta bundle and return the saved bundle.
 >
-> ``base_model`` and ``spec`` are metadata inputs; optimizers remain
-> external. ``model_state`` must be a bundle-serializable snapshot when
-> supplied; otherwise use ``recalibration_required=True`` for exports whose
-> state must be recalibrated before evaluation.
+> `base_model` and `spec` are metadata inputs; optimizers remain external. `model_state` must be a bundle-serializable
+> snapshot when supplied; otherwise use `recalibration_required=True` for exports whose state must be recalibrated
+> before evaluation.
 
 <!-- equimo.finetune:save_finetune_bundle -->
+
 <a id="equimo-finetune-save-finetune-bundle"></a>
+
 ## `save_finetune_bundle`
 
 ```python
@@ -92,4 +103,4 @@ equimo.finetune.save_finetune_bundle(path: 'str | Path', bundle: 'FineTuneBundle
 
 Defined in `equimo.finetune.serialization`.
 
-> Write a ``FineTuneBundle`` to disk and return it.
+> Write a `FineTuneBundle` to disk and return it.

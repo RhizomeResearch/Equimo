@@ -118,7 +118,9 @@ Public adapters, LoRA-family methods, prompts, prefixes, and related surgery.
 - [`VPTShallowConfig`](#equimo-finetune-vptshallowconfig)
 
 <!-- equimo.finetune:AdaLoRAConfig -->
+
 <a id="equimo-finetune-adaloraconfig"></a>
+
 ## `AdaLoRAConfig`
 
 ```python
@@ -130,7 +132,9 @@ Defined in `equimo.finetune.peft.lora`.
 > Paper-form AdaLoRA SVD-triplet adapter configuration.
 
 <!-- equimo.finetune:AdaLoRAMetadata -->
+
 <a id="equimo-finetune-adalorametadata"></a>
+
 ## `AdaLoRAMetadata`
 
 ```python
@@ -142,7 +146,9 @@ Defined in `equimo.finetune.peft.lora`.
 > Static metadata for an AdaLoRA SVD-triplet adapter.
 
 <!-- equimo.finetune:AdaLoRAModule -->
+
 <a id="equimo-finetune-adaloramodule"></a>
+
 ## `AdaLoRAModule`
 
 ```python
@@ -154,7 +160,9 @@ Defined in `equimo.finetune.peft.lora`.
 > AdaLoRA SVD-triplet wrapper with JIT-stable maximum rank.
 
 <!-- equimo.finetune:adapter_fusion_trainable_spec -->
+
 <a id="equimo-finetune-adapter-fusion-trainable-spec"></a>
+
 ## `adapter_fusion_trainable_spec`
 
 ```python
@@ -166,7 +174,9 @@ Defined in `equimo.finetune.peft.adapters`.
 > Return the trainability mask for AdapterFusion training.
 
 <!-- equimo.finetune:AdapterBankConfig -->
+
 <a id="equimo-finetune-adapterbankconfig"></a>
+
 ## `AdapterBankConfig`
 
 ```python
@@ -178,7 +188,9 @@ Defined in `equimo.finetune.peft.adapters`.
 > Configuration for named adapter-bank selection.
 
 <!-- equimo.finetune:AdapterConfig -->
+
 <a id="equimo-finetune-adapterconfig"></a>
+
 ## `AdapterConfig`
 
 ```python
@@ -190,7 +202,9 @@ Defined in `equimo.finetune.peft.adapters`.
 > Configuration for bottleneck adapters.
 
 <!-- equimo.finetune:AdapterFusion -->
+
 <a id="equimo-finetune-adapterfusion"></a>
+
 ## `AdapterFusion`
 
 ```python
@@ -202,7 +216,9 @@ Defined in `equimo.finetune.peft.adapters`.
 > AdapterFusion-style attention over active adapter outputs.
 
 <!-- equimo.finetune:AdapterFusionConfig -->
+
 <a id="equimo-finetune-adapterfusionconfig"></a>
+
 ## `AdapterFusionConfig`
 
 ```python
@@ -214,7 +230,9 @@ Defined in `equimo.finetune.peft.adapters`.
 > Metadata for AdapterFusion-style adapter composition.
 
 <!-- equimo.finetune:AdaptFormerAdapter -->
+
 <a id="equimo-finetune-adaptformeradapter"></a>
+
 ## `AdaptFormerAdapter`
 
 ```python
@@ -226,7 +244,9 @@ Defined in `equimo.finetune.peft.adapters`.
 > AdaptFormer adapter branch.
 
 <!-- equimo.finetune:AdaptFormerBlock -->
+
 <a id="equimo-finetune-adaptformerblock"></a>
+
 ## `AdaptFormerBlock`
 
 ```python
@@ -238,7 +258,9 @@ Defined in `equimo.finetune.peft.adapters`.
 > Wrap a block with an AdaptFormer-style parallel branch.
 
 <!-- equimo.finetune:AdaptFormerConfig -->
+
 <a id="equimo-finetune-adaptformerconfig"></a>
+
 ## `AdaptFormerConfig`
 
 ```python
@@ -250,7 +272,9 @@ Defined in `equimo.finetune.peft.adapters`.
 > Configuration for AdaptFormer-style parallel adapters.
 
 <!-- equimo.finetune:add_adapter -->
+
 <a id="equimo-finetune-add-adapter"></a>
+
 ## `add_adapter`
 
 ```python
@@ -262,7 +286,9 @@ Defined in `equimo.finetune.peft.adapters`.
 > Add a named serial adapter bank entry and keep the current active entry.
 
 <!-- equimo.finetune:apply_adalora -->
+
 <a id="equimo-finetune-apply-adalora"></a>
+
 ## `apply_adalora`
 
 ```python
@@ -274,7 +300,9 @@ Defined in `equimo.finetune.peft.lora`.
 > Apply paper-form AdaLoRA SVD-triplet wrappers to selected linears.
 
 <!-- equimo.finetune:apply_adapter_fusion -->
+
 <a id="equimo-finetune-apply-adapter-fusion"></a>
+
 ## `apply_adapter_fusion`
 
 ```python
@@ -286,7 +314,9 @@ Defined in `equimo.finetune.peft.adapters`.
 > Attach attention fusion modules to named serial adapter banks.
 
 <!-- equimo.finetune:apply_adapters -->
+
 <a id="equimo-finetune-apply-adapters"></a>
+
 ## `apply_adapters`
 
 ```python
@@ -298,7 +328,9 @@ Defined in `equimo.finetune.peft.adapters`.
 > Insert bottleneck adapters into selected blocks.
 
 <!-- equimo.finetune:apply_adaptformer -->
+
 <a id="equimo-finetune-apply-adaptformer"></a>
+
 ## `apply_adaptformer`
 
 ```python
@@ -310,7 +342,9 @@ Defined in `equimo.finetune.peft.adapters`.
 > Insert AdaptFormer-style adapters into selected blocks.
 
 <!-- equimo.finetune:apply_dora -->
+
 <a id="equimo-finetune-apply-dora"></a>
+
 ## `apply_dora`
 
 ```python
@@ -322,7 +356,9 @@ Defined in `equimo.finetune.peft.dora`.
 > Apply DoRA wrappers to selected linears.
 
 <!-- equimo.finetune:apply_eva_lora -->
+
 <a id="equimo-finetune-apply-eva-lora"></a>
+
 ## `apply_eva_lora`
 
 ```python
@@ -334,7 +370,9 @@ Defined in `equimo.finetune.peft.lora`.
 > Initialize LoRA A factors from EVA activation right-singular directions.
 
 <!-- equimo.finetune:apply_fourierft -->
+
 <a id="equimo-finetune-apply-fourierft"></a>
+
 ## `apply_fourierft`
 
 ```python
@@ -346,7 +384,9 @@ Defined in `equimo.finetune.peft.lora`.
 > Apply FourierFT sparse spectral wrappers to selected linears.
 
 <!-- equimo.finetune:apply_ia3 -->
+
 <a id="equimo-finetune-apply-ia3"></a>
+
 ## `apply_ia3`
 
 ```python
@@ -358,7 +398,9 @@ Defined in `equimo.finetune.peft.ia3`.
 > Apply IA3 wrappers to selected linear modules.
 
 <!-- equimo.finetune:apply_lora -->
+
 <a id="equimo-finetune-apply-lora"></a>
+
 ## `apply_lora`
 
 ```python
@@ -370,7 +412,9 @@ Defined in `equimo.finetune.peft.lora`.
 > Apply LoRA wrappers to selected linear modules.
 
 <!-- equimo.finetune:apply_lora_fa -->
+
 <a id="equimo-finetune-apply-lora-fa"></a>
+
 ## `apply_lora_fa`
 
 ```python
@@ -382,7 +426,9 @@ Defined in `equimo.finetune.peft.lora`.
 > Apply LoRA-FA wrappers with frozen A and trainable B.
 
 <!-- equimo.finetune:apply_lora_rank_pattern -->
+
 <a id="equimo-finetune-apply-lora-rank-pattern"></a>
+
 ## `apply_lora_rank_pattern`
 
 ```python
@@ -393,12 +439,13 @@ Defined in `equimo.finetune.peft.lora`.
 
 > Apply fixed-shape rank masks by canonical path string.
 >
-> Static LoRA wrappers receive a persistent ``rank_mask``. AdaLoRA wrappers
-> zero non-selected singular values during allocation while leaving gradients
-> unmasked; pass ``final=True`` to install the final persistent support mask.
+> Static LoRA wrappers receive a persistent `rank_mask`. AdaLoRA wrappers zero non-selected singular values during
+> allocation while leaving gradients unmasked; pass `final=True` to install the final persistent support mask.
 
 <!-- equimo.finetune:apply_orthogonal_adapters -->
+
 <a id="equimo-finetune-apply-orthogonal-adapters"></a>
+
 ## `apply_orthogonal_adapters`
 
 ```python
@@ -410,7 +457,9 @@ Defined in `equimo.finetune.peft.adapters`.
 > Apply OFT/BOFT-style orthogonal wrappers to selected linears.
 
 <!-- equimo.finetune:apply_prefixes -->
+
 <a id="equimo-finetune-apply-prefixes"></a>
+
 ## `apply_prefixes`
 
 ```python
@@ -422,7 +471,9 @@ Defined in `equimo.finetune.peft.prefix`.
 > Attach trainable prefix tensors to supported attention modules.
 
 <!-- equimo.finetune:apply_prompts -->
+
 <a id="equimo-finetune-apply-prompts"></a>
+
 ## `apply_prompts`
 
 ```python
@@ -434,7 +485,9 @@ Defined in `equimo.finetune.peft.prompts`.
 > Wrap a model with trainable prompt tokens.
 
 <!-- equimo.finetune:apply_randlora -->
+
 <a id="equimo-finetune-apply-randlora"></a>
+
 ## `apply_randlora`
 
 ```python
@@ -446,7 +499,9 @@ Defined in `equimo.finetune.peft.lora`.
 > Apply RandLoRA wrappers with frozen random low-rank bases.
 
 <!-- equimo.finetune:apply_scale_shift -->
+
 <a id="equimo-finetune-apply-scale-shift"></a>
+
 ## `apply_scale_shift`
 
 ```python
@@ -458,7 +513,9 @@ Defined in `equimo.finetune.peft.scale_shift`.
 > Apply scale/shift wrappers to selected modules.
 
 <!-- equimo.finetune:apply_vera -->
+
 <a id="equimo-finetune-apply-vera"></a>
+
 ## `apply_vera`
 
 ```python
@@ -470,7 +527,9 @@ Defined in `equimo.finetune.peft.vera`.
 > Apply VeRA wrappers to selected linear modules.
 
 <!-- equimo.finetune:bitfit_trainable_spec -->
+
 <a id="equimo-finetune-bitfit-trainable-spec"></a>
+
 ## `bitfit_trainable_spec`
 
 ```python
@@ -479,10 +538,12 @@ equimo.finetune.bitfit_trainable_spec(config: 'BitFitConfig | None' = None) -> '
 
 Defined in `equimo.finetune.peft.bitfit`.
 
-> Return a ``TrainableSpec`` for BitFit-style fine-tuning.
+> Return a `TrainableSpec` for BitFit-style fine-tuning.
 
 <!-- equimo.finetune:BitFitConfig -->
+
 <a id="equimo-finetune-bitfitconfig"></a>
+
 ## `BitFitConfig`
 
 ```python
@@ -494,7 +555,9 @@ Defined in `equimo.finetune.peft.bitfit`.
 > Configuration for BitFit trainability masks.
 
 <!-- equimo.finetune:BottleneckAdapter -->
+
 <a id="equimo-finetune-bottleneckadapter"></a>
+
 ## `BottleneckAdapter`
 
 ```python
@@ -506,7 +569,9 @@ Defined in `equimo.finetune.peft.adapters`.
 > Residual bottleneck adapter with identity-preserving zero-up init.
 
 <!-- equimo.finetune:CalibrationSpec -->
+
 <a id="equimo-finetune-calibrationspec"></a>
+
 ## `CalibrationSpec`
 
 ```python
@@ -518,7 +583,9 @@ Defined in `equimo.finetune.peft.lora`.
 > Calibration-data request for data-aware initializers.
 
 <!-- equimo.finetune:configure_adapter_bank -->
+
 <a id="equimo-finetune-configure-adapter-bank"></a>
+
 ## `configure_adapter_bank`
 
 ```python
@@ -527,10 +594,12 @@ equimo.finetune.configure_adapter_bank(model: 'PyTree', config: 'AdapterBankConf
 
 Defined in `equimo.finetune.peft.adapters`.
 
-> Return ``model`` with named adapter banks configured per ``config``.
+> Return `model` with named adapter banks configured per `config`.
 
 <!-- equimo.finetune:DoRAConfig -->
+
 <a id="equimo-finetune-doraconfig"></a>
+
 ## `DoRAConfig`
 
 ```python
@@ -542,7 +611,9 @@ Defined in `equimo.finetune.peft.dora`.
 > Configuration for DoRA linear wrappers.
 
 <!-- equimo.finetune:DoRALinear -->
+
 <a id="equimo-finetune-doralinear"></a>
+
 ## `DoRALinear`
 
 ```python
@@ -554,7 +625,9 @@ Defined in `equimo.finetune.peft.dora`.
 > Weight-decomposed low-rank adaptation for linear modules.
 
 <!-- equimo.finetune:DoRAMergedLinear -->
+
 <a id="equimo-finetune-doramergedlinear"></a>
+
 ## `DoRAMergedLinear`
 
 ```python
@@ -566,7 +639,9 @@ Defined in `equimo.finetune.peft.dora`.
 > DoRA wrapper for fused projections such as QKV linears.
 
 <!-- equimo.finetune:EVAInitializerConfig -->
+
 <a id="equimo-finetune-evainitializerconfig"></a>
+
 ## `EVAInitializerConfig`
 
 ```python
@@ -578,7 +653,9 @@ Defined in `equimo.finetune.peft.lora`.
 > Explained Variance Adaptation initializer contract.
 
 <!-- equimo.finetune:extract_adapter_delta -->
+
 <a id="equimo-finetune-extract-adapter-delta"></a>
+
 ## `extract_adapter_delta`
 
 ```python
@@ -590,7 +667,9 @@ Defined in `equimo.finetune.peft.adapters`.
 > Extract adapter wrapper state into a delta bundle.
 
 <!-- equimo.finetune:extract_lora_delta -->
+
 <a id="equimo-finetune-extract-lora-delta"></a>
+
 ## `extract_lora_delta`
 
 ```python
@@ -602,7 +681,9 @@ Defined in `equimo.finetune.peft.lora`.
 > Extract a portable LoRA-only delta bundle.
 
 <!-- equimo.finetune:FourierFTConfig -->
+
 <a id="equimo-finetune-fourierftconfig"></a>
+
 ## `FourierFTConfig`
 
 ```python
@@ -614,7 +695,9 @@ Defined in `equimo.finetune.peft.lora`.
 > FourierFT sparse spectral delta configuration contract.
 
 <!-- equimo.finetune:FourierFTLinear -->
+
 <a id="equimo-finetune-fourierftlinear"></a>
+
 ## `FourierFTLinear`
 
 ```python
@@ -626,7 +709,9 @@ Defined in `equimo.finetune.peft.lora`.
 > Sparse spectral delta wrapper for linear-like modules.
 
 <!-- equimo.finetune:IA3Config -->
+
 <a id="equimo-finetune-ia3config"></a>
+
 ## `IA3Config`
 
 ```python
@@ -638,7 +723,9 @@ Defined in `equimo.finetune.peft.ia3`.
 > Configuration for IA3 activation scaling.
 
 <!-- equimo.finetune:IA3Linear -->
+
 <a id="equimo-finetune-ia3linear"></a>
+
 ## `IA3Linear`
 
 ```python
@@ -650,7 +737,9 @@ Defined in `equimo.finetune.peft.ia3`.
 > Wrap a linear module with trainable output-channel IA3 scaling.
 
 <!-- equimo.finetune:iter_adalora_modules -->
+
 <a id="equimo-finetune-iter-adalora-modules"></a>
+
 ## `iter_adalora_modules`
 
 ```python
@@ -659,10 +748,12 @@ equimo.finetune.iter_adalora_modules(model: 'PyTree') -> 'tuple[tuple[Path, AdaL
 
 Defined in `equimo.finetune.peft.lora`.
 
-> Return path/module pairs for AdaLoRA wrappers in ``model``.
+> Return path/module pairs for AdaLoRA wrappers in `model`.
 
 <!-- equimo.finetune:iter_adapter_wrappers -->
+
 <a id="equimo-finetune-iter-adapter-wrappers"></a>
+
 ## `iter_adapter_wrappers`
 
 ```python
@@ -674,7 +765,9 @@ Defined in `equimo.finetune.peft.adapters`.
 > Return path/wrapper pairs for adapter-wrapped blocks.
 
 <!-- equimo.finetune:iter_fourierft_modules -->
+
 <a id="equimo-finetune-iter-fourierft-modules"></a>
+
 ## `iter_fourierft_modules`
 
 ```python
@@ -683,10 +776,12 @@ equimo.finetune.iter_fourierft_modules(model: 'PyTree') -> 'tuple[tuple[Path, Fo
 
 Defined in `equimo.finetune.peft.lora`.
 
-> Return path/module pairs for FourierFT wrappers in ``model``.
+> Return path/module pairs for FourierFT wrappers in `model`.
 
 <!-- equimo.finetune:iter_ia3_modules -->
+
 <a id="equimo-finetune-iter-ia3-modules"></a>
+
 ## `iter_ia3_modules`
 
 ```python
@@ -695,10 +790,12 @@ equimo.finetune.iter_ia3_modules(model: 'PyTree') -> 'tuple[tuple[Path, IA3Linea
 
 Defined in `equimo.finetune.peft.ia3`.
 
-> Return path/module pairs for IA3 wrappers in ``model``.
+> Return path/module pairs for IA3 wrappers in `model`.
 
 <!-- equimo.finetune:iter_lora_fa_modules -->
+
 <a id="equimo-finetune-iter-lora-fa-modules"></a>
+
 ## `iter_lora_fa_modules`
 
 ```python
@@ -707,10 +804,12 @@ equimo.finetune.iter_lora_fa_modules(model: 'PyTree') -> 'tuple[tuple[Path, LoRA
 
 Defined in `equimo.finetune.peft.lora`.
 
-> Return path/module pairs for LoRA-FA wrappers in ``model``.
+> Return path/module pairs for LoRA-FA wrappers in `model`.
 
 <!-- equimo.finetune:iter_lora_modules -->
+
 <a id="equimo-finetune-iter-lora-modules"></a>
+
 ## `iter_lora_modules`
 
 ```python
@@ -719,10 +818,12 @@ equimo.finetune.iter_lora_modules(model: 'PyTree') -> 'tuple[tuple[Path, LoRALin
 
 Defined in `equimo.finetune.peft.lora`.
 
-> Return path/module pairs for LoRA wrappers in ``model``.
+> Return path/module pairs for LoRA wrappers in `model`.
 
 <!-- equimo.finetune:iter_orthogonal_adapters -->
+
 <a id="equimo-finetune-iter-orthogonal-adapters"></a>
+
 ## `iter_orthogonal_adapters`
 
 ```python
@@ -731,10 +832,12 @@ equimo.finetune.iter_orthogonal_adapters(model: 'PyTree') -> 'tuple[tuple[Path, 
 
 Defined in `equimo.finetune.peft.adapters`.
 
-> Return path/module pairs for orthogonal linear wrappers in ``model``.
+> Return path/module pairs for orthogonal linear wrappers in `model`.
 
 <!-- equimo.finetune:iter_randlora_modules -->
+
 <a id="equimo-finetune-iter-randlora-modules"></a>
+
 ## `iter_randlora_modules`
 
 ```python
@@ -743,10 +846,12 @@ equimo.finetune.iter_randlora_modules(model: 'PyTree') -> 'tuple[tuple[Path, Ran
 
 Defined in `equimo.finetune.peft.lora`.
 
-> Return path/module pairs for RandLoRA wrappers in ``model``.
+> Return path/module pairs for RandLoRA wrappers in `model`.
 
 <!-- equimo.finetune:iter_scale_shift_wrappers -->
+
 <a id="equimo-finetune-iter-scale-shift-wrappers"></a>
+
 ## `iter_scale_shift_wrappers`
 
 ```python
@@ -755,10 +860,12 @@ equimo.finetune.iter_scale_shift_wrappers(model: 'PyTree') -> 'tuple[tuple[Path,
 
 Defined in `equimo.finetune.peft.scale_shift`.
 
-> Return path/module pairs for scale/shift wrappers in ``model``.
+> Return path/module pairs for scale/shift wrappers in `model`.
 
 <!-- equimo.finetune:iter_vera_modules -->
+
 <a id="equimo-finetune-iter-vera-modules"></a>
+
 ## `iter_vera_modules`
 
 ```python
@@ -767,10 +874,12 @@ equimo.finetune.iter_vera_modules(model: 'PyTree') -> 'tuple[tuple[Path, VeRALin
 
 Defined in `equimo.finetune.peft.vera`.
 
-> Return path/module pairs for VeRA wrappers in ``model``.
+> Return path/module pairs for VeRA wrappers in `model`.
 
 <!-- equimo.finetune:load_adapter_delta -->
+
 <a id="equimo-finetune-load-adapter-delta"></a>
+
 ## `load_adapter_delta`
 
 ```python
@@ -782,7 +891,9 @@ Defined in `equimo.finetune.peft.adapters`.
 > Load adapter deltas into a compatible base model.
 
 <!-- equimo.finetune:load_lora_delta -->
+
 <a id="equimo-finetune-load-lora-delta"></a>
+
 ## `load_lora_delta`
 
 ```python
@@ -794,7 +905,9 @@ Defined in `equimo.finetune.peft.lora`.
 > Apply a LoRA bundle to a compatible base model.
 
 <!-- equimo.finetune:lora_rank_groups -->
+
 <a id="equimo-finetune-lora-rank-groups"></a>
+
 ## `lora_rank_groups`
 
 ```python
@@ -806,7 +919,9 @@ Defined in `equimo.finetune.peft.lora`.
 > Return canonical LoRA/AdaLoRA path strings and static maximum ranks.
 
 <!-- equimo.finetune:LoRAConfig -->
+
 <a id="equimo-finetune-loraconfig"></a>
+
 ## `LoRAConfig`
 
 ```python
@@ -818,7 +933,9 @@ Defined in `equimo.finetune.peft.lora`.
 > Configuration for applying LoRA to linear modules.
 
 <!-- equimo.finetune:LoRAFAConfig -->
+
 <a id="equimo-finetune-lorafaconfig"></a>
+
 ## `LoRAFAConfig`
 
 ```python
@@ -830,7 +947,9 @@ Defined in `equimo.finetune.peft.lora`.
 > LoRA-FA configuration contract.
 
 <!-- equimo.finetune:LoRAFALinear -->
+
 <a id="equimo-finetune-lorafalinear"></a>
+
 ## `LoRAFALinear`
 
 ```python
@@ -842,7 +961,9 @@ Defined in `equimo.finetune.peft.lora`.
 > LoRA-FA wrapper with frozen A and trainable B.
 
 <!-- equimo.finetune:LoRALinear -->
+
 <a id="equimo-finetune-loralinear"></a>
+
 ## `LoRALinear`
 
 ```python
@@ -854,7 +975,9 @@ Defined in `equimo.finetune.peft.lora`.
 > LoRA wrapper for linear-like modules.
 
 <!-- equimo.finetune:LoRAMergedLinear -->
+
 <a id="equimo-finetune-loramergedlinear"></a>
+
 ## `LoRAMergedLinear`
 
 ```python
@@ -866,7 +989,9 @@ Defined in `equimo.finetune.peft.lora`.
 > LoRA wrapper for fused projections such as QKV linears.
 
 <!-- equimo.finetune:LoRAPlusLabelConfig -->
+
 <a id="equimo-finetune-lorapluslabelconfig"></a>
+
 ## `LoRAPlusLabelConfig`
 
 ```python
@@ -878,7 +1003,9 @@ Defined in `equimo.finetune.peft.lora`.
 > Label metadata for LoRA+ A/B learning-rate groups.
 
 <!-- equimo.finetune:merge_dora -->
+
 <a id="equimo-finetune-merge-dora"></a>
+
 ## `merge_dora`
 
 ```python
@@ -887,10 +1014,12 @@ equimo.finetune.merge_dora(model: 'PyTree') -> 'PyTree'
 
 Defined in `equimo.finetune.peft.dora`.
 
-> Fold every DoRA wrapper into its base ``eqx.nn.Linear`` module.
+> Fold every DoRA wrapper into its base `eqx.nn.Linear` module.
 
 <!-- equimo.finetune:merge_fourierft -->
+
 <a id="equimo-finetune-merge-fourierft"></a>
+
 ## `merge_fourierft`
 
 ```python
@@ -899,10 +1028,12 @@ equimo.finetune.merge_fourierft(model: 'PyTree') -> 'PyTree'
 
 Defined in `equimo.finetune.peft.lora`.
 
-> Merge every FourierFT module in ``model``.
+> Merge every FourierFT module in `model`.
 
 <!-- equimo.finetune:merge_ia3 -->
+
 <a id="equimo-finetune-merge-ia3"></a>
+
 ## `merge_ia3`
 
 ```python
@@ -914,7 +1045,9 @@ Defined in `equimo.finetune.peft.ia3`.
 > Fold IA3 output scales into wrapped linear weights and biases.
 
 <!-- equimo.finetune:merge_lora -->
+
 <a id="equimo-finetune-merge-lora"></a>
+
 ## `merge_lora`
 
 ```python
@@ -923,10 +1056,12 @@ equimo.finetune.merge_lora(model: 'PyTree') -> 'PyTree'
 
 Defined in `equimo.finetune.peft.lora`.
 
-> Merge every supported LoRA-family module in ``model``.
+> Merge every supported LoRA-family module in `model`.
 
 <!-- equimo.finetune:merge_lora_fa -->
+
 <a id="equimo-finetune-merge-lora-fa"></a>
+
 ## `merge_lora_fa`
 
 ```python
@@ -935,10 +1070,12 @@ equimo.finetune.merge_lora_fa(model: 'PyTree') -> 'PyTree'
 
 Defined in `equimo.finetune.peft.lora`.
 
-> Merge every LoRA-FA module in ``model``.
+> Merge every LoRA-FA module in `model`.
 
 <!-- equimo.finetune:merge_orthogonal_adapters -->
+
 <a id="equimo-finetune-merge-orthogonal-adapters"></a>
+
 ## `merge_orthogonal_adapters`
 
 ```python
@@ -947,10 +1084,12 @@ equimo.finetune.merge_orthogonal_adapters(model: 'PyTree') -> 'PyTree'
 
 Defined in `equimo.finetune.peft.adapters`.
 
-> Merge every orthogonal adapter in ``model``.
+> Merge every orthogonal adapter in `model`.
 
 <!-- equimo.finetune:merge_randlora -->
+
 <a id="equimo-finetune-merge-randlora"></a>
+
 ## `merge_randlora`
 
 ```python
@@ -959,10 +1098,12 @@ equimo.finetune.merge_randlora(model: 'PyTree') -> 'PyTree'
 
 Defined in `equimo.finetune.peft.lora`.
 
-> Merge every RandLoRA module in ``model``.
+> Merge every RandLoRA module in `model`.
 
 <!-- equimo.finetune:merge_scale_shift -->
+
 <a id="equimo-finetune-merge-scale-shift"></a>
+
 ## `merge_scale_shift`
 
 ```python
@@ -974,7 +1115,9 @@ Defined in `equimo.finetune.peft.scale_shift`.
 > Fold scale/shift wrappers into linear modules where algebraically safe.
 
 <!-- equimo.finetune:merge_vera -->
+
 <a id="equimo-finetune-merge-vera"></a>
+
 ## `merge_vera`
 
 ```python
@@ -986,7 +1129,9 @@ Defined in `equimo.finetune.peft.vera`.
 > Fold every mergeable VeRA wrapper into its base linear module.
 
 <!-- equimo.finetune:OrthogonalAdapterConfig -->
+
 <a id="equimo-finetune-orthogonaladapterconfig"></a>
+
 ## `OrthogonalAdapterConfig`
 
 ```python
@@ -998,7 +1143,9 @@ Defined in `equimo.finetune.peft.adapters`.
 > OFT/BOFT orthogonal adaptation configuration contract.
 
 <!-- equimo.finetune:OrthogonalLinear -->
+
 <a id="equimo-finetune-orthogonallinear"></a>
+
 ## `OrthogonalLinear`
 
 ```python
@@ -1010,7 +1157,9 @@ Defined in `equimo.finetune.peft.adapters`.
 > OFT/BOFT-style orthogonal wrapper for a linear-like module.
 
 <!-- equimo.finetune:OutputAdapterModule -->
+
 <a id="equimo-finetune-outputadaptermodule"></a>
+
 ## `OutputAdapterModule`
 
 ```python
@@ -1022,7 +1171,9 @@ Defined in `equimo.finetune.peft.adapters`.
 > Wrap a module and add residual adapters after its output.
 
 <!-- equimo.finetune:ParallelAdapterBlock -->
+
 <a id="equimo-finetune-paralleladapterblock"></a>
+
 ## `ParallelAdapterBlock`
 
 ```python
@@ -1034,7 +1185,9 @@ Defined in `equimo.finetune.peft.adapters`.
 > Wrap a block and add an adapter branch from the block input.
 
 <!-- equimo.finetune:ParallelAdapterConfig -->
+
 <a id="equimo-finetune-paralleladapterconfig"></a>
+
 ## `ParallelAdapterConfig`
 
 ```python
@@ -1046,7 +1199,9 @@ Defined in `equimo.finetune.peft.adapters`.
 > Configuration for residual parallel adapters.
 
 <!-- equimo.finetune:PEFTConfig -->
+
 <a id="equimo-finetune-peftconfig"></a>
+
 ## `PEFTConfig`
 
 ```python
@@ -1054,7 +1209,9 @@ type equimo.finetune.PEFTConfig = LoRAConfig | DoRAConfig | AdapterConfig | Orth
 ```
 
 <!-- equimo.finetune:PiSSAConfig -->
+
 <a id="equimo-finetune-pissaconfig"></a>
+
 ## `PiSSAConfig`
 
 ```python
@@ -1066,7 +1223,9 @@ Defined in `equimo.finetune.peft.lora`.
 > PiSSA initialization configuration for LoRA factors.
 
 <!-- equimo.finetune:PrefixAttention -->
+
 <a id="equimo-finetune-prefixattention"></a>
+
 ## `PrefixAttention`
 
 ```python
@@ -1078,7 +1237,9 @@ Defined in `equimo.finetune.peft.prefix`.
 > Attention wrapper that prepends trainable K/V prefix states.
 
 <!-- equimo.finetune:PrefixConfig -->
+
 <a id="equimo-finetune-prefixconfig"></a>
+
 ## `PrefixConfig`
 
 ```python
@@ -1090,7 +1251,9 @@ Defined in `equimo.finetune.peft.prefix`.
 > Configuration for prefix tuning.
 
 <!-- equimo.finetune:PrefixProjection -->
+
 <a id="equimo-finetune-prefixprojection"></a>
+
 ## `PrefixProjection`
 
 ```python
@@ -1102,7 +1265,9 @@ Defined in `equimo.finetune.peft.prefix`.
 > Trainable MLP that projects prefix tokens into K/V prefix states.
 
 <!-- equimo.finetune:PrefixTunedModel -->
+
 <a id="equimo-finetune-prefixtunedmodel"></a>
+
 ## `PrefixTunedModel`
 
 ```python
@@ -1114,7 +1279,9 @@ Defined in `equimo.finetune.peft.prefix`.
 > Store trainable prefix parameters next to a prefix-wrapped base model.
 
 <!-- equimo.finetune:PromptConfig -->
+
 <a id="equimo-finetune-promptconfig"></a>
+
 ## `PromptConfig`
 
 ```python
@@ -1126,7 +1293,9 @@ Defined in `equimo.finetune.peft.prompts`.
 > Configuration for visual/soft prompt tuning.
 
 <!-- equimo.finetune:PromptedModel -->
+
 <a id="equimo-finetune-promptedmodel"></a>
+
 ## `PromptedModel`
 
 ```python
@@ -1138,7 +1307,9 @@ Defined in `equimo.finetune.peft.prompts`.
 > Model wrapper that inserts trainable prompt tokens into feature sequences.
 
 <!-- equimo.finetune:PTuningV2Config -->
+
 <a id="equimo-finetune-ptuningv2config"></a>
+
 ## `PTuningV2Config`
 
 ```python
@@ -1150,7 +1321,9 @@ Defined in `equimo.finetune.peft.prompts`.
 > P-tuning v2-style deep prompt defaults for language encoders.
 
 <!-- equimo.finetune:RandLoRAConfig -->
+
 <a id="equimo-finetune-randloraconfig"></a>
+
 ## `RandLoRAConfig`
 
 ```python
@@ -1162,7 +1335,9 @@ Defined in `equimo.finetune.peft.lora`.
 > RandLoRA frozen-random-basis composition configuration.
 
 <!-- equimo.finetune:RandLoRALinear -->
+
 <a id="equimo-finetune-randloralinear"></a>
+
 ## `RandLoRALinear`
 
 ```python
@@ -1174,7 +1349,9 @@ Defined in `equimo.finetune.peft.lora`.
 > RandLoRA wrapper with frozen random bases and trainable composition scales.
 
 <!-- equimo.finetune:RsLoRAConfig -->
+
 <a id="equimo-finetune-rsloraconfig"></a>
+
 ## `RsLoRAConfig`
 
 ```python
@@ -1186,7 +1363,9 @@ Defined in `equimo.finetune.peft.lora`.
 > Rank-stabilized LoRA configuration.
 
 <!-- equimo.finetune:ScaleShift -->
+
 <a id="equimo-finetune-scaleshift"></a>
+
 ## `ScaleShift`
 
 ```python
@@ -1198,7 +1377,9 @@ Defined in `equimo.finetune.peft.scale_shift`.
 > Trainable affine feature transform.
 
 <!-- equimo.finetune:ScaleShiftConfig -->
+
 <a id="equimo-finetune-scaleshiftconfig"></a>
+
 ## `ScaleShiftConfig`
 
 ```python
@@ -1210,7 +1391,9 @@ Defined in `equimo.finetune.peft.scale_shift`.
 > Configuration for feature-axis scale/shift tuning.
 
 <!-- equimo.finetune:ScaleShiftWrapper -->
+
 <a id="equimo-finetune-scaleshiftwrapper"></a>
+
 ## `ScaleShiftWrapper`
 
 ```python
@@ -1222,7 +1405,9 @@ Defined in `equimo.finetune.peft.scale_shift`.
 > Wrap a module output with a trainable scale/shift transform.
 
 <!-- equimo.finetune:SerialAdapterBlock -->
+
 <a id="equimo-finetune-serialadapterblock"></a>
+
 ## `SerialAdapterBlock`
 
 ```python
@@ -1234,7 +1419,9 @@ Defined in `equimo.finetune.peft.adapters`.
 > Wrap a block and add residual adapters after the block output.
 
 <!-- equimo.finetune:set_active_adapter -->
+
 <a id="equimo-finetune-set-active-adapter"></a>
+
 ## `set_active_adapter`
 
 ```python
@@ -1243,10 +1430,12 @@ equimo.finetune.set_active_adapter(model: 'PyTree', name: 'str') -> 'PyTree'
 
 Defined in `equimo.finetune.peft.adapters`.
 
-> Return ``model`` with all named serial adapter banks switched to ``name``.
+> Return `model` with all named serial adapter banks switched to `name`.
 
 <!-- equimo.finetune:SoftPromptConfig -->
+
 <a id="equimo-finetune-softpromptconfig"></a>
+
 ## `SoftPromptConfig`
 
 ```python
@@ -1258,7 +1447,9 @@ Defined in `equimo.finetune.peft.prompts`.
 > Soft prompt tuning defaults for text encoders.
 
 <!-- equimo.finetune:StaticRankMaskedLoRAConfig -->
+
 <a id="equimo-finetune-staticrankmaskedloraconfig"></a>
+
 ## `StaticRankMaskedLoRAConfig`
 
 ```python
@@ -1270,7 +1461,9 @@ Defined in `equimo.finetune.peft.lora`.
 > Static rank-mask LoRA configuration.
 
 <!-- equimo.finetune:strip_adapters -->
+
 <a id="equimo-finetune-strip-adapters"></a>
+
 ## `strip_adapters`
 
 ```python
@@ -1282,7 +1475,9 @@ Defined in `equimo.finetune.peft.adapters`.
 > Replace adapter wrappers by their base blocks.
 
 <!-- equimo.finetune:strip_lora -->
+
 <a id="equimo-finetune-strip-lora"></a>
+
 ## `strip_lora`
 
 ```python
@@ -1294,7 +1489,9 @@ Defined in `equimo.finetune.peft.lora`.
 > Replace LoRA wrappers with their unmerged base linears.
 
 <!-- equimo.finetune:strip_vera -->
+
 <a id="equimo-finetune-strip-vera"></a>
+
 ## `strip_vera`
 
 ```python
@@ -1306,7 +1503,9 @@ Defined in `equimo.finetune.peft.vera`.
 > Replace VeRA wrappers with their base linears.
 
 <!-- equimo.finetune:unmerge_fourierft -->
+
 <a id="equimo-finetune-unmerge-fourierft"></a>
+
 ## `unmerge_fourierft`
 
 ```python
@@ -1315,10 +1514,12 @@ equimo.finetune.unmerge_fourierft(model: 'PyTree') -> 'PyTree'
 
 Defined in `equimo.finetune.peft.lora`.
 
-> Unmerge every merged FourierFT module in ``model``.
+> Unmerge every merged FourierFT module in `model`.
 
 <!-- equimo.finetune:unmerge_lora -->
+
 <a id="equimo-finetune-unmerge-lora"></a>
+
 ## `unmerge_lora`
 
 ```python
@@ -1327,10 +1528,12 @@ equimo.finetune.unmerge_lora(model: 'PyTree') -> 'PyTree'
 
 Defined in `equimo.finetune.peft.lora`.
 
-> Unmerge every supported merged LoRA-family module in ``model``.
+> Unmerge every supported merged LoRA-family module in `model`.
 
 <!-- equimo.finetune:unmerge_lora_fa -->
+
 <a id="equimo-finetune-unmerge-lora-fa"></a>
+
 ## `unmerge_lora_fa`
 
 ```python
@@ -1339,10 +1542,12 @@ equimo.finetune.unmerge_lora_fa(model: 'PyTree') -> 'PyTree'
 
 Defined in `equimo.finetune.peft.lora`.
 
-> Unmerge every merged LoRA-FA module in ``model``.
+> Unmerge every merged LoRA-FA module in `model`.
 
 <!-- equimo.finetune:unmerge_orthogonal_adapters -->
+
 <a id="equimo-finetune-unmerge-orthogonal-adapters"></a>
+
 ## `unmerge_orthogonal_adapters`
 
 ```python
@@ -1351,10 +1556,12 @@ equimo.finetune.unmerge_orthogonal_adapters(model: 'PyTree') -> 'PyTree'
 
 Defined in `equimo.finetune.peft.adapters`.
 
-> Unmerge every orthogonal adapter in ``model``.
+> Unmerge every orthogonal adapter in `model`.
 
 <!-- equimo.finetune:unmerge_randlora -->
+
 <a id="equimo-finetune-unmerge-randlora"></a>
+
 ## `unmerge_randlora`
 
 ```python
@@ -1363,10 +1570,12 @@ equimo.finetune.unmerge_randlora(model: 'PyTree') -> 'PyTree'
 
 Defined in `equimo.finetune.peft.lora`.
 
-> Unmerge every merged RandLoRA module in ``model``.
+> Unmerge every merged RandLoRA module in `model`.
 
 <!-- equimo.finetune:VeRAConfig -->
+
 <a id="equimo-finetune-veraconfig"></a>
+
 ## `VeRAConfig`
 
 ```python
@@ -1378,7 +1587,9 @@ Defined in `equimo.finetune.peft.vera`.
 > Configuration for VeRA linear wrappers.
 
 <!-- equimo.finetune:VeRALinear -->
+
 <a id="equimo-finetune-veralinear"></a>
+
 ## `VeRALinear`
 
 ```python
@@ -1390,7 +1601,9 @@ Defined in `equimo.finetune.peft.vera`.
 > VeRA wrapper with frozen random bases and trainable scales.
 
 <!-- equimo.finetune:VPTDeepConfig -->
+
 <a id="equimo-finetune-vptdeepconfig"></a>
+
 ## `VPTDeepConfig`
 
 ```python
@@ -1402,7 +1615,9 @@ Defined in `equimo.finetune.peft.prompts`.
 > Visual Prompt Tuning deep configuration.
 
 <!-- equimo.finetune:VPTShallowConfig -->
+
 <a id="equimo-finetune-vptshallowconfig"></a>
+
 ## `VPTShallowConfig`
 
 ```python

@@ -36,7 +36,9 @@ Fine-tuning recipes, staged workflows, and declared fidelity profiles.
 - [`vpt_deep`](#equimo-finetune-vpt-deep)
 
 <!-- equimo.finetune:adapter_transformer -->
+
 <a id="equimo-finetune-adapter-transformer"></a>
+
 ## `adapter_transformer`
 
 ```python
@@ -48,7 +50,9 @@ Defined in `equimo.finetune.recipes`.
 > Apply a baseline transformer adapter configuration.
 
 <!-- equimo.finetune:adaptformer_transformer -->
+
 <a id="equimo-finetune-adaptformer-transformer"></a>
+
 ## `adaptformer_transformer`
 
 ```python
@@ -60,7 +64,9 @@ Defined in `equimo.finetune.recipes`.
 > Apply AdaptFormer-style adapters.
 
 <!-- equimo.finetune:continued_ssl_adaptation -->
+
 <a id="equimo-finetune-continued-ssl-adaptation"></a>
+
 ## `continued_ssl_adaptation`
 
 ```python
@@ -72,7 +78,9 @@ Defined in `equimo.finetune.continued_ssl`.
 > Apply PEFT wrappers and prepare a continued-SSL trainability plan.
 
 <!-- equimo.finetune:continued_ssl_trainable_spec -->
+
 <a id="equimo-finetune-continued-ssl-trainable-spec"></a>
+
 ## `continued_ssl_trainable_spec`
 
 ```python
@@ -84,7 +92,9 @@ Defined in `equimo.finetune.continued_ssl`.
 > Build the trainability mask for continued SSL adaptation.
 
 <!-- equimo.finetune:ContinuedSSLAdaptationConfig -->
+
 <a id="equimo-finetune-continuedssladaptationconfig"></a>
+
 ## `ContinuedSSLAdaptationConfig`
 
 ```python
@@ -96,7 +106,9 @@ Defined in `equimo.finetune.continued_ssl`.
 > Configuration for target-domain continued SSL adaptation.
 
 <!-- equimo.finetune:ContinuedSSLPlan -->
+
 <a id="equimo-finetune-continuedsslplan"></a>
+
 ## `ContinuedSSLPlan`
 
 ```python
@@ -108,7 +120,9 @@ Defined in `equimo.finetune.continued_ssl`.
 > Fine-tuning plan plus continued-SSL serialization metadata.
 
 <!-- equimo.finetune:FineTuneStage -->
+
 <a id="equimo-finetune-finetunestage"></a>
+
 ## `FineTuneStage`
 
 ```python
@@ -120,7 +134,9 @@ Defined in `equimo.finetune.recipes`.
 > Prepared model and plan for one external training stage.
 
 <!-- equimo.finetune:full_ft_llrd -->
+
 <a id="equimo-finetune-full-ft-llrd"></a>
+
 ## `full_ft_llrd`
 
 ```python
@@ -132,7 +148,9 @@ Defined in `equimo.finetune.recipes`.
 > Prepare a full fine-tuning plan with LLRD labels.
 
 <!-- equimo.finetune:head_plus_norm -->
+
 <a id="equimo-finetune-head-plus-norm"></a>
+
 ## `head_plus_norm`
 
 ```python
@@ -144,7 +162,9 @@ Defined in `equimo.finetune.recipes`.
 > Prepare a head-plus-norm fine-tuning plan.
 
 <!-- equimo.finetune:HeadPlusNormConfig -->
+
 <a id="equimo-finetune-headplusnormconfig"></a>
+
 ## `HeadPlusNormConfig`
 
 ```python
@@ -156,7 +176,9 @@ Defined in `equimo.finetune.recipes`.
 > Configuration metadata for head-plus-norm tuning.
 
 <!-- equimo.finetune:lora_transformer -->
+
 <a id="equimo-finetune-lora-transformer"></a>
+
 ## `lora_transformer`
 
 ```python
@@ -168,7 +190,9 @@ Defined in `equimo.finetune.recipes`.
 > Apply the default transformer LoRA recipe.
 
 <!-- equimo.finetune:lora_transformer_all_linear -->
+
 <a id="equimo-finetune-lora-transformer-all-linear"></a>
+
 ## `lora_transformer_all_linear`
 
 ```python
@@ -180,7 +204,9 @@ Defined in `equimo.finetune.recipes`.
 > Apply LoRA to every linear module selected by the generic predicate.
 
 <!-- equimo.finetune:lpft -->
+
 <a id="equimo-finetune-lpft"></a>
+
 ## `lpft`
 
 ```python
@@ -192,7 +218,9 @@ Defined in `equimo.finetune.recipes`.
 > Return LP-FT stage metadata.
 
 <!-- equimo.finetune:LPFTRecipe -->
+
 <a id="equimo-finetune-lpftrecipe"></a>
+
 ## `LPFTRecipe`
 
 ```python
@@ -204,7 +232,9 @@ Defined in `equimo.finetune.recipes`.
 > Linear-probe then fine-tune recipe metadata.
 
 <!-- equimo.finetune:partial_ft_last_k_blocks -->
+
 <a id="equimo-finetune-partial-ft-last-k-blocks"></a>
+
 ## `partial_ft_last_k_blocks`
 
 ```python
@@ -213,10 +243,12 @@ equimo.finetune.partial_ft_last_k_blocks(model: 'PyTree', *, k: 'int | str' = 'o
 
 Defined in `equimo.finetune.recipes`.
 
-> Prepare a partial fine-tuning plan over the last ``k`` blocks.
+> Prepare a partial fine-tuning plan over the last `k` blocks.
 
 <!-- equimo.finetune:partial_unfreeze -->
+
 <a id="equimo-finetune-partial-unfreeze"></a>
+
 ## `partial_unfreeze`
 
 ```python
@@ -225,10 +257,12 @@ equimo.finetune.partial_unfreeze(model: 'PyTree', config: 'PartialUnfreezeConfig
 
 Defined in `equimo.finetune.recipes`.
 
-> Prepare a partial-unfreeze plan from ``PartialUnfreezeConfig``.
+> Prepare a partial-unfreeze plan from `PartialUnfreezeConfig`.
 
 <!-- equimo.finetune:PartialUnfreezeConfig -->
+
 <a id="equimo-finetune-partialunfreezeconfig"></a>
+
 ## `PartialUnfreezeConfig`
 
 ```python
@@ -240,7 +274,9 @@ Defined in `equimo.finetune.recipes`.
 > Configuration metadata for partial unfreezing.
 
 <!-- equimo.finetune:prepare_lpft_stage1_model -->
+
 <a id="equimo-finetune-prepare-lpft-stage1-model"></a>
+
 ## `prepare_lpft_stage1_model`
 
 ```python
@@ -252,7 +288,9 @@ Defined in `equimo.finetune.recipes`.
 > Return the model used for LP-FT stage 1.
 
 <!-- equimo.finetune:prepare_lpft_stage2_model -->
+
 <a id="equimo-finetune-prepare-lpft-stage2-model"></a>
+
 ## `prepare_lpft_stage2_model`
 
 ```python
@@ -264,7 +302,9 @@ Defined in `equimo.finetune.recipes`.
 > Return the LP-FT stage-2 model with the trained stage-1 head transferred.
 
 <!-- equimo.finetune:recipes -->
+
 <a id="equimo-finetune-recipes"></a>
+
 ## `recipes`
 
 ```python
@@ -276,7 +316,9 @@ Defined in `equimo.finetune.recipes`.
 > Baseline fine-tuning recipes.
 
 <!-- equimo.finetune:StagePolicy -->
+
 <a id="equimo-finetune-stagepolicy"></a>
+
 ## `StagePolicy`
 
 ```python
@@ -288,7 +330,9 @@ Defined in `equimo.finetune.recipes`.
 > Model policy applied before building a fine-tuning stage plan.
 
 <!-- equimo.finetune:supervised_after_ssl -->
+
 <a id="equimo-finetune-supervised-after-ssl"></a>
+
 ## `supervised_after_ssl`
 
 ```python
@@ -300,7 +344,9 @@ Defined in `equimo.finetune.continued_ssl`.
 > Prepare the supervised stage after a continued-SSL delta.
 
 <!-- equimo.finetune:supervised_after_ssl_trainable_spec -->
+
 <a id="equimo-finetune-supervised-after-ssl-trainable-spec"></a>
+
 ## `supervised_after_ssl_trainable_spec`
 
 ```python
@@ -312,7 +358,9 @@ Defined in `equimo.finetune.continued_ssl`.
 > Build the supervised follow-up trainability mask.
 
 <!-- equimo.finetune:SupervisedAfterSSLConfig -->
+
 <a id="equimo-finetune-supervisedaftersslconfig"></a>
+
 ## `SupervisedAfterSSLConfig`
 
 ```python
@@ -324,7 +372,9 @@ Defined in `equimo.finetune.continued_ssl`.
 > Configuration for supervised fine-tuning after continued SSL.
 
 <!-- equimo.finetune:task_adapter_bank -->
+
 <a id="equimo-finetune-task-adapter-bank"></a>
+
 ## `task_adapter_bank`
 
 ```python
@@ -336,7 +386,9 @@ Defined in `equimo.finetune.recipes`.
 > Add a named adapter bank for one or more tasks.
 
 <!-- equimo.finetune:vpt_deep -->
+
 <a id="equimo-finetune-vpt-deep"></a>
+
 ## `vpt_deep`
 
 ```python

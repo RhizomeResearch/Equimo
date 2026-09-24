@@ -1,7 +1,7 @@
 # LoRA
 
-LoRA wraps selected linear modules with low-rank factors. Default initialization
-uses random/kaiming `A` and zero `B`, so outputs match the base model.
+LoRA wraps selected linear modules with low-rank factors. Default initialization uses random/kaiming `A` and zero `B`,
+so outputs match the base model.
 
 ```python
 lora_model = eqft.apply_lora(
@@ -29,5 +29,4 @@ eqft.save_delta(lora_model, "adapter.eqft", method="lora")
 loaded = eqft.load_delta(base_model, "adapter.eqft")
 ```
 
-rsLoRA, PiSSA initialization, DoRA, LoRA+ labels, and static rank masks are also
-available through their config classes.
+rsLoRA, PiSSA initialization, DoRA, LoRA+ labels, and static rank masks are also available through their config classes.

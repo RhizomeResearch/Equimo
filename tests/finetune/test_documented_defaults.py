@@ -11,11 +11,10 @@ DEFAULTS_DOC = Path(__file__).parents[2] / "docs" / "finetuning" / "method_defau
 
 
 def _method_row(method: str) -> str:
-    prefix = f"| {method} |"
     rows = [
         line
         for line in DEFAULTS_DOC.read_text().splitlines()
-        if line.startswith(prefix)
+        if line.startswith("|") and line.split("|", 2)[1].strip() == method
     ]
     assert len(rows) == 1
     return rows[0]

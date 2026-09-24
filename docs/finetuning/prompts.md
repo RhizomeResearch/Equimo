@@ -1,7 +1,7 @@
 # Prompts
 
-Visual prompt tuning inserts trainable prompt tokens before ViT-like transformer
-blocks. Prompt tokens are excluded from mean-patch pooling by default.
+Visual prompt tuning inserts trainable prompt tokens before ViT-like transformer blocks. Prompt tokens are excluded from
+mean-patch pooling by default.
 
 ```python
 prompted = eqft.apply_prompts(
@@ -15,9 +15,8 @@ plan = eqft.prepare_finetune(
 )
 ```
 
-Prefix tuning wraps supported attention modules with trainable K/V prefixes.
-Unsupported attention shapes raise a clear error. Prefix, scale/shift wrappers,
-and IA3 wrappers use the same PEFT trainability path:
+Prefix tuning wraps supported attention modules with trainable K/V prefixes. Unsupported attention shapes raise a clear
+error. Prefix, scale/shift wrappers, and IA3 wrappers use the same PEFT trainability path:
 
 ```python
 model = eqft.apply_prefixes(model, key=key)

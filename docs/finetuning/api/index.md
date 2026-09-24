@@ -2,9 +2,8 @@
 
 # `equimo.finetune` API reference
 
-This reference covers all 272 names exported by `equimo.finetune.__all__`.
-Signatures and defaults are generated from the installed source objects.
-See the [fine-tuning overview](../index.md) for task-oriented guides.
+This reference covers all 272 names exported by `equimo.finetune.__all__`. Signatures and defaults are generated from
+the installed source objects. See the [fine-tuning overview](../index.md) for task-oriented guides.
 
 ## [Configs and plans](configs-plans.md)
 

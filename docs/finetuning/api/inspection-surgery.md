@@ -21,7 +21,9 @@ Plan inspection and general model-surgery utilities.
 - [`validate_plan`](#equimo-finetune-validate-plan)
 
 <!-- equimo.finetune:disable_dropout -->
+
 <a id="equimo-finetune-disable-dropout"></a>
+
 ## `disable_dropout`
 
 ```python
@@ -30,10 +32,12 @@ equimo.finetune.disable_dropout(model: 'PyTree', *, exclude: 'str | TargetSpec |
 
 Defined in `equimo.finetune.surgery`.
 
-> Return ``model`` with Equinox dropout modules disabled.
+> Return `model` with Equinox dropout modules disabled.
 
 <!-- equimo.finetune:disable_stochastic_depth -->
+
 <a id="equimo-finetune-disable-stochastic-depth"></a>
+
 ## `disable_stochastic_depth`
 
 ```python
@@ -42,10 +46,12 @@ equimo.finetune.disable_stochastic_depth(model: 'PyTree', *, exclude: 'str | Tar
 
 Defined in `equimo.finetune.surgery`.
 
-> Return ``model`` with Equimo stochastic depth disabled.
+> Return `model` with Equimo stochastic depth disabled.
 
 <!-- equimo.finetune:extract_subtree -->
+
 <a id="equimo-finetune-extract-subtree"></a>
+
 ## `extract_subtree`
 
 ```python
@@ -54,10 +60,12 @@ equimo.finetune.extract_subtree(model: 'PyTree', target: 'TargetSpec', *, tagger
 
 Defined in `equimo.finetune.surgery`.
 
-> Return a tree containing only leaves selected by ``target``.
+> Return a tree containing only leaves selected by `target`.
 
 <!-- equimo.finetune:inspect_plan -->
+
 <a id="equimo-finetune-inspect-plan"></a>
+
 ## `inspect_plan`
 
 ```python
@@ -69,7 +77,9 @@ Defined in `equimo.finetune.inspection`.
 > Return the report stored on a prepared fine-tuning plan.
 
 <!-- equimo.finetune:inspect_trainables -->
+
 <a id="equimo-finetune-inspect-trainables"></a>
+
 ## `inspect_trainables`
 
 ```python
@@ -81,7 +91,9 @@ Defined in `equimo.finetune.inspection`.
 > Return a trainability report for a model or existing plan.
 
 <!-- equimo.finetune:prepare_finetune -->
+
 <a id="equimo-finetune-prepare-finetune"></a>
+
 ## `prepare_finetune`
 
 ```python
@@ -93,7 +105,9 @@ Defined in `equimo.finetune.surgery`.
 > Partition a model and attach labels/reports for external optimizers.
 
 <!-- equimo.finetune:replace_head -->
+
 <a id="equimo-finetune-replace-head"></a>
+
 ## `replace_head`
 
 ```python
@@ -102,10 +116,12 @@ equimo.finetune.replace_head(model: 'PyTree', head: 'eqx.Module', *, selector: '
 
 Defined in `equimo.finetune.surgery`.
 
-> Return ``model`` with one selected head module replaced.
+> Return `model` with one selected head module replaced.
 
 <!-- equimo.finetune:set_dropout_rate -->
+
 <a id="equimo-finetune-set-dropout-rate"></a>
+
 ## `set_dropout_rate`
 
 ```python
@@ -114,10 +130,12 @@ equimo.finetune.set_dropout_rate(model: 'PyTree', rate: 'float', *, exclude: 'st
 
 Defined in `equimo.finetune.surgery`.
 
-> Return ``model`` with Equinox dropout module rates set to ``rate``.
+> Return `model` with Equinox dropout module rates set to `rate`.
 
 <!-- equimo.finetune:set_stochastic_depth_rate -->
+
 <a id="equimo-finetune-set-stochastic-depth-rate"></a>
+
 ## `set_stochastic_depth_rate`
 
 ```python
@@ -126,10 +144,12 @@ equimo.finetune.set_stochastic_depth_rate(model: 'PyTree', rate: 'float', *, exc
 
 Defined in `equimo.finetune.surgery`.
 
-> Return ``model`` with Equimo stochastic-depth module rates set to ``rate``.
+> Return `model` with Equimo stochastic-depth module rates set to `rate`.
 
 <!-- equimo.finetune:transfer_head -->
+
 <a id="equimo-finetune-transfer-head"></a>
+
 ## `transfer_head`
 
 ```python
@@ -138,10 +158,12 @@ equimo.finetune.transfer_head(target_model: 'PyTree', source_model: 'PyTree', *,
 
 Defined in `equimo.finetune.surgery`.
 
-> Return ``target_model`` with the selected head copied from ``source_model``.
+> Return `target_model` with the selected head copied from `source_model`.
 
 <!-- equimo.finetune:validate_plan -->
+
 <a id="equimo-finetune-validate-plan"></a>
+
 ## `validate_plan`
 
 ```python

@@ -9,9 +9,8 @@ vector = eqft.task_vector(base, tuned)
 reconstructed = eqft.apply_task_vector(base, vector)
 ```
 
-Advanced primitives include TIES, DARE, Model Breadcrumbs, Fisher merge, and
-RegMean. Fisher merging requires external statistics. RegMean accepts external
-covariance PyTrees or validated `input_covariance` artifacts produced by the
+Advanced primitives include TIES, DARE, Model Breadcrumbs, Fisher merge, and RegMean. Fisher merging requires external
+statistics. RegMean accepts external covariance PyTrees or validated `input_covariance` artifacts produced by the
 [caller-driven calibration collectors](calibration_collectors.md).
 
 PEFT wrappers that are algebraically mergeable also expose dedicated helpers:
@@ -24,8 +23,8 @@ merged_scale_shift = eqft.merge_scale_shift(scale_shift_model)
 merged_vera = eqft.merge_vera(vera_model)
 ```
 
-Feature distillation accepts externally captured feature arrays directly, or
-tap dictionaries/sequences selected by `FeatureDistillationConfig.layers`:
+Feature distillation accepts externally captured feature arrays directly, or tap dictionaries/sequences selected by
+`FeatureDistillationConfig.layers`:
 
 ```python
 loss = eqft.feature_distillation_loss_from_taps(

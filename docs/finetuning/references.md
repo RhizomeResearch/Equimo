@@ -1,7 +1,6 @@
 # Reference anchors
 
-These are the method references that anchor the fine-tuning APIs and recipes.
-They are not a complete bibliography.
+These are the method references that anchor the fine-tuning APIs and recipes. They are not a complete bibliography.
 
 - Kumar et al. 2022, LP-FT / feature distortion.
 - Hu et al. 2021, LoRA.

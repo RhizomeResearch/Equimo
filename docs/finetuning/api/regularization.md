@@ -28,7 +28,9 @@ Regularization configurations, losses, and feature-tap helpers.
 - [`task_vector_norm_loss`](#equimo-finetune-task-vector-norm-loss)
 
 <!-- equimo.finetune:adalora_orthogonality_aux_loss_spec -->
+
 <a id="equimo-finetune-adalora-orthogonality-aux-loss-spec"></a>
+
 ## `adalora_orthogonality_aux_loss_spec`
 
 ```python
@@ -40,7 +42,9 @@ Defined in `equimo.finetune.regularization`.
 > Return the explicit AuxLossSpec for AdaLoRA orthogonality regularization.
 
 <!-- equimo.finetune:adalora_orthogonality_loss -->
+
 <a id="equimo-finetune-adalora-orthogonality-loss"></a>
+
 ## `adalora_orthogonality_loss`
 
 ```python
@@ -52,7 +56,9 @@ Defined in `equimo.finetune.regularization`.
 > Return AdaLoRA triplet orthogonality loss over all adapters.
 
 <!-- equimo.finetune:adapter_norm_loss -->
+
 <a id="equimo-finetune-adapter-norm-loss"></a>
+
 ## `adapter_norm_loss`
 
 ```python
@@ -64,7 +70,9 @@ Defined in `equimo.finetune.regularization`.
 > Return an optionally scaled norm penalty over adapter/PEFT leaves.
 
 <!-- equimo.finetune:delta_attention_aux_loss_spec -->
+
 <a id="equimo-finetune-delta-attention-aux-loss-spec"></a>
+
 ## `delta_attention_aux_loss_spec`
 
 ```python
@@ -76,7 +84,9 @@ Defined in `equimo.finetune.regularization`.
 > Return the explicit AuxLossSpec for DELTA attention regularization.
 
 <!-- equimo.finetune:delta_attention_loss -->
+
 <a id="equimo-finetune-delta-attention-loss"></a>
+
 ## `delta_attention_loss`
 
 ```python
@@ -87,12 +97,13 @@ Defined in `equimo.finetune.regularization`.
 
 > Return DELTA attention-weighted feature-map transfer loss.
 >
-> The default layout follows the DELTA reference implementation: feature maps
-> are shaped ``(batch, channels, *spatial)`` and attention weights are
-> per-channel vectors.
+> The default layout follows the DELTA reference implementation: feature maps are shaped `(batch, channels, *spatial)`
+> and attention weights are per-channel vectors.
 
 <!-- equimo.finetune:DELTAAttentionConfig -->
+
 <a id="equimo-finetune-deltaattentionconfig"></a>
+
 ## `DELTAAttentionConfig`
 
 ```python
@@ -104,7 +115,9 @@ Defined in `equimo.finetune.regularization`.
 > DELTA-style attention-weighted feature-map transfer metadata.
 
 <!-- equimo.finetune:ewc_loss -->
+
 <a id="equimo-finetune-ewc-loss"></a>
+
 ## `ewc_loss`
 
 ```python
@@ -116,7 +129,9 @@ Defined in `equimo.finetune.regularization`.
 > Return an optionally scaled EWC penalty using supplied Fisher diagonals.
 
 <!-- equimo.finetune:EWCConfig -->
+
 <a id="equimo-finetune-ewcconfig"></a>
+
 ## `EWCConfig`
 
 ```python
@@ -128,7 +143,9 @@ Defined in `equimo.finetune.regularization`.
 > Elastic Weight Consolidation penalty metadata.
 
 <!-- equimo.finetune:feature_distillation_loss -->
+
 <a id="equimo-finetune-feature-distillation-loss"></a>
+
 ## `feature_distillation_loss`
 
 ```python
@@ -140,7 +157,9 @@ Defined in `equimo.finetune.regularization`.
 > Return an optionally scaled feature distillation penalty.
 
 <!-- equimo.finetune:feature_distillation_loss_from_taps -->
+
 <a id="equimo-finetune-feature-distillation-loss-from-taps"></a>
+
 ## `feature_distillation_loss_from_taps`
 
 ```python
@@ -152,7 +171,9 @@ Defined in `equimo.finetune.regularization`.
 > Return feature distillation loss after selecting configured taps.
 
 <!-- equimo.finetune:FeatureDistillationConfig -->
+
 <a id="equimo-finetune-featuredistillationconfig"></a>
+
 ## `FeatureDistillationConfig`
 
 ```python
@@ -166,7 +187,9 @@ Defined in `equimo.finetune.regularization`.
 > This is not a DELTA attention-transfer configuration.
 
 <!-- equimo.finetune:l2_sp_loss -->
+
 <a id="equimo-finetune-l2-sp-loss"></a>
+
 ## `l2_sp_loss`
 
 ```python
@@ -178,7 +201,9 @@ Defined in `equimo.finetune.regularization`.
 > Return an optionally scaled L2-SP penalty between compatible leaves.
 
 <!-- equimo.finetune:L2SPConfig -->
+
 <a id="equimo-finetune-l2spconfig"></a>
+
 ## `L2SPConfig`
 
 ```python
@@ -190,7 +215,9 @@ Defined in `equimo.finetune.regularization`.
 > L2-SP penalty metadata.
 
 <!-- equimo.finetune:mixout_leaf -->
+
 <a id="equimo-finetune-mixout-leaf"></a>
+
 ## `mixout_leaf`
 
 ```python
@@ -199,13 +226,14 @@ equimo.finetune.mixout_leaf(leaf: 'jax.Array', anchor: 'jax.Array', *, key: 'jax
 
 Defined in `equimo.finetune.regularization`.
 
-> Return a Mixout-sampled leaf anchored to ``anchor``.
+> Return a Mixout-sampled leaf anchored to `anchor`.
 >
-> The sampled value has expectation equal to ``leaf`` during training and
-> returns ``leaf`` unchanged during inference.
+> The sampled value has expectation equal to `leaf` during training and returns `leaf` unchanged during inference.
 
 <!-- equimo.finetune:mixout_tree -->
+
 <a id="equimo-finetune-mixout-tree"></a>
+
 ## `mixout_tree`
 
 ```python
@@ -214,10 +242,12 @@ equimo.finetune.mixout_tree(tree: 'PyTree', anchor: 'PyTree', *, key: 'jax.Array
 
 Defined in `equimo.finetune.regularization`.
 
-> Apply Mixout to compatible inexact array leaves in ``tree``.
+> Apply Mixout to compatible inexact array leaves in `tree`.
 
 <!-- equimo.finetune:MixoutConfig -->
+
 <a id="equimo-finetune-mixoutconfig"></a>
+
 ## `MixoutConfig`
 
 ```python
@@ -229,7 +259,9 @@ Defined in `equimo.finetune.regularization`.
 > Mixout metadata for anchored stochastic parameter substitution.
 
 <!-- equimo.finetune:select_feature_taps -->
+
 <a id="equimo-finetune-select-feature-taps"></a>
+
 ## `select_feature_taps`
 
 ```python
@@ -241,7 +273,9 @@ Defined in `equimo.finetune.regularization`.
 > Select feature taps by name, index string, or percentage selector.
 
 <!-- equimo.finetune:task_vector_norm_loss -->
+
 <a id="equimo-finetune-task-vector-norm-loss"></a>
+
 ## `task_vector_norm_loss`
 
 ```python

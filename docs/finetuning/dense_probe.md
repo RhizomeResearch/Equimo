@@ -1,8 +1,7 @@
 # Spatial Linear Probe
 
-`equimo.finetune.vision.make_dense_probe` composes an explicit spatial feature
-contract with a pointwise `LinearHead`. One call consumes one image and returns
-raw class-first logits shaped `(classes, grid_h, grid_w)`. Map the probe with
+`equimo.finetune.vision.make_dense_probe` composes an explicit spatial feature contract with a pointwise `LinearHead`.
+One call consumes one image and returns raw class-first logits shaped `(classes, grid_h, grid_w)`. Map the probe with
 `jax.vmap` to obtain `(batch, classes, grid_h, grid_w)`.
 
 ```python
@@ -31,23 +30,19 @@ logits = probe(image)
 batch_logits = jax.vmap(probe)(images)
 ```
 
-The feature specification is required and must describe either row-major `BNC`
-patch tokens or all features from a `BCHW` endpoint. It must be unpooled and set
-`return_metadata=True`. Token outputs are reshaped only from the published
-`grid_size`; the probe never infers a square grid from the token count. Prefix
-tokens are removed by the feature contract before projection. Channel-first
-feature maps are moved to a last-axis linear projection and returned in
+The feature specification is required and must describe either row-major `BNC` patch tokens or all features from a
+`BCHW` endpoint. It must be unpooled and set `return_metadata=True`. Token outputs are reshaped only from the published
+`grid_size`; the probe never infers a square grid from the token count. Prefix tokens are removed by the feature
+contract before projection. Channel-first feature maps are moved to a last-axis linear projection and returned in
 class-first order.
 
-The constructor rejects absent geometry, multiple separate feature levels,
-feature/head width mismatches, and a head whose input or output width differs
-from the declared configuration. It performs no spatial interpolation or loss
+The constructor rejects absent geometry, multiple separate feature levels, feature/head width mismatches, and a head
+whose input or output width differs from the declared configuration. It performs no spatial interpolation or loss
 calculation.
 
 ## Trainability
 
-The wrapper owns separate `backbone` and `head` fields, so the usual head-only
-plan applies:
+The wrapper owns separate `backbone` and `head` fields, so the usual head-only plan applies:
 
 ```python
 head_only = eqft.prepare_finetune(
@@ -56,8 +51,7 @@ head_only = eqft.prepare_finetune(
 )
 ```
 
-Select transformer blocks by their explicit paths when exact block membership
-is part of the recipe:
+Select transformer blocks by their explicit paths when exact block membership is part of the recipe:
 
 ```python
 head_and_blocks = eqft.prepare_finetune(
@@ -77,10 +71,9 @@ head_and_blocks = eqft.prepare_finetune(
 
 ## Full-model checkpoints
 
-Use the ordinary full-model checkpoint API for a probe and a partially tuned
-backbone. Record the wrapper, complete backbone constructor configuration,
-feature specification, head dimensions and initialization, and output layout
-in `model_config`:
+Use the ordinary full-model checkpoint API for a probe and a partially tuned backbone. Record the wrapper, complete
+backbone constructor configuration, feature specification, head dimensions and initialization, and output layout in
+`model_config`:
 
 ```python
 from dataclasses import asdict
@@ -114,10 +107,7 @@ restored = load_weights(
 )
 ```
 
-`expected_model_config` rejects a checkpoint recorded for different head
-dimensions, feature extraction, trainability plan, parameter view, or output
-layout. Validate the restored plan against the recorded fingerprint before an
-optimizer owns its parameters. See
-[Serialization](serialization.md) for integrity and archive behavior. A
-complete offline example is available in
-`examples/finetuning/dense_probe_vit.py`.
+`expected_model_config` rejects a checkpoint recorded for different head dimensions, feature extraction, trainability
+plan, parameter view, or output layout. Validate the restored plan against the recorded fingerprint before an optimizer
+owns its parameters. See [Serialization](serialization.md) for integrity and archive behavior. A complete offline
+example is available in `examples/finetuning/dense_probe_vit.py`.

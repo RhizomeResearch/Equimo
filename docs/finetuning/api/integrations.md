@@ -13,7 +13,9 @@ Public audio, language, tabular, and vision modality namespaces.
 - [`vision`](#equimo-finetune-vision)
 
 <!-- equimo.finetune:audio -->
+
 <a id="equimo-finetune-audio"></a>
+
 ## `audio`
 
 ```python
@@ -25,7 +27,9 @@ Defined in `equimo.finetune.audio`.
 > Audio fine-tuning selectors and recipes.
 
 <!-- equimo.finetune:language -->
+
 <a id="equimo-finetune-language"></a>
+
 ## `language`
 
 ```python
@@ -37,7 +41,9 @@ Defined in `equimo.finetune.language`.
 > Language fine-tuning selectors and recipes.
 
 <!-- equimo.finetune:vision -->
+
 <a id="equimo-finetune-vision"></a>
+
 ## `vision`
 
 ```python

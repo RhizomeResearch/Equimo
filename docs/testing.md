@@ -1,30 +1,26 @@
 # Testing strategy
 
-Equimo treats numerical values, shapes, dtypes, PyTree structure, public import
-paths, and checkpoint compatibility as API contracts. The suite is organized
-around shared inventories under `tests/cases/`; completeness tests compare those
-inventories with the live model and layer registries so a newly registered
-family cannot silently miss cross-cutting coverage.
+Equimo treats numerical values, shapes, dtypes, PyTree structure, public import paths, and checkpoint compatibility as
+API contracts. The suite is organized around shared inventories under `tests/cases/`; completeness tests compare those
+inventories with the live model and layer registries so a newly registered family cannot silently miss cross-cutting
+coverage.
 
 ## Test tiers
 
-- The ordinary offline suite covers every registered model family with a tiny
-  production model, deterministic reference output, feature contract, PRNG-free
-  inference check, and ONNX Runtime parity. Representative input-contract groups
+- The ordinary offline suite covers every registered model family with a tiny production model, deterministic reference
+  output, feature contract, PRNG-free inference check, and ONNX Runtime parity. Representative input-contract groups
   additionally cover JIT, `vmap`, gradients, and bfloat16.
-- Layer registry tests cover every alias, while focused layer modules retain the
-  mathematical and validation tests that are specific to their implementation.
-- Fine-tuning tests retain small synthetic unit fixtures and add production-model
-  integration across every stable `TrainableMode`, every `PEFTConfig` family,
-  and vision, convolutional, audio, language, tabular, and time-series models.
-- Upstream numerical parity is marked `reference_parity`. It uses committed
-  fixtures and tolerances from `tests/data/reference_provenance.json`; converted
-  checkpoints are downloaded only from the pinned repository revision and are
-  verified against trusted archive digests.
+- Layer registry tests cover every alias, while focused layer modules retain the mathematical and validation tests that
+  are specific to their implementation.
+- Fine-tuning tests retain small synthetic unit fixtures and add production-model integration across every stable
+  `TrainableMode`, every `PEFTConfig` family, and vision, convolutional, audio, language, tabular, and time-series
+  models.
+- Upstream numerical parity is marked `reference_parity`. It uses committed fixtures and tolerances from
+  `tests/data/reference_provenance.json`; converted checkpoints are downloaded only from the pinned repository revision
+  and are verified against trusted archive digests.
 
-The ordinary suite deselects both reference-parity markers and merge-request
-jobs remain offline. Heavy upstream parity runs on scheduled pipelines and may
-be started manually from the GitLab UI; it is not a publish prerequisite. An
+The ordinary suite deselects both reference-parity markers and merge-request jobs remain offline. Heavy upstream parity
+runs on scheduled pipelines and may be started manually from the GitLab UI; it is not a publish prerequisite. An
 explicit command-line `-m` selection overrides the default deselection.
 
 ## Commands
@@ -46,15 +42,12 @@ EQUIMO_REQUIRE_REFERENCE_CACHE=1 uv run pytest -m reference_parity \
   tests/test_reference_parity.py tests/audio/test_preprocessing_parity.py
 ```
 
-The direct T0-vs-upstream API check is intentionally manual because the gated
-upstream snapshot is not redistributable. Set `T0_ALPHA_CHECKPOINT` and run
-`uv run pytest -m live_reference_parity tests/test_models.py`.
+The direct T0-vs-upstream API check is intentionally manual because the gated upstream snapshot is not redistributable.
+Set `T0_ALPHA_CHECKPOINT` and run `uv run pytest -m live_reference_parity tests/test_models.py`.
 
-For a selected local ViT probe, the offline qualification runner checks
-admitted upstream reference tensors and attempts ONNX Runtime parity for pooled
-and spatial feature/head graphs. Supply a digest-bound reference directory
-containing `checkpoint-record.json`, `qualification-report.json`,
-`numerical-results.json`, and its named NPZ fixtures:
+For a selected local ViT probe, the offline qualification runner checks admitted upstream reference tensors and attempts
+ONNX Runtime parity for pooled and spatial feature/head graphs. Supply a digest-bound reference directory containing
+`checkpoint-record.json`, `qualification-report.json`, `numerical-results.json`, and its named NPZ fixtures:
 
 ```bash
 JAX_PLATFORMS=cpu HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 \
@@ -65,40 +58,30 @@ JAX_PLATFORMS=cpu HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 \
   --portable-output /path/to/portable-qualification-report.json
 ```
 
-The runner enforces a 1 GiB checkpoint profile with explicit tensor and
-metadata limits. The report records exact source and checkpoint digests,
-per-case numerical results, and separate export results. A failed export
-retains the exception and can be reproduced for one graph with
-`--export-only --head pooled` or
-`--export-only --head spatial`, using the same checkpoint and reference
-arguments. The selected offline result is retained in
-`tests/data/vit_probe_qualification.json`. An exporter result is not inferred
-from native JAX inference.
+The runner enforces a 1 GiB checkpoint profile with explicit tensor and metadata limits. The report records exact source
+and checkpoint digests, per-case numerical results, and separate export results. A failed export retains the exception
+and can be reproduced for one graph with `--export-only --head pooled` or `--export-only --head spatial`, using the same
+checkpoint and reference arguments. The selected offline result is retained in
+`tests/data/vit_probe_qualification.json`. An exporter result is not inferred from native JAX inference.
 
-Regenerate the small Equimo-only model-family regression file after an intended
-numerical change, then review its diff:
+Regenerate the small Equimo-only model-family regression file after an intended numerical change, then review its diff:
 
 ```bash
 uv run python models/generate_model_contract_references.py \
   --source-revision <reviewed-revision> --force
 ```
 
-Upstream reference fixtures must still be generated by their pinned upstream
-implementations into a temporary directory and reviewed with
-`models/validate_references.py`; Equimo outputs must never be used to fabricate
-upstream parity data.
+Upstream reference fixtures must still be generated by their pinned upstream implementations into a temporary directory
+and reviewed with `models/validate_references.py`; Equimo outputs must never be used to fabricate upstream parity data.
 
 ## Explicit reference gaps
 
-Trusted upstream fixtures are not yet committed for the EUPE ConvNeXt converter,
-the TabPFN regressor converter, or the TIPS vision and text converters. Their
-pretrained identifiers and conversion paths remain mandatory inventory entries,
-so adding a fixture updates an explicit gap instead of relying on an unnoticed
-skip. DEQ bfloat16 execution is likewise recorded as unsupported while Banax
-0.1.2 initializes its loop error state in float32; all other representative
+Trusted upstream fixtures are not yet committed for the EUPE ConvNeXt converter, the TabPFN regressor converter, or the
+TIPS vision and text converters. Their pretrained identifiers and conversion paths remain mandatory inventory entries,
+so adding a fixture updates an explicit gap instead of relying on an unnoticed skip. DEQ bfloat16 execution is likewise
+recorded as unsupported while Banax 0.1.2 initializes its loop error state in float32; all other representative
 contracts enforce bfloat16 output dtype.
 
-ONNX adapters are batched through `vmap` except PartialFormer: jax2onnx 0.15.1
-introduces a vmap-only numerical drift beyond the established tolerance, while
-its unbatched export retains runtime parity. This exception is encoded in the
+ONNX adapters are batched through `vmap` except PartialFormer: jax2onnx 0.15.1 introduces a vmap-only numerical drift
+beyond the established tolerance, while its unbatched export retains runtime parity. This exception is encoded in the
 model inventory so it cannot become an unnoticed fallback.

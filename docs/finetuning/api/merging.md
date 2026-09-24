@@ -33,7 +33,9 @@ Model soups, task vectors, and modern model-merging methods.
 - [`WiSEFTConfig`](#equimo-finetune-wiseftconfig)
 
 <!-- equimo.finetune:apply_task_vector -->
+
 <a id="equimo-finetune-apply-task-vector"></a>
+
 ## `apply_task_vector`
 
 ```python
@@ -45,7 +47,9 @@ Defined in `equimo.finetune.merging`.
 > Apply a task vector to a compatible base model.
 
 <!-- equimo.finetune:breadcrumbs_task_vector -->
+
 <a id="equimo-finetune-breadcrumbs-task-vector"></a>
+
 ## `breadcrumbs_task_vector`
 
 ```python
@@ -57,7 +61,9 @@ Defined in `equimo.finetune.merging`.
 > Remove the smallest and largest task-vector deltas by magnitude.
 
 <!-- equimo.finetune:BreadcrumbsConfig -->
+
 <a id="equimo-finetune-breadcrumbsconfig"></a>
+
 ## `BreadcrumbsConfig`
 
 ```python
@@ -69,7 +75,9 @@ Defined in `equimo.finetune.merging`.
 > Model Breadcrumbs merge metadata.
 
 <!-- equimo.finetune:dare_task_vector -->
+
 <a id="equimo-finetune-dare-task-vector"></a>
+
 ## `dare_task_vector`
 
 ```python
@@ -81,7 +89,9 @@ Defined in `equimo.finetune.merging`.
 > Apply a static DARE mask to a task vector.
 
 <!-- equimo.finetune:DARETransform -->
+
 <a id="equimo-finetune-daretransform"></a>
+
 ## `DARETransform`
 
 ```python
@@ -93,7 +103,9 @@ Defined in `equimo.finetune.merging`.
 > DARE merge metadata.
 
 <!-- equimo.finetune:fisher_merge -->
+
 <a id="equimo-finetune-fisher-merge"></a>
+
 ## `fisher_merge`
 
 ```python
@@ -105,7 +117,9 @@ Defined in `equimo.finetune.merging`.
 > Fisher-weighted merge requiring external Fisher statistics.
 
 <!-- equimo.finetune:FisherMergeConfig -->
+
 <a id="equimo-finetune-fishermergeconfig"></a>
+
 ## `FisherMergeConfig`
 
 ```python
@@ -117,7 +131,9 @@ Defined in `equimo.finetune.merging`.
 > Fisher merge metadata.
 
 <!-- equimo.finetune:greedy_soup -->
+
 <a id="equimo-finetune-greedy-soup"></a>
+
 ## `greedy_soup`
 
 ```python
@@ -129,7 +145,9 @@ Defined in `equimo.finetune.merging`.
 > Greedily add models when the user-provided score improves.
 
 <!-- equimo.finetune:GreedySoupConfig -->
+
 <a id="equimo-finetune-greedysoupconfig"></a>
+
 ## `GreedySoupConfig`
 
 ```python
@@ -141,7 +159,9 @@ Defined in `equimo.finetune.merging`.
 > Configuration metadata for greedy model soups.
 
 <!-- equimo.finetune:interpolate_models -->
+
 <a id="equimo-finetune-interpolate-models"></a>
+
 ## `interpolate_models`
 
 ```python
@@ -153,7 +173,9 @@ Defined in `equimo.finetune.merging`.
 > Interpolate compatible model leaves.
 
 <!-- equimo.finetune:knots_task_vector -->
+
 <a id="equimo-finetune-knots-task-vector"></a>
+
 ## `knots_task_vector`
 
 ```python
@@ -165,7 +187,9 @@ Defined in `equimo.finetune.merging`.
 > Merge task vectors with a KnOTS-style shared left singular basis.
 
 <!-- equimo.finetune:KnOTSConfig -->
+
 <a id="equimo-finetune-knotsconfig"></a>
+
 ## `KnOTSConfig`
 
 ```python
@@ -177,7 +201,9 @@ Defined in `equimo.finetune.merging`.
 > KnOTS shared-left-basis merge metadata.
 
 <!-- equimo.finetune:regmean_merge -->
+
 <a id="equimo-finetune-regmean-merge"></a>
+
 ## `regmean_merge`
 
 ```python
@@ -189,7 +215,9 @@ Defined in `equimo.finetune.merging`.
 > RegMean-style merge requiring external covariance statistics.
 
 <!-- equimo.finetune:RegMeanConfig -->
+
 <a id="equimo-finetune-regmeanconfig"></a>
+
 ## `RegMeanConfig`
 
 ```python
@@ -201,7 +229,9 @@ Defined in `equimo.finetune.merging`.
 > RegMean merge metadata.
 
 <!-- equimo.finetune:task_vector -->
+
 <a id="equimo-finetune-task-vector"></a>
+
 ## `task_vector`
 
 ```python
@@ -213,7 +243,9 @@ Defined in `equimo.finetune.merging`.
 > Extract a task vector from compatible model leaves.
 
 <!-- equimo.finetune:task_vector_bundle -->
+
 <a id="equimo-finetune-task-vector-bundle"></a>
+
 ## `task_vector_bundle`
 
 ```python
@@ -225,7 +257,9 @@ Defined in `equimo.finetune.merging`.
 > Package a merged task vector as a portable fine-tuning bundle.
 
 <!-- equimo.finetune:TaskVector -->
+
 <a id="equimo-finetune-taskvector"></a>
+
 ## `TaskVector`
 
 ```python
@@ -237,7 +271,9 @@ Defined in `equimo.finetune.merging`.
 > Difference PyTree from a base model to a fine-tuned model.
 
 <!-- equimo.finetune:TaskVectorConfig -->
+
 <a id="equimo-finetune-taskvectorconfig"></a>
+
 ## `TaskVectorConfig`
 
 ```python
@@ -249,7 +285,9 @@ Defined in `equimo.finetune.merging`.
 > Configuration for task-vector extraction/application.
 
 <!-- equimo.finetune:ties_merge -->
+
 <a id="equimo-finetune-ties-merge"></a>
+
 ## `ties_merge`
 
 ```python
@@ -261,7 +299,9 @@ Defined in `equimo.finetune.merging`.
 > Merge task vectors with a simple TIES-style sign consensus.
 
 <!-- equimo.finetune:TIESConfig -->
+
 <a id="equimo-finetune-tiesconfig"></a>
+
 ## `TIESConfig`
 
 ```python
@@ -273,7 +313,9 @@ Defined in `equimo.finetune.merging`.
 > TIES merge metadata.
 
 <!-- equimo.finetune:uniform_soup -->
+
 <a id="equimo-finetune-uniform-soup"></a>
+
 ## `uniform_soup`
 
 ```python
@@ -285,7 +327,9 @@ Defined in `equimo.finetune.merging`.
 > Return the weighted arithmetic mean of compatible model leaves.
 
 <!-- equimo.finetune:UniformSoupConfig -->
+
 <a id="equimo-finetune-uniformsoupconfig"></a>
+
 ## `UniformSoupConfig`
 
 ```python
@@ -297,7 +341,9 @@ Defined in `equimo.finetune.merging`.
 > Configuration for uniform model soups.
 
 <!-- equimo.finetune:WiSEFTConfig -->
+
 <a id="equimo-finetune-wiseftconfig"></a>
+
 ## `WiSEFTConfig`
 
 ```python

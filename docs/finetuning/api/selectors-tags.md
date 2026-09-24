@@ -27,7 +27,9 @@ Utilities for locating, describing, labeling, and filtering PyTree leaves.
 - [`str_to_path`](#equimo-finetune-str-to-path)
 
 <!-- equimo.finetune:CANONICAL_TAGS -->
+
 <a id="equimo-finetune-canonical-tags"></a>
+
 ## `CANONICAL_TAGS`
 
 ```python
@@ -35,7 +37,9 @@ equimo.finetune.CANONICAL_TAGS = ('embedding', 'embedding.patch', 'embedding.pos
 ```
 
 <!-- equimo.finetune:canonical_tags_for_path -->
+
 <a id="equimo-finetune-canonical-tags-for-path"></a>
+
 ## `canonical_tags_for_path`
 
 ```python
@@ -47,7 +51,9 @@ Defined in `equimo.finetune.tags`.
 > Infer canonical semantic tags from an Equimo-style parameter path.
 
 <!-- equimo.finetune:extract_param_paths -->
+
 <a id="equimo-finetune-extract-param-paths"></a>
+
 ## `extract_param_paths`
 
 ```python
@@ -59,7 +65,9 @@ Defined in `equimo.finetune.paths`.
 > Return dot-formatted paths for parameter-like leaves.
 
 <!-- equimo.finetune:infer_depth -->
+
 <a id="equimo-finetune-infer-depth"></a>
+
 ## `infer_depth`
 
 ```python
@@ -71,7 +79,9 @@ Defined in `equimo.finetune.tags`.
 > Infer semantic block depth from common Equimo path shapes.
 
 <!-- equimo.finetune:is_linear -->
+
 <a id="equimo-finetune-is-linear"></a>
+
 ## `is_linear`
 
 ```python
@@ -80,10 +90,12 @@ equimo.finetune.is_linear(path: 'Path', node: 'Any') -> 'bool'
 
 Defined in `equimo.finetune.selectors`.
 
-> Return whether ``node`` is an Equinox linear module.
+> Return whether `node` is an Equinox linear module.
 
 <!-- equimo.finetune:iter_param_infos -->
+
 <a id="equimo-finetune-iter-param-infos"></a>
+
 ## `iter_param_infos`
 
 ```python
@@ -92,10 +104,12 @@ equimo.finetune.iter_param_infos(tree: 'PyTree', *, tagger: 'Tagger' = <function
 
 Defined in `equimo.finetune.tags`.
 
-> Return tagged ``ParamInfo`` records for inexact array leaves.
+> Return tagged `ParamInfo` records for inexact array leaves.
 
 <!-- equimo.finetune:iter_param_leaves -->
+
 <a id="equimo-finetune-iter-param-leaves"></a>
+
 ## `iter_param_leaves`
 
 ```python
@@ -107,7 +121,9 @@ Defined in `equimo.finetune.paths`.
 > Return stable paths and values for parameter-like leaves.
 
 <!-- equimo.finetune:iter_param_paths -->
+
 <a id="equimo-finetune-iter-param-paths"></a>
+
 ## `iter_param_paths`
 
 ```python
@@ -119,7 +135,9 @@ Defined in `equimo.finetune.paths`.
 > Return stable paths for parameter-like leaves.
 
 <!-- equimo.finetune:make_param_info_tree -->
+
 <a id="equimo-finetune-make-param-info-tree"></a>
+
 ## `make_param_info_tree`
 
 ```python
@@ -128,10 +146,12 @@ equimo.finetune.make_param_info_tree(tree: 'PyTree', *, predicate: 'LeafFilter' 
 
 Defined in `equimo.finetune.paths`.
 
-> Replace parameter-like leaves with base ``ParamInfo`` records.
+> Replace parameter-like leaves with base `ParamInfo` records.
 
 <!-- equimo.finetune:make_param_labels -->
+
 <a id="equimo-finetune-make-param-labels"></a>
+
 ## `make_param_labels`
 
 ```python
@@ -143,7 +163,9 @@ Defined in `equimo.finetune.labels`.
 > Return a PyTree of optimizer-group labels for parameter leaves.
 
 <!-- equimo.finetune:make_path_tree -->
+
 <a id="equimo-finetune-make-path-tree"></a>
+
 ## `make_path_tree`
 
 ```python
@@ -155,7 +177,9 @@ Defined in `equimo.finetune.paths`.
 > Replace parameter-like leaves with their stable paths.
 
 <!-- equimo.finetune:make_tag_tree -->
+
 <a id="equimo-finetune-make-tag-tree"></a>
+
 ## `make_tag_tree`
 
 ```python
@@ -164,10 +188,12 @@ equimo.finetune.make_tag_tree(tree: 'PyTree', *, tagger: 'Tagger' = <function ca
 
 Defined in `equimo.finetune.tags`.
 
-> Replace parameter-like leaves with tagged ``ParamInfo`` records.
+> Replace parameter-like leaves with tagged `ParamInfo` records.
 
 <!-- equimo.finetune:make_trainable_filter -->
+
 <a id="equimo-finetune-make-trainable-filter"></a>
+
 ## `make_trainable_filter`
 
 ```python
@@ -179,7 +205,9 @@ Defined in `equimo.finetune.masks`.
 > Build an Equinox filter PyTree for the requested trainability policy.
 
 <!-- equimo.finetune:path_to_str -->
+
 <a id="equimo-finetune-path-to-str"></a>
+
 ## `path_to_str`
 
 ```python
@@ -190,12 +218,13 @@ Defined in `equimo.finetune.paths`.
 
 > Format a path as an unambiguous dot-separated string.
 >
-> Ordinary identifier-like paths keep their historical representation. Dots and
-> backslashes inside string components are escaped, while integer-looking string
-> components use a ``\s`` prefix so they cannot be confused with sequence indices.
+> Ordinary identifier-like paths keep their historical representation. Dots and backslashes inside string components are
+> escaped, while integer-looking string components use a `\s` prefix so they cannot be confused with sequence indices.
 
 <!-- equimo.finetune:resolve_target -->
+
 <a id="equimo-finetune-resolve-target"></a>
+
 ## `resolve_target`
 
 ```python
@@ -204,10 +233,12 @@ equimo.finetune.resolve_target(model: 'PyTree', target: 'TargetSpec', *, allow_e
 
 Defined in `equimo.finetune.selectors`.
 
-> Resolve a ``TargetSpec`` to tagged parameter leaf metadata.
+> Resolve a `TargetSpec` to tagged parameter leaf metadata.
 
 <!-- equimo.finetune:resolve_target_paths -->
+
 <a id="equimo-finetune-resolve-target-paths"></a>
+
 ## `resolve_target_paths`
 
 ```python
@@ -216,10 +247,12 @@ equimo.finetune.resolve_target_paths(model: 'PyTree', target: 'TargetSpec', *, a
 
 Defined in `equimo.finetune.selectors`.
 
-> Resolve a ``TargetSpec`` to stable dot-formatted parameter paths.
+> Resolve a `TargetSpec` to stable dot-formatted parameter paths.
 
 <!-- equimo.finetune:str_to_path -->
+
 <a id="equimo-finetune-str-to-path"></a>
+
 ## `str_to_path`
 
 ```python

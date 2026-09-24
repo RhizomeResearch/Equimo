@@ -1,9 +1,8 @@
 # Serialization
 
-`save_delta` writes a `FineTuneBundle` containing method metadata,
-architecture hash, schema version, target paths, shapes, and method state.
-The `.eqft` file is a pickle-free LZ4-compressed archive containing JSON
-metadata and Equinox-serialized array leaves.
+`save_delta` writes a `FineTuneBundle` containing method metadata, architecture hash, schema version, target paths,
+shapes, and method state. The `.eqft` file is a pickle-free LZ4-compressed archive containing JSON metadata and
+Equinox-serialized array leaves.
 
 ```python
 bundle = eqft.save_delta(model, "delta.eqft", method="lora")
@@ -16,12 +15,10 @@ Attach base-model lineage and the applied spec as metadata:
 bundle = eqft.save_delta(model, "delta.eqft", base_model=base_model, spec=spec)
 ```
 
-Loading checks architecture hashes and target shapes. Incompatible bases raise
-a method-specific error.
+Loading checks architecture hashes and target shapes. Incompatible bases raise a method-specific error.
 
-Use `save_finetune_bundle` and `load_finetune_bundle` when you already have a
-`FineTuneBundle`. Bundle metadata includes parameter counts, dtype summary,
-target paths, a base checkpoint hash, mergeability, and optional user metadata.
+Use `save_finetune_bundle` and `load_finetune_bundle` when you already have a `FineTuneBundle`. Bundle metadata includes
+parameter counts, dtype summary, target paths, a base checkpoint hash, mergeability, and optional user metadata.
 
 An executable [`FeatureSpec`](feature_specs.md) can be stored with the delta:
 
@@ -34,40 +31,31 @@ bundle = eqft.save_delta(
 )
 ```
 
-The versioned feature-spec codec preserves preprocessing identity and rejects
-unknown fields or values instead of silently changing extraction behavior.
+The versioned feature-spec codec preserves preprocessing identity and rejects unknown fields or values instead of
+silently changing extraction behavior.
 
-Calibration artifact sets use a separate versioned format with the same
-pickle-free array encoding:
+Calibration artifact sets use a separate versioned format with the same pickle-free array encoding:
 
 ```python
 eqft.save_calibration_artifacts("calibration.eqft", artifacts)
 artifacts = eqft.load_calibration_artifacts("calibration.eqft")
 ```
 
-Saving and loading validate logical IDs, statistic shapes, checkpoint hashes,
-data fingerprints, accumulation dtypes, and reduction metadata. See
-[Calibration collectors](calibration_collectors.md) for the numerical
-contracts.
+Saving and loading validate logical IDs, statistic shapes, checkpoint hashes, data fingerprints, accumulation dtypes,
+and reduction metadata. See [Calibration collectors](calibration_collectors.md) for the numerical contracts.
 
-Supported delta methods: `lora`, `dora`, `adapter`, `prompt`, `prefix`,
-`scale_shift`, `ia3`, and `vera`.
+Supported delta methods: `lora`, `dora`, `adapter`, `prompt`, `prefix`, `scale_shift`, `ia3`, and `vera`.
 
-Ordinary linear probes, spatial probes, and partially tuned backbones should be
-stored as full models with `equimo.serialization.save_model`. Reconstruct the
-same wrapper before `load_weights` and pass an `expected_model_config` that
-records the backbone constructor, executable feature specification, head
-dimensions and initialization, output layout, base checkpoint digest,
-trainability report, and evaluated parameter view. The
-[spatial linear probe guide](dense_probe.md) contains a complete configuration
-example.
+Ordinary linear probes, spatial probes, and partially tuned backbones should be stored as full models with
+`equimo.serialization.save_model`. Reconstruct the same wrapper before `load_weights` and pass an
+`expected_model_config` that records the backbone constructor, executable feature specification, head dimensions and
+initialization, output layout, base checkpoint digest, trainability report, and evaluated parameter view. The
+[spatial linear probe guide](dense_probe.md) contains a complete configuration example.
 
-All model, delta, and calibration readers accept `limits=` with an
-`equimo.serialization.CheckpointLimits` value. A caller can set lower ceilings
-for archive bytes, metadata, members, tensor count and shape, and total array
-allocation. Limits are checked before arrays are deserialized and also apply to
-cached archives. Defaults retain the existing large-checkpoint byte ceilings.
-For example:
+All model, delta, and calibration readers accept `limits=` with an `equimo.serialization.CheckpointLimits` value. A
+caller can set lower ceilings for archive bytes, metadata, members, tensor count and shape, and total array allocation.
+Limits are checked before arrays are deserialized and also apply to cached archives. Defaults retain the existing
+large-checkpoint byte ceilings. For example:
 
 ```python
 from dataclasses import replace
@@ -89,8 +77,6 @@ restored = load_weights(
 )
 ```
 
-Use an independently admitted archive or weights digest to establish content
-identity. Checkpoint integrity and model compatibility do not grant permission
-to use a particular artifact. For local `.eqft` files, pass the same `limits`
-value to `load_delta`, `load_finetune_bundle`, or
-`load_calibration_artifacts`.
+Use an independently admitted archive or weights digest to establish content identity. Checkpoint integrity and model
+compatibility do not grant permission to use a particular artifact. For local `.eqft` files, pass the same `limits`
+value to `load_delta`, `load_finetune_bundle`, or `load_calibration_artifacts`.

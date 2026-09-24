@@ -1,11 +1,9 @@
 # Equimo Fine-Tuning
 
-`equimo.finetune` provides model-side adaptation primitives for Equinox
-PyTrees: selectors, trainability masks, labels, reports, heads, PEFT wrappers,
-deltas, and merge utilities.
+`equimo.finetune` provides model-side adaptation primitives for Equinox PyTrees: selectors, trainability masks, labels,
+reports, heads, PEFT wrappers, deltas, and merge utilities.
 
-It does not provide optimizers, schedules, dataloaders, trainers, or experiment
-tracking. The usual flow is:
+It does not provide optimizers, schedules, dataloaders, trainers, or experiment tracking. The usual flow is:
 
 ```python
 import equimo.finetune as eqft
@@ -17,8 +15,8 @@ plan = eqft.prepare_finetune(
 )
 ```
 
-Use `plan.trainable`, `plan.frozen`, `plan.labels`, and `plan.group_specs` with
-Optax, Rollfast, or your own training loop.
+Use `plan.trainable`, `plan.frozen`, `plan.labels`, and `plan.group_specs` with Optax, Rollfast, or your own training
+loop.
 
 Start with these pages:
 
@@ -47,14 +45,13 @@ Start with these pages:
 
 ## Maintaining the API reference
 
-The API reference is deterministic checked-in Markdown generated directly from
-the live objects in `equimo.finetune.__all__`; no site generator or theme stack
-is required. After changing the public fine-tuning API, regenerate it from the
-repository root:
+The API reference is deterministic checked-in Markdown generated directly from the live objects in
+`equimo.finetune.__all__`; no site generator or theme stack is required. After changing the public fine-tuning API,
+regenerate it from the repository root:
 
 ```bash
 uv run python docs/finetuning/generate_api_reference.py
 ```
 
-Use `--check` to verify export coverage, generated signatures and defaults,
-local links and anchors, and that the checked-in pages are current.
+Use `--check` to verify export coverage, generated signatures and defaults, local links and anchors, and that the
+checked-in pages are current.

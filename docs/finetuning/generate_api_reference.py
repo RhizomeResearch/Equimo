@@ -12,6 +12,7 @@ from types import ModuleType
 from typing import Any
 
 import equimo.finetune as ft
+import mdformat
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -266,6 +267,14 @@ def render_reference() -> dict[Path, str]:
         rendered[OUTPUT_DIR / f"{slug}.md"] = _render_page(
             title, introduction, grouped[slug]
         )
+    rendered = {
+        path: mdformat.text(
+            content,
+            options={"wrap": 120},
+            extensions=mdformat.plugins.PARSER_EXTENSIONS,
+        )
+        for path, content in rendered.items()
+    }
     _validate_inventory(rendered, names)
     _validate_links(rendered)
     return rendered
