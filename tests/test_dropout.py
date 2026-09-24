@@ -1,6 +1,5 @@
 """Tests for equimo.core.layers.dropout."""
 
-import equinox as eqx
 import jax
 import jax.numpy as jnp
 import jax.random as jr
@@ -10,7 +9,6 @@ from equimo.core.layers.dropout import (
     DropPath,
     DropPathAdd,
     get_dropout,
-    register_dropout,
 )
 
 # Shared fixtures
@@ -27,13 +25,6 @@ class TestDropPath:
         layer = DropPath(p=0.5)
         x = jr.normal(KEY, SHAPE)
         assert layer(x, key=KEY).shape == SHAPE
-
-    def test_inference_mode_passthrough(self):
-        """inference=True must return x unchanged."""
-        layer = DropPath(p=0.9)
-        x = jr.normal(KEY, SHAPE)
-        out = layer(x, key=KEY, inference=True)
-        assert jnp.array_equal(out, x)
 
     def test_p_zero_acts_as_inference(self):
         """p=0 must disable dropout even without inference=True."""
@@ -88,15 +79,12 @@ class TestDropPath:
         outputs = jax.vmap(lambda key: layer(x, key=key))(keys)
         assert jnp.abs(jnp.mean(outputs) - 1.0) < 0.1
 
-    def test_bfloat16_input_finite(self):
+    @pytest.mark.parametrize(
+        "dtype", (jnp.bfloat16, jnp.float16), ids=("bfloat16", "float16")
+    )
+    def test_low_precision_input_finite(self, dtype):
         layer = DropPath(p=0.5)
-        x = jr.normal(KEY, SHAPE).astype(jnp.bfloat16)
-        out = layer(x, key=KEY)
-        assert jnp.all(jnp.isfinite(out))
-
-    def test_float16_input_finite(self):
-        layer = DropPath(p=0.5)
-        x = jr.normal(KEY, SHAPE).astype(jnp.float16)
+        x = jr.normal(KEY, SHAPE).astype(dtype)
         out = layer(x, key=KEY)
         assert jnp.all(jnp.isfinite(out))
 
@@ -145,14 +133,6 @@ class TestDropPathAdd:
         x1 = jr.normal(KEY, SHAPE)
         x2 = jr.normal(jr.PRNGKey(1), SHAPE)
         assert layer(x1, x2, key=KEY).shape == SHAPE
-
-    def test_inference_mode_always_adds(self):
-        """inference=True must return x1 + x2 exactly."""
-        layer = DropPathAdd(p=0.9)
-        x1 = jr.normal(KEY, SHAPE)
-        x2 = jr.normal(jr.PRNGKey(1), SHAPE)
-        out = layer(x1, x2, key=KEY, inference=True)
-        assert jnp.array_equal(out, x1 + x2)
 
     def test_p_zero_always_adds(self):
         """p=0 must always add x2 to x1."""
@@ -206,17 +186,13 @@ class TestDropPathAdd:
         assert results["add"], "DropPathAdd never added x2"
         assert results["skip"], "DropPathAdd never skipped x2"
 
-    def test_bfloat16_input_finite(self):
+    @pytest.mark.parametrize(
+        "dtype", (jnp.bfloat16, jnp.float16), ids=("bfloat16", "float16")
+    )
+    def test_low_precision_input_finite(self, dtype):
         layer = DropPathAdd(p=0.5)
-        x1 = jr.normal(KEY, SHAPE).astype(jnp.bfloat16)
-        x2 = jr.normal(jr.PRNGKey(1), SHAPE).astype(jnp.bfloat16)
-        out = layer(x1, x2, key=KEY)
-        assert jnp.all(jnp.isfinite(out))
-
-    def test_float16_input_finite(self):
-        layer = DropPathAdd(p=0.5)
-        x1 = jr.normal(KEY, SHAPE).astype(jnp.float16)
-        x2 = jr.normal(jr.PRNGKey(1), SHAPE).astype(jnp.float16)
+        x1 = jr.normal(KEY, SHAPE).astype(dtype)
+        x2 = jr.normal(jr.PRNGKey(1), SHAPE).astype(dtype)
         out = layer(x1, x2, key=KEY)
         assert jnp.all(jnp.isfinite(out))
 
@@ -262,61 +238,6 @@ class TestGetDropout:
     def test_string_resolution_droppathadd(self):
         assert get_dropout("droppathadd") is DropPathAdd
 
-    def test_class_passthrough(self):
-        assert get_dropout(DropPath) is DropPath
-
-    def test_class_passthrough_droppathadd(self):
-        assert get_dropout(DropPathAdd) is DropPathAdd
-
     def test_unknown_string_raises(self):
         with pytest.raises(ValueError, match="unknown module string"):
             get_dropout("nonexistent_dropout")
-
-    def test_returned_class_is_instantiable(self):
-        cls = get_dropout("droppath")
-        layer = cls(p=0.1)
-        x = jr.normal(KEY, SHAPE)
-        assert layer(x, key=KEY).shape == SHAPE
-
-
-# register_dropout
-
-
-class TestRegisterDropout:
-    def test_register_default_name(self):
-        from equimo.core.layers.dropout import _DROPOUT_REGISTRY
-
-        @register_dropout()
-        class CustomDropout(eqx.Module):
-            pass
-
-        assert "customdropout" in _DROPOUT_REGISTRY
-        assert get_dropout("customdropout") is CustomDropout
-
-    def test_register_custom_name(self):
-        from equimo.core.layers.dropout import _DROPOUT_REGISTRY
-
-        @register_dropout(name="MyDropout")
-        class CustomDropout2(eqx.Module):
-            pass
-
-        assert "mydropout" in _DROPOUT_REGISTRY
-        assert get_dropout("mydropout") is CustomDropout2
-
-    def test_register_non_eqx_module_raises(self):
-        with pytest.raises(TypeError, match="must be a subclass of eqx.Module"):
-
-            @register_dropout()
-            class NotAModule:
-                pass
-
-    def test_register_duplicate_name_raises(self):
-        @register_dropout()
-        class DuplicateDropout(eqx.Module):
-            pass
-
-        with pytest.raises(ValueError, match="already registered"):
-
-            @register_dropout(name="DuplicateDropout")
-            class AnotherDropout(eqx.Module):
-                pass

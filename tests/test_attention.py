@@ -1,6 +1,5 @@
 """Tests for equimo.vision.layers.attention."""
 
-import io
 import sys
 
 import numpy as np
@@ -215,41 +214,6 @@ class TestAttentionLayers:
         assert AttentionBlock is CoreAttentionBlock
         assert get_attn("attention") is CoreAttention
         assert get_attn_block("attentionblock") is CoreAttentionBlock
-
-    @pytest.mark.parametrize("init_values", [None, 1e-5])
-    def test_standard_attention_block_checkpoint_compatibility(self, init_values):
-        source = AttentionBlock(
-            DIM,
-            NUM_HEADS,
-            qk_norm=True,
-            init_values=init_values,
-            key=KEY,
-        )
-        template = CoreAttentionBlock(
-            DIM,
-            NUM_HEADS,
-            qk_norm=True,
-            init_values=init_values,
-            key=jr.PRNGKey(1),
-        )
-        source_layout = [
-            (jax.tree_util.keystr(path), getattr(leaf, "shape", None))
-            for path, leaf in jax.tree_util.tree_flatten_with_path(source)[0]
-        ]
-        template_layout = [
-            (jax.tree_util.keystr(path), getattr(leaf, "shape", None))
-            for path, leaf in jax.tree_util.tree_flatten_with_path(template)[0]
-        ]
-        assert source_layout == template_layout
-
-        checkpoint = io.BytesIO()
-        eqx.tree_serialise_leaves(checkpoint, source)
-        checkpoint.seek(0)
-        restored = eqx.tree_deserialise_leaves(checkpoint, template)
-        x = jr.normal(KEY, (SEQLEN, DIM))
-        source_output = source(x, key=KEY, inference=True)
-        restored_output = restored(x, key=KEY, inference=True)
-        assert jnp.array_equal(source_output, restored_output)
 
     def test_zero_init_values_retains_zero_layer_scale(self):
         block = AttentionBlock(DIM, NUM_HEADS, init_values=0.0, key=KEY)

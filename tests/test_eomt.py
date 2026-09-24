@@ -20,7 +20,6 @@ from equimo.serialization import load_weights, save_model
 from equimo.vision.models import EoMT, VisionTransformer
 from equimo.vision.models.eomt import EoMTMaskState, anneal_mask_state, mask_free_eomt
 from equimo.vision.segmentation import (
-    QuerySegmentationOutput,
     merge_semantic_crops,
     panoptic_predictions,
     resize_mask_logits,
@@ -193,10 +192,6 @@ def test_default_query_insertion_and_rectangular_geometry():
     assert joint.shape == (2 + 2 + 6, 8)
     np.testing.assert_array_equal(model.features(image, key=jr.PRNGKey(4)), joint)
 
-    def final_mask_shape(prediction: QuerySegmentationOutput) -> tuple[int, ...]:
-        return prediction.final.mask_logits.shape
-
-    assert final_mask_shape(output) == (2, 4, 6)
     compiled = jax.jit(lambda x: model(x, key=jr.PRNGKey(4)).final.mask_logits)(image)
     np.testing.assert_allclose(compiled, output.final.mask_logits, atol=1e-6)
 

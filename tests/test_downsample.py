@@ -9,9 +9,7 @@ import pytest
 from equimo.vision.layers.downsample import (
     ConvNormDownsampler,
     PWSEDownsampler,
-    _DOWNSAMPLER_REGISTRY,
     get_downsampler,
-    register_downsampler,
 )
 from _jaxpr_utils import assert_prng_free_jaxpr
 
@@ -156,63 +154,6 @@ class TestGetDownsampler:
     def test_string_resolution(self, name, expected):
         assert get_downsampler(name) is expected
 
-    def test_class_passthrough(self):
-        assert get_downsampler(ConvNormDownsampler) is ConvNormDownsampler
-
     def test_unknown_string_raises(self):
         with pytest.raises(ValueError, match="unknown module string"):
             get_downsampler("nonexistent_ds")
-
-    def test_returned_class_is_instantiable(self):
-        cls = get_downsampler("convnormdownsampler")
-        model = cls(IN_CHANNELS, key=KEY)
-        x = jr.normal(KEY, (IN_CHANNELS, H, W))
-        out = model(x)
-        assert out.shape == (IN_CHANNELS * 2, H // 2, W // 2)
-
-
-# ---------------------------------------------------------------------------
-# register_downsampler
-# ---------------------------------------------------------------------------
-
-
-class TestRegisterDownsampler:
-    def test_register_default_name(self):
-        import equinox as eqx
-
-        @register_downsampler()
-        class CustomDS(eqx.Module):
-            pass
-
-        assert "customds" in _DOWNSAMPLER_REGISTRY
-        assert get_downsampler("customds") is CustomDS
-
-    def test_register_custom_name(self):
-        import equinox as eqx
-
-        @register_downsampler(name="MySuperDS")
-        class CustomDS2(eqx.Module):
-            pass
-
-        assert "mysuperds" in _DOWNSAMPLER_REGISTRY
-        assert get_downsampler("mysuperds") is CustomDS2
-
-    def test_register_non_eqx_module(self):
-        with pytest.raises(TypeError, match="must be a subclass of eqx.Module"):
-
-            @register_downsampler()
-            class NotAModule:
-                pass
-
-    def test_register_duplicate_name(self):
-        import equinox as eqx
-
-        @register_downsampler()
-        class DuplicateDS(eqx.Module):
-            pass
-
-        with pytest.raises(ValueError, match="already registered"):
-
-            @register_downsampler(name="DuplicateDS")
-            class AnotherDS(eqx.Module):
-                pass

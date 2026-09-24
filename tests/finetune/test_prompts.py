@@ -14,13 +14,7 @@ from _jaxpr_utils import assert_prng_free_jaxpr
 from fixtures import TinyVisionTransformer
 
 
-class MixingBlock(eqx.Module):
-    def __call__(self, x, **kwargs):
-        del kwargs
-        return x + jnp.mean(x, axis=0)
-
-
-@pytest.mark.parametrize(
+DROPOUT_PROMPT_CONFIGS = pytest.mark.parametrize(
     "config",
     [
         eqft.PromptConfig(num_tokens=2, prompt_dropout=0.5),
@@ -28,9 +22,20 @@ class MixingBlock(eqx.Module):
     ],
     ids=["shallow", "deep"],
 )
-def test_prompt_dropout_changes_training_outputs_across_keys(config):
+
+
+class MixingBlock(eqx.Module):
+    def __call__(self, x, **kwargs):
+        del kwargs
+        return x + jnp.mean(x, axis=0)
+
+
+@DROPOUT_PROMPT_CONFIGS
+def test_prompt_dropout_changes_training_outputs_across_keys(
+    config, tiny_vision_transformer
+):
     prompted = eqft.apply_prompts(
-        TinyVisionTransformer(depth=2),
+        tiny_vision_transformer,
         config,
         key=jr.PRNGKey(0),
     )
@@ -47,17 +52,10 @@ def test_prompt_dropout_changes_training_outputs_across_keys(config):
     assert not jnp.array_equal(first, second)
 
 
-@pytest.mark.parametrize(
-    "config",
-    [
-        eqft.PromptConfig(num_tokens=2, prompt_dropout=0.5),
-        eqft.VPTDeepConfig(num_tokens=2, prompt_dropout=0.5),
-    ],
-    ids=["shallow", "deep"],
-)
-def test_prompt_dropout_is_disabled_during_inference(config):
+@DROPOUT_PROMPT_CONFIGS
+def test_prompt_dropout_is_disabled_during_inference(config, tiny_vision_transformer):
     prompted = eqft.apply_prompts(
-        TinyVisionTransformer(depth=2),
+        tiny_vision_transformer,
         config,
         key=jr.PRNGKey(0),
     )
@@ -74,17 +72,10 @@ def test_prompt_dropout_is_disabled_during_inference(config):
     )
 
 
-@pytest.mark.parametrize(
-    "config",
-    [
-        eqft.PromptConfig(num_tokens=2, prompt_dropout=0.5),
-        eqft.VPTDeepConfig(num_tokens=2, prompt_dropout=0.5),
-    ],
-    ids=["shallow", "deep"],
-)
-def test_prompt_dropout_requires_key_during_training(config):
+@DROPOUT_PROMPT_CONFIGS
+def test_prompt_dropout_requires_key_during_training(config, tiny_vision_transformer):
     prompted = eqft.apply_prompts(
-        TinyVisionTransformer(depth=2),
+        tiny_vision_transformer,
         config,
         key=jr.PRNGKey(0),
     )
@@ -93,17 +84,12 @@ def test_prompt_dropout_requires_key_during_training(config):
         prompted.features(jnp.ones((2, 3)), inference=False)
 
 
-@pytest.mark.parametrize(
-    "config",
-    [
-        eqft.PromptConfig(num_tokens=2, prompt_dropout=0.5),
-        eqft.VPTDeepConfig(num_tokens=2, prompt_dropout=0.5),
-    ],
-    ids=["shallow", "deep"],
-)
-def test_prompt_dropout_replays_training_output_with_same_key(config):
+@DROPOUT_PROMPT_CONFIGS
+def test_prompt_dropout_replays_training_output_with_same_key(
+    config, tiny_vision_transformer
+):
     prompted = eqft.apply_prompts(
-        TinyVisionTransformer(depth=2),
+        tiny_vision_transformer,
         config,
         key=jr.PRNGKey(0),
     )
@@ -421,8 +407,8 @@ def test_soft_prompt_uses_text_embedding_initialization(tiny_text_encoder):
     assert plan.trainable.base.head.weight is None
 
 
-def test_deep_prompt_config_can_share_across_layers():
-    model = TinyVisionTransformer(depth=2)
+def test_deep_prompt_config_can_share_across_layers(tiny_vision_transformer):
+    model = tiny_vision_transformer
     prompted = eqft.apply_prompts(
         model,
         eqft.PTuningV2Config(num_tokens=2, share_across_layers=True),

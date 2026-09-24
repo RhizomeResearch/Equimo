@@ -5,7 +5,7 @@ import jax.numpy as jnp
 import jax.random as jr
 import pytest
 
-from equimo.core.layers.mamba import Mamba2Mixer, get_mixer, register_mixer
+from equimo.core.layers.mamba import Mamba2Mixer, get_mixer
 from equimo.core.layers.norm import RMSNormGated
 
 # Shared fixtures
@@ -19,26 +19,18 @@ DIM = 64  # dim=64, expand=2 → d_inner=128, head_dim=64 → n_heads=2
 
 
 class TestMamba2Mixer:
-    def test_output_shape(self):
-        mixer = Mamba2Mixer(DIM, key=KEY)
-        x = jr.normal(KEY, (SEQLEN, DIM))
-        assert mixer(x, key=KEY).shape == (SEQLEN, DIM)
-
     def test_output_finite(self):
         mixer = Mamba2Mixer(DIM, key=KEY)
         x = jr.normal(KEY, (SEQLEN, DIM))
         assert jnp.all(jnp.isfinite(mixer(x, key=KEY)))
 
-    def test_bfloat16_input_finite(self):
-        """bfloat16 inputs must not produce NaN/Inf despite exp/softplus ops."""
+    @pytest.mark.parametrize(
+        "dtype", (jnp.bfloat16, jnp.float16), ids=("bfloat16", "float16")
+    )
+    def test_low_precision_input_finite(self, dtype):
+        """Low-precision inputs must not produce NaN/Inf despite exp/softplus ops."""
         mixer = Mamba2Mixer(DIM, key=KEY)
-        x = jr.normal(KEY, (SEQLEN, DIM)).astype(jnp.bfloat16)
-        assert jnp.all(jnp.isfinite(mixer(x, key=KEY)))
-
-    def test_float16_input_finite(self):
-        """float16 inputs must not produce NaN/Inf despite exp/softplus ops."""
-        mixer = Mamba2Mixer(DIM, key=KEY)
-        x = jr.normal(KEY, (SEQLEN, DIM)).astype(jnp.float16)
+        x = jr.normal(KEY, (SEQLEN, DIM)).astype(dtype)
         assert jnp.all(jnp.isfinite(mixer(x, key=KEY)))
 
     def test_bfloat16_params_finite(self):
@@ -108,11 +100,6 @@ class TestMamba2Mixer:
         x = jr.normal(KEY, (SEQLEN, DIM))
         assert mixer(x, key=KEY).shape == (SEQLEN, DIM)
 
-    def test_no_bias(self):
-        mixer = Mamba2Mixer(DIM, use_bias=False, key=KEY)
-        x = jr.normal(KEY, (SEQLEN, DIM))
-        assert jnp.all(jnp.isfinite(mixer(x, key=KEY)))
-
     def test_with_bias(self):
         mixer = Mamba2Mixer(DIM, use_bias=True, key=KEY)
         x = jr.normal(KEY, (SEQLEN, DIM))
@@ -150,58 +137,6 @@ class TestGetMixer:
     def test_string_resolution(self):
         assert get_mixer("mamba2mixer") is Mamba2Mixer
 
-    def test_class_passthrough(self):
-        assert get_mixer(Mamba2Mixer) is Mamba2Mixer
-
     def test_unknown_string_raises(self):
         with pytest.raises(ValueError, match="unknown module string"):
             get_mixer("nonexistent_mixer")
-
-    def test_returned_class_is_instantiable(self):
-        cls = get_mixer("mamba2mixer")
-        mixer = cls(DIM, key=KEY)
-        x = jr.normal(KEY, (SEQLEN, DIM))
-        assert mixer(x, key=KEY).shape == (SEQLEN, DIM)
-
-
-# register_mixer
-
-
-class TestRegisterMixer:
-    def test_register_default_name(self):
-        from equimo.core.layers.mamba import _MIXER_REGISTRY
-
-        @register_mixer()
-        class CustomMixer(eqx.Module):
-            pass
-
-        assert "custommixer" in _MIXER_REGISTRY
-        assert get_mixer("custommixer") is CustomMixer
-
-    def test_register_custom_name(self):
-        from equimo.core.layers.mamba import _MIXER_REGISTRY
-
-        @register_mixer(name="MySpecialMixer")
-        class CustomMixer2(eqx.Module):
-            pass
-
-        assert "myspecialmixer" in _MIXER_REGISTRY
-        assert get_mixer("myspecialmixer") is CustomMixer2
-
-    def test_register_non_eqx_module_raises(self):
-        with pytest.raises(TypeError, match="must be a subclass of eqx.Module"):
-
-            @register_mixer()
-            class NotAModule:
-                pass
-
-    def test_register_duplicate_name_raises(self):
-        @register_mixer()
-        class DuplicateMixer(eqx.Module):
-            pass
-
-        with pytest.raises(ValueError, match="already registered"):
-
-            @register_mixer(name="DuplicateMixer")
-            class AnotherMixer(eqx.Module):
-                pass

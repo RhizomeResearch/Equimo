@@ -1,6 +1,4 @@
 import builtins
-import importlib
-import os
 import wave
 from dataclasses import FrozenInstanceError, asdict, replace
 from types import SimpleNamespace
@@ -13,17 +11,12 @@ from equimo.audio import (
     load_ast_wav,
     preprocess_ast_waveform,
 )
+from _optional import require_extra
 
 AUDIOSPEC = get_ast_preprocessing_spec("ast_base_patch16_audioset_10_10_0_4593")
 SPEECHSPEC = get_ast_preprocessing_spec(
     "ast_base_patch16_speechcommands_v2_10_10_0_9812"
 )
-
-
-def _require_audio_extra():
-    if os.environ.get("EQUIMO_TEST_OPTIONAL_EXTRA") == "audio":
-        return importlib.import_module("torchaudio")
-    return pytest.importorskip("torchaudio")
 
 
 def _tone(sample_rate=16_000, seconds=1.0):
@@ -68,7 +61,7 @@ def test_unknown_variant_names_supported_specs():
 
 
 def test_waveform_happy_path_padding_and_dtype():
-    _require_audio_extra()
+    require_extra("torchaudio", "audio")
     features = preprocess_ast_waveform(_tone(), 16_000, spec=AUDIOSPEC)
 
     assert features.shape == (1024, 128)
@@ -81,7 +74,7 @@ def test_waveform_happy_path_padding_and_dtype():
 
 
 def test_multichannel_policy_averages_channels():
-    _require_audio_extra()
+    require_extra("torchaudio", "audio")
     waveform = _tone()
     stereo = np.stack([waveform, waveform * 0.5])
 
@@ -92,7 +85,7 @@ def test_multichannel_policy_averages_channels():
 
 
 def test_resampling_is_deterministic():
-    _require_audio_extra()
+    require_extra("torchaudio", "audio")
     waveform = _tone(sample_rate=8_000)
 
     first = preprocess_ast_waveform(waveform, 8_000, spec=SPEECHSPEC)
@@ -102,7 +95,7 @@ def test_resampling_is_deterministic():
 
 
 def test_long_waveform_is_truncated_at_frame_boundary():
-    _require_audio_extra()
+    require_extra("torchaudio", "audio")
     waveform = _tone(seconds=2.0)
     samples_for_128_frames = 400 + 127 * 160
 
@@ -152,7 +145,7 @@ def test_missing_audio_extra_has_actionable_error(monkeypatch):
 
 
 def test_load_ast_wav_decodes_pcm16_and_applies_channel_policy(tmp_path):
-    _require_audio_extra()
+    require_extra("torchaudio", "audio")
     waveform = _tone()
     stereo = np.stack([waveform, waveform * 0.5])
     interleaved = np.round(stereo.T * 32767).astype("<i2")

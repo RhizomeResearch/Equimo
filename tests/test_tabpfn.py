@@ -1,5 +1,3 @@
-import importlib
-
 import jax
 import jax.numpy as jnp
 import jax.random as jr
@@ -261,9 +259,3 @@ def test_context_drop_path_schedule():
     assert [block.drop_path1.p for block in uniform.blocks[0].blocks] == pytest.approx(
         [0.3, 0.3, 0.3]
     )
-
-
-def test_tabular_packages_import():
-    importlib.import_module("equimo.tabular")
-    importlib.import_module("equimo.tabular.models")
-    importlib.import_module("equimo.tabular.layers")

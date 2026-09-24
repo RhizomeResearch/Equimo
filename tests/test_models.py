@@ -11,7 +11,6 @@ import pytest
 import equimo.vision.models as em
 from equimo.serialization import load_weights
 from equimo.timeseries.models import t0_alpha
-from equimo.core.layers.activation import get_act
 from equimo.core.layers.rotary import apply_rotary
 from equimo.vision.models.mlla import Mlla
 from equimo.vision.models.partialformer import PartialFormer
@@ -44,14 +43,6 @@ def test_make_drop_path_schedule_linear():
 def test_make_drop_path_schedule_zero_rate():
     schedule = make_drop_path_schedule(0.0, [2, 3])
     assert all(v == pytest.approx(0.0) for v in schedule)
-
-
-def test_get_act_hard_swish():
-    act = get_act("hard_swish")
-    x = jnp.array([-2.0, 0.0, 2.0])
-    out = act(x)
-    assert out.shape == x.shape
-    assert jnp.all(jnp.isfinite(out))
 
 
 # VisionTransformer
@@ -236,13 +227,6 @@ def _small_vision_parcae(**kwargs):
     }
     cfg.update(kwargs)
     return em.VisionParcae(**cfg)
-
-
-def test_vision_parcae_forward():
-    model = _small_vision_parcae()
-    y = model(IMG_64, key=KEY, inference=True)
-    assert y.shape == (NUM_CLASSES,)
-    assert jnp.all(jnp.isfinite(y))
 
 
 def test_vision_parcae_features_and_aux():
@@ -588,14 +572,15 @@ def test_vit5_rope_matches_official_interleaved_reference():
 #   * Switching injector / stabilizer / strategy via kwargs must work.
 
 
-def test_deq_forward():
-    """Default preset (prenorm_add + projected + entry) — full forward pass."""
-    model = em.deq_convnext_t(
-        in_channels=3,
-        num_classes=NUM_CLASSES,
-        key=KEY,
-    )
-    y, auxs = model(IMG_64, key=KEY, inference=True)
+@pytest.fixture(scope="module")
+def deq_model():
+    """Default ``deq_convnext_t`` preset (prenorm_add + projected + entry)."""
+    return em.deq_convnext_t(in_channels=3, num_classes=NUM_CLASSES, key=KEY)
+
+
+def test_deq_forward(deq_model):
+    """Default preset — full forward pass."""
+    y, auxs = deq_model(IMG_64, key=KEY, inference=True)
     assert y.shape == (NUM_CLASSES,)
     assert jnp.all(jnp.isfinite(y))
     assert isinstance(auxs, list)
@@ -635,14 +620,9 @@ def test_deq_features():
     assert len(auxs) == 1
 
 
-def test_deq_aux_structure():
+def test_deq_aux_structure(deq_model):
     """Aux dict must expose everything downstream regularizers need."""
-    model = em.deq_convnext_t(
-        in_channels=3,
-        num_classes=NUM_CLASSES,
-        key=KEY,
-    )
-    _, auxs = model(IMG_64, key=KEY, inference=True)
+    _, auxs = deq_model(IMG_64, key=KEY, inference=True)
     aux = auxs[0]
     for k in ("z_star", "trajectory", "depth", "error", "key", "x_context", "z0"):
         assert k in aux, f"aux dict missing required key: {k}"
@@ -690,7 +670,7 @@ def test_deq_fixed_point_consistency():
     assert rel < 1e-2, f"|f(z*) - z*| / |z*| = {rel:.2e}"
 
 
-def test_deq_gradients_finite_and_nonzero():
+def test_deq_gradients_finite_and_nonzero(deq_model):
     """Backward pass through DEQ must produce finite, non-zero gradients.
 
     This is the canonical DEQ smoke test: if the implicit-differentiation
@@ -698,39 +678,30 @@ def test_deq_gradients_finite_and_nonzero():
     """
     import equinox as eqx
 
-    model = em.deq_convnext_t(
-        in_channels=3,
-        num_classes=NUM_CLASSES,
-        key=KEY,
-    )
-
     def loss_fn(m, x):
         y, _ = m(x, key=KEY, inference=True)
         return jnp.mean(y**2)
 
-    grads = eqx.filter_grad(loss_fn)(model, IMG_64)
+    grads = eqx.filter_grad(loss_fn)(deq_model, IMG_64)
     leaves = jax.tree_util.tree_leaves(eqx.filter(grads, eqx.is_array))
     assert len(leaves) > 0
     assert all(jnp.all(jnp.isfinite(g)) for g in leaves), "NaN/Inf in gradients"
     assert any(jnp.any(g != 0) for g in leaves), "All-zero gradients"
 
 
-def test_deq_determinism_same_key():
+def test_deq_determinism_same_key(deq_model):
     """Same input and same key must produce the same output.
 
     Non-determinism here would mean the fixed point does not exist.
     """
-    model = em.deq_convnext_t(in_channels=3, num_classes=NUM_CLASSES, key=KEY)
-    y1, _ = model(IMG_64, key=KEY, inference=True)
-    y2, _ = model(IMG_64, key=KEY, inference=True)
+    y1, _ = deq_model(IMG_64, key=KEY, inference=True)
+    y2, _ = deq_model(IMG_64, key=KEY, inference=True)
     assert jnp.allclose(y1, y2)
 
 
 @pytest.mark.parametrize(
     "injector,stabilizer,strategy",
     [
-        # Preset default: pre-norm injection + GroupNorm projection.
-        ("prenorm_add", "projected", "entry"),
         # Pre-norm + damped projection.
         ("prenorm_add", "damped_projected", "entry"),
         # Projection stabilizer alone bounds the iterate even with trivial injection.
@@ -773,34 +744,30 @@ def test_deq_injector_stabilizer_strategy_combos(injector, stabilizer, strategy)
     assert int(auxs[0]["depth"]) < 50
 
 
-def test_deq_blocks_is_tuple():
+def test_deq_blocks_is_tuple(deq_model):
     """Structural invariant: BlockChunk.blocks must be a pytree-friendly tuple."""
-    model = em.deq_convnext_t(in_channels=3, num_classes=NUM_CLASSES, key=KEY)
-    assert isinstance(model.blocks, tuple)
+    assert isinstance(deq_model.blocks, tuple)
 
 
-def test_deq_jit_compatible():
+def test_deq_jit_compatible(deq_model):
     """The model must trace cleanly under filter_jit."""
     import equinox as eqx
-
-    model = em.deq_convnext_t(in_channels=3, num_classes=NUM_CLASSES, key=KEY)
 
     @eqx.filter_jit
     def forward(m, x, k):
         y, _ = m(x, key=k, inference=True)
         return y
 
-    y = forward(model, IMG_64, KEY)
+    y = forward(deq_model, IMG_64, KEY)
     assert y.shape == (NUM_CLASSES,)
     assert jnp.all(jnp.isfinite(y))
 
 
-def test_deq_get_fpi_cells():
+def test_deq_get_fpi_cells(deq_model):
     """get_fpi_cells() must return a tuple of DEQCell instances."""
     from equimo.core.implicit import DEQCell
 
-    model = em.deq_convnext_t(in_channels=3, num_classes=NUM_CLASSES, key=KEY)
-    cells = model.get_fpi_cells()
+    cells = deq_model.get_fpi_cells()
 
     assert isinstance(cells, tuple)
     assert len(cells) == 1

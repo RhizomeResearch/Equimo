@@ -222,8 +222,15 @@ def test_dora_merge_removes_wrappers_and_preserves_outputs(tiny_vision_transform
         ),
         key=jr.PRNGKey(0),
     )
+    # A nonzero low-rank update, so the merge has a delta to fold.
+    model = eqx.tree_at(
+        lambda m: m.blocks[0].attn.proj.lora_B,
+        model,
+        jnp.full_like(model.blocks[0].attn.proj.lora_B, 0.1),
+    )
 
     merged = eqft.merge_dora(model)
 
     assert not isinstance(merged.blocks[0].attn.proj, eqft.DoRALinear)
+    assert not jnp.allclose(model(x), tiny_vision_transformer(x), atol=1e-6)
     assert jnp.allclose(model(x), merged(x), atol=1e-6)

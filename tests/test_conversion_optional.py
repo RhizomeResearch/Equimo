@@ -1,6 +1,5 @@
 import importlib
 import importlib.util
-import os
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -12,16 +11,11 @@ import numpy as np
 import pytest
 
 from equimo.conversion.utils import convert_params_from_torch
+from _optional import require_extra
 
 
 def _require_torch_extra():
-    modules = []
-    for module in ("torch", "timm"):
-        if os.environ.get("EQUIMO_TEST_OPTIONAL_EXTRA") == "torch":
-            modules.append(importlib.import_module(module))
-        else:
-            modules.append(pytest.importorskip(module))
-    return modules
+    return [require_extra(module, "torch") for module in ("torch", "timm")]
 
 
 def test_convert_tiny_torch_linear():

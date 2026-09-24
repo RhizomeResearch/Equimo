@@ -14,13 +14,13 @@ from equimo.core.layers.attention import (
 from equimo.core.layers.attention import _ATTN_REGISTRY as CORE_ATTENTION
 from equimo.core.layers.attention import get_attn, get_attn_block
 from equimo.core.layers.dropout import _DROPOUT_REGISTRY as CORE_DROPOUT
-from equimo.core.layers.dropout import get_dropout
+from equimo.core.layers.dropout import get_dropout, register_dropout
 from equimo.core.layers.ffn import _FFN_REGISTRY as CORE_FFN
-from equimo.core.layers.ffn import get_ffn
+from equimo.core.layers.ffn import get_ffn, register_ffn
 from equimo.core.layers.mamba import _MIXER_REGISTRY as CORE_MIXERS
-from equimo.core.layers.mamba import get_mixer
+from equimo.core.layers.mamba import get_mixer, register_mixer
 from equimo.core.layers.norm import _NORM_REGISTRY as CORE_NORMS
-from equimo.core.layers.norm import get_norm
+from equimo.core.layers.norm import get_norm, register_norm
 from equimo.tabular.layers.attention import _ATTN_REGISTRY as TABULAR_ATTENTION
 from equimo.tabular.layers.attention import get_attn as get_tabular_attn
 from equimo.tabular.layers.blocks import (
@@ -47,15 +47,16 @@ from equimo.vision.layers.convolution import get_conv
 from equimo.vision.layers.downsample import (
     _DOWNSAMPLER_REGISTRY as VISION_DOWNSAMPLERS,
 )
-from equimo.vision.layers.downsample import get_downsampler
+from equimo.vision.layers.downsample import get_downsampler, register_downsampler
 from equimo.vision.layers.patch import _PATCH_REGISTRY as VISION_PATCHES
 from equimo.vision.layers.patch import get_patch as get_vision_patch
+from equimo.vision.layers.patch import register_patch as register_vision_patch
 from equimo.vision.layers.posemb import _POSEMB_REGISTRY as VISION_POSITIONAL
-from equimo.vision.layers.posemb import get_posemb
+from equimo.vision.layers.posemb import get_posemb, register_posemb
 from equimo.vision.layers.squeeze_excite import _SE_REGISTRY as VISION_SE
-from equimo.vision.layers.squeeze_excite import get_se
+from equimo.vision.layers.squeeze_excite import get_se, register_se
 from equimo.vision.layers.wavelet import _WAVELET_REGISTRY as VISION_WAVELETS
-from equimo.vision.layers.wavelet import get_wavelet
+from equimo.vision.layers.wavelet import get_wavelet, register_wavelet
 
 
 @dataclass(frozen=True)
@@ -63,26 +64,36 @@ class LayerRegistryCase:
     scope: str
     registry: Mapping[str, Any]
     resolve: Callable[[Any], Any]
+    register: Callable[..., Callable[[type], type]] | None = None
 
 
 LAYER_REGISTRY_CASES = (
     LayerRegistryCase("core-activation", CORE_ACTIVATIONS, get_act),
     LayerRegistryCase("core-attention", CORE_ATTENTION, get_attn),
     LayerRegistryCase("core-attention-block", CORE_ATTENTION_BLOCKS, get_attn_block),
-    LayerRegistryCase("core-dropout", CORE_DROPOUT, get_dropout),
-    LayerRegistryCase("core-ffn", CORE_FFN, get_ffn),
-    LayerRegistryCase("core-mixer", CORE_MIXERS, get_mixer),
-    LayerRegistryCase("core-norm", CORE_NORMS, get_norm),
+    LayerRegistryCase("core-dropout", CORE_DROPOUT, get_dropout, register_dropout),
+    LayerRegistryCase("core-ffn", CORE_FFN, get_ffn, register_ffn),
+    LayerRegistryCase("core-mixer", CORE_MIXERS, get_mixer, register_mixer),
+    LayerRegistryCase("core-norm", CORE_NORMS, get_norm, register_norm),
     LayerRegistryCase("vision-attention", VISION_ATTENTION, get_vision_attn),
     LayerRegistryCase(
         "vision-attention-block", VISION_ATTENTION_BLOCKS, get_vision_attn_block
     ),
     LayerRegistryCase("vision-convolution", VISION_CONVOLUTIONS, get_conv),
-    LayerRegistryCase("vision-downsampler", VISION_DOWNSAMPLERS, get_downsampler),
-    LayerRegistryCase("vision-patch", VISION_PATCHES, get_vision_patch),
-    LayerRegistryCase("vision-positional", VISION_POSITIONAL, get_posemb),
-    LayerRegistryCase("vision-squeeze-excite", VISION_SE, get_se),
-    LayerRegistryCase("vision-wavelet", VISION_WAVELETS, get_wavelet),
+    LayerRegistryCase(
+        "vision-downsampler",
+        VISION_DOWNSAMPLERS,
+        get_downsampler,
+        register_downsampler,
+    ),
+    LayerRegistryCase(
+        "vision-patch", VISION_PATCHES, get_vision_patch, register_vision_patch
+    ),
+    LayerRegistryCase(
+        "vision-positional", VISION_POSITIONAL, get_posemb, register_posemb
+    ),
+    LayerRegistryCase("vision-squeeze-excite", VISION_SE, get_se, register_se),
+    LayerRegistryCase("vision-wavelet", VISION_WAVELETS, get_wavelet, register_wavelet),
     LayerRegistryCase("audio-patch", AUDIO_PATCHES, get_audio_patch),
     LayerRegistryCase("tabular-attention", TABULAR_ATTENTION, get_tabular_attn),
     LayerRegistryCase(

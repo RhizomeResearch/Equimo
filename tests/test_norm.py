@@ -14,7 +14,6 @@ from equimo.core.layers.norm import (
     RMSNorm2d,
     RMSNormGated,
     get_norm,
-    register_norm,
 )
 
 # Shared fixtures
@@ -32,11 +31,6 @@ class TestRMSNormGated:
         layer = RMSNormGated(DIM)
         x = jr.normal(KEY, (DIM,))
         assert layer(x).shape == (DIM,)
-
-    def test_output_finite(self):
-        layer = RMSNormGated(DIM)
-        x = jr.normal(KEY, (DIM,))
-        assert jnp.all(jnp.isfinite(layer(x)))
 
     def test_gating_none_vs_ones_are_equal(self):
         """No gate and a gate of ones must produce the same output."""
@@ -76,18 +70,14 @@ class TestRMSNormGated:
         x = jr.normal(KEY, (DIM,))
         assert jnp.all(jnp.isfinite(layer(x)))
 
-    def test_dtype_preserved_bfloat16(self):
+    @pytest.mark.parametrize(
+        "dtype", (jnp.bfloat16, jnp.float16), ids=("bfloat16", "float16")
+    )
+    def test_dtype_preserved(self, dtype):
         layer = RMSNormGated(DIM)
-        x = jr.normal(KEY, (DIM,)).astype(jnp.bfloat16)
+        x = jr.normal(KEY, (DIM,)).astype(dtype)
         out = layer(x)
-        assert out.dtype == jnp.bfloat16
-        assert jnp.all(jnp.isfinite(out))
-
-    def test_dtype_preserved_float16(self):
-        layer = RMSNormGated(DIM)
-        x = jr.normal(KEY, (DIM,)).astype(jnp.float16)
-        out = layer(x)
-        assert out.dtype == jnp.float16
+        assert out.dtype == dtype
         assert jnp.all(jnp.isfinite(out))
 
 
@@ -131,18 +121,14 @@ class TestLayerScale:
         with pytest.raises(ValueError, match="Channel mismatch"):
             layer(x)
 
-    def test_dtype_preserved_bfloat16(self):
+    @pytest.mark.parametrize(
+        "dtype", (jnp.bfloat16, jnp.float16), ids=("bfloat16", "float16")
+    )
+    def test_dtype_preserved(self, dtype):
         layer = LayerScale(DIM)
-        x = jr.normal(KEY, (DIM,)).astype(jnp.bfloat16)
+        x = jr.normal(KEY, (DIM,)).astype(dtype)
         out = layer(x)
-        assert out.dtype == jnp.bfloat16
-        assert jnp.all(jnp.isfinite(out))
-
-    def test_dtype_preserved_float16(self):
-        layer = LayerScale(DIM)
-        x = jr.normal(KEY, (DIM,)).astype(jnp.float16)
-        out = layer(x)
-        assert out.dtype == jnp.float16
+        assert out.dtype == dtype
         assert jnp.all(jnp.isfinite(out))
 
     def test_custom_gamma_dtype(self):
@@ -161,11 +147,6 @@ class TestDyT:
         layer = DyT(DIM)
         x = jr.normal(KEY, (DIM,))
         assert layer(x).shape == (DIM,)
-
-    def test_output_finite(self):
-        layer = DyT(DIM)
-        x = jr.normal(KEY, (DIM,))
-        assert jnp.all(jnp.isfinite(layer(x)))
 
     def test_alpha_zero_gives_bias(self):
         """alpha=0 → tanh(0)=0 → output = 0 * weight + bias = bias."""
@@ -192,18 +173,14 @@ class TestDyT:
         expected = jnp.tanh(layer.alpha * x) * layer.weight + layer.bias
         assert jnp.allclose(layer(x), expected, atol=1e-6)
 
-    def test_dtype_preserved_bfloat16(self):
+    @pytest.mark.parametrize(
+        "dtype", (jnp.bfloat16, jnp.float16), ids=("bfloat16", "float16")
+    )
+    def test_dtype_preserved(self, dtype):
         layer = DyT(DIM)
-        x = jr.normal(KEY, (DIM,)).astype(jnp.bfloat16)
+        x = jr.normal(KEY, (DIM,)).astype(dtype)
         out = layer(x)
-        assert out.dtype == jnp.bfloat16
-        assert jnp.all(jnp.isfinite(out))
-
-    def test_dtype_preserved_float16(self):
-        layer = DyT(DIM)
-        x = jr.normal(KEY, (DIM,)).astype(jnp.float16)
-        out = layer(x)
-        assert out.dtype == jnp.float16
+        assert out.dtype == dtype
         assert jnp.all(jnp.isfinite(out))
 
     def test_large_input_stays_finite(self):
@@ -236,11 +213,6 @@ class TestRMSNorm2d:
         layer = RMSNorm2d(C, affine=False)
         assert layer.weight is None
 
-    def test_no_affine_output_finite(self):
-        layer = RMSNorm2d(C, affine=False)
-        x = jr.normal(KEY, (C, H, W))
-        assert jnp.all(jnp.isfinite(layer(x)))
-
     def test_rms_normalization_property(self):
         """Without affine, mean of squared output over channels ≈ 1 at each (h, w)."""
         layer = RMSNorm2d(C, affine=False)
@@ -255,18 +227,14 @@ class TestRMSNorm2d:
         x = jr.normal(KEY, (C, H, W))
         assert jnp.all(jnp.isfinite(layer(x)))
 
-    def test_dtype_preserved_bfloat16(self):
+    @pytest.mark.parametrize(
+        "dtype", (jnp.bfloat16, jnp.float16), ids=("bfloat16", "float16")
+    )
+    def test_dtype_preserved(self, dtype):
         layer = RMSNorm2d(C)
-        x = jr.normal(KEY, (C, H, W)).astype(jnp.bfloat16)
+        x = jr.normal(KEY, (C, H, W)).astype(dtype)
         out = layer(x)
-        assert out.dtype == jnp.bfloat16
-        assert jnp.all(jnp.isfinite(out))
-
-    def test_dtype_preserved_float16(self):
-        layer = RMSNorm2d(C)
-        x = jr.normal(KEY, (C, H, W)).astype(jnp.float16)
-        out = layer(x)
-        assert out.dtype == jnp.float16
+        assert out.dtype == dtype
         assert jnp.all(jnp.isfinite(out))
 
 
@@ -294,11 +262,6 @@ class TestLayerNorm2d:
         assert layer.weight is None
         assert layer.bias is None
 
-    def test_no_affine_output_finite(self):
-        layer = LayerNorm2d(C, affine=False)
-        x = jr.normal(KEY, (C, H, W))
-        assert jnp.all(jnp.isfinite(layer(x)))
-
     def test_mean_zero_property(self):
         """Without affine, mean over channels must be ≈ 0 at each spatial location."""
         layer = LayerNorm2d(C, affine=False)
@@ -321,18 +284,14 @@ class TestLayerNorm2d:
         x = jr.normal(KEY, (C, H, W))
         assert jnp.all(jnp.isfinite(layer(x)))
 
-    def test_dtype_preserved_bfloat16(self):
+    @pytest.mark.parametrize(
+        "dtype", (jnp.bfloat16, jnp.float16), ids=("bfloat16", "float16")
+    )
+    def test_dtype_preserved(self, dtype):
         layer = LayerNorm2d(C)
-        x = jr.normal(KEY, (C, H, W)).astype(jnp.bfloat16)
+        x = jr.normal(KEY, (C, H, W)).astype(dtype)
         out = layer(x)
-        assert out.dtype == jnp.bfloat16
-        assert jnp.all(jnp.isfinite(out))
-
-    def test_dtype_preserved_float16(self):
-        layer = LayerNorm2d(C)
-        x = jr.normal(KEY, (C, H, W)).astype(jnp.float16)
-        out = layer(x)
-        assert out.dtype == jnp.float16
+        assert out.dtype == dtype
         assert jnp.all(jnp.isfinite(out))
 
 
@@ -397,67 +356,6 @@ class TestGetNorm:
     def test_string_resolution(self, name, expected):
         assert get_norm(name) is expected
 
-    def test_class_passthrough(self):
-        assert get_norm(RMSNormGated) is RMSNormGated
-
-    def test_class_passthrough_builtin(self):
-        assert get_norm(eqx.nn.LayerNorm) is eqx.nn.LayerNorm
-
     def test_unknown_string_raises(self):
         with pytest.raises(ValueError, match="unknown module string"):
             get_norm("nonexistent_norm")
-
-    def test_returned_class_is_instantiable_rmsnormgated(self):
-        cls = get_norm("rmsnormgated")
-        layer = cls(DIM)
-        x = jr.normal(KEY, (DIM,))
-        assert layer(x).shape == (DIM,)
-
-    def test_returned_class_is_instantiable_layernorm2d(self):
-        cls = get_norm("layernorm2d")
-        layer = cls(C)
-        x = jr.normal(KEY, (C, H, W))
-        assert layer(x).shape == (C, H, W)
-
-
-# register_norm
-
-
-class TestRegisterNorm:
-    def test_register_default_name(self):
-        from equimo.core.layers.norm import _NORM_REGISTRY
-
-        @register_norm()
-        class MyCustomNorm(eqx.Module):
-            pass
-
-        assert "mycustomnorm" in _NORM_REGISTRY
-        assert get_norm("mycustomnorm") is MyCustomNorm
-
-    def test_register_custom_name(self):
-        from equimo.core.layers.norm import _NORM_REGISTRY
-
-        @register_norm(name="SuperNorm42")
-        class AnotherNorm(eqx.Module):
-            pass
-
-        assert "supernorm42" in _NORM_REGISTRY
-        assert get_norm("supernorm42") is AnotherNorm
-
-    def test_register_non_eqx_module_raises(self):
-        with pytest.raises(TypeError, match="must be a subclass of eqx.Module"):
-
-            @register_norm()
-            class NotAModule:
-                pass
-
-    def test_register_duplicate_name_raises(self):
-        @register_norm()
-        class UniqueName(eqx.Module):
-            pass
-
-        with pytest.raises(ValueError, match="already registered"):
-
-            @register_norm(name="UniqueName")
-            class AnotherOne(eqx.Module):
-                pass

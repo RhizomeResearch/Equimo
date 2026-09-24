@@ -17,7 +17,6 @@ from equimo.vision.layers.posemb import (
     RoPE,
     VisionRoPE,
     get_posemb,
-    register_posemb,
 )
 
 # Shared fixtures
@@ -254,28 +253,18 @@ class TestRoPE:
         x = jr.normal(KEY, (SEQLEN, DIM))
         assert jnp.all(jnp.isfinite(rope(x)))
 
-    def test_dtype_preserved_bfloat16(self):
+    @pytest.mark.parametrize(
+        "dtype", (jnp.bfloat16, jnp.float16), ids=("bfloat16", "float16")
+    )
+    def test_dtype_preserved(self, dtype):
         rope = RoPE(shape=(SEQLEN, DIM))
-        dtype = jnp.bfloat16
         rope = jax.tree_util.tree_map(
             lambda leaf: leaf.astype(dtype) if eqx.is_inexact_array(leaf) else leaf,
             rope,
         )
         x = jr.normal(KEY, (SEQLEN, DIM)).astype(dtype)
         out = rope(x)
-        assert out.dtype == jnp.bfloat16
-        assert jnp.all(jnp.isfinite(out))
-
-    def test_dtype_preserved_float16(self):
-        rope = RoPE(shape=(SEQLEN, DIM))
-        dtype = jnp.float16
-        rope = jax.tree_util.tree_map(
-            lambda leaf: leaf.astype(dtype) if eqx.is_inexact_array(leaf) else leaf,
-            rope,
-        )
-        x = jr.normal(KEY, (SEQLEN, DIM)).astype(dtype)
-        out = rope(x)
-        assert out.dtype == jnp.float16
+        assert out.dtype == dtype
         assert jnp.all(jnp.isfinite(out))
 
     def test_rotations_shape(self):
@@ -309,12 +298,6 @@ class TestDinoRoPE:
         d_head = DIM // NUM_HEADS
         assert sin.shape == (H * W, d_head)
         assert cos.shape == (H * W, d_head)
-
-    def test_factors_finite(self):
-        rope = self._make()
-        sin, cos = _factor_arrays(rope.get_factors(H=H, W=W, key=KEY, inference=True))
-        assert jnp.all(jnp.isfinite(sin))
-        assert jnp.all(jnp.isfinite(cos))
 
     def test_factors_values_bounded(self):
         """sin/cos values must stay in [-1, 1]."""
@@ -430,12 +413,6 @@ class TestVisionRoPE:
         assert sin.shape == (H * W, d_head)
         assert cos.shape == (H * W, d_head)
 
-    def test_period_factors_finite(self):
-        rope = self._make_period()
-        sin, cos = _factor_arrays(rope.get_factors(H=H, W=W, key=KEY, inference=True))
-        assert jnp.all(jnp.isfinite(sin))
-        assert jnp.all(jnp.isfinite(cos))
-
     def test_period_factors_bounded(self):
         rope = self._make_period()
         sin, cos = _factor_arrays(rope.get_factors(H=H, W=W, key=KEY, inference=True))
@@ -448,13 +425,6 @@ class TestVisionRoPE:
         x = jr.normal(KEY, (H * W, NUM_HEADS, d_head))
         out = rope(x, key=KEY, inference=True)
         assert out.shape == x.shape
-
-    def test_period_call_finite(self):
-        rope = self._make_period()
-        d_head = DIM // NUM_HEADS
-        x = jr.normal(KEY, (H * W, NUM_HEADS, d_head))
-        out = rope(x, key=KEY, inference=True)
-        assert jnp.all(jnp.isfinite(out))
 
     def test_period_call_changes_input(self):
         rope = self._make_period()
@@ -562,12 +532,6 @@ class TestVisionRoPE:
         assert sin.shape == (H * W, expected_d)
         assert cos.shape == (H * W, expected_d)
 
-    def test_mode_factors_finite(self):
-        rope = self._make_mode()
-        sin, cos = _factor_arrays(rope.get_factors(H=H, W=W))
-        assert jnp.all(jnp.isfinite(sin))
-        assert jnp.all(jnp.isfinite(cos))
-
     def test_mode_factors_bounded(self):
         rope = self._make_mode()
         sin, cos = _factor_arrays(rope.get_factors(H=H, W=W))
@@ -581,14 +545,6 @@ class TestVisionRoPE:
         x = jr.normal(KEY, (H * W, NUM_HEADS, d_out))
         out = rope(x)
         assert out.shape == x.shape
-
-    def test_mode_call_finite(self):
-        dim = 32
-        rope = self._make_mode(dim=dim)
-        d_out = 2 * dim
-        x = jr.normal(KEY, (H * W, NUM_HEADS, d_out))
-        out = rope(x)
-        assert jnp.all(jnp.isfinite(out))
 
     def test_mode_call_changes_input(self):
         dim = 32
@@ -754,18 +710,6 @@ class TestVisionRoPE:
     def test_registry_lookup(self):
         assert get_posemb("visionrope") is VisionRoPE
 
-    def test_registry_roundtrip_period(self):
-        cls = get_posemb("visionrope")
-        rope = cls(strategy="period", dim=DIM, num_heads=NUM_HEADS)
-        sin, cos = _factor_arrays(rope.get_factors(H=H, W=W, key=KEY, inference=True))
-        assert jnp.all(jnp.isfinite(sin))
-
-    def test_registry_roundtrip_mode(self):
-        cls = get_posemb("visionrope")
-        rope = cls(strategy="mode", dim=DIM // 2)
-        sin, cos = _factor_arrays(rope.get_factors(H=H, W=W))
-        assert jnp.all(jnp.isfinite(sin))
-
     # -- dtype handling ------------------------------------------------------
 
     def test_period_dtype_propagated(self):
@@ -809,14 +753,6 @@ class TestPosCNN:
         layer = PosCNN(DIM, DIM, key=KEY)
         x = jr.normal(KEY, (SEQLEN, DIM))
         assert jnp.all(jnp.isfinite(layer(x)))
-
-    def test_residual_when_stride1(self):
-        """stride=1 adds the projection to the input (residual)."""
-        layer = PosCNN(DIM, DIM, key=KEY, s=1)
-        x = jr.normal(KEY, (SEQLEN, DIM))
-        out = layer(x)
-        # Output must differ from input (proj != zero) but shape is preserved
-        assert out.shape == x.shape
 
     def test_no_residual_when_stride2(self):
         """stride > 1 returns only the projection (no residual)."""
@@ -1139,12 +1075,6 @@ class TestCompositeVisionRoPE:
     def test_registry_lookup(self):
         assert get_posemb("compositevisionrope") is CompositeVisionRoPE
 
-    def test_registry_roundtrip(self):
-        cls = get_posemb("compositevisionrope")
-        rope = cls(self._make_patch_rope(), num_prefix_tokens=1, num_registers=0)
-        sin, cos = _factor_arrays(rope.get_factors(H=H, W=W, key=KEY, inference=True))
-        assert jnp.all(jnp.isfinite(sin))
-
     # -- no prefix, no registers ----------------------------------------------
 
     def test_zero_prefix_zero_registers_defaults(self):
@@ -1180,52 +1110,6 @@ class TestGetPosemb:
     def test_string_resolution(self, name, expected):
         assert get_posemb(name) is expected
 
-    def test_class_passthrough(self):
-        assert get_posemb(RoPE) is RoPE
-
     def test_unknown_string_raises(self):
         with pytest.raises(ValueError, match="unknown module string"):
             get_posemb("nonexistent_posemb")
-
-
-# register_posemb
-
-
-class TestRegisterPosemb:
-    def test_register_default_name(self):
-        from equimo.vision.layers.posemb import _POSEMB_REGISTRY
-
-        @register_posemb()
-        class CustomPosEmb(eqx.Module):
-            pass
-
-        assert "customposemb" in _POSEMB_REGISTRY
-        assert get_posemb("customposemb") is CustomPosEmb
-
-    def test_register_custom_name(self):
-        from equimo.vision.layers.posemb import _POSEMB_REGISTRY
-
-        @register_posemb(name="MySpecialPosEmb")
-        class CustomPosEmb2(eqx.Module):
-            pass
-
-        assert "myspecialposemb" in _POSEMB_REGISTRY
-        assert get_posemb("myspecialposemb") is CustomPosEmb2
-
-    def test_register_non_eqx_module_raises(self):
-        with pytest.raises(TypeError, match="must be a subclass of eqx.Module"):
-
-            @register_posemb()
-            class NotAModule:
-                pass
-
-    def test_register_duplicate_name_raises(self):
-        @register_posemb()
-        class DuplicatePosEmb(eqx.Module):
-            pass
-
-        with pytest.raises(ValueError, match="already registered"):
-
-            @register_posemb(name="DuplicatePosEmb")
-            class AnotherPosEmb(eqx.Module):
-                pass

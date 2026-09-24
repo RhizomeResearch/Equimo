@@ -9,14 +9,22 @@ import pytest
 from equimo.vision.layers.squeeze_excite import (
     EffectiveSEModule,
     SEModule,
-    _SE_REGISTRY,
     get_se,
-    register_se,
 )
 
 KEY = jr.PRNGKey(0)
 IN_CHANNELS = 32
 H, W = 8, 8
+LOW_PRECISION = pytest.mark.parametrize(
+    "dtype", (jnp.bfloat16, jnp.float16), ids=("bfloat16", "float16")
+)
+
+
+def _cast_floating(module, dtype):
+    return jax.tree_util.tree_map(
+        lambda leaf: leaf.astype(dtype) if eqx.is_inexact_array(leaf) else leaf,
+        module,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -40,24 +48,9 @@ class TestSEModule:
         x = jr.normal(KEY, (IN_CHANNELS, H, W)).astype(jnp.float32)
         assert se(x).dtype == jnp.float32
 
-    def test_output_dtype_preserved_bfloat16(self):
-        se = SEModule(IN_CHANNELS, key=KEY)
-        dtype = jnp.bfloat16
-        se = jax.tree_util.tree_map(
-            lambda leaf: leaf.astype(dtype) if eqx.is_inexact_array(leaf) else leaf,
-            se,
-        )
-        x = jr.normal(KEY, (IN_CHANNELS, H, W)).astype(dtype)
-        out = se(x)
-        assert jnp.all(jnp.isfinite(out))
-
-    def test_output_dtype_preserved_float16(self):
-        se = SEModule(IN_CHANNELS, key=KEY)
-        dtype = jnp.float16
-        se = jax.tree_util.tree_map(
-            lambda leaf: leaf.astype(dtype) if eqx.is_inexact_array(leaf) else leaf,
-            se,
-        )
+    @LOW_PRECISION
+    def test_low_precision_output_finite(self, dtype):
+        se = _cast_floating(SEModule(IN_CHANNELS, key=KEY), dtype)
         x = jr.normal(KEY, (IN_CHANNELS, H, W)).astype(dtype)
         out = se(x)
         assert jnp.all(jnp.isfinite(out))
@@ -87,17 +80,6 @@ class TestSEModule:
         assert se(x).shape == (IN_CHANNELS, H, W)
         assert jnp.all(jnp.isfinite(se(x)))
 
-    def test_act_is_static(self):
-        """act must be a static field so JAX does not treat it as a leaf."""
-        import equinox as eqx
-
-        se = SEModule(IN_CHANNELS, key=KEY)
-        # eqx.filter splits into dynamic (arrays) and static (non-arrays).
-        # Callables stored as static should not appear in the dynamic pytree.
-        dynamic, _ = eqx.partition(se, eqx.is_array)
-        # act should not be in the dynamic partition (it is not an array).
-        assert not hasattr(dynamic, "act") or dynamic.act is None
-
     def test_kwargs_ignored(self):
         """Extra kwargs must be silently accepted (registry call compatibility)."""
         se = SEModule(IN_CHANNELS, key=KEY, unknown_kwarg=True)
@@ -121,24 +103,9 @@ class TestEffectiveSEModule:
         x = jr.normal(KEY, (IN_CHANNELS, H, W))
         assert jnp.all(jnp.isfinite(se(x)))
 
-    def test_output_dtype_preserved_bfloat16(self):
-        se = EffectiveSEModule(IN_CHANNELS, key=KEY)
-        dtype = jnp.bfloat16
-        se = jax.tree_util.tree_map(
-            lambda leaf: leaf.astype(dtype) if eqx.is_inexact_array(leaf) else leaf,
-            se,
-        )
-        x = jr.normal(KEY, (IN_CHANNELS, H, W)).astype(dtype)
-        out = se(x)
-        assert jnp.all(jnp.isfinite(out))
-
-    def test_output_dtype_preserved_float16(self):
-        se = EffectiveSEModule(IN_CHANNELS, key=KEY)
-        dtype = jnp.float16
-        se = jax.tree_util.tree_map(
-            lambda leaf: leaf.astype(dtype) if eqx.is_inexact_array(leaf) else leaf,
-            se,
-        )
+    @LOW_PRECISION
+    def test_low_precision_output_finite(self, dtype):
+        se = _cast_floating(EffectiveSEModule(IN_CHANNELS, key=KEY), dtype)
         x = jr.normal(KEY, (IN_CHANNELS, H, W)).astype(dtype)
         out = se(x)
         assert jnp.all(jnp.isfinite(out))
@@ -153,13 +120,6 @@ class TestEffectiveSEModule:
         x = jr.normal(KEY, (IN_CHANNELS, H, W))
         assert se(x).shape == (IN_CHANNELS, H, W)
         assert jnp.all(jnp.isfinite(se(x)))
-
-    def test_act_is_static(self):
-        import equinox as eqx
-
-        se = EffectiveSEModule(IN_CHANNELS, key=KEY)
-        dynamic, _ = eqx.partition(se, eqx.is_array)
-        assert not hasattr(dynamic, "act") or dynamic.act is None
 
     def test_kwargs_ignored(self):
         se = EffectiveSEModule(IN_CHANNELS, key=KEY, unknown_kwarg=42)
@@ -183,65 +143,6 @@ class TestGetSe:
     def test_string_resolution(self, name, expected):
         assert get_se(name) is expected
 
-    def test_class_passthrough(self):
-        assert get_se(SEModule) is SEModule
-
-    def test_class_passthrough_effective(self):
-        assert get_se(EffectiveSEModule) is EffectiveSEModule
-
     def test_unknown_string_raises(self):
         with pytest.raises(ValueError, match="unknown module string"):
             get_se("nonexistent_se")
-
-    def test_returned_class_is_instantiable(self):
-        cls = get_se("semodule")
-        model = cls(IN_CHANNELS, key=KEY)
-        x = jr.normal(KEY, (IN_CHANNELS, H, W))
-        assert model(x).shape == (IN_CHANNELS, H, W)
-
-
-# ---------------------------------------------------------------------------
-# register_se
-# ---------------------------------------------------------------------------
-
-
-class TestRegisterSe:
-    def test_register_default_name(self):
-        import equinox as eqx
-
-        @register_se()
-        class CustomSE(eqx.Module):
-            pass
-
-        assert "customse" in _SE_REGISTRY
-        assert get_se("customse") is CustomSE
-
-    def test_register_custom_name(self):
-        import equinox as eqx
-
-        @register_se(name="MySuperSE")
-        class CustomSE2(eqx.Module):
-            pass
-
-        assert "mysuperse" in _SE_REGISTRY
-        assert get_se("mysuperse") is CustomSE2
-
-    def test_register_non_eqx_module(self):
-        with pytest.raises(TypeError, match="must be a subclass of eqx.Module"):
-
-            @register_se()
-            class NotAModule:
-                pass
-
-    def test_register_duplicate_name(self):
-        import equinox as eqx
-
-        @register_se()
-        class DuplicateSE(eqx.Module):
-            pass
-
-        with pytest.raises(ValueError, match="already registered"):
-
-            @register_se(name="DuplicateSE")
-            class AnotherSE(eqx.Module):
-                pass

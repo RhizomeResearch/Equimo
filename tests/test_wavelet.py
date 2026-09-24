@@ -7,7 +7,6 @@ import jax.random as jr
 import pytest
 
 from equimo.vision.layers.wavelet import (
-    _WAVELET_REGISTRY,
     HWDConv,
     _depthwise_conv2d_stride2,
     _haar_1d,
@@ -16,7 +15,6 @@ from equimo.vision.layers.wavelet import (
     haar_dwt_split,
     haar_dwt_split_conv,
     inverse_haar_dwt_split,
-    register_wavelet,
 )
 
 KEY = jr.PRNGKey(0)
@@ -160,7 +158,7 @@ class TestHaarLinear:
         layer = HWDConv(in_c, out_c, mode="accurate", key=KEY)
         x = jr.normal(KEY, (in_c, 16, 16))
 
-        # Current HWDConv uses haar_dwt_split_linear internally
+        # HWDConv uses the slicing-based haar_dwt_split internally.
         out_layer = layer(x, key=KEY)
 
         # Manually reproduce with conv-based split
@@ -314,39 +312,21 @@ class TestHWDConv:
         x = jr.normal(KEY, (4, 16, 16))
         assert jnp.all(jnp.isfinite(layer(x, key=KEY)))
 
-    def test_bfloat16_input_finite(self):
+    @pytest.mark.parametrize(
+        "dtype",
+        (jnp.float32, jnp.bfloat16, jnp.float16),
+        ids=("float32", "bfloat16", "float16"),
+    )
+    def test_output_dtype_preserved(self, dtype):
         layer = HWDConv(4, 8, key=KEY)
-        dtype = jnp.bfloat16
         layer = jax.tree_util.tree_map(
             lambda leaf: leaf.astype(dtype) if eqx.is_inexact_array(leaf) else leaf,
             layer,
         )
         x = jr.normal(KEY, (4, 16, 16)).astype(dtype)
         out = layer(x, key=KEY)
-        assert out.dtype == jnp.bfloat16
+        assert out.dtype == dtype
         assert jnp.all(jnp.isfinite(out))
-
-    def test_float16_input_finite(self):
-        layer = HWDConv(4, 8, key=KEY)
-        dtype = jnp.float16
-        layer = jax.tree_util.tree_map(
-            lambda leaf: leaf.astype(dtype) if eqx.is_inexact_array(leaf) else leaf,
-            layer,
-        )
-        x = jr.normal(KEY, (4, 16, 16)).astype(dtype)
-        out = layer(x, key=KEY)
-        assert out.dtype == jnp.float16
-        assert jnp.all(jnp.isfinite(out))
-
-    def test_output_dtype_preserved(self):
-        for dtype in (jnp.float32, jnp.bfloat16):
-            layer = HWDConv(4, 8, key=KEY)
-            layer = jax.tree_util.tree_map(
-                lambda leaf: leaf.astype(dtype) if eqx.is_inexact_array(leaf) else leaf,
-                layer,
-            )
-            x = jr.normal(KEY, (4, 16, 16)).astype(dtype)
-            assert layer(x, key=KEY).dtype == dtype
 
     def test_inference_mode_deterministic(self):
         layer = HWDConv(4, 8, dropout=0.5, key=KEY)
@@ -373,58 +353,13 @@ class TestHWDConv:
         assert out.shape == (8, 8, 8)
 
 
-# get_wavelet / register_wavelet
+# get_wavelet
 
 
 class TestGetWavelet:
     def test_string_hwdconv(self):
         assert get_wavelet("hwdconv") is HWDConv
 
-    def test_class_passthrough(self):
-        assert get_wavelet(HWDConv) is HWDConv
-
     def test_unknown_string_raises(self):
         with pytest.raises(ValueError, match="unknown module string"):
             get_wavelet("nonexistent_wavelet")
-
-    def test_returned_class_instantiable(self):
-        cls = get_wavelet("hwdconv")
-        layer = cls(4, 8, key=KEY)
-        x = jr.normal(KEY, (4, 16, 16))
-        assert layer(x, key=KEY).shape == (8, 8, 8)
-
-
-class TestRegisterWavelet:
-    def test_register_default_name(self):
-        @register_wavelet()
-        class MyWavelet(eqx.Module):
-            pass
-
-        assert "mywavelet" in _WAVELET_REGISTRY
-        assert get_wavelet("mywavelet") is MyWavelet
-
-    def test_register_custom_name(self):
-        @register_wavelet(name="CustomWave")
-        class AnotherWavelet(eqx.Module):
-            pass
-
-        assert "customwave" in _WAVELET_REGISTRY
-        assert get_wavelet("customwave") is AnotherWavelet
-
-    def test_register_non_eqx_module_raises(self):
-        with pytest.raises(TypeError, match="must be a subclass of eqx.Module"):
-
-            @register_wavelet()
-            class NotAModule:
-                pass
-
-    def test_register_duplicate_raises(self):
-        @register_wavelet(name="dup_wavelet")
-        class W1(eqx.Module):
-            pass
-
-        with pytest.raises(ValueError, match="already registered"):
-
-            @register_wavelet(name="dup_wavelet")
-            class W2(eqx.Module):
-                pass

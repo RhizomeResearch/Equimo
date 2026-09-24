@@ -17,58 +17,29 @@ X = jnp.ones((4, 8), dtype=jnp.float32)
 
 
 class TestGetAct:
-    def test_string_relu(self):
-        fn = get_act("relu")
-        assert fn is jax.nn.relu
-
-    def test_string_gelu(self):
-        fn = get_act("gelu")
-        assert fn is jax.nn.gelu
-
-    def test_string_silu(self):
-        fn = get_act("silu")
-        assert fn is jax.nn.silu
-
-    def test_string_elu(self):
-        fn = get_act("elu")
-        assert fn is jax.nn.elu
-
-    def test_string_sigmoid(self):
-        fn = get_act("sigmoid")
-        assert fn is jax.nn.sigmoid
-
-    def test_string_hard_sigmoid(self):
-        fn = get_act("hard_sigmoid")
-        assert fn is jax.nn.hard_sigmoid
-
-    def test_string_hard_swish(self):
-        fn = get_act("hard_swish")
-        assert fn is jax.nn.hard_swish
-
-    def test_string_softmax(self):
-        fn = get_act("softmax")
-        assert fn is jax.nn.softmax
-
-    def test_string_case_insensitive(self):
-        assert get_act("ReLU") is get_act("relu")
-        assert get_act("GELU") is get_act("gelu")
+    @pytest.mark.parametrize(
+        "name, expected",
+        [
+            ("relu", jax.nn.relu),
+            ("gelu", jax.nn.gelu),
+            ("silu", jax.nn.silu),
+            ("elu", jax.nn.elu),
+            ("sigmoid", jax.nn.sigmoid),
+            ("hard_sigmoid", jax.nn.hard_sigmoid),
+            ("hard_swish", jax.nn.hard_swish),
+            ("softmax", jax.nn.softmax),
+        ],
+    )
+    def test_string_resolution(self, name, expected):
+        assert get_act(name) is expected
 
     def test_callable_passthrough(self):
         fn = lambda x: x
         assert get_act(fn) is fn
 
-    def test_jax_callable_passthrough(self):
-        assert get_act(jax.nn.relu) is jax.nn.relu
-
     def test_unknown_string_raises(self):
         with pytest.raises(ValueError, match="unknown activation string"):
             get_act("nonexistent_act")
-
-    def test_exactgelu_registered(self):
-        fn = get_act("exactgelu")
-        out = fn(X)
-        assert out.shape == X.shape
-        assert jnp.all(jnp.isfinite(out))
 
     def test_all_builtins_callable(self):
         builtins = [
@@ -110,15 +81,6 @@ class TestRegisterAct:
 
         assert "myswish" in _ACT_REGISTRY
         assert get_act("myswish") is another_act
-
-    def test_register_preserves_function(self):
-        @register_act(name="identity_test")
-        def identity(x):
-            return x
-
-        fn = get_act("identity_test")
-        out = fn(X)
-        assert jnp.array_equal(out, X)
 
     def test_register_duplicate_raises(self):
         @register_act(name="dup_act_1")

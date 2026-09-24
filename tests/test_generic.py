@@ -10,7 +10,7 @@ from equimo.core.layers._registry import _resolve_from_registries
 from equimo.core.layers.generic import BlockChunk, Residual, WindowedSequence
 from equimo.core.layers.norm import LayerScale
 from equimo.vision.layers import get_layer as get_vision_layer
-from equimo.vision.layers.attention import AttentionBlock as VisionAttentionBlock
+from equimo.vision.layers.attention import ConvAttentionBlock
 from _jaxpr_utils import assert_prng_free_jaxpr
 
 KEY = jr.PRNGKey(0)
@@ -111,17 +111,12 @@ class TestLayerRegistryHelper:
 
 
 class TestResidual:
-    def test_output_shape(self):
-        layer = Residual(_IdentityBlock(), drop_path=0.0)
-        x = jr.normal(KEY, SHAPE)
-        out = layer(x, KEY)
-        assert out.shape == SHAPE
-
     def test_identity_module_output_equals_2x(self):
         """x + identity(x) == 2*x when p=0."""
         layer = Residual(_IdentityBlock(), drop_path=0.0)
         x = jr.normal(KEY, SHAPE)
         out = layer(x, KEY)
+        assert out.shape == SHAPE
         assert jnp.allclose(out, 2 * x, atol=1e-5)
 
     def test_drop_path_zero_is_deterministic(self):
@@ -144,13 +139,6 @@ class TestResidual:
         x = jr.normal(KEY, SHAPE)
         out = layer(x, KEY, pass_args=True)
         assert out.shape == SHAPE
-
-    def test_layer_scale_activated_with_valid_args(self):
-        """Residual with dim, axis, init_values should use LayerScale, not Identity."""
-        layer = Residual(
-            _IdentityBlock(), dim=DIM, axis=0, init_values=1.0, drop_path=0.0
-        )
-        assert isinstance(layer.ls, LayerScale)
 
     def test_layer_scale_not_activated_without_args(self):
         layer = Residual(_IdentityBlock())
@@ -175,18 +163,6 @@ class TestResidual:
 
 
 class TestWindowedSequence:
-    def test_output_shape(self):
-        layer = WindowedSequence(
-            in_channels=DIM,
-            depth=2,
-            block_type=_WindowBlock,
-            block_kwargs={},
-            window_size=4,
-            key=KEY,
-        )
-        x = jr.normal(KEY, (DIM, 8, 8))
-        assert layer(x, KEY).shape == (DIM, 8, 8)
-
     def test_identity_blocks_passthrough(self):
         """With identity blocks, output must equal input."""
         layer = WindowedSequence(
@@ -224,24 +200,6 @@ class TestWindowedSequence:
                 drop_path=[0.1, 0.2],
                 key=KEY,
             )
-
-    def test_different_keys_can_produce_different_outputs(self):
-        """With drop_path > 0, different keys should (usually) give different results."""
-        layer = WindowedSequence(
-            in_channels=DIM,
-            depth=1,
-            block_type=_WindowBlock,
-            block_kwargs={},
-            window_size=4,
-            drop_path=0.5,
-            key=KEY,
-        )
-        x = jnp.ones((DIM, 8, 8))
-        # _WindowBlock ignores drop_path, so outputs are always the same here —
-        # just check shape is stable across keys
-        out1 = layer(x, jr.PRNGKey(1))
-        out2 = layer(x, jr.PRNGKey(2))
-        assert out1.shape == out2.shape
 
     def test_inference_mode(self):
         layer = WindowedSequence(
@@ -292,15 +250,17 @@ class _SimpleDownsampler(eqx.Module):
 
 class TestBlockChunk:
     def test_explicit_vision_resolver_constructs_vision_block(self):
+        # "convattentionblock" is registered only in the vision registry, so the
+        # default core resolver cannot supply it.
         chunk = BlockChunk(
             depth=1,
-            module="attentionblock",
+            module="convattentionblock",
             module_kwargs={"dim": DIM, "num_heads": 4},
             layer_resolver=get_vision_layer,
             key=KEY,
         )
 
-        assert isinstance(chunk.blocks[0], VisionAttentionBlock)
+        assert isinstance(chunk.blocks[0], ConvAttentionBlock)
 
     def test_blocks_only(self):
         chunk = BlockChunk(
@@ -401,14 +361,3 @@ class TestBlockChunk:
         assert_prng_free_jaxpr(lambda value: chunk(value, key=KEY, inference=True), x)
         out = chunk(x, key=KEY, inference=True)
         assert out.shape == SHAPE
-
-    def test_init_values_forwarded_to_blocks(self):
-        chunk = BlockChunk(
-            depth=2,
-            module=_SimpleBlock,
-            module_kwargs={"dim": DIM},
-            init_values=1e-4,
-            key=KEY,
-        )
-        x = jr.normal(KEY, SHAPE)
-        assert chunk(x, key=KEY).shape == SHAPE

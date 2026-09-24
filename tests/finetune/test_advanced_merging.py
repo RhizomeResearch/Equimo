@@ -73,28 +73,23 @@ def test_regmean_cholesky_non_positive_definite_remains_nan():
     assert jnp.all(jnp.isnan(actual))
 
 
-def test_ties_dare_breadcrumbs_task_vectors(tiny_vision_transformer):
-    tuned_a = eqft.interpolate_models(
-        tiny_vision_transformer,
-        tiny_vision_transformer,
-        alpha=0.0,
-        include_head=True,
-    )
-    tuned_b = eqft.interpolate_models(
-        tiny_vision_transformer,
-        tiny_vision_transformer,
-        alpha=0.0,
-        include_head=True,
-    )
-    vector_a = eqft.task_vector(tiny_vision_transformer, tuned_a, include_head=True)
-    vector_b = eqft.task_vector(tiny_vision_transformer, tuned_b, include_head=True)
+def test_task_vector_transforms_keep_head_deltas(tiny_vision_transformer):
+    """TIES, DARE, and Breadcrumbs keep a model task vector's head deltas.
 
-    ties = eqft.ties_merge([vector_a, vector_b], density=1.0)
+    Value semantics of each transform are pinned by the dedicated tests below.
+    """
+    vector = eqft.task_vector(
+        tiny_vision_transformer, tiny_vision_transformer, include_head=True
+    )
+
+    ties = eqft.ties_merge([vector, vector], density=1.0)
     dare = eqft.dare_task_vector(ties, drop_rate=0.0, key=jr.PRNGKey(0))
     breadcrumbs = eqft.breadcrumbs_task_vector(dare)
 
     assert breadcrumbs.include_head is True
-    assert jnp.array_equal(breadcrumbs.delta.head.weight, vector_a.delta.head.weight)
+    assert (
+        breadcrumbs.delta.head.weight.shape == tiny_vision_transformer.head.weight.shape
+    )
 
 
 def test_ties_default_global_density_scope_differs_from_per_tensor():

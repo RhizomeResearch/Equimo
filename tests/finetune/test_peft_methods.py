@@ -209,30 +209,26 @@ def test_eva_initializes_lora_A_from_activation_artifacts(tiny_vision_transforme
     )
 
 
+def _svd_artifacts(statistics):
+    """Activation-SVD artifacts for both tiny-ViT attention projections."""
+    return {
+        path: eqft.CalibrationArtifact(
+            kind="activation_svd",
+            base_checkpoint_hash="base-hash",
+            logical_parameter_ids=(path,),
+            statistics=statistics,
+            sample_count=8,
+            data_fingerprint="dataset-a",
+            accumulation_dtype="float32",
+            distributed_reduction="deterministic_sum",
+        )
+        for path in ("blocks.0.attn.proj", "blocks.1.attn.proj")
+    }
+
+
 def test_eva_accepts_valid_calibration_artifacts(tiny_vision_transformer):
     x = jnp.ones((2, 3))
-    artifacts = {
-        "blocks.0.attn.proj": eqft.CalibrationArtifact(
-            kind="activation_svd",
-            base_checkpoint_hash="base-hash",
-            logical_parameter_ids=("blocks.0.attn.proj",),
-            statistics=jnp.eye(4, dtype=jnp.float32),
-            sample_count=8,
-            data_fingerprint="dataset-a",
-            accumulation_dtype="float32",
-            distributed_reduction="deterministic_sum",
-        ),
-        "blocks.1.attn.proj": eqft.CalibrationArtifact(
-            kind="activation_svd",
-            base_checkpoint_hash="base-hash",
-            logical_parameter_ids=("blocks.1.attn.proj",),
-            statistics=jnp.eye(4, dtype=jnp.float32),
-            sample_count=8,
-            data_fingerprint="dataset-a",
-            accumulation_dtype="float32",
-            distributed_reduction="deterministic_sum",
-        ),
-    }
+    artifacts = _svd_artifacts(jnp.eye(4, dtype=jnp.float32))
     model = eqft.apply_eva_lora(
         tiny_vision_transformer,
         eqft.EVAInitializerConfig(
@@ -256,90 +252,39 @@ def test_eva_accepts_valid_calibration_artifacts(tiny_vision_transformer):
     assert metadata["calibration_data_fingerprint"] == "dataset-a"
 
 
-def test_eva_consumes_activation_svd_statistics(tiny_vision_transformer):
-    svd_payload = {
-        "right_singular_vectors": jnp.eye(4, dtype=jnp.float32),
-        "singular_values": jnp.asarray([4.0, 3.0, 2.0, 1.0], dtype=jnp.float32),
-    }
-    artifacts = {
-        "blocks.0.attn.proj": eqft.CalibrationArtifact(
-            kind="activation_svd",
-            base_checkpoint_hash="base-hash",
-            logical_parameter_ids=("blocks.0.attn.proj",),
-            statistics=svd_payload,
-            sample_count=8,
-            data_fingerprint="dataset-a",
-            accumulation_dtype="float32",
-            distributed_reduction="deterministic_sum",
-        ),
-        "blocks.1.attn.proj": eqft.CalibrationArtifact(
-            kind="activation_svd",
-            base_checkpoint_hash="base-hash",
-            logical_parameter_ids=("blocks.1.attn.proj",),
-            statistics=svd_payload,
-            sample_count=8,
-            data_fingerprint="dataset-a",
-            accumulation_dtype="float32",
-            distributed_reduction="deterministic_sum",
-        ),
-    }
+@pytest.mark.parametrize(
+    ("rank_budget", "seed", "expected_ranks"),
+    [
+        # Equal spectra split an even budget evenly.
+        (2, 25, (1, 1)),
+        # An odd budget breaks the tie by logical parameter ID.
+        (3, 26, (2, 1)),
+    ],
+    ids=["even-split", "tie-break-by-logical-id"],
+)
+def test_eva_allocates_rank_from_activation_svd_statistics(
+    tiny_vision_transformer, rank_budget, seed, expected_ranks
+):
+    artifacts = _svd_artifacts(
+        {
+            "right_singular_vectors": jnp.eye(4, dtype=jnp.float32),
+            "singular_values": jnp.asarray([4.0, 3.0, 2.0, 1.0], dtype=jnp.float32),
+        }
+    )
 
     model = eqft.apply_eva_lora(
         tiny_vision_transformer,
         eqft.EVAInitializerConfig(
-            rank_budget=2,
+            rank_budget=rank_budget,
             calibration=eqft.CalibrationSpec(artifact_kind="activation_svd"),
         ),
         activation_artifacts=artifacts,
         target=eqft.TargetSpec(tags_any=("attention.proj",)),
-        key=jr.PRNGKey(25),
+        key=jr.PRNGKey(seed),
     )
 
-    assert model.blocks[0].attn.proj.lora_A.shape == (1, 4)
-    assert model.blocks[1].attn.proj.lora_A.shape == (1, 4)
-
-
-def test_eva_rank_allocation_ties_use_logical_parameter_id(tiny_vision_transformer):
-    svd_payload = {
-        "right_singular_vectors": jnp.eye(4, dtype=jnp.float32),
-        "singular_values": jnp.asarray([4.0, 3.0, 2.0, 1.0], dtype=jnp.float32),
-    }
-    artifacts = {
-        "blocks.0.attn.proj": eqft.CalibrationArtifact(
-            kind="activation_svd",
-            base_checkpoint_hash="base-hash",
-            logical_parameter_ids=("blocks.0.attn.proj",),
-            statistics=svd_payload,
-            sample_count=8,
-            data_fingerprint="dataset-a",
-            accumulation_dtype="float32",
-            distributed_reduction="deterministic_sum",
-        ),
-        "blocks.1.attn.proj": eqft.CalibrationArtifact(
-            kind="activation_svd",
-            base_checkpoint_hash="base-hash",
-            logical_parameter_ids=("blocks.1.attn.proj",),
-            statistics=svd_payload,
-            sample_count=8,
-            data_fingerprint="dataset-a",
-            accumulation_dtype="float32",
-            distributed_reduction="deterministic_sum",
-        ),
-    }
-
-    model = eqft.apply_eva_lora(
-        tiny_vision_transformer,
-        eqft.EVAInitializerConfig(
-            rank_budget=3,
-            calibration=eqft.CalibrationSpec(artifact_kind="activation_svd"),
-        ),
-        activation_artifacts=artifacts,
-        target=eqft.TargetSpec(tags_any=("attention.proj",)),
-        key=jr.PRNGKey(26),
-    )
-
-    assert model.blocks[0].attn.proj.lora_A.shape == (2, 4)
-    assert model.blocks[1].attn.proj.lora_A.shape == (1, 4)
+    assert model.blocks[0].attn.proj.lora_A.shape == (expected_ranks[0], 4)
+    assert model.blocks[1].attn.proj.lora_A.shape == (expected_ranks[1], 4)
 
 
 def test_eva_rejects_non_artifact_when_calibration_is_pinned(tiny_vision_transformer):
@@ -362,28 +307,7 @@ def test_eva_rejects_non_artifact_when_calibration_is_pinned(tiny_vision_transfo
 
 
 def test_eva_rejects_calibration_fingerprint_mismatch(tiny_vision_transformer):
-    artifacts = {
-        "blocks.0.attn.proj": eqft.CalibrationArtifact(
-            kind="activation_svd",
-            base_checkpoint_hash="base-hash",
-            logical_parameter_ids=("blocks.0.attn.proj",),
-            statistics=jnp.eye(4, dtype=jnp.float32),
-            sample_count=8,
-            data_fingerprint="dataset-a",
-            accumulation_dtype="float32",
-            distributed_reduction="deterministic_sum",
-        ),
-        "blocks.1.attn.proj": eqft.CalibrationArtifact(
-            kind="activation_svd",
-            base_checkpoint_hash="base-hash",
-            logical_parameter_ids=("blocks.1.attn.proj",),
-            statistics=jnp.eye(4, dtype=jnp.float32),
-            sample_count=8,
-            data_fingerprint="dataset-a",
-            accumulation_dtype="float32",
-            distributed_reduction="deterministic_sum",
-        ),
-    }
+    artifacts = _svd_artifacts(jnp.eye(4, dtype=jnp.float32))
 
     with pytest.raises(ValueError, match="data_fingerprint mismatch"):
         eqft.apply_eva_lora(

@@ -67,8 +67,8 @@ def test_rank_masked_lora_default_starts_all_initial_ranks_active(
     assert plan.trainable.blocks[0].attn.proj.rank_mask is None
 
 
-def test_lora_rank_groups_use_canonical_path_strings():
-    model = eqft.apply_lora(
+def _rank_masked_linear_lora():
+    return eqft.apply_lora(
         TinyLinearModel(),
         eqft.StaticRankMaskedLoRAConfig(
             rank=4,
@@ -78,21 +78,16 @@ def test_lora_rank_groups_use_canonical_path_strings():
         ),
         key=jr.PRNGKey(0),
     )
+
+
+def test_lora_rank_groups_use_canonical_path_strings():
+    model = _rank_masked_linear_lora()
 
     assert eqft.lora_rank_groups(model) == {"linear": 4}
 
 
 def test_apply_lora_rank_pattern_updates_rank_masks():
-    model = eqft.apply_lora(
-        TinyLinearModel(),
-        eqft.StaticRankMaskedLoRAConfig(
-            rank=4,
-            initial_rank=4,
-            target_rank=2,
-            target=eqft.TargetSpec(predicate=eqft.is_linear),
-        ),
-        key=jr.PRNGKey(0),
-    )
+    model = _rank_masked_linear_lora()
     mask = jnp.array([True, False, True, False])
 
     updated = eqft.apply_lora_rank_pattern(model, {"linear": mask})
@@ -101,16 +96,7 @@ def test_apply_lora_rank_pattern_updates_rank_masks():
 
 
 def test_apply_lora_rank_pattern_validates_paths_and_shapes():
-    model = eqft.apply_lora(
-        TinyLinearModel(),
-        eqft.StaticRankMaskedLoRAConfig(
-            rank=4,
-            initial_rank=4,
-            target_rank=2,
-            target=eqft.TargetSpec(predicate=eqft.is_linear),
-        ),
-        key=jr.PRNGKey(0),
-    )
+    model = _rank_masked_linear_lora()
 
     with pytest.raises(ValueError, match="unknown LoRA/AdaLoRA module paths"):
         eqft.apply_lora_rank_pattern(
@@ -126,16 +112,7 @@ def test_apply_lora_rank_pattern_validates_paths_and_shapes():
 
 
 def test_apply_lora_rank_pattern_rejects_merged_modules():
-    model = eqft.apply_lora(
-        TinyLinearModel(),
-        eqft.StaticRankMaskedLoRAConfig(
-            rank=4,
-            initial_rank=4,
-            target_rank=2,
-            target=eqft.TargetSpec(predicate=eqft.is_linear),
-        ),
-        key=jr.PRNGKey(0),
-    )
+    model = _rank_masked_linear_lora()
     merged = eqft.merge_lora(model)
 
     with pytest.raises(ValueError, match="merged LoRA module"):

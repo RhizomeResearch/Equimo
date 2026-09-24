@@ -1,26 +1,22 @@
-import importlib
-import os
 from pathlib import Path
 
 import numpy as np
-import pytest
 
 from equimo.language import SentencePieceTokenizer
 from equimo.language.tokenizers import DEFAULT_TOKENIZER_REPOSITORY
 from equimo.serialization import DEFAULT_REPOSITORY_REVISION, DEFAULT_REPOSITORY_URL
+from _optional import require_extra
 
 
 def _require_language_extra():
     for module in ("tensorflow", "tensorflow_text"):
-        if os.environ.get("EQUIMO_TEST_OPTIONAL_EXTRA") == "language":
-            importlib.import_module(module)
-        else:
-            pytest.importorskip(module)
+        require_extra(module, "language")
 
 
 def test_default_repositories_use_the_same_immutable_revision():
     revision_path = f"/resolve/{DEFAULT_REPOSITORY_REVISION}/"
 
+    assert len(DEFAULT_REPOSITORY_REVISION) == 40
     assert revision_path in DEFAULT_REPOSITORY_URL
     assert revision_path in DEFAULT_TOKENIZER_REPOSITORY
     assert "/resolve/main/" not in DEFAULT_REPOSITORY_URL

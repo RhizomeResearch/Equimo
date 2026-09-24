@@ -359,77 +359,12 @@ class TestGetFfn:
     def test_string_resolution(self, name, expected):
         assert get_ffn(name) is expected
 
-    def test_class_passthrough(self):
-        assert get_ffn(Mlp) is Mlp
-
-    def test_class_passthrough_swiglu(self):
-        assert get_ffn(SwiGlu) is SwiGlu
-
     def test_unknown_string_raises(self):
         with pytest.raises(ValueError, match="unknown module string"):
             get_ffn("nonexistent_ffn")
-
-    def test_returned_class_is_instantiable(self):
-        cls = get_ffn("mlp")
-        model = cls(DIM, key=KEY)
-        x = jr.normal(KEY, (SEQLEN, DIM))
-        assert model(x, KEY).shape == (SEQLEN, DIM)
 
     def test_returned_class_instantiable_with_dim_kwargs(self):
         cls = get_ffn("mlp")
         model = cls(DIM, hidden_dim=128, out_dim=32, key=KEY)
         x = jr.normal(KEY, (SEQLEN, DIM))
         assert model(x, KEY).shape == (SEQLEN, 32)
-
-
-# register_ffn
-
-
-class TestRegisterFfn:
-    def test_register_default_name(self):
-        import equinox as eqx
-
-        from equimo.core.layers.ffn import _FFN_REGISTRY, get_ffn, register_ffn
-
-        @register_ffn()
-        class CustomFFN(eqx.Module):
-            pass
-
-        assert "customffn" in _FFN_REGISTRY
-        assert get_ffn("customffn") is CustomFFN
-
-    def test_register_custom_name(self):
-        import equinox as eqx
-
-        from equimo.core.layers.ffn import _FFN_REGISTRY, get_ffn, register_ffn
-
-        @register_ffn(name="MySuperFFN")
-        class CustomFFN2(eqx.Module):
-            pass
-
-        assert "mysuperffn" in _FFN_REGISTRY
-        assert get_ffn("mysuperffn") is CustomFFN2
-
-    def test_register_non_eqx_module(self):
-        from equimo.core.layers.ffn import register_ffn
-
-        with pytest.raises(TypeError, match="must be a subclass of eqx.Module"):
-
-            @register_ffn()
-            class NotAModule:
-                pass
-
-    def test_register_duplicate_name(self):
-        import equinox as eqx
-
-        from equimo.core.layers.ffn import register_ffn
-
-        @register_ffn()
-        class DuplicateFFN(eqx.Module):
-            pass
-
-        with pytest.raises(ValueError, match="already registered"):
-
-            @register_ffn(name="DuplicateFFN")
-            class AnotherFFN(eqx.Module):
-                pass

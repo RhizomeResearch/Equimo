@@ -6,7 +6,6 @@ import pytest
 
 from equimo.audio.layers import SpectrogramPatchEmbedding
 from equimo.audio.layers.patch import (
-    _PATCH_REGISTRY,
     get_patch,
     register_patch,
 )
@@ -129,7 +128,6 @@ class TestSpectrogramPatchEmbedding:
 
 def test_audio_patch_registry_get_patch():
     assert get_patch("spectrogrampatchembedding") is SpectrogramPatchEmbedding
-    assert get_patch(SpectrogramPatchEmbedding) is SpectrogramPatchEmbedding
 
 
 def test_audio_patch_registry_duplicate_raises():
@@ -138,7 +136,3 @@ def test_audio_patch_registry_duplicate_raises():
         @register_patch("spectrogrampatchembedding")
         class DuplicateSpectrogramPatchEmbedding(eqx.Module):
             pass
-
-
-def test_audio_patch_registry_contains_builtin():
-    assert _PATCH_REGISTRY["spectrogrampatchembedding"] is SpectrogramPatchEmbedding

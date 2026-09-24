@@ -28,7 +28,6 @@ from equimo.vision.pmt_checkpoint import (
     save_pmt_checkpoint,
     save_pmt_decoder,
 )
-from equimo.vision.segmentation import QuerySegmentationOutput
 
 
 def _model(seed: int = 0, *, norm: str = "groupnorm") -> tuple[PMT, eqx.nn.State]:
@@ -122,10 +121,6 @@ def test_groupnorm_no_state_batch_independence_and_geometry():
     np.testing.assert_array_equal(model.encoder_features(first), features.levels[-1])
     np.testing.assert_array_equal(model.features(first, key=key), features.levels[-1])
 
-    def final_mask_shape(prediction: QuerySegmentationOutput) -> tuple[int, ...]:
-        return prediction.final.mask_logits.shape
-
-    assert final_mask_shape(alone) == (2, 4, 6)
     cached = model.decode(features, key=key)
     np.testing.assert_array_equal(cached.final.mask_logits, alone.final.mask_logits)
     compiled = eqx.filter_jit(lambda image: model(image, key=key))(first)

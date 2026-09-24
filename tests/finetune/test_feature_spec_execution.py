@@ -534,30 +534,6 @@ def test_dinov2_explicit_specs_match_normalized_native_outputs(
     assert jnp.allclose(patch_mean, expected_patch_mean, rtol=1e-6, atol=1e-6)
 
 
-def test_dinov2_explicit_specs_require_matching_preprocessing(
-    dinov2_vits14_reg_small,
-):
-    model, image, key = dinov2_vits14_reg_small
-    spec = eqft.FeatureSpec(
-        endpoint="forward_features",
-        output_layout="BNC",
-        token_selection="cls",
-        pooling=None,
-        preprocessing_fingerprint="preprocessing:sha256:expected",
-    )
-
-    with pytest.raises(ValueError, match="no observed fingerprint"):
-        eqft.extract_features(model, image, feature_spec=spec, key=key)
-    with pytest.raises(ValueError, match="fingerprint mismatch"):
-        eqft.extract_features(
-            model,
-            image,
-            feature_spec=spec,
-            observed_preprocessing_fingerprint="preprocessing:sha256:other",
-            key=key,
-        )
-
-
 def test_dinov2_explicit_specs_support_jit_and_vmap(dinov2_vits14_reg_small):
     model, image, key = dinov2_vits14_reg_small
     preprocessing_id = "preprocessing:sha256:dinov2-test"

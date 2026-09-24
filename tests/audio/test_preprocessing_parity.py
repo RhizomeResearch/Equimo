@@ -1,4 +1,3 @@
-import importlib
 import os
 from pathlib import Path
 
@@ -9,11 +8,9 @@ import pytest
 
 import equimo.audio.models as am
 from equimo.audio import get_ast_preprocessing_spec, preprocess_ast_waveform
+from _optional import require_extra
 
-if os.environ.get("EQUIMO_TEST_OPTIONAL_EXTRA") == "audio":
-    importlib.import_module("torchaudio")
-else:
-    pytest.importorskip("torchaudio")
+require_extra("torchaudio", "audio")
 
 DATA_DIR = Path(__file__).parents[1] / "data"
 KEY = jax.random.PRNGKey(42)

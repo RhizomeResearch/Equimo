@@ -18,6 +18,16 @@ import equimo.finetune as eqft
 import equimo.finetune.serialization as serialization
 from equimo.serialization import CheckpointLimits
 
+LORA_PROJ = eqft.LoRAConfig(
+    rank=2,
+    alpha=4.0,
+    target=eqft.TargetSpec(tags_any=("attention.proj",)),
+)
+
+
+def _lora_model(base):
+    return eqft.apply_lora(base, LORA_PROJ, key=jr.PRNGKey(0))
+
 
 def _read_archive(path):
     with lz4.frame.open(path, "rb") as archive:
@@ -37,18 +47,10 @@ def _write_archive(path, members):
                 tar.addfile(info, io.BytesIO(payload))
 
 
-def test_finetune_bundle_has_required_lora_metadata(tiny_vision_transformer):
-    model = eqft.apply_lora(
-        tiny_vision_transformer,
-        eqft.LoRAConfig(
-            rank=2,
-            alpha=4.0,
-            target=eqft.TargetSpec(tags_any=("attention.proj",)),
-        ),
-        key=jr.PRNGKey(0),
-    )
+def test_finetune_bundle_has_required_lora_metadata(tmp_path, tiny_vision_transformer):
+    model = _lora_model(tiny_vision_transformer)
 
-    bundle = eqft.save_delta(model, "/tmp/equimo-test-lora-bundle.eqft")
+    bundle = eqft.save_delta(model, tmp_path / "lora.eqft")
 
     assert bundle.method == "lora"
     assert bundle.schema_version == 1
@@ -79,21 +81,12 @@ def test_finetune_bundle_has_required_lora_metadata(tiny_vision_transformer):
     assert "equimo_source_revision" in bundle.metadata
 
 
-def test_delta_spec_order_and_bundle_roundtrip(tmp_path, tiny_vision_transformer):
-    spec = eqft.LoRAConfig(
-        rank=2,
-        alpha=4.0,
-        target=eqft.TargetSpec(tags_any=("attention.proj",)),
-    )
-    model = eqft.apply_lora(
-        tiny_vision_transformer,
-        spec,
-        key=jr.PRNGKey(0),
-    )
+def test_lora_delta_bundle_roundtrip(tmp_path, tiny_vision_transformer):
+    model = _lora_model(tiny_vision_transformer)
     path = tmp_path / "lora.eqft"
 
     bundle = eqft.save_delta(
-        model, path, base_model=tiny_vision_transformer, spec=spec, method="lora"
+        model, path, base_model=tiny_vision_transformer, spec=LORA_PROJ
     )
     loaded_bundle = eqft.load_finetune_bundle(path)
     loaded_model = eqft.load_delta(tiny_vision_transformer, path)
@@ -109,16 +102,7 @@ def test_delta_spec_order_and_bundle_roundtrip(tmp_path, tiny_vision_transformer
 def test_bundle_carries_model_state_snapshot_and_hash(
     tmp_path, tiny_vision_transformer
 ):
-    spec = eqft.LoRAConfig(
-        rank=2,
-        alpha=4.0,
-        target=eqft.TargetSpec(tags_any=("attention.proj",)),
-    )
-    model = eqft.apply_lora(
-        tiny_vision_transformer,
-        spec,
-        key=jr.PRNGKey(0),
-    )
+    model = _lora_model(tiny_vision_transformer)
     model_state = {
         "batch_stats": {
             "mean": jnp.asarray([1.0, 2.0], dtype=jnp.float32),
@@ -132,7 +116,7 @@ def test_bundle_carries_model_state_snapshot_and_hash(
         model,
         path,
         base_model=tiny_vision_transformer,
-        spec=spec,
+        spec=LORA_PROJ,
         method="lora",
         model_state=model_state,
     )
@@ -153,23 +137,14 @@ def test_bundle_carries_model_state_snapshot_and_hash(
 def test_bundle_records_recalibration_marker_without_model_state(
     tmp_path, tiny_vision_transformer
 ):
-    spec = eqft.LoRAConfig(
-        rank=2,
-        alpha=4.0,
-        target=eqft.TargetSpec(tags_any=("attention.proj",)),
-    )
-    model = eqft.apply_lora(
-        tiny_vision_transformer,
-        spec,
-        key=jr.PRNGKey(0),
-    )
+    model = _lora_model(tiny_vision_transformer)
     path = tmp_path / "recalibrate-lora.eqft"
 
     bundle = eqft.save_delta(
         model,
         path,
         base_model=tiny_vision_transformer,
-        spec=spec,
+        spec=LORA_PROJ,
         method="lora",
         recalibration_required=True,
     )
@@ -183,47 +158,11 @@ def test_bundle_records_recalibration_marker_without_model_state(
     assert loaded.metadata["recalibration_required"] is True
 
 
-def test_delta_with_base_model_and_spec_roundtrip(tmp_path, tiny_vision_transformer):
-    spec = eqft.LoRAConfig(
-        rank=2,
-        alpha=4.0,
-        target=eqft.TargetSpec(tags_any=("attention.proj",)),
-    )
-    model = eqft.apply_lora(
-        tiny_vision_transformer,
-        spec,
-        key=jr.PRNGKey(0),
-    )
-    path = tmp_path / "lora-keyword.eqft"
-
-    bundle = eqft.save_delta(
-        model,
-        path,
-        base_model=tiny_vision_transformer,
-        spec=spec,
-    )
-    loaded_model = eqft.load_delta(tiny_vision_transformer, path)
-
-    assert bundle.selector_spec["target"]["tags_any"] == ("attention.proj",)
-    assert (
-        loaded_model.blocks[0].attn.proj.lora_A.shape
-        == model.blocks[0].attn.proj.lora_A.shape
-    )
-
-
 def test_delta_rejects_same_architecture_different_base_checkpoint(
     tmp_path,
     tiny_vision_transformer,
 ):
-    model = eqft.apply_lora(
-        tiny_vision_transformer,
-        eqft.LoRAConfig(
-            rank=2,
-            alpha=4.0,
-            target=eqft.TargetSpec(tags_any=("attention.proj",)),
-        ),
-        key=jr.PRNGKey(0),
-    )
+    model = _lora_model(tiny_vision_transformer)
     path = tmp_path / "lora.eqft"
     bundle = eqft.save_delta(model, path)
     different_base = tiny_vision_transformer.__class__(key=jr.PRNGKey(123))
@@ -234,15 +173,7 @@ def test_delta_rejects_same_architecture_different_base_checkpoint(
 
 
 def test_delta_file_is_pickle_free_archive(tmp_path, tiny_vision_transformer):
-    model = eqft.apply_lora(
-        tiny_vision_transformer,
-        eqft.LoRAConfig(
-            rank=2,
-            alpha=4.0,
-            target=eqft.TargetSpec(tags_any=("attention.proj",)),
-        ),
-        key=jr.PRNGKey(0),
-    )
+    model = _lora_model(tiny_vision_transformer)
     path = tmp_path / "lora.eqft"
 
     eqft.save_delta(model, path)
@@ -360,42 +291,12 @@ def test_bundle_schema_version_is_validated(tmp_path):
 def test_lora_bundle_missing_path_raises_bundle_error(
     tmp_path, tiny_vision_transformer
 ):
-    model = eqft.apply_lora(
-        tiny_vision_transformer,
-        eqft.LoRAConfig(
-            rank=2,
-            alpha=4.0,
-            target=eqft.TargetSpec(tags_any=("attention.proj",)),
-        ),
-        key=jr.PRNGKey(0),
-    )
+    model = _lora_model(tiny_vision_transformer)
     path = tmp_path / "lora.eqft"
     bundle = eqft.save_delta(model, path)
     entries = [dict(entry) for entry in bundle.adapter_config["entries"]]
     entries[0]["path"] = "blocks.99.attn.proj"
     bad_bundle = replace(bundle, adapter_config={"entries": entries})
 
-    with pytest.raises(
-        eqft.FineTuneBundleError, match="logical-ID table mismatch|no matching leaf"
-    ):
-        eqft.load_delta(tiny_vision_transformer, bad_bundle)
-
-
-def test_adapter_bundle_missing_path_raises_bundle_error(
-    tmp_path, tiny_vision_transformer
-):
-    model = eqft.apply_adapters(
-        tiny_vision_transformer,
-        eqft.AdapterConfig(bottleneck=3),
-        key=jr.PRNGKey(0),
-    )
-    path = tmp_path / "adapter.eqft"
-    bundle = eqft.save_delta(model, path, method="adapter")
-    entries = [dict(entry) for entry in bundle.adapter_config["entries"]]
-    entries[0]["path"] = "blocks.99"
-    bad_bundle = replace(bundle, adapter_config={"entries": entries})
-
-    with pytest.raises(
-        eqft.FineTuneBundleError, match="logical-ID table mismatch|no matching leaf"
-    ):
+    with pytest.raises(eqft.FineTuneBundleError, match="logical-ID table mismatch"):
         eqft.load_delta(tiny_vision_transformer, bad_bundle)

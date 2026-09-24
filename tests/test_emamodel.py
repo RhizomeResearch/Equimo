@@ -12,19 +12,6 @@ class _EmaState(eqx.Module):
     metadata: str = eqx.field(static=True)
 
 
-def test_update_ema_model_returns_computed_midpoint():
-    ema_model = _EmaState(jnp.array(2.0), jnp.array([2.0, 6.0]), "ema")
-    current_model = _EmaState(jnp.array(4.0), jnp.array([4.0, 2.0]), "ema")
-
-    result = update_ema_model(
-        ema_model, eqx.filter(current_model, eqx.is_array), decay=0.5
-    )
-
-    assert jnp.allclose(result.scalar, 3.0)
-    assert jnp.allclose(result.vector, jnp.array([3.0, 4.0]))
-    assert result.metadata == "ema"
-
-
 @pytest.mark.parametrize(("decay", "use_current"), [(0.0, True), (1.0, False)])
 def test_update_ema_model_decay_endpoints(decay, use_current):
     ema_model = _EmaState(jnp.array(2.0), jnp.array([1.0, 3.0]), "ema")

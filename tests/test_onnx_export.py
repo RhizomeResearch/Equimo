@@ -9,20 +9,10 @@ import onnxruntime as ort
 import pytest
 from jax2onnx import to_onnx
 
-from equimo.registry import _MODEL_REGISTRY
 from cases.model_cases import MODEL_CASES, extract_features
 
-
-def test_every_builtin_model_family_has_an_onnx_export_case():
-    registered = {
-        (modality, name)
-        for name, entries in _MODEL_REGISTRY.items()
-        for modality, model_cls in entries.items()
-        if model_cls.__module__.startswith("equimo.")
-    }
-    covered = {(case.modality, case.registry_name) for case in MODEL_CASES}
-
-    assert covered == registered
+# MODEL_CASES covers every registered built-in family; that completeness is
+# enforced by tests/finetune/test_feature_spec_model_coverage.py.
 
 
 @pytest.mark.parametrize("case", MODEL_CASES, ids=lambda case: case.registry_name)

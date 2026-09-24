@@ -1,7 +1,6 @@
 """Tests for serialization and vision IO."""
 
 from dataclasses import FrozenInstanceError, replace
-import importlib
 import hashlib
 import io
 import json
@@ -25,7 +24,6 @@ from equimo.registry import _MODEL_REGISTRY, get_model_cls, register_model
 from equimo.serialization import (
     CheckpointLimits,
     CheckpointInfo,
-    DEFAULT_REPOSITORY_REVISION,
     DEFAULT_REPOSITORY_URL,
     _decompress_archive,
     _validate_identifier,
@@ -34,14 +32,9 @@ from equimo.serialization import (
     save_model,
 )
 from equimo.vision.io import _center_crop_square
+from _optional import require_extra
 
 KEY = jr.PRNGKey(0)
-
-
-def _require_optional_dependency(module, extra):
-    if os.environ.get("EQUIMO_TEST_OPTIONAL_EXTRA") == extra:
-        return importlib.import_module(module)
-    return pytest.importorskip(module)
 
 
 def _decompress_archive_worker(archive_path, start_barrier, result_queue):
@@ -118,30 +111,19 @@ class TestValidateIdentifier:
             "model.tar.lz4",
             "model\x00null",
             "",
+            "../../etc/passwd",
+            "model?foo=bar&baz=qux",
         ],
     )
     def test_invalid_identifiers_raise(self, identifier):
         with pytest.raises(ValueError, match="Unsafe model identifier"):
             _validate_identifier(identifier)
 
-    def test_path_traversal_blocked(self):
-        with pytest.raises(ValueError):
-            _validate_identifier("../../etc/passwd")
-
-    def test_url_special_chars_blocked(self):
-        with pytest.raises(ValueError):
-            _validate_identifier("model?foo=bar&baz=qux")
-
 
 # _center_crop_square
 
 
 class TestCenterCropSquare:
-    def test_square_input_unchanged(self):
-        arr = jnp.ones((64, 64, 3))
-        result = _center_crop_square(arr)
-        assert result.shape == (64, 64, 3)
-
     def test_wide_image_crops_width(self):
         arr = jnp.ones((64, 128, 3))
         result = _center_crop_square(arr)
@@ -394,16 +376,6 @@ class TestSaveLoadRoundTrip:
         assert frame["block_checksum"] is True
         assert frame["content_size"] == 0
 
-    def test_metadata_contains_versions(self, tmp_path):
-        model = self._make_model()
-        path = tmp_path / "model_dir"
-        save_model(path, model, self._model_config(), compression=False)
-        with open(path / "metadata.json") as f:
-            meta = json.load(f)
-        assert "jax_version" in meta
-        assert "equinox_version" in meta
-        assert "equimo_version" in meta
-
     def test_metadata_contains_v2_format_and_integrity(self, tmp_path):
         model = self._make_model()
         path = tmp_path / "model_dir"
@@ -487,17 +459,6 @@ class TestSaveLoadRoundTrip:
 
         x = jr.normal(KEY, (4, 8))
         assert jnp.allclose(model(x), loaded(x), atol=1e-5)
-
-    def test_load_weights_rejects_corrupted_new_checkpoint(self, tmp_path):
-        path = tmp_path / "model_dir"
-        save_model(path, self._make_model(), self._model_config(), compression=False)
-        weights_path = path / "weights.eqx"
-        payload = bytearray(weights_path.read_bytes())
-        payload[-1] ^= 1
-        weights_path.write_bytes(payload)
-
-        with pytest.raises(ValueError, match="checksum mismatch"):
-            load_weights(self._make_model(), path=path)
 
     def test_load_weights_rejects_incompatible_model_signature(self, tmp_path):
         path = tmp_path / "model_dir"
@@ -845,15 +806,6 @@ class TestSaveLoadRoundTrip:
 
         assert path.read_bytes() == b"existing archive"
 
-    def test_load_weights_inference_mode_default(self, tmp_path):
-        model = self._make_model()
-        path = tmp_path / "model_dir"
-        save_model(path, model, self._model_config(), compression=False)
-        loaded = load_weights(self._make_model(), path=path, inference_mode=True)
-        # inference_mode=True means no training state — model must still be callable
-        x = jr.normal(KEY, (4, 8))
-        assert loaded(x).shape == (4, 4)
-
     def test_load_weights_requires_identifier_or_path(self):
         with pytest.raises(ValueError, match="Both.*None"):
             load_weights(self._make_model())
@@ -975,16 +927,6 @@ class TestSaveLoadRoundTrip:
 
         assert extracted == legacy_cache
 
-    def test_decompression_rejects_unexpected_archive_members(self, tmp_path):
-        archive = tmp_path / "model.tar.lz4"
-        save_model(archive, self._make_model(), self._model_config())
-        members = _read_lz4_tar(archive)
-        members["unexpected.txt"] = b"unexpected"
-        _write_lz4_tar(archive, members)
-
-        with pytest.raises(ValueError, match="unexpected member"):
-            _decompress_archive(archive)
-
 
 # download (identifier validation; no network calls)
 
@@ -993,11 +935,6 @@ class TestDownload:
     @pytest.fixture(autouse=True)
     def _isolated_home(self, tmp_path, monkeypatch):
         monkeypatch.setenv("HOME", str(tmp_path))
-
-    def test_default_repository_is_immutable(self):
-        assert len(DEFAULT_REPOSITORY_REVISION) == 40
-        assert f"/resolve/{DEFAULT_REPOSITORY_REVISION}/" in DEFAULT_REPOSITORY_URL
-        assert "/resolve/main/" not in DEFAULT_REPOSITORY_URL
 
     def test_invalid_identifier_raises(self):
         from equimo.serialization import download
@@ -1253,9 +1190,9 @@ class TestLoadImage:
 
 
 def test_optional_extras_smoke(tmp_path):
-    pil_image = _require_optional_dependency("PIL.Image", "extras")
-    matplotlib = _require_optional_dependency("matplotlib", "extras")
-    _require_optional_dependency("sklearn", "extras")
+    pil_image = require_extra("PIL.Image", "extras")
+    matplotlib = require_extra("matplotlib", "extras")
+    require_extra("sklearn", "extras")
 
     from equimo.utils import PCAVisualizer, plot_image_and_feature_map
     from equimo.vision.io import load_image

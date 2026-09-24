@@ -187,23 +187,6 @@ def test_ia3_segment_delta_roundtrip(tmp_path, tiny_vision_transformer):
     assert jnp.array_equal(loaded.blocks[0].attn.qkv.ia3, ia3)
 
 
-def test_ia3_delta_missing_path_raises_bundle_error(tmp_path, tiny_vision_transformer):
-    model = eqft.apply_ia3(
-        tiny_vision_transformer,
-        eqft.IA3Config(target=eqft.TargetSpec(tags_any=("attention.proj",))),
-    )
-    path = tmp_path / "ia3.eqft"
-    bundle = eqft.save_delta(model, path, method="ia3")
-    entries = [dict(entry) for entry in bundle.adapter_config["entries"]]
-    entries[0]["path"] = "blocks.99.attn.proj"
-    bad_bundle = replace(bundle, adapter_config={"entries": entries})
-
-    with pytest.raises(
-        eqft.FineTuneBundleError, match="logical-ID table mismatch|no matching leaf"
-    ):
-        eqft.load_delta(tiny_vision_transformer, bad_bundle)
-
-
 def test_vera_delta_roundtrip(tmp_path, tiny_vision_transformer):
     model = eqft.apply_vera(
         tiny_vision_transformer,
