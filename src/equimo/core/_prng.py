@@ -10,6 +10,11 @@ def split_for_mode(key: Any, num: int = 2, *, inference: bool | None) -> tuple:
 
     if inference is True:
         return (key,) * num
+    if key is None:
+        raise ValueError(
+            "A PRNG key is required for stochastic forward passes; pass key=... "
+            "or run with inference=True."
+        )
     return tuple(jr.split(key, num))
 
 

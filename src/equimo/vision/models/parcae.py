@@ -1067,7 +1067,7 @@ class VisionParcae(eqx.Module):
         H: int,
         W: int,
         inference: Optional[bool],
-        key: PRNGKeyArray,
+        key: PRNGKeyArray | None,
         rotary=None,
         checkpoint: bool = False,
         **kwargs,
@@ -1288,7 +1288,7 @@ class VisionParcae(eqx.Module):
         H: int,
         W: int,
         inference: Optional[bool],
-        key: PRNGKeyArray,
+        key: PRNGKeyArray | None,
         rotary=None,
         checkpoint: bool = False,
         **kwargs,
@@ -1315,7 +1315,7 @@ class VisionParcae(eqx.Module):
         H: int,
         W: int,
         inference: Optional[bool],
-        key: PRNGKeyArray,
+        key: PRNGKeyArray | None,
         num_steps: int | Array | None = None,
         num_steps_pair: tuple[int | Array, int | Array]
         | list[int | Array]
@@ -1344,11 +1344,17 @@ class VisionParcae(eqx.Module):
             key=key_rope,
         )
 
-        keys = jnp.stack(
-            split_for_mode(
-                key_loop,
-                self.max_recurrence,
-                inference=deterministic_inference,
+        # A missing key is only accepted for deterministic inference, where no
+        # recurrent step consumes randomness.
+        keys = (
+            None
+            if key_loop is None
+            else jnp.stack(
+                split_for_mode(
+                    key_loop,
+                    self.max_recurrence,
+                    inference=deterministic_inference,
+                )
             )
         )
 
@@ -1372,9 +1378,13 @@ class VisionParcae(eqx.Module):
             grad_scan_bound = min(self.max_recurrence, self.mean_backprop_depth)
             no_grad_scan_bound = self.max_recurrence - grad_scan_bound
 
-        def no_grad_body(carry, xs):
+        def step_key(index):
+            if keys is None:
+                return None
+            return jax.lax.dynamic_index_in_dim(keys, index, axis=0, keepdims=False)
+
+        def no_grad_body(carry, t):
             h_cur, last_cur = carry
-            t, key_step = xs
             active = t < no_grad_steps
 
             def inactive(c):
@@ -1388,7 +1398,7 @@ class VisionParcae(eqx.Module):
                     H=H,
                     W=W,
                     inference=inference,
-                    key=key_step,
+                    key=step_key(t),
                     rotary=rotary,
                     checkpoint=False,
                     **kwargs,
@@ -1401,11 +1411,7 @@ class VisionParcae(eqx.Module):
 
         if no_grad_scan_bound:
             no_grad_ts = jnp.arange(no_grad_scan_bound, dtype=jnp.int32)
-            (h, last_h), _ = jax.lax.scan(
-                no_grad_body,
-                (h, h),
-                (no_grad_ts, keys[:no_grad_scan_bound]),
-            )
+            (h, last_h), _ = jax.lax.scan(no_grad_body, (h, h), no_grad_ts)
             h = jax.lax.stop_gradient(h)
             last_h = jax.lax.stop_gradient(last_h)
         else:
@@ -1424,16 +1430,13 @@ class VisionParcae(eqx.Module):
                     no_grad_steps + t,
                     jnp.asarray(self.max_recurrence - 1, jnp.int32),
                 )
-                key_step = jax.lax.dynamic_index_in_dim(
-                    keys, key_index, axis=0, keepdims=False
-                )
                 h_next = self._recurrent_step(
                     h_active,
                     e,
                     H=H,
                     W=W,
                     inference=inference,
-                    key=key_step,
+                    key=step_key(key_index),
                     rotary=rotary,
                     checkpoint=self.recurrent_checkpoint,
                     **kwargs,
@@ -1463,7 +1466,7 @@ class VisionParcae(eqx.Module):
         self,
         x: Float[Array, "channels height width"],
         *,
-        key: PRNGKeyArray,
+        key: PRNGKeyArray | None,
         mask: Optional[Int[Array, "embed_h embed_w"]] = None,
         inference: Optional[bool] = None,
         num_steps: int | Array | None = None,
@@ -1474,6 +1477,12 @@ class VisionParcae(eqx.Module):
         **kwargs,
     ) -> tuple[Float[Array, "seq dim"], dict]:
         deterministic_inference = inference is True and self.state_init == "zero"
+        if key is None and not deterministic_inference:
+            raise ValueError(
+                "VisionParcae requires a PRNG key unless inference=True and "
+                f"state_init='zero' (got inference={inference!r}, "
+                f"state_init={self.state_init!r})."
+            )
         key_embed, key_prelude, key_loop, key_coda = split_for_mode(
             key, 4, inference=deterministic_inference
         )
@@ -1525,7 +1534,7 @@ class VisionParcae(eqx.Module):
     def features(
         self,
         x: Float[Array, "channels height width"],
-        key: PRNGKeyArray,
+        key: PRNGKeyArray | None = None,
         mask: Optional[Int[Array, "embed_h embed_w"]] = None,
         inference: Optional[bool] = None,
         num_steps: int | Array | None = None,
@@ -1556,7 +1565,7 @@ class VisionParcae(eqx.Module):
     def forward_features(
         self,
         x: Float[Array, "channels height width"],
-        key: PRNGKeyArray,
+        key: PRNGKeyArray | None = None,
         inference: Optional[bool] = None,
         **kwargs,
     ) -> dict:
@@ -1590,7 +1599,7 @@ class VisionParcae(eqx.Module):
     def intermediate_features(
         self,
         x: Float[Array, "channels height width"],
-        key: PRNGKeyArray,
+        key: PRNGKeyArray | None = None,
         inference: Optional[bool] = None,
         indices: Sequence[int] | None = None,
         n_last_blocks: int | None = None,
@@ -1686,7 +1695,7 @@ class VisionParcae(eqx.Module):
         *,
         H: int | None = None,
         W: int | None = None,
-        key: PRNGKeyArray = jr.PRNGKey(42),
+        key: PRNGKeyArray | None = None,
         inference: Optional[bool] = True,
         **kwargs,
     ) -> Float[Array, "num_classes"]:  # noqa: F821
@@ -1723,7 +1732,7 @@ class VisionParcae(eqx.Module):
     def __call__(
         self,
         x: Float[Array, "channels height width"],
-        key: PRNGKeyArray = jr.PRNGKey(42),
+        key: PRNGKeyArray | None = None,
         inference: Optional[bool] = None,
         num_steps: int | Array | None = None,
         num_steps_pair: tuple[int | Array, int | Array]

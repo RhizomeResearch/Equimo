@@ -68,7 +68,7 @@ class TransformerEncoderStack(eqx.Module):
     def __call__(
         self,
         x: Float[Array, "seqlen dim"],
-        key: PRNGKeyArray,
+        key: PRNGKeyArray | None = None,
         inference: Optional[bool] = None,
         mask: Optional[Float[Array, ""]] = None,
         *,
@@ -90,7 +90,7 @@ class TransformerEncoderStack(eqx.Module):
     def intermediate_features(
         self,
         x: Float[Array, "seqlen dim"],
-        key: PRNGKeyArray,
+        key: PRNGKeyArray | None = None,
         inference: Optional[bool] = None,
         mask: Optional[Float[Array, ""]] = None,
         indices: Sequence[int] | None = None,
@@ -209,7 +209,7 @@ class TextTransformerEncoder(eqx.Module):
         self,
         ids: Int[Array, "seqlen"],  # noqa: F821
         padding_mask: Float[Array, "seqlen"],  # noqa: F821
-        key: PRNGKeyArray,
+        key: PRNGKeyArray | None = None,
         inference: Optional[bool] = None,
     ) -> Float[Array, "seqlen dim"]:
         x, valid_mask = self._prepare_tokens(ids, padding_mask)
@@ -226,7 +226,7 @@ class TextTransformerEncoder(eqx.Module):
         self,
         ids: Int[Array, "seqlen"],  # noqa: F821
         padding_mask: Float[Array, "seqlen"],  # noqa: F821
-        key: PRNGKeyArray,
+        key: PRNGKeyArray | None = None,
         inference: Optional[bool] = None,
         indices: Sequence[int] | None = None,
         n_last_blocks: int | None = None,
@@ -248,7 +248,7 @@ class TextTransformerEncoder(eqx.Module):
         self,
         ids: Int[Array, "seqlen"],  # noqa: F821
         padding_mask: Float[Array, "seqlen"],  # noqa: F821
-        key: PRNGKeyArray,
+        key: PRNGKeyArray | None = None,
         inference: Optional[bool] = None,
     ) -> Float[Array, "dim"]:
         x = self.features(ids, padding_mask, key=key, inference=inference)

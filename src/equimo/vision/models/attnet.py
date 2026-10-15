@@ -108,7 +108,7 @@ class AttNet(eqx.Module):
     def features(
         self,
         x: Float[Array, "channels height width"],
-        key: PRNGKeyArray = jr.PRNGKey(42),
+        key: PRNGKeyArray | None = None,
         inference: Optional[bool] = None,
         **kwargs,
     ) -> Float[Array, "num_classes"]:  # noqa: F821
@@ -119,7 +119,7 @@ class AttNet(eqx.Module):
     def intermediate_features(
         self,
         x: Float[Array, "channels height width"],
-        key: PRNGKeyArray = jr.PRNGKey(42),
+        key: PRNGKeyArray | None = None,
         inference: Optional[bool] = None,
         indices: Sequence[int] | None = None,
         n_last_blocks: int | None = None,
@@ -141,7 +141,7 @@ class AttNet(eqx.Module):
     def __call__(
         self,
         x: Float[Array, "channels height width"],
-        key: PRNGKeyArray = jr.PRNGKey(42),
+        key: PRNGKeyArray | None = None,
         inference: Optional[bool] = None,
         **kwargs,
     ) -> Float[Array, "num_classes"]:  # noqa: F821

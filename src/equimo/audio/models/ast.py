@@ -190,7 +190,7 @@ class AudioSpectrogramTransformer(eqx.Module):
     def features(
         self,
         x: Float[Array, "time frequency"],
-        key: PRNGKeyArray,
+        key: PRNGKeyArray | None = None,
         inference: Optional[bool] = None,
         **kwargs,
     ) -> Float[Array, "seqlen dim"]:
@@ -207,7 +207,7 @@ class AudioSpectrogramTransformer(eqx.Module):
     def intermediate_features(
         self,
         x: Float[Array, "time frequency"],
-        key: PRNGKeyArray,
+        key: PRNGKeyArray | None = None,
         inference: Optional[bool] = None,
         indices: Sequence[int] | None = None,
         n_last_blocks: int | None = None,
@@ -251,7 +251,7 @@ class AudioSpectrogramTransformer(eqx.Module):
         self,
         x: Float[Array, "time frequency"],
         *,
-        key: PRNGKeyArray,
+        key: PRNGKeyArray | None,
         inference: Optional[bool],
     ) -> Float[Array, "seqlen dim"]:
         x = self.patch_embed(x)
@@ -266,7 +266,7 @@ class AudioSpectrogramTransformer(eqx.Module):
     def forward_features(
         self,
         x: Float[Array, "time frequency"],
-        key: PRNGKeyArray,
+        key: PRNGKeyArray | None = None,
         inference: Optional[bool] = None,
         **kwargs,
     ) -> dict:
@@ -283,7 +283,7 @@ class AudioSpectrogramTransformer(eqx.Module):
     def __call__(
         self,
         x: Float[Array, "time frequency"],
-        key: PRNGKeyArray = jr.PRNGKey(42),
+        key: PRNGKeyArray | None = None,
         inference: Optional[bool] = None,
         **kwargs,
     ) -> Float[Array, "num_classes"]:  # noqa: F821

@@ -75,7 +75,7 @@ class MobileNetv3(eqx.Module):
     def features(
         self,
         x: Float[Array, "..."],
-        key: PRNGKeyArray,
+        key: PRNGKeyArray | None = None,
         inference: Optional[bool] = None,
     ) -> Float[Array, "..."]:
         key_conv1, key_layers = split_for_mode(key, 2, inference=inference)
@@ -93,7 +93,7 @@ class MobileNetv3(eqx.Module):
     def intermediate_features(
         self,
         x: Float[Array, "..."],
-        key: PRNGKeyArray,
+        key: PRNGKeyArray | None = None,
         inference: Optional[bool] = None,
         indices: Sequence[int] | None = None,
         n_last_blocks: int | None = None,
@@ -124,7 +124,7 @@ class MobileNetv3(eqx.Module):
     def __call__(
         self,
         x: Float[Array, "..."],
-        key: PRNGKeyArray,
+        key: PRNGKeyArray | None = None,
         inference: Optional[bool] = None,
     ) -> Float[Array, "..."]:
         key_f, key_d = split_for_mode(key, 2, inference=inference)

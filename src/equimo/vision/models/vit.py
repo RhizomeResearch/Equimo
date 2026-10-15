@@ -339,7 +339,7 @@ class VisionTransformer(eqx.Module):
     def features(
         self,
         x: Float[Array, "channels height width"],
-        key: PRNGKeyArray,
+        key: PRNGKeyArray | None = None,
         mask: Optional[Int[Array, "embed_h embed_w"]] = None,
         inference: Optional[bool] = None,
         **kwargs,
@@ -373,7 +373,7 @@ class VisionTransformer(eqx.Module):
     def intermediate_features(
         self,
         x: Float[Array, "channels height width"],
-        key: PRNGKeyArray | None,
+        key: PRNGKeyArray | None = None,
         mask: Optional[Int[Array, "embed_h embed_w"]] = None,
         inference: Optional[bool] = None,
         indices: Sequence[int] | None = None,
@@ -614,7 +614,7 @@ class VisionTransformer(eqx.Module):
         self,
         prepared,
         *,
-        key: PRNGKeyArray,
+        key: PRNGKeyArray | None,
         inference: Optional[bool],
         token_transform: Callable | None = None,
         token_transform_key: PRNGKeyArray | None = None,
@@ -711,7 +711,7 @@ class VisionTransformer(eqx.Module):
     def forward_features(
         self,
         x: Float[Array, "channels height width"],
-        key: PRNGKeyArray,
+        key: PRNGKeyArray | None = None,
         inference: Optional[bool] = None,
         **kwargs,
     ) -> dict:
@@ -746,7 +746,7 @@ class VisionTransformer(eqx.Module):
     def __call__(
         self,
         x: Float[Array, "channels height width"],
-        key: PRNGKeyArray = jr.PRNGKey(42),
+        key: PRNGKeyArray | None = None,
         inference: Optional[bool] = None,
         **kwargs,
     ) -> Float[Array, "num_classes"]:  # noqa: F821

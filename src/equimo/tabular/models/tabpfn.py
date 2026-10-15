@@ -217,7 +217,7 @@ class TabPFN(eqx.Module):
         x: Float[Array, "rows columns"],
         y: Array,
         n_train: int,
-        key: PRNGKeyArray,
+        key: PRNGKeyArray | None = None,
         inference: Optional[bool] = None,
         **kwargs,
     ) -> Float[Array, "rows dim"]:
@@ -256,7 +256,7 @@ class TabPFN(eqx.Module):
         x: Float[Array, "rows columns"],
         y: Array,
         n_train: int,
-        key: PRNGKeyArray,
+        key: PRNGKeyArray | None = None,
         inference: Optional[bool] = None,
         indices: Sequence[int] | None = None,
         n_last_blocks: int | None = None,
@@ -322,7 +322,7 @@ class TabPFN(eqx.Module):
         x: Float[Array, "rows columns"],
         y: Array,
         n_train: int,
-        key: PRNGKeyArray,
+        key: PRNGKeyArray | None = None,
         inference: Optional[bool] = None,
         **kwargs,
     ) -> dict:
@@ -339,7 +339,7 @@ class TabPFN(eqx.Module):
         x: Float[Array, "rows columns"],
         y: Array,
         n_train: int,
-        key: PRNGKeyArray = jr.PRNGKey(42),
+        key: PRNGKeyArray | None = None,
         inference: Optional[bool] = None,
         **kwargs,
     ) -> Float[Array, "test classes"]:

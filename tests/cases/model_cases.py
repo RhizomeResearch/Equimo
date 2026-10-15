@@ -650,7 +650,7 @@ MODEL_CASES = (
 def extract_features(
     invocation: ModelInvocation,
     *args: jax.Array,
-    key: jax.Array,
+    key: jax.Array | None,
 ) -> jax.Array:
     return eqft.extract_features(
         invocation.model,

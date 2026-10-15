@@ -2,6 +2,22 @@
 
 All notable changes to Equimo are documented here. Equimo follows Semantic Versioning from version 2.0.0 onward.
 
+## [Unreleased]
+
+### Changed
+
+- Model forward and feature endpoints default `key` to `None` instead of a fixed `jax.random.PRNGKey(42)`. Deterministic
+  inference (`inference=True`) needs no key; a stochastic forward pass without a key raises a `ValueError` instead of
+  silently reusing the same randomness on every call.
+
+### Fixed
+
+- `extract_features`, `DenseProbe`, and the other fine-tuning wrappers no longer fail with their default `key=None` on
+  ViT-family models (including DINOv2, DINOv3, SigLIP2, EUPE, and LingBot-Vision), VisionParcae, MobileNetV3, AST, the
+  text encoder, TabPFN, and T0, whose feature endpoints required a PRNG key even in inference mode.
+- VisionParcae with `state_init="zero"` runs deterministic inference without a key. Key-dependent configurations,
+  including the default `state_init="like-init"`, raise an actionable error when the key is missing.
+
 ## [2.4.0] - 2026-09-24
 
 ### Added

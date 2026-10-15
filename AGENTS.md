@@ -64,6 +64,9 @@ a full check cannot be run, report exactly what was and was not verified.
 - Keep computation JAX-native and compatible with transformations such as `jax.jit`, `jax.vmap`, and automatic
   differentiation. Avoid host-side NumPy conversions or Python data-dependent control flow in traced paths.
 - Pass PRNG keys explicitly and split them deterministically. Do not introduce hidden global randomness.
+- Model forward and feature endpoints take `key: PRNGKeyArray | None = None` and must run without a key when
+  `inference=True`: fine-tuning wrappers omit `key=None` when calling them. Split keys with
+  `equimo.core._prng.split_for_mode`, which passes `None` through only under static inference and raises otherwise.
 - Follow the repository's unbatched module convention unless the surrounding API says otherwise; use `jax.vmap` for
   batching.
 - Models may later be sharded across multiple devices. Keep model code compatible with JAX sharding and avoid

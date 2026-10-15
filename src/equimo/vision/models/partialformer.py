@@ -305,7 +305,7 @@ class PartialFormer(eqx.Module):
     def features(
         self,
         x: Float[Array, "channels height width"],
-        key: PRNGKeyArray = ...,
+        key: PRNGKeyArray | None = ...,
         inference: Optional[bool] = ...,
         return_qa: Literal[False] = ...,
     ) -> Float[Array, "seqlen dim"]: ...
@@ -314,7 +314,7 @@ class PartialFormer(eqx.Module):
     def features(
         self,
         x: Float[Array, "channels height width"],
-        key: PRNGKeyArray = ...,
+        key: PRNGKeyArray | None = ...,
         inference: Optional[bool] = ...,
         *,
         return_qa: Literal[True],
@@ -323,7 +323,7 @@ class PartialFormer(eqx.Module):
     def features(
         self,
         x: Float[Array, "channels height width"],
-        key: PRNGKeyArray = jr.PRNGKey(42),
+        key: PRNGKeyArray | None = None,
         inference: Optional[bool] = None,
         return_qa: bool = False,
     ) -> (
@@ -364,7 +364,7 @@ class PartialFormer(eqx.Module):
     def intermediate_features(
         self,
         x: Float[Array, "channels height width"],
-        key: PRNGKeyArray = jr.PRNGKey(42),
+        key: PRNGKeyArray | None = None,
         inference: Optional[bool] = None,
         indices: Sequence[int] | None = None,
         n_last_blocks: int | None = None,
@@ -401,7 +401,7 @@ class PartialFormer(eqx.Module):
     def __call__(
         self,
         x: Float[Array, "channels height width"],
-        key: PRNGKeyArray = jr.PRNGKey(42),
+        key: PRNGKeyArray | None = None,
         inference: Optional[bool] = None,
     ) -> Float[Array, "num_classes"]:  # noqa: F821
         """Process input image through the full network.

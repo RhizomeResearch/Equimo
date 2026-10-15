@@ -227,7 +227,7 @@ class BlockChunk(eqx.Module):
         x: Float[Array, "..."],
         *,
         z0: Float[Array, "..."] | None = None,
-        key: PRNGKeyArray,
+        key: PRNGKeyArray | None,
         inference: Optional[bool] = False,
         **kwargs,
     ) -> Tuple[Float[Array, "..."], list]:
@@ -362,7 +362,7 @@ class DEQ(eqx.Module):
     def features(
         self,
         x: Float[Array, "channels height width"],
-        key: PRNGKeyArray = jr.PRNGKey(42),
+        key: PRNGKeyArray | None = None,
         inference: Optional[bool] = None,
         **kwargs,
     ) -> Tuple[Float[Array, "num_classes"], list]:  # noqa: F821
@@ -380,7 +380,7 @@ class DEQ(eqx.Module):
     def intermediate_features(
         self,
         x: Float[Array, "channels height width"],
-        key: PRNGKeyArray = jr.PRNGKey(42),
+        key: PRNGKeyArray | None = None,
         inference: Optional[bool] = None,
         indices: Sequence[int] | None = None,
         n_last_blocks: int | None = None,
@@ -404,7 +404,7 @@ class DEQ(eqx.Module):
     def readout(
         self,
         z_star: Float[Array, "channels height width"],
-        key: PRNGKeyArray = jr.PRNGKey(42),
+        key: PRNGKeyArray | None = None,
         inference: Optional[bool] = None,
     ):
         if len(self.fpi_index) == 0:
@@ -434,7 +434,7 @@ class DEQ(eqx.Module):
     def __call__(
         self,
         x: Float[Array, "channels height width"],
-        key: PRNGKeyArray = jr.PRNGKey(42),
+        key: PRNGKeyArray | None = None,
         inference: Optional[bool] = None,
         **kwargs,
     ) -> Tuple[Float[Array, "num_classes"], list]:  # noqa: F821

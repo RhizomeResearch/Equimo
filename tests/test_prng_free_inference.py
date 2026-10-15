@@ -161,6 +161,9 @@ def test_every_deterministic_builtin_model_family_has_prng_free_inference(case):
         *invocation.args,
         invocation.key,
     )
+    keyed = extract_features(invocation, *invocation.args, key=invocation.key)
+    keyless = extract_features(invocation, *invocation.args, key=None)
+    assert jnp.array_equal(keyless, keyed)
 
 
 @pytest.mark.parametrize("state_init", ("normal", "embed", "unit", "like-init"))

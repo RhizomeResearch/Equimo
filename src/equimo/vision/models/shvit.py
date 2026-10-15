@@ -250,7 +250,7 @@ class SHViT(eqx.Module):
     def features(
         self,
         x: Float[Array, "..."],
-        key: PRNGKeyArray = jr.PRNGKey(42),
+        key: PRNGKeyArray | None = None,
         inference: Optional[bool] = None,
     ) -> Float[Array, "..."]:
         keys = split_for_mode(key, len(self.blocks), inference=inference)
@@ -264,7 +264,7 @@ class SHViT(eqx.Module):
     def intermediate_features(
         self,
         x: Float[Array, "..."],
-        key: PRNGKeyArray = jr.PRNGKey(42),
+        key: PRNGKeyArray | None = None,
         inference: Optional[bool] = None,
         indices: Sequence[int] | None = None,
         n_last_blocks: int | None = None,
@@ -291,7 +291,7 @@ class SHViT(eqx.Module):
     def __call__(
         self,
         x: Float[Array, "..."],
-        key: PRNGKeyArray = jr.PRNGKey(42),
+        key: PRNGKeyArray | None = None,
         inference: Optional[bool] = None,
     ) -> Float[Array, "..."]:
         """Process input image through the full SHViT network.

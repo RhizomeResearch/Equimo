@@ -474,7 +474,7 @@ class T0(eqx.Module):
         group_ids: Int[Array, "variates time"],
         variate_type: Int[Array, "variates time"],
         *,
-        key: PRNGKeyArray,
+        key: PRNGKeyArray | None = None,
         inference: Optional[bool] = None,
     ) -> Float[Array, "tokens embed_dim"]:
         """Return post-normalization latent tokens before quantile decoding.
@@ -503,7 +503,7 @@ class T0(eqx.Module):
         group_ids: Int[Array, "variates time"],
         variate_type: Int[Array, "variates time"],
         *,
-        key: PRNGKeyArray = jr.PRNGKey(42),
+        key: PRNGKeyArray | None = None,
         inference: Optional[bool] = None,
     ) -> Float[Array, "variates patches patch_size quantiles"]:
         key_encoder, key_blocks, key_decoder = split_for_mode(

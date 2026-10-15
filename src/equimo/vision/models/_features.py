@@ -8,7 +8,6 @@ its saved-checkpoint signature, unchanged.
 from typing import TYPE_CHECKING, Any, Collection, Optional, Sequence
 
 import jax
-import jax.random as jr
 from einops import reduce
 from jaxtyping import Array, Float, PRNGKeyArray
 
@@ -50,7 +49,7 @@ class DenseStageFeatures:
     def features(
         self,
         x: Float[Array, "channels height width"],
-        key: PRNGKeyArray = jr.PRNGKey(42),
+        key: PRNGKeyArray | None = None,
         inference: Optional[bool] = None,
         **kwargs,
     ) -> Float[Array, "dim height width"]:
@@ -66,7 +65,7 @@ class DenseStageFeatures:
     def intermediate_features(
         self,
         x: Float[Array, "channels height width"],
-        key: PRNGKeyArray = jr.PRNGKey(42),
+        key: PRNGKeyArray | None = None,
         inference: Optional[bool] = None,
         indices: Sequence[int] | None = None,
         n_last_blocks: int | None = None,
@@ -88,7 +87,7 @@ class DenseStageFeatures:
     def __call__(
         self,
         x: Float[Array, "channels height width"],
-        key: PRNGKeyArray = jr.PRNGKey(42),
+        key: PRNGKeyArray | None = None,
         inference: Optional[bool] = None,
         **kwargs,
     ) -> Float[Array, "num_classes"]:  # noqa: F821
@@ -116,7 +115,7 @@ class TokenStemFeatures:
     def features(
         self,
         x: Float[Array, "..."],
-        key: PRNGKeyArray = jr.PRNGKey(42),
+        key: PRNGKeyArray | None = None,
         inference: Optional[bool] = None,
     ) -> Float[Array, "..."]:
         key_pd, *keys = split_for_mode(key, 1 + len(self.blocks), inference=inference)
@@ -130,7 +129,7 @@ class TokenStemFeatures:
     def intermediate_features(
         self,
         x: Float[Array, "..."],
-        key: PRNGKeyArray = jr.PRNGKey(42),
+        key: PRNGKeyArray | None = None,
         inference: Optional[bool] = None,
         indices: Sequence[int] | None = None,
         n_last_blocks: int | None = None,
@@ -153,7 +152,7 @@ class TokenStemFeatures:
     def __call__(
         self,
         x: Float[Array, "..."],
-        key: PRNGKeyArray = jr.PRNGKey(42),
+        key: PRNGKeyArray | None = None,
         inference: Optional[bool] = None,
     ) -> Float[Array, "..."]:
         """Features, token-mean pooling, and classification head."""
