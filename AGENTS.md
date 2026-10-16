@@ -25,6 +25,10 @@ Use `uv` from the repository root. CI uses Python 3.12.
 uv sync --group dev
 ```
 
+Lockfile output depends on the uv version: a newer global uv rewrites the lock `revision`, and CI's pinned uv re-adds
+platform markers. After changing `pyproject.toml` (including version bumps), relock with the devenv-provided uv
+(`.devenv/profile/bin/uv lock`, run in practice) and use it for `uv run` so the lock diff stays limited to the change.
+
 Run a focused test while iterating:
 
 ```bash
