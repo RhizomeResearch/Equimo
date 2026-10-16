@@ -2,6 +2,15 @@
 
 All notable changes to Equimo are documented here. Equimo follows Semantic Versioning from version 2.0.0 onward.
 
+## [Unreleased]
+
+### Changed
+
+- The EoMT and PMT mask-head `ScaleBlock` computes its 2 × 2, stride-2 transposed convolution as a matmul followed by
+  depth-to-space. This avoids an untuned cuDNN fallback for the bfloat16 weight gradient that made GPU training steps
+  several times slower at batch sizes of 12 and above. Parameters and checkpoints are unchanged; outputs match the
+  previous implementation within floating-point rounding.
+
 ## [2.5.0] - 2026-10-15
 
 ### Changed

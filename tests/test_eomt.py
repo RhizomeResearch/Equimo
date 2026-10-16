@@ -17,7 +17,12 @@ import pytest
 from equimo.finetune.vision import eomt_full_finetune
 from equimo.serialization import load_weights, save_model
 from equimo.vision.models import EoMT, VisionTransformer
-from equimo.vision.models.eomt import EoMTMaskState, anneal_mask_state, mask_free_eomt
+from equimo.vision.models.eomt import (
+    EoMTMaskState,
+    ScaleBlock,
+    anneal_mask_state,
+    mask_free_eomt,
+)
 from equimo.vision.segmentation import (
     merge_semantic_crops,
     panoptic_predictions,
@@ -178,6 +183,47 @@ def test_pinned_author_query_outputs_and_attention_mask():
                     rtol=2e-5,
                     atol=2e-5,
                 )
+
+
+def test_scale_block_matches_its_transposed_convolution():
+    def convolution_reference(block: ScaleBlock, x: jax.Array) -> jax.Array:
+        return block.norm(block.conv2(jax.nn.gelu(block.conv1(x), approximate=False)))
+
+    block = ScaleBlock(16, key=jr.PRNGKey(5))
+    images = jr.normal(jr.PRNGKey(6), (2, 16, 3, 5))
+    cotangent = jr.normal(jr.PRNGKey(7), (2, 16, 6, 10))
+
+    def loss(forward, candidate):
+        outputs = jax.vmap(lambda x: forward(candidate, x))(images)
+        return jnp.sum(outputs * cotangent)
+
+    np.testing.assert_allclose(
+        jax.vmap(block)(images),
+        jax.vmap(lambda x: convolution_reference(block, x))(images),
+        rtol=1e-5,
+        atol=1e-5,
+    )
+    actual = eqx.filter_grad(lambda b: loss(ScaleBlock.__call__, b))(block)
+    expected = eqx.filter_grad(lambda b: loss(convolution_reference, b))(block)
+    for gradient, reference in zip(
+        jtu.tree_leaves(actual), jtu.tree_leaves(expected), strict=True
+    ):
+        np.testing.assert_allclose(gradient, reference, rtol=1e-5, atol=1e-5)
+
+    # Only the depthwise convolution remains; a lowered transposed convolution
+    # has a slow cuDNN bfloat16 weight gradient at training batch sizes.
+    lowered = jax.jit(lambda b, x: b(x)).lower(block, images[0]).as_text()
+    assert lowered.count("stablehlo.convolution") == 1
+
+    low_precision = jtu.tree_map(
+        lambda leaf: leaf.astype(jnp.bfloat16) if eqx.is_inexact_array(leaf) else leaf,
+        block,
+    )
+    output = low_precision(images[0].astype(jnp.bfloat16))
+    assert output.dtype == jnp.bfloat16
+    np.testing.assert_allclose(
+        output.astype(jnp.float32), block(images[0]), rtol=0, atol=5e-2
+    )
 
 
 def test_default_query_insertion_and_rectangular_geometry():
