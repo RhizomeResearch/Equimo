@@ -11,6 +11,13 @@ All notable changes to Equimo are documented here. Equimo follows Semantic Versi
   several times slower at batch sizes of 12 and above. Parameters and checkpoints are unchanged; outputs match the
   previous implementation within floating-point rounding.
 
+### Fixed
+
+- `match_queries` and the query-segmentation losses no longer rely on dropping out-of-range scatter updates. Under
+  `vmap` with `--xla_gpu_deterministic_ops` or `--xla_gpu_exclude_nondeterministic_ops`, jaxlib 0.11.2 and earlier write
+  such updates into the next batch row (openxla/xla#49380), which silently produced non-optimal query assignments and
+  wrong classification targets.
+
 ## [2.5.0] - 2026-10-15
 
 ### Changed

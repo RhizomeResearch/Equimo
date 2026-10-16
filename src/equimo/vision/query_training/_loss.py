@@ -410,9 +410,11 @@ def query_prediction_loss(
     )
     is_valid &= jnp.all(counts <= 1)
     no_object = classes.shape[1] - 1
-    assigned_labels = jnp.full((classes.shape[0],), no_object, dtype=jnp.int32)
+    # Unmatched targets write to a spare slot rather than out of range, which
+    # deterministic GPU scatters mishandle (openxla/xla#49380).
+    assigned_labels = jnp.full((classes.shape[0] + 1,), no_object, dtype=jnp.int32)
     destinations = jnp.where(matched, indices, classes.shape[0])
-    assigned_labels = assigned_labels.at[destinations].set(labels, mode="drop")
+    assigned_labels = assigned_labels.at[destinations].set(labels)[:-1]
     weights = (
         jnp.where(assigned_labels == no_object, config.no_object_weight, 1.0)
         * targets.supervised

@@ -10,6 +10,7 @@ import jax.numpy as jnp
 import jax.random as jr
 import numpy as np
 import pytest
+from jax.experimental import checkify
 from scipy.optimize import linear_sum_assignment
 
 from equimo.vision.models.eomt import EoMTOutput, MaskPrediction
@@ -127,6 +128,22 @@ def test_assignment_scipy_and_invalid_values():
     rejected = jax.jit(match_queries)(overflow, jnp.ones(2, bool))
     assert not bool(rejected.is_valid)
     np.testing.assert_array_equal(rejected.query_indices, -1)
+
+
+def test_matching_and_loss_scatters_stay_in_bounds():
+    # Deterministic GPU scatters in jaxlib <= 0.11.2 write batched out-of-range
+    # updates into the next row instead of dropping them (openxla/xla#49380).
+    output, targets = _case()
+    targets = eqx.tree_at(lambda t: t.target_valid, targets, jnp.array([True, False]))
+
+    def loss(output, targets):
+        context = _fixed_context(output, targets)
+        return query_segmentation_loss(output, targets, context).total
+
+    checked = checkify.checkify(loss, errors=checkify.index_checks)
+    error, total = jax.jit(checked)(output, targets)
+    error.throw()
+    assert bool(jnp.isfinite(total))
 
 
 def test_costs_and_loss_hand_calculation():

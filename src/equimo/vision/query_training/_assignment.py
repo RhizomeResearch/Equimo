@@ -71,10 +71,11 @@ def match_queries(costs: jax.Array, target_valid: jax.Array) -> QueryAssignment:
                 candidate = jnp.where(available, distance, jnp.inf)
                 next_column = jnp.argmin(candidate).astype(jnp.int32) + 1
                 delta = candidate[next_column - 1]
-                # Out-of-range scatter updates are dropped; unvisited columns
-                # must not repeatedly add to the dummy row's potential.
-                indices = jnp.where(visited, owner, targets + 1)
-                u = u.at[indices].add(delta, mode="drop")
+                # Unvisited columns add zero instead of being dropped as
+                # out-of-range updates: deterministic GPU scatters in jaxlib
+                # <= 0.11.2 write those into the next batch row
+                # (openxla/xla#49380).
+                u = u.at[owner].add(jnp.where(visited, delta, 0))
                 v = jnp.where(visited, v - delta, v)
                 distance = jnp.where(available, distance - delta, distance)
                 return u, v, visited, distance, previous, next_column, steps + 1
@@ -120,11 +121,12 @@ def match_queries(costs: jax.Array, target_valid: jax.Array) -> QueryAssignment:
         finite,
     )
     _, _, owner, feasible = lax.fori_loop(0, targets, insert, initial)
-    indices = jnp.full((targets,), -1, dtype=jnp.int32)
+    # Unmatched queries write to a spare slot rather than out of range, which
+    # deterministic GPU scatters mishandle (openxla/xla#49380).
+    indices = jnp.full((targets + 1,), -1, dtype=jnp.int32)
     destinations = jnp.where(owner[1:] > 0, owner[1:] - 1, targets)
-    indices = indices.at[destinations].set(
-        jnp.arange(queries, dtype=jnp.int32), mode="drop"
-    )
+    indices = indices.at[destinations].set(jnp.arange(queries, dtype=jnp.int32))
+    indices = indices[:targets]
     return QueryAssignment(
         jnp.where(feasible, indices, -1), active & feasible, feasible
     )
