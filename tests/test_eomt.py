@@ -225,6 +225,23 @@ def test_scale_block_matches_its_transposed_convolution():
         output.astype(jnp.float32), block(images[0]), rtol=0, atol=5e-2
     )
 
+    with jax.enable_x64(True):
+        double_precision = jtu.tree_map(
+            lambda leaf: (
+                leaf.astype(jnp.float64) if eqx.is_inexact_array(leaf) else leaf
+            ),
+            block,
+        )
+        image = images[0].astype(jnp.float64)
+        output = double_precision(image)
+        assert output.dtype == jnp.float64
+        np.testing.assert_allclose(
+            output,
+            convolution_reference(double_precision, image),
+            rtol=1e-12,
+            atol=1e-12,
+        )
+
 
 def test_default_query_insertion_and_rectangular_geometry():
     model = _tiny_model()

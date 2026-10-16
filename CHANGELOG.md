@@ -2,6 +2,14 @@
 
 All notable changes to Equimo are documented here. Equimo follows Semantic Versioning from version 2.0.0 onward.
 
+## [Unreleased]
+
+### Fixed
+
+- The EoMT and PMT mask-head `ScaleBlock` accumulates its upscaling matmul in the input precision when that exceeds
+  float32. In 2.5.1, float64 models computed the upscale in float32 on CPU and failed on GPU, where cuBLAS has no
+  float64-input, float32-output GEMM.
+
 ## [2.5.1] - 2026-10-16
 
 ### Changed

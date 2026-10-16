@@ -83,8 +83,10 @@ class ScaleBlock(eqx.Module):
         _, height, width = x.shape
         # Equinox correlates the stored kernel with the dilated input.
         weight = self.conv1.weight[:, :, ::-1, ::-1]
+        # Accumulate in at least float32 without demoting float64 inputs.
+        accumulation_dtype = jnp.promote_types(jnp.result_type(weight, x), jnp.float32)
         upscaled = jnp.einsum(
-            "oiab,ihw->ohawb", weight, x, preferred_element_type=jnp.float32
+            "oiab,ihw->ohawb", weight, x, preferred_element_type=accumulation_dtype
         )
         upscaled = upscaled.reshape(-1, 2 * height, 2 * width) + self.conv1.bias
         upscaled = upscaled.astype(x.dtype)
