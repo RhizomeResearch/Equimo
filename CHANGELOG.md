@@ -2,7 +2,7 @@
 
 All notable changes to Equimo are documented here. Equimo follows Semantic Versioning from version 2.0.0 onward.
 
-## [Unreleased]
+## [2.6.0] - 2026-10-17
 
 ### Fixed
 
