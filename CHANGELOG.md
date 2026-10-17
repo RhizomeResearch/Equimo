@@ -2,6 +2,15 @@
 
 All notable changes to Equimo are documented here. Equimo follows Semantic Versioning from version 2.0.0 onward.
 
+## [Unreleased]
+
+### Fixed
+
+- `anneal_mask_state` and `anneal_pmt_mask_state` return exactly zero mask probability from the declared end step. On
+  GPUs, the float32 progress quotient could round just below one (600 / 600 is 0.99999994 on an H100), which left a
+  probability near 3e-7 at that step and made `mask_free_eomt` and `mask_free_pmt` refuse a model whose annealing had
+  ended.
+
 ## [2.5.2] - 2026-10-16
 
 ### Fixed

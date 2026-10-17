@@ -348,6 +348,11 @@ def test_mask_schedule_and_terminal_transition():
     with pytest.raises(ValueError, match="terminal"):
         mask_free_eomt(_tiny_model(), middle)
     assert not mask_free_eomt(_tiny_model(), terminal).masked_attention
+    # Ends whose float32 quotient end / end rounds below one on GPUs must still be exactly zero.
+    for end in (600, 624, 648, 5352):
+        at_end = anneal_mask_state(end, (0, 0), (end, end))
+        np.testing.assert_array_equal(at_end.probabilities, [0, 0])
+        assert anneal_mask_state(end - 1, (0,), (end,)).probabilities[0] > 0
     with pytest.raises(ValueError, match="must follow"):
         anneal_mask_state(0, (0,), (0,))
 

@@ -90,7 +90,10 @@ def _anneal_mask_probabilities(
     start = jnp.asarray(start_steps, dtype=jnp.float32)
     end = jnp.asarray(end_steps, dtype=jnp.float32)
     progress = jnp.clip((step.astype(jnp.float32) - start) / (end - start), 0, 1)
-    return (1 - progress) ** power
+    # GPU float32 division is not correctly rounded (600 / 600 is 0.99999994 on an H100),
+    # so the end step itself, not the quotient reaching one, removes the masks.
+    ended = step >= jnp.asarray(end_steps, dtype=jnp.int32)
+    return jnp.where(ended, 0.0, (1 - progress) ** power)
 
 
 def semantic_scores(
