@@ -10,6 +10,9 @@ All notable changes to Equimo are documented here. Equimo follows Semantic Versi
   GPUs, the float32 progress quotient could round just below one (600 / 600 is 0.99999994 on an H100), which left a
   probability near 3e-7 at that step and made `mask_free_eomt` and `mask_free_pmt` refuse a model whose annealing had
   ended.
+- Masked attention in EoMT and PMT keeps each query mask with exactly the annealed probability. A query kept its mask
+  when its uniform draw was at most the probability, so at probability zero a draw of exactly 0.0 (about one in 8.4
+  million per query) still applied it. Only draws exactly equal to the probability change outcome.
 
 ## [2.5.2] - 2026-10-16
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
+from types import SimpleNamespace
 
 import equinox as eqx
 import jax
@@ -16,6 +17,7 @@ import pytest
 
 from equimo.finetune.vision import eomt_full_finetune
 from equimo.serialization import load_weights, save_model
+from equimo.vision import segmentation
 from equimo.vision.models import EoMT, VisionTransformer
 from equimo.vision.models.eomt import (
     EoMTMaskState,
@@ -374,7 +376,7 @@ def test_low_precision_logits_and_segmentation_adapters():
     assert panoptic.class_ids.dtype == jnp.int32
 
 
-def test_mask_polarity_and_per_query_removal():
+def test_mask_polarity_and_per_query_removal(monkeypatch):
     model = _tiny_model()
     logits = jnp.array(
         [
@@ -382,12 +384,25 @@ def test_mask_polarity_and_per_query_removal():
             [[-2.0, 2.0], [-2.0, 2.0]],
         ]
     )
-    masked = model._attention_mask(
-        logits, height=2, width=2, probability=jnp.asarray(1.0), key=jr.PRNGKey(4)
+
+    def masks():
+        return [
+            model._attention_mask(
+                logits, height=2, width=2, probability=jnp.asarray(p), key=jr.PRNGKey(4)
+            )
+            for p in (1.0, 0.0)
+        ]
+
+    masked, unmasked = masks()
+    np.testing.assert_array_equal(masked[:2, 4:], [[1, 0, 1, 0], [0, 1, 0, 1]])
+    assert bool(jnp.all(unmasked))
+    # Float32 uniform draws span [0, 1 - 2**-23]; zero retention must drop a mask even
+    # for a draw of exactly zero, and full retention keep it for the largest draw.
+    extremes = jnp.array([0.0, 1 - 2**-23], dtype=jnp.float32)
+    monkeypatch.setattr(
+        segmentation, "jr", SimpleNamespace(uniform=lambda key, shape: extremes)
     )
-    unmasked = model._attention_mask(
-        logits, height=2, width=2, probability=jnp.asarray(0.0), key=jr.PRNGKey(4)
-    )
+    masked, unmasked = masks()
     np.testing.assert_array_equal(masked[:2, 4:], [[1, 0, 1, 0], [0, 1, 0, 1]])
     assert bool(jnp.all(unmasked))
 

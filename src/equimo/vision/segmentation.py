@@ -63,7 +63,8 @@ def _query_attention_mask(
     """
     num_queries = mask_logits.shape[0]
     allowed = resize_mask_logits(mask_logits, grid) > 0
-    keep = jr.uniform(key, (num_queries,)) <= probability
+    # Strict: uniform draws include exactly zero, which must not keep a mask at probability zero.
+    keep = jr.uniform(key, (num_queries,)) < probability
     allowed = jnp.where(keep[:, None, None], allowed, True)
     patch_start = num_queries + num_prefix_tokens
     length = patch_start + grid[0] * grid[1]
