@@ -30,6 +30,7 @@ from equimo.vision.segmentation import (
     panoptic_predictions,
     resize_mask_logits,
     restore_panoptic_mask_logits,
+    semantic_crop_origins,
     semantic_scores,
 )
 
@@ -472,6 +473,24 @@ def test_semantic_crop_and_panoptic_geometry():
         mask, padded_size=(4, 4), resized_size=(2, 4), output_size=(4, 8)
     )
     assert restored.shape == (1, 4, 8)
+
+
+def test_semantic_crop_origins_cover_evenly():
+    def starts(side, crop):
+        return [left for _, left in semantic_crop_origins((crop, side), (crop, crop))]
+
+    assert starts(512, 512) == [0]
+    assert starts(513, 512) == [0, 1]
+    assert starts(1024, 512) == [0, 512]
+    assert starts(1820, 512) == [0, 436, 872, 1308]
+    # EoMT's floating-point spacing ends the last crop of this side one pixel short.
+    assert starts(1347, 448) == [0, 299, 599, 899]
+    origins = semantic_crop_origins((5, 7), (3, 4))
+    assert origins == ((0, 0), (0, 3), (2, 0), (2, 3))
+    merged = merge_semantic_crops(jnp.ones((4, 1, 3, 4)), origins, (5, 7), (5, 7))
+    np.testing.assert_array_equal(merged, np.ones((1, 5, 7)))
+    with pytest.raises(ValueError, match="smaller"):
+        semantic_crop_origins((2, 7), (3, 4))
 
 
 def test_full_encoder_plan_gradients_and_reload(tmp_path):

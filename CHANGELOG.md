@@ -4,6 +4,13 @@ All notable changes to Equimo are documented here. Equimo follows Semantic Versi
 
 ## [Unreleased]
 
+### Added
+
+- `semantic_crop_origins` places the fewest evenly spaced crops that cover a scaled image, for sliding-window evaluation
+  with `merge_semantic_crops`. With the shorter side scaled to the crop size, it matches the EoMT reference's windows,
+  except that its last crop always ends at the image edge: the reference's floating-point spacing stops a pixel short
+  for some sizes, such as a 1,347-pixel side with 448-pixel crops.
+
 ### Fixed
 
 - `merge_semantic_crops` raises a `ValueError` when the crops leave part of the scaled image uncovered. It returned NaN

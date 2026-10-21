@@ -125,6 +125,34 @@ def semantic_class_map(
     )
 
 
+def semantic_crop_origins(
+    scaled_size: tuple[int, int], crop_size: tuple[int, int]
+) -> tuple[tuple[int, int], ...]:
+    """Row-major origins of the fewest evenly spaced crops covering the image.
+
+    Along each axis the first crop starts at zero and the last ends at the image
+    edge. With the shorter side scaled to the crop size, these are the EoMT
+    reference's sliding windows, except that integer spacing keeps the last crop
+    at the edge where the reference's floating-point spacing can stop short.
+    """
+    if min(crop_size) <= 0:
+        raise ValueError("Semantic crop sizes must be positive.")
+    if scaled_size[0] < crop_size[0] or scaled_size[1] < crop_size[1]:
+        raise ValueError("The scaled image is smaller than one semantic crop.")
+
+    def starts(size: int, length: int) -> list[int]:
+        count = (size + length - 1) // length
+        if count == 1:
+            return [0]
+        return [i * (size - length) // (count - 1) for i in range(count)]
+
+    return tuple(
+        (top, left)
+        for top in starts(scaled_size[0], crop_size[0])
+        for left in starts(scaled_size[1], crop_size[1])
+    )
+
+
 def merge_semantic_crops(
     crop_scores: jax.Array,
     origins: Sequence[tuple[int, int]],
@@ -268,5 +296,6 @@ __all__ = [
     "resize_mask_logits",
     "restore_panoptic_mask_logits",
     "semantic_class_map",
+    "semantic_crop_origins",
     "semantic_scores",
 ]
