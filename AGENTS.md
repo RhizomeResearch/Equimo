@@ -29,6 +29,10 @@ Lockfile output depends on the uv version: a newer global uv rewrites the lock `
 platform markers. After changing `pyproject.toml` (including version bumps), relock with the devenv-provided uv
 (`.devenv/profile/bin/uv lock`, run in practice) and use it for `uv run` so the lock diff stays limited to the change.
 
+Anything that imports JAX must run inside the devenv shell, for example `devenv shell -- uv run pytest ...` (run in
+practice): outside it, even the devenv-provided uv fails to import jaxlib because `libstdc++.so.6` is not on the library
+path.
+
 Run a focused test while iterating:
 
 ```bash
