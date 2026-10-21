@@ -45,7 +45,8 @@ returns the same final joint tokens. For code that accepts either EoMT or PMT pr
 `semantic_scores` softmaxes query class logits, excludes the no-object class, sigmoids each mask, and sums their
 products. Resize mask **logits** before calling it when output geometry differs. `semantic_class_map` returns the
 per-pixel argmax. For sliding-window evaluation, call `semantic_scores` on each crop and use `merge_semantic_crops` to
-average overlapping scores before the final resize. The supplied crops must cover the entire scaled image.
+average overlapping scores before the final resize. The supplied crops must cover the entire scaled image;
+`merge_semantic_crops` raises otherwise.
 
 For panoptic evaluation, use `restore_panoptic_mask_logits` when the model input was resized and padded; pass the
 restored logits to `panoptic_predictions`. The adapter keeps queries whose best class is not no-object and exceeds the

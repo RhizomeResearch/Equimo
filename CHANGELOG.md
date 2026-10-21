@@ -2,6 +2,14 @@
 
 All notable changes to Equimo are documented here. Equimo follows Semantic Versioning from version 2.0.0 onward.
 
+## [Unreleased]
+
+### Fixed
+
+- `merge_semantic_crops` raises a `ValueError` when the crops leave part of the scaled image uncovered. It returned NaN
+  scores there instead, and any final resize spread them to every output pixel, so the argmax labelled the whole image
+  class 0.
+
 ## [2.6.0] - 2026-10-17
 
 ### Fixed

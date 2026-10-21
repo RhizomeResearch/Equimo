@@ -9,6 +9,7 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import jax.random as jr
+import numpy as np
 from jax import lax
 
 
@@ -130,7 +131,10 @@ def merge_semantic_crops(
     scaled_size: tuple[int, int],
     output_size: tuple[int, int],
 ) -> jax.Array:
-    """Average overlapping crop scores, then restore original image size."""
+    """Average overlapping crop scores, then restore original image size.
+
+    The crops must cover the scaled image.
+    """
     if crop_scores.ndim != 4 or crop_scores.shape[0] != len(origins):
         raise ValueError("Crop scores must match the supplied origins.")
     _, classes, crop_h, crop_w = crop_scores.shape
@@ -139,13 +143,17 @@ def merge_semantic_crops(
         raise ValueError("Semantic image sizes must be positive.")
     sums = jnp.zeros((classes, scaled_h, scaled_w), crop_scores.dtype)
     counts = jnp.zeros((1, scaled_h, scaled_w), crop_scores.dtype)
+    # Origins are static, so coverage is checked before tracing. An uncovered
+    # pixel's NaN would spread to every output pixel in the final resize.
+    covered = np.zeros((scaled_h, scaled_w), dtype=np.bool_)
     for crop, (top, left) in zip(crop_scores, origins, strict=True):
         if top < 0 or left < 0 or top + crop_h > scaled_h or left + crop_w > scaled_w:
             raise ValueError("A semantic crop exceeds the scaled image.")
         sums = sums.at[:, top : top + crop_h, left : left + crop_w].add(crop)
         counts = counts.at[:, top : top + crop_h, left : left + crop_w].add(1)
-    if len(origins) == 0:
-        raise ValueError("At least one semantic crop is required.")
+        covered[top : top + crop_h, left : left + crop_w] = True
+    if not covered.all():
+        raise ValueError("Semantic crops must cover the scaled image.")
     merged = sums / counts
     return jax.image.resize(merged, (classes, *output_size), "linear", antialias=False)
 

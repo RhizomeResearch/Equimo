@@ -465,8 +465,8 @@ def test_semantic_crop_and_panoptic_geometry():
     crops = jnp.array([[[[1.0, 3.0]]], [[[5.0, 7.0]]]])
     merged = merge_semantic_crops(crops, ((0, 0), (0, 1)), (1, 3), (1, 3))
     np.testing.assert_allclose(merged, [[[1.0, 4.0, 7.0]]])
-    uncovered = merge_semantic_crops(crops[:1], ((0, 0),), (1, 3), (1, 3))
-    assert bool(jnp.isnan(uncovered[0, 0, 2]))
+    with pytest.raises(ValueError, match="cover"):
+        merge_semantic_crops(crops[:1], ((0, 0),), (1, 3), (1, 3))
     mask = jnp.arange(4.0).reshape(1, 2, 2)
     restored = restore_panoptic_mask_logits(
         mask, padded_size=(4, 4), resized_size=(2, 4), output_size=(4, 8)
