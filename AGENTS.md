@@ -54,6 +54,13 @@ Apply Python formatting with `uv run ruff format <changed paths>` and Markdown f
 `uv run mdformat --wrap 120 <changed paths>`. Do not broaden a change merely to fix unrelated pre-existing failures. If
 a full check cannot be run, report exactly what was and was not verified.
 
+`tests/test_distribution.py` compares existing `dist/` archives with current source. After adding modules, stale
+archives can fail that inventory check; verify fresh build outputs before changing package inclusion rules. Confirmed
+with `uv build --no-sources --out-dir <staging-directory>` and the existing distribution assertions.
+
+`artifact-staging/` is Syncthing-ignored but not git-ignored: jj snapshots scratch files there into the working-copy
+revision (observed in practice). Delete them before finishing.
+
 ## Change Workflow
 
 - Read the relevant implementation, neighboring modules, tests, and public exports before editing. Follow existing local
@@ -83,6 +90,13 @@ a full check cannot be run, report exactly what was and was not verified.
 - Models must work in low precision, including `bfloat16` and potentially lower precision formats. Preserve existing
   dtype behavior; perform numerically sensitive operations in sufficient precision with explicit, local casts, then
   return results in the expected dtype instead of silently promoting the model.
+- Cast softmax logits to float32 before scaling them (at least float32 where the site kept a wider model dtype), pass
+  masks through `where` rather than filling logits with `-inf` (fully masked rows then return zeros), and cast
+  probabilities back to the model dtype. Attention between tokens uses `jax.nn.softmax`: the corrected derivative cost
+  5-10% of a ViT training step there on an RTX 4080. Other softmaxes (pooling, heads, adapter fusion, the tabular
+  decoder, activations) use `equimo.core.ops.softmax`, which computes in at least float32 with a derivative that stays
+  accurate at high confidence, for under 0.5% of a step. Classification losses use the `equimo.core.ops` losses.
+  Measurements are in `docs/performance.md` under "Softmax precision".
 - Use the repository registries and modality boundaries instead of duplicating shared layers or adding cross-modality
   imports without a demonstrated need.
 

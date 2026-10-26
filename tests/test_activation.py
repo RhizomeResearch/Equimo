@@ -6,6 +6,7 @@ import jax.random as jr
 import pytest
 
 from equimo.core.layers.activation import _ACT_REGISTRY, get_act, register_act
+from equimo.core.ops import softmax
 
 KEY = jr.PRNGKey(0)
 X = jnp.ones((4, 8), dtype=jnp.float32)
@@ -27,7 +28,7 @@ class TestGetAct:
             ("sigmoid", jax.nn.sigmoid),
             ("hard_sigmoid", jax.nn.hard_sigmoid),
             ("hard_swish", jax.nn.hard_swish),
-            ("softmax", jax.nn.softmax),
+            ("softmax", softmax),
         ],
     )
     def test_string_resolution(self, name, expected):

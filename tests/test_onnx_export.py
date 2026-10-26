@@ -9,10 +9,42 @@ import onnxruntime as ort
 import pytest
 from jax2onnx import to_onnx
 
+from equimo.core.ops import softmax
+
 from cases.model_cases import MODEL_CASES, extract_features
 
 # MODEL_CASES covers every registered built-in family; that completeness is
 # enforced by tests/finetune/test_feature_spec_model_coverage.py.
+
+
+@pytest.mark.parametrize("variant", ["plain", "vmap", "where"])
+def test_softmax_exports_the_jax_softmax_graph(variant):
+    x = jnp.array([[30.0, 0.0, 0.0], [0.0, 1.0, 2.0], [1.0, 2.0, 3.0]])
+    mask = jnp.array([[True, True, False], [False, True, True], [False] * 3])
+
+    def call(fn):
+        if variant == "vmap":
+            return jax.vmap(lambda z: fn(z))
+        if variant == "where":
+            return lambda z: fn(z, where=mask)
+        return lambda z: fn(z)
+
+    # jax2onnx swaps in its own jax.nn.softmax during export, so the reference
+    # must look it up at call time, as Equimo's softmax does.
+    model, reference = (
+        to_onnx(call(fn), inputs=[x], opset=18, input_names=["x"], output_names=["y"])
+        for fn in (softmax, lambda z, **kwargs: jax.nn.softmax(z, **kwargs))
+    )
+    onnx.checker.check_model(model)
+    # The custom derivative must not add anything to an inference graph.
+    assert [node.op_type for node in model.graph.node] == [
+        node.op_type for node in reference.graph.node
+    ]
+    session = ort.InferenceSession(
+        model.SerializeToString(), providers=["CPUExecutionProvider"]
+    )
+    (actual,) = session.run(["y"], {"x": np.asarray(x)})
+    np.testing.assert_allclose(actual, call(jax.nn.softmax)(x), rtol=1e-6, atol=0)
 
 
 @pytest.mark.parametrize("case", MODEL_CASES, ids=lambda case: case.registry_name)

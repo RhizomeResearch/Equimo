@@ -139,20 +139,17 @@ class Attention(eqx.Module):
                 )
             q, k = apply_rotary_qk(q, k, rotary)
 
-        attn = (
-            jnp.einsum("...hqd,...hkd->...hqk", q, k) / jnp.sqrt(self.head_dim)
-        ).astype(jnp.float32)
+        attn = jnp.einsum("...hqd,...hkd->...hqk", q, k).astype(jnp.float32) / jnp.sqrt(
+            self.head_dim
+        )
+        allowed = None
         if mask is not None:
             allowed = _broadcast_attention_mask(
                 mask,
                 x_ndim=x.ndim,
                 shape=attn.shape,
             )
-            attn = jnp.where(allowed, attn, -jnp.inf)
-        attn = jax.nn.softmax(attn, axis=-1)
-        if mask is not None:
-            attn = jnp.where(jnp.any(allowed, axis=-1, keepdims=True), attn, 0)
-        attn = attn.astype(x.dtype)
+        attn = jax.nn.softmax(attn, axis=-1, where=allowed).astype(x.dtype)
         attn = self.attn_drop(attn, inference=inference, key=key1)
 
         x = jnp.einsum("...hqk,...hkd->...hqd", attn, v)

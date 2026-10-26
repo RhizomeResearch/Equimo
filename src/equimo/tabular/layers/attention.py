@@ -64,8 +64,9 @@ def _scaled_dot_product_attention(
     if k.shape[0] != q.shape[0]:
         k = jnp.repeat(k, q.shape[0] // k.shape[0], axis=0)
         v = jnp.repeat(v, q.shape[0] // v.shape[0], axis=0)
-    scores = jnp.einsum("hqd,hkd->hqk", q, k) / jnp.sqrt(head_dim)
-    attn = jax.nn.softmax(scores, axis=-1)
+    scores = jnp.einsum("hqd,hkd->hqk", q, k)
+    scores = scores.astype(jnp.promote_types(scores.dtype, jnp.float32))
+    attn = jax.nn.softmax(scores / jnp.sqrt(head_dim), axis=-1).astype(v.dtype)
     return jnp.einsum("hqk,hkd->hqd", attn, v)
 
 

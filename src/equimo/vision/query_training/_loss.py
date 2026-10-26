@@ -17,6 +17,7 @@ import jax.numpy as jnp
 import jax.random as jr
 
 from equimo.vision.segmentation import QueryMaskPrediction, QuerySegmentationOutput
+from equimo.core.ops import softmax_cross_entropy_with_integer_labels
 from ._assignment import QueryAssignment, match_queries
 from ._sampling import PointSamples, sample_mask_points, sample_query_points
 
@@ -419,9 +420,7 @@ def query_prediction_loss(
         jnp.where(assigned_labels == no_object, config.no_object_weight, 1.0)
         * targets.supervised
     )
-    nll = -jnp.take_along_axis(
-        jax.nn.log_softmax(classes), assigned_labels[:, None], axis=-1
-    )[:, 0]
+    nll = softmax_cross_entropy_with_integer_labels(classes, assigned_labels)
     classification = LossTerm(
         jnp.sum(jnp.where(weights > 0, nll, 0) * weights), jnp.sum(weights)
     )

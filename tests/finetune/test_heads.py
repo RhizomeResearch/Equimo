@@ -5,6 +5,7 @@ from __future__ import annotations
 import inspect
 
 import equinox as eqx
+import jax
 import jax.numpy as jnp
 import jax.random as jr
 import pytest
@@ -99,7 +100,8 @@ def test_layer_norm_readout_head_forwards_key_and_inference():
     assert y[1] == jnp.array(1.0)
 
 
-def test_attention_pooling_classifier_head_shapes_and_mask():
+@pytest.mark.parametrize("dtype", (jnp.float32, jnp.bfloat16))
+def test_attention_pooling_classifier_head_shapes_and_mask(dtype):
     key = jr.PRNGKey(6)
     head = eqft.AttentionPoolingClassifierHead(
         4,
@@ -108,12 +110,16 @@ def test_attention_pooling_classifier_head_shapes_and_mask():
         embed_dim=8,
         num_heads=2,
     )
-    tokens = jnp.arange(20, dtype=jnp.float32).reshape(5, 4)
+    head = jax.tree.map(
+        lambda leaf: leaf.astype(dtype) if eqx.is_inexact_array(leaf) else leaf, head
+    )
+    tokens = jnp.arange(20, dtype=dtype).reshape(5, 4)
 
     logits = head(tokens, mask=jnp.asarray([1, 1, 0, 1, 0]), inference=True)
     all_masked = head(tokens, mask=jnp.zeros((5,), dtype=bool), inference=True)
 
     assert logits.shape == (3,)
+    assert logits.dtype == all_masked.dtype == dtype
     assert jnp.all(jnp.isfinite(logits))
     assert jnp.all(jnp.isfinite(all_masked))
 

@@ -162,16 +162,11 @@ class PrefixAttention(eqx.Module):
         v = jnp.concatenate([prefix_v, v], axis=-2)
         mask = _extend_mask(mask, self.state.shape[2])
 
-        attn = jnp.einsum("...hqd,...hkd->...hqk", q, k) / jnp.sqrt(self.head_dim)
-        if mask is not None:
-            attn = jnp.where(
-                mask == 0,
-                jnp.finfo(jnp.float32).min,
-                attn.astype(jnp.float32),
-            )
-        else:
-            attn = attn.astype(jnp.float32)
-        attn = jax.nn.softmax(attn, axis=-1).astype(x.dtype)
+        attn = jnp.einsum("...hqd,...hkd->...hqk", q, k).astype(jnp.float32) / jnp.sqrt(
+            self.head_dim
+        )
+        allowed = None if mask is None else mask != 0
+        attn = jax.nn.softmax(attn, axis=-1, where=allowed).astype(x.dtype)
         attn = _call_dropout(
             getattr(self.base, "attn_drop", None), attn, inference, key1
         )

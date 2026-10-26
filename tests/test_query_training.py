@@ -373,6 +373,25 @@ def test_bfloat16_predictions_give_float32_loss_and_finite_gradients():
     assert all(bool(jnp.all(jnp.isfinite(x))) for x in jax.tree.leaves(gradient))
 
 
+def test_confident_query_classification_retains_target_gradients():
+    output, targets = _case()
+    context = _fixed_context(output, targets)
+    classes = 30 * jnp.eye(3)
+
+    def classification(logits):
+        candidate = eqx.tree_at(lambda o: o.final.class_logits, output, logits)
+        return query_segmentation_loss(
+            candidate, targets, context
+        ).final.classification.numerator
+
+    value, gradient = jax.jit(jax.value_and_grad(classification))(classes)
+    tail = np.exp(-30.0)
+    np.testing.assert_allclose(value, 2.1 * np.log1p(2 * tail), rtol=2e-6, atol=0)
+    expected = (np.ones((3, 3)) - 3 * np.eye(3)) * tail / (1 + 2 * tail)
+    expected *= np.array([1.0, 1.0, 0.1])[:, None]
+    np.testing.assert_allclose(gradient, expected, rtol=2e-6, atol=0)
+
+
 def test_invalid_active_inputs_signal_failure_without_callback():
     output, targets = _case()
     config = QueryLossConfig(matching_num_points=4, loss_num_points=4)

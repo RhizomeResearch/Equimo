@@ -28,6 +28,7 @@ Start with these pages:
 - [EoMT segmentation](eomt.md)
 - [Plain mask transformer segmentation](pmt.md)
 - [Query-segmentation training](query_training.md)
+- [Classification losses and numerical stability](classification_losses.md)
 - [LP-FT](lpft.md)
 - [LLRD](llrd.md)
 - [LoRA](lora.md)

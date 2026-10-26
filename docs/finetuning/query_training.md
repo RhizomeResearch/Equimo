@@ -91,6 +91,9 @@ Every prediction's result exposes `LossTerm.numerator`, `.denominator`, and `.va
 `query_prediction_loss` evaluates these unweighted terms for a single prediction and `PredictionLossContext`, without
 auxiliary composition. `query_segmentation_loss` applies that operation to the full output.
 
+Classification uses the [stable integer-label cross-entropy](classification_losses.md), retaining nonzero losses and
+target gradients for highly confident predictions.
+
 | Term           | Numerator                                                         | Denominator                                                                                    |
 | -------------- | ----------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
 | Classification | Sum of weighted query negative log-likelihoods                    | Sum of query weights; matched queries have weight 1, unmatched queries have `no_object_weight` |

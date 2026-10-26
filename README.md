@@ -216,6 +216,7 @@ Minimal example:
 import jax
 import equimo.finetune as eqft
 import equimo.vision.models as em
+from equimo.core.ops import softmax_cross_entropy_with_integer_labels
 
 key = jax.random.PRNGKey(0)
 model = em.vit_tiny_patch16_224(num_classes=10, key=key)
@@ -236,7 +237,7 @@ frozen = plan.frozen
 def loss_fn(trainable, batch):
     model = plan.combine(trainable)
     logits = jax.vmap(lambda x: model(x, key=key, inference=False))(batch["x"])
-    return cross_entropy(logits, batch["y"])  # supplied by user code
+    return softmax_cross_entropy_with_integer_labels(logits, batch["y"]).mean()
 ```
 
 Frozen leaves are absent from `plan.trainable`; they are not assigned a zero learning rate. `plan.labels` and
@@ -945,14 +946,41 @@ import jax
 import jax.numpy as jnp
 import equinox as eqx
 
-model_bf16 = jax.tree_util.tree_map(
-    lambda leaf: leaf.astype(jnp.bfloat16) if eqx.is_inexact_array(leaf) else leaf,
-    model_fp32,
-)
+
+def to_bfloat16(tree):
+    return jax.tree_util.tree_map(
+        lambda leaf: leaf.astype(jnp.bfloat16) if eqx.is_inexact_array(leaf) else leaf,
+        tree,
+    )
+
+
+model_bf16 = to_bfloat16(model_fp32)
 ```
 
-Isolated `float32` upcasts are mandatory for numerically sensitive operations (softmax, layer norm variance). These are
-applied internally where needed.
+For training, keep float32 parameters and cast inside the loss. Gradients then return in float32 and the optimizer
+updates float32 values; bfloat16 parameters drop updates smaller than about 0.4% of their magnitude.
+
+```python
+from equimo.core.ops import softmax_cross_entropy_with_integer_labels
+
+
+@eqx.filter_value_and_grad
+def loss_and_grads(model_fp32, images, labels, key):
+    model = to_bfloat16(model_fp32)
+    keys = jax.random.split(key, images.shape[0])
+    logits = jax.vmap(lambda x, k: model(x, key=k, inference=False))(images, keys)
+    return softmax_cross_entropy_with_integer_labels(logits, labels).mean()
+```
+
+Numerically sensitive operations cast locally to float32 and return the model dtype: normalization statistics, rotary
+factors, and every softmax. Attention between tokens applies `jax.nn.softmax` to float32 logits. Other softmaxes
+(attention pooling, attention-pooling heads, adapter fusion, the tabular decoder, and the `"softmax"` activation) use
+`equimo.core.ops.softmax`, whose derivative also stays accurate for highly confident distributions. For the same reason,
+use the [`equimo.core.ops` classification losses](docs/finetuning/classification_losses.md). The
+[performance notes](docs/performance.md#softmax-precision) give the measurements behind these choices.
+
+On NVIDIA GPUs with TF32 tensor cores (Ampere and newer), JAX's default precision may run float32 matrix multiplications
+as TF32. For float32 reference accuracy, run the computation under `jax.default_matmul_precision("highest")`.
 
 ## Contributing
 

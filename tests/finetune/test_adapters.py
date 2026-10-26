@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import equinox as eqx
+import jax
 import jax.numpy as jnp
 import jax.random as jr
 import pytest
@@ -318,7 +319,8 @@ def test_adapter_fusion_attaches_attention_to_named_banks(adapter_bank):
     assert fused(jnp.ones((2, 3))).shape == (2,)
 
 
-def test_adapter_fusion_attention_uses_adapter_keys():
+@pytest.mark.parametrize("dtype", (jnp.float32, jnp.bfloat16))
+def test_adapter_fusion_attention_uses_adapter_keys(dtype):
     fusion = eqft.AdapterFusion(2, 2, key=jr.PRNGKey(0))
     fusion = eqx.tree_at(
         lambda module: (
@@ -333,14 +335,18 @@ def test_adapter_fusion_attention_uses_adapter_keys():
             jnp.eye(2, dtype=jnp.float32),
         ),
     )
+    fusion = jax.tree.map(
+        lambda leaf: leaf.astype(dtype) if eqx.is_inexact_array(leaf) else leaf, fusion
+    )
     weights = fusion.attention_weights(
-        jnp.asarray([1.0, 0.0], dtype=jnp.float32),
+        jnp.asarray([1.0, 0.0], dtype=dtype),
         (
-            jnp.asarray([2.0, 0.0], dtype=jnp.float32),
-            jnp.asarray([-2.0, 0.0], dtype=jnp.float32),
+            jnp.asarray([2.0, 0.0], dtype=dtype),
+            jnp.asarray([-2.0, 0.0], dtype=dtype),
         ),
     )
 
+    assert weights.dtype == dtype
     assert weights[0] > weights[1]
 
 

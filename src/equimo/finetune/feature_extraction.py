@@ -13,6 +13,7 @@ import jax.numpy as jnp
 import jax.random as jr
 
 from equimo.core._prng import split_for_mode
+from equimo.core.ops import softmax
 
 from ._typing import PyTree
 from .config import FeatureSpec
@@ -1091,9 +1092,8 @@ def _attention_pool_explicit(
         tokens.shape[-1]
     )
     scores = tokens @ query
-    if padding_mask is not None:
-        scores = jnp.where(padding_mask.astype(bool), -jnp.inf, scores)
-    weights = jnp.nan_to_num(jax.nn.softmax(scores, axis=-1))
+    valid = None if padding_mask is None else ~padding_mask.astype(bool)
+    weights = softmax(scores, axis=-1, where=valid)
     return jnp.sum(tokens * weights[..., :, None], axis=-2)
 
 

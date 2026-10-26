@@ -11,6 +11,7 @@ import jax.numpy as jnp
 import jax.random as jr
 
 from equimo.utils import pool_sd
+from equimo.core.ops import softmax
 
 
 PoolName = Literal[
@@ -193,10 +194,8 @@ class AttentionPool(eqx.Module):
 
     def __call__(self, x: jax.Array, *, mask: jax.Array | None = None) -> jax.Array:
         scores = x @ self.query
-        if mask is not None:
-            scores = jnp.where(mask.astype(bool), scores, -jnp.inf)
-        weights = jax.nn.softmax(scores, axis=0)
-        weights = jnp.nan_to_num(weights)
+        valid = None if mask is None else mask.astype(bool)
+        weights = softmax(scores, axis=0, where=valid)
         pooled = jnp.sum(x * weights[:, None], axis=0)
         return pooled / jnp.maximum(jnp.sum(weights), self.eps)
 

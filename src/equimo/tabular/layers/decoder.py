@@ -7,6 +7,7 @@ import jax.random as jr
 from jaxtyping import Array, Float, Int, PRNGKeyArray
 
 from equimo.core.layers.activation import get_act
+from equimo.core.ops import softmax
 
 from .attention import SoftmaxScaling, _to_heads
 from .registry import _register_family, _resolve_from_registry
@@ -135,9 +136,9 @@ class AttentionDecoder(eqx.Module):
             q = self.softmax_scaling(q, n_train)
 
         one_hot = jax.nn.one_hot(targets, self.num_classes, dtype=q.dtype)
-        scale = jnp.sqrt(jnp.asarray(self.head_dim, dtype=q.dtype))
-        scores = jnp.einsum("hmd,hnd->hmn", q, k) / scale
-        attn = jax.nn.softmax(scores, axis=-1)
+        scores = jnp.einsum("hmd,hnd->hmn", q, k)
+        scores = scores.astype(jnp.promote_types(scores.dtype, jnp.float32))
+        attn = softmax(scores / jnp.sqrt(self.head_dim), axis=-1).astype(q.dtype)
         probs = jnp.einsum("hmn,nc->hmc", attn, one_hot).mean(0)
         return jnp.log(jnp.clip(probs, min=1e-5) + 3e-5)
 

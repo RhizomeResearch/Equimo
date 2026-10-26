@@ -11,6 +11,7 @@ import jax.numpy as jnp
 import jax.random as jr
 
 from equimo.core._prng import split_for_mode
+from equimo.core.ops import softmax
 
 from .peft import _common
 
@@ -273,21 +274,21 @@ class AttentionPoolingClassifierHead(eqx.Module):
         k = jnp.transpose(kv[:, 0, :, :], (1, 0, 2))
         v = jnp.transpose(kv[:, 1, :, :], (1, 0, 2))
 
-        scale = jnp.sqrt(jnp.asarray(self.head_dim, dtype=z.dtype))
-        attn_logits = jnp.einsum("hd,hnd->hn", q, k) / scale
+        attn_logits = jnp.einsum("hd,hnd->hn", q, k)
+        attn_logits = attn_logits.astype(
+            jnp.promote_types(attn_logits.dtype, jnp.float32)
+        )
+        valid = None
         if mask is not None:
             if mask.shape != (n_tokens,):
                 raise ValueError(
                     f"mask must have shape {(n_tokens,)}, got {mask.shape}."
                 )
-            attn_logits = jnp.where(
-                mask.astype(bool)[None, :],
-                attn_logits,
-                -jnp.inf,
-            )
+            valid = mask.astype(bool)[None, :]
 
-        attn = jax.nn.softmax(attn_logits, axis=-1)
-        attn = jnp.nan_to_num(attn)
+        attn = softmax(
+            attn_logits / jnp.sqrt(self.head_dim), axis=-1, where=valid
+        ).astype(v.dtype)
         pooled = jnp.einsum("hn,hnd->hd", attn, v).reshape(self.embed_dim)
 
         if self.dropout > 0.0 and not inference:

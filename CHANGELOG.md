@@ -6,13 +6,28 @@ All notable changes to Equimo are documented here. Equimo follows Semantic Versi
 
 ### Added
 
+- `equimo.core.ops` exports `softmax`, `log_softmax`, `softmax_cross_entropy_with_integer_labels`, and
+  `softmax_cross_entropy_with_logit_targets`, following "A Fix for Softmax and Cross-Entropy". They compute in at least
+  float32, return the input dtype, and keep the dominant logit's small gradient at high confidence. The logit-target
+  loss, for distillation, also preserves near-equality gradients, stops target gradients, and supports higher-order
+  derivatives.
 - `semantic_crop_origins` places the fewest evenly spaced crops that cover a scaled image, for sliding-window evaluation
   with `merge_semantic_crops`. With the shorter side scaled to the crop size, it matches the EoMT reference's windows,
   except that its last crop always ends at the image edge: the reference's floating-point spacing stops a pixel short
   for some sizes, such as a 1,347-pixel side with 448-pixel crops.
 
+### Changed
+
+- Attention pooling, attention-pooling heads, adapter fusion, the tabular decoder, and the `"softmax"` activation
+  compute softmax in at least float32 with the corrected derivative of `equimo.core.ops.softmax`, returning the model
+  dtype. Tabular attention computes its softmax in at least float32. Attention logits are cast before scaling, avoiding
+  a second bfloat16 rounding when the square root of the head dimension is not a power of two. Float32 forward results
+  and checkpoint structure are unchanged.
+
 ### Fixed
 
+- Query classification uses stable cross-entropy, so confident correct predictions retain nonzero losses and target
+  gradients.
 - `merge_semantic_crops` raises a `ValueError` when the crops leave part of the scaled image uncovered. It returned NaN
   scores there instead, and any final resize spread them to every output pixel, so the argmax labelled the whole image
   class 0.

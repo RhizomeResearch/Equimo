@@ -3,6 +3,8 @@ from typing import Callable, Optional
 
 import jax
 
+from equimo.core.ops import softmax
+
 _ACT_REGISTRY: dict[str, Callable] = {}
 
 
@@ -65,5 +67,5 @@ _ACT_REGISTRY["elu"] = jax.nn.elu
 _ACT_REGISTRY["sigmoid"] = jax.nn.sigmoid
 _ACT_REGISTRY["hard_sigmoid"] = jax.nn.hard_sigmoid
 _ACT_REGISTRY["hard_swish"] = jax.nn.hard_swish
-_ACT_REGISTRY["softmax"] = jax.nn.softmax
+_ACT_REGISTRY["softmax"] = softmax
 _ACT_REGISTRY["relu6"] = jax.nn.relu6

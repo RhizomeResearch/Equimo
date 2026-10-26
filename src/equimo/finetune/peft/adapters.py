@@ -13,6 +13,7 @@ import jax.random as jr
 import jax.tree_util as jtu
 
 from equimo.core._prng import split_for_mode
+from equimo.core.ops import softmax
 
 from .._typing import Path, PyTree
 from ..config import FineTuneBundle, FineTuneBundleError, TargetSpec, TrainableSpec
@@ -211,10 +212,9 @@ class AdapterFusion(eqx.Module):
             ),
             axis=-2,
         )
-        logits = jnp.sum(keys * query[..., None, :], axis=-1) / jnp.sqrt(
-            query.shape[-1]
-        )
-        return jax.nn.softmax(logits, axis=-1)
+        logits = jnp.sum(keys * query[..., None, :], axis=-1)
+        logits = logits.astype(jnp.promote_types(logits.dtype, jnp.float32))
+        return softmax(logits / jnp.sqrt(query.shape[-1]), axis=-1).astype(x.dtype)
 
     def __call__(
         self,

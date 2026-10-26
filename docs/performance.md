@@ -133,3 +133,48 @@ preserving the existing `dist/` artifacts. Running pytest against those older ar
 metadata mismatch until they are rebuilt.
 
 Accelerator timing and physical multi-device performance remain unmeasured.
+
+## Softmax precision
+
+These GPU measurements choose where Equimo uses the corrected derivative of `equimo.core.ops.softmax`. Environment:
+NVIDIA RTX 4080, JAX 0.9.2 with CUDA 12, Equinox 0.13.6. Errors are relative L2 errors against float64 evaluations of
+the same rounded parameters and inputs. Times are medians of 40 compiled calls after five warm-ups.
+
+| Softmax                                                                                             | Computation                      | Reason                                                                                 |
+| --------------------------------------------------------------------------------------------------- | -------------------------------- | -------------------------------------------------------------------------------------- |
+| Attention between tokens                                                                            | Float32 logits, `jax.nn.softmax` | The corrected derivative added 5-10% to ViT training steps, without a measurable gain. |
+| Attention pooling, attention-pooling heads, adapter fusion, tabular decoder, `"softmax"` activation | Float32, `equimo.core.ops`       | Under 0.5% of a training step; stays accurate when every example is confident (below). |
+
+A pooling head has one softmax row per example, so when every row is confident, its whole gradient depends on the
+dominant entry. Attention pooling over 64 bfloat16 examples, each with one planted dominant token, gave these query
+gradient errors:
+
+| Minimum / median logit gap | Model dtype, `jax.nn.softmax` | Model dtype, corrected | Float32, `jax.nn.softmax` | Float32, corrected |
+| -------------------------: | ----------------------------: | ---------------------: | ------------------------: | -----------------: |
+|                    5.4 / 8 |                          2.1% |                   2.1% |                     0.26% |              0.26% |
+|                   9.4 / 12 |                          2.7% |                   2.1% |                     0.22% |              0.22% |
+|                  17.4 / 20 |                        4,654% |                   4.1% |                     0.50% |              0.28% |
+|                  27.4 / 30 |                        1.4e8% |                   5.8% |                       99% |              0.38% |
+
+With random inputs, float32 computation reduced the attention-pooling gradient error from 1.6-5.8% to 0.17-0.28%, and
+the corrected derivative changed nothing, because the least confident examples dominate the gradient. At the
+attention-pooling head, adapter fusion, and tabular decoder, bfloat16 rounding of the projections dominated: no softmax
+variant changed their errors by more than about 10%, and producing their logits directly in float32 gave mixed results.
+
+Cost of the corrected derivative over float32 `jax.nn.softmax`, for bfloat16 training steps:
+
+| Workload                                            | Float32 `jax.nn.softmax` | Float32, corrected |
+| --------------------------------------------------- | -----------------------: | -----------------: |
+| Attention-pooling head, batch 64, 197 tokens        |          2.10 ms, 74 MiB |    2.19 ms, 92 MiB |
+| Attention-pooling head, batch 64, 577 tokens        |         6.69 ms, 220 MiB |   7.15 ms, 271 MiB |
+| Attention pooling, batch 64, 577 tokens             |                  0.30 ms |            0.35 ms |
+| Adapter fusion, batch 64, 197 tokens, four adapters |                  6.64 ms |            6.47 ms |
+| Tabular decoder, 4,096 training and 1,024 test rows |                  0.89 ms |            0.84 ms |
+| TabPFN, 1,024 training and 512 test rows            |                  29.1 ms |            29.1 ms |
+
+For comparison, a bfloat16 ViT-B/16 training step at batch 64 took 117.5 ms with 5,377 MiB of temporary memory. In
+float32 models, the corrected TabPFN step took 50.0 ms against 52.7 ms.
+
+Float32 models were limited by matrix multiplication rather than softmax. With JAX's default precision, the
+attention-pooling head's float32 gradient error was 0.6-2.5%; under `jax.default_matmul_precision("highest")` it was
+0.001-0.02%, because the default runs float32 matrix multiplications as TF32 on this GPU.
