@@ -79,7 +79,7 @@ def selective_scan(
 
     y = ys + u * jnp.expand_dims(D, axis=-1)
 
-    return y
+    return y.astype(u.dtype)
 
 
 def segsum(x: jnp.ndarray):

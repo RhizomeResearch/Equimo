@@ -3,7 +3,7 @@
 import jax.numpy as jnp
 import jax.random as jr
 
-from equimo.core.ops import ssd
+from equimo.core.ops import selective_scan, ssd
 
 
 def _ssd_reference(x, a, b, c, initial_state):
@@ -41,7 +41,7 @@ def test_ssd_matches_recurrent_reference_with_initial_state():
     assert jnp.allclose(final_state, expected_final_state, rtol=1e-5, atol=1e-5)
 
 
-def test_ssd_preserves_low_precision_dtype():
+def test_scans_preserve_low_precision_dtype():
     x = jnp.ones((4, 1, 2), dtype=jnp.bfloat16)
     a = jnp.full((4, 1), -0.1, dtype=jnp.bfloat16)
     b = jnp.ones((4, 1, 3), dtype=jnp.bfloat16)
@@ -51,4 +51,17 @@ def test_ssd_preserves_low_precision_dtype():
 
     assert output.dtype == jnp.bfloat16
     assert final_state.dtype == jnp.bfloat16
+    assert jnp.all(jnp.isfinite(output))
+
+    u = jnp.ones((2, 4), dtype=jnp.bfloat16)
+    output = selective_scan(
+        u,
+        delta=jnp.full((2, 4), 0.1, dtype=jnp.bfloat16),
+        A=jnp.full((2, 3), -1.0, dtype=jnp.bfloat16),
+        B=jnp.ones((3, 4), dtype=jnp.bfloat16),
+        C=jnp.ones((3, 4), dtype=jnp.bfloat16),
+        D=jnp.ones((2,), dtype=jnp.bfloat16),
+    )
+
+    assert output.dtype == jnp.bfloat16
     assert jnp.all(jnp.isfinite(output))

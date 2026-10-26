@@ -28,6 +28,7 @@ All notable changes to Equimo are documented here. Equimo follows Semantic Versi
 
 - Query classification uses stable cross-entropy, so confident correct predictions retain nonzero losses and target
   gradients.
+- `selective_scan` returns the input dtype. Its float32 scan state leaked into bfloat16 outputs, unlike `ssd`.
 - `merge_semantic_crops` raises a `ValueError` when the crops leave part of the scaled image uncovered. It returned NaN
   scores there instead, and any final resize spread them to every output pixel, so the argmax labelled the whole image
   class 0.
