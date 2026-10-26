@@ -982,6 +982,17 @@ use the [`equimo.core.ops` classification losses](docs/finetuning/classification
 On NVIDIA GPUs with TF32 tensor cores (Ampere and newer), JAX's default precision may run float32 matrix multiplications
 as TF32. For float32 reference accuracy, run the computation under `jax.default_matmul_precision("highest")`.
 
+On CUDA GPUs, bfloat16 and float16 models can run attention through cuDNN's fused kernel, which saves memory and time on
+long sequences. This is experimental, requires inactive attention dropout, and cannot be exported with jax2onnx:
+
+```python
+from equimo.core.layers import with_attention_implementation
+
+model = with_attention_implementation(model_bf16, "cudnn")  # "xla" switches back
+```
+
+See the [fused-attention measurements](docs/performance.md#fused-attention).
+
 ## Contributing
 
 Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for the development setup, verification workflow, and

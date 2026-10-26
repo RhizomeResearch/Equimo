@@ -13,6 +13,7 @@ import jax.random as jr
 import jax.tree_util as jtu
 
 from equimo.core._prng import split_for_mode
+from equimo.core.layers.attention import _check_cudnn_dropout, _fused_attention
 from equimo.core.layers.rotary import RotaryFactors, apply_rotary_qk
 
 from .._typing import Path, PyTree
@@ -162,16 +163,19 @@ class PrefixAttention(eqx.Module):
         v = jnp.concatenate([prefix_v, v], axis=-2)
         mask = _extend_mask(mask, self.state.shape[2])
 
-        attn = jnp.einsum("...hqd,...hkd->...hqk", q, k).astype(jnp.float32) / jnp.sqrt(
-            self.head_dim
-        )
         allowed = None if mask is None else mask != 0
-        attn = jax.nn.softmax(attn, axis=-1, where=allowed).astype(x.dtype)
-        attn = _call_dropout(
-            getattr(self.base, "attn_drop", None), attn, inference, key1
-        )
+        attn_drop = getattr(self.base, "attn_drop", None)
+        if getattr(self.base, "implementation", "xla") == "cudnn":
+            _check_cudnn_dropout(attn_drop, inference)
+            y = _fused_attention(q, k, v, allowed)
+        else:
+            attn = jnp.einsum("...hqd,...hkd->...hqk", q, k).astype(
+                jnp.float32
+            ) / jnp.sqrt(self.head_dim)
+            attn = jax.nn.softmax(attn, axis=-1, where=allowed).astype(x.dtype)
+            attn = _call_dropout(attn_drop, attn, inference, key1)
+            y = jnp.einsum("...hqk,...hkd->...hqd", attn, v)
 
-        y = jnp.einsum("...hqk,...hkd->...hqd", attn, v)
         y = jnp.swapaxes(y, -3, -2).reshape(*x.shape[:-1], -1)
         projection = getattr(self.base, "proj", None)
         if not callable(projection):

@@ -6,6 +6,11 @@ import jax.numpy as jnp
 import jax.random as jr
 from jaxtyping import Array, Float, PRNGKeyArray
 
+from equimo.core.layers.attention import (
+    AttentionImplementation,
+    _check_implementation,
+    _fused_attention,
+)
 from equimo.core.layers.rotary import apply_rotary, make_1d_rotary_factors
 
 from .mlp import Mlp, _call_mlp
@@ -58,9 +63,12 @@ def _scaled_dot_product_attention(
     head_dim: int,
     scaling: eqx.Module | None = None,
     n: Array | int | None = None,
+    implementation: AttentionImplementation = "xla",
 ) -> Float[Array, "heads q_len head_dim"]:
     if scaling is not None:
         q = scaling(q, n)
+    if implementation == "cudnn":
+        return _fused_attention(q, k, v)
     if k.shape[0] != q.shape[0]:
         k = jnp.repeat(k, q.shape[0] // k.shape[0], axis=0)
         v = jnp.repeat(v, q.shape[0] // v.shape[0], axis=0)
@@ -130,6 +138,7 @@ class Attention(eqx.Module):
     dim: int = eqx.field(static=True)
     num_heads: int = eqx.field(static=True)
     head_dim: int = eqx.field(static=True)
+    implementation: AttentionImplementation = eqx.field(static=True)
 
     q_proj: eqx.nn.Linear
     k_proj: eqx.nn.Linear
@@ -143,18 +152,21 @@ class Attention(eqx.Module):
         *,
         key: PRNGKeyArray,
         head_dim: int | None = None,
+        implementation: AttentionImplementation = "xla",
     ) -> None:
         key_q, key_k, key_v, key_out = jr.split(key, 4)
         self.head_dim = head_dim if head_dim is not None else dim // num_heads
         self.dim = dim
         if self.head_dim * num_heads != dim:
             raise ValueError("dim must be divisible by num_heads.")
+        _check_implementation(implementation)
         inner_dim = num_heads * self.head_dim
         self.q_proj = eqx.nn.Linear(dim, inner_dim, use_bias=False, key=key_q)
         self.k_proj = eqx.nn.Linear(dim, inner_dim, use_bias=False, key=key_k)
         self.v_proj = eqx.nn.Linear(dim, inner_dim, use_bias=False, key=key_v)
         self.proj = eqx.nn.Linear(inner_dim, dim, use_bias=False, key=key_out)
         self.num_heads = num_heads
+        self.implementation = implementation
 
     def cross(
         self,
@@ -168,7 +180,9 @@ class Attention(eqx.Module):
         if rope is not None:
             q = _apply_rope(rope, q)
             k = _apply_rope(rope, k)
-        out = _scaled_dot_product_attention(q, k, v, self.head_dim)
+        out = _scaled_dot_product_attention(
+            q, k, v, self.head_dim, implementation=self.implementation
+        )
         out = out.transpose(1, 0, 2).reshape(q_tokens.shape[0], -1)
         return jax.vmap(self.proj)(out)
 
@@ -190,6 +204,7 @@ class CrossAttention(eqx.Module):
     dim: int = eqx.field(static=True)
     num_heads: int = eqx.field(static=True)
     head_dim: int = eqx.field(static=True)
+    implementation: AttentionImplementation = eqx.field(static=True)
 
     q_proj: eqx.nn.Linear
     k_proj: eqx.nn.Linear
@@ -205,12 +220,14 @@ class CrossAttention(eqx.Module):
         key: PRNGKeyArray,
         softmax_scaling: SoftmaxScaling | None = None,
         head_dim: int | None = None,
+        implementation: AttentionImplementation = "xla",
     ) -> None:
         key_q, key_k, key_v, key_out = jr.split(key, 4)
         self.head_dim = head_dim if head_dim is not None else dim // num_heads
         self.dim = dim
         if self.head_dim * num_heads != dim:
             raise ValueError("dim must be divisible by num_heads.")
+        _check_implementation(implementation)
         inner_dim = num_heads * self.head_dim
         self.q_proj = eqx.nn.Linear(dim, inner_dim, use_bias=False, key=key_q)
         self.k_proj = eqx.nn.Linear(dim, inner_dim, use_bias=False, key=key_k)
@@ -218,6 +235,7 @@ class CrossAttention(eqx.Module):
         self.proj = eqx.nn.Linear(inner_dim, dim, use_bias=False, key=key_out)
         self.softmax_scaling = softmax_scaling
         self.num_heads = num_heads
+        self.implementation = implementation
 
     def __call__(
         self,
@@ -228,7 +246,13 @@ class CrossAttention(eqx.Module):
         k = _to_heads(self.k_proj, kv_tokens, self.num_heads, self.head_dim)
         v = _to_heads(self.v_proj, kv_tokens, self.num_heads, self.head_dim)
         out = _scaled_dot_product_attention(
-            q, k, v, self.head_dim, self.softmax_scaling, kv_tokens.shape[0]
+            q,
+            k,
+            v,
+            self.head_dim,
+            self.softmax_scaling,
+            kv_tokens.shape[0],
+            self.implementation,
         )
         out = out.transpose(1, 0, 2).reshape(q_tokens.shape[0], -1)
         return jax.vmap(self.proj)(out)
@@ -242,6 +266,7 @@ class InContextAttention(eqx.Module):
     num_heads: int = eqx.field(static=True)
     head_dim: int = eqx.field(static=True)
     num_kv_heads_test: int | None = eqx.field(static=True)
+    implementation: AttentionImplementation = eqx.field(static=True)
 
     q_proj: eqx.nn.Linear
     k_proj: eqx.nn.Linear
@@ -258,12 +283,14 @@ class InContextAttention(eqx.Module):
         softmax_scaling: SoftmaxScaling | None = None,
         num_kv_heads_test: int | None = None,
         head_dim: int | None = None,
+        implementation: AttentionImplementation = "xla",
     ) -> None:
         key_q, key_k, key_v, key_out = jr.split(key, 4)
         self.head_dim = head_dim if head_dim is not None else dim // num_heads
         self.dim = dim
         if self.head_dim * num_heads != dim:
             raise ValueError("dim must be divisible by num_heads.")
+        _check_implementation(implementation)
         inner_dim = num_heads * self.head_dim
         self.q_proj = eqx.nn.Linear(dim, inner_dim, use_bias=False, key=key_q)
         self.k_proj = eqx.nn.Linear(dim, inner_dim, use_bias=False, key=key_k)
@@ -272,6 +299,7 @@ class InContextAttention(eqx.Module):
         self.softmax_scaling = softmax_scaling
         self.num_heads = num_heads
         self.num_kv_heads_test = num_kv_heads_test
+        self.implementation = implementation
 
     def __call__(
         self,
@@ -284,12 +312,24 @@ class InContextAttention(eqx.Module):
 
         if self.num_kv_heads_test is None:
             out = _scaled_dot_product_attention(
-                q, k, v, self.head_dim, self.softmax_scaling, n_train
+                q,
+                k,
+                v,
+                self.head_dim,
+                self.softmax_scaling,
+                n_train,
+                self.implementation,
             )
         else:
             kv_heads = self.num_kv_heads_test
             out_train = _scaled_dot_product_attention(
-                q[:, :n_train], k, v, self.head_dim, self.softmax_scaling, n_train
+                q[:, :n_train],
+                k,
+                v,
+                self.head_dim,
+                self.softmax_scaling,
+                n_train,
+                self.implementation,
             )
             out_test = _scaled_dot_product_attention(
                 q[:, n_train:],
@@ -298,6 +338,7 @@ class InContextAttention(eqx.Module):
                 self.head_dim,
                 self.softmax_scaling,
                 n_train,
+                self.implementation,
             )
             out = jnp.concatenate([out_train, out_test], axis=1)
 

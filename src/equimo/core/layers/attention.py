@@ -1,4 +1,5 @@
-from typing import Callable, List, Optional
+import dataclasses
+from typing import Callable, List, Literal, Optional, TypeVar
 
 import equinox as eqx
 import jax
@@ -59,6 +60,131 @@ def _broadcast_attention_mask(
         ) from error
 
 
+AttentionImplementation = Literal["xla", "cudnn"]
+_IMPLEMENTATIONS = ("xla", "cudnn")
+# cuDNN's fused attention backward requires sequence lengths divisible by 64.
+_CUDNN_SEQUENCE_MULTIPLE = 64
+
+_Model = TypeVar("_Model")
+
+
+def _check_implementation(implementation: str) -> None:
+    if implementation not in _IMPLEMENTATIONS:
+        raise ValueError(
+            f"implementation must be one of {_IMPLEMENTATIONS}, got {implementation!r}."
+        )
+
+
+def _check_cudnn_dropout(
+    dropout: eqx.nn.Dropout | None, inference: Optional[bool]
+) -> None:
+    """Reject attention-probability dropout, which the fused kernel cannot apply."""
+    if dropout is None:
+        return
+    if inference is None:
+        inference = dropout.inference
+    if not inference and dropout.p != 0:
+        raise ValueError(
+            "implementation='cudnn' does not support attention dropout. Set the "
+            "attention dropout rate to 0, call with inference=True, or use "
+            "implementation='xla'."
+        )
+
+
+def _fused_attention(
+    q: jax.Array,
+    k: jax.Array,
+    v: jax.Array,
+    allowed: jax.Array | None = None,
+    *,
+    implementation: AttentionImplementation = "cudnn",
+) -> jax.Array:
+    """Fused dot-product attention over ``(..., heads, seq, head_dim)`` inputs.
+
+    ``allowed`` broadcasts to ``(..., heads, query, key)``. Fully masked query rows
+    return zeros, as in the unfused path. Keys and values may have fewer heads
+    than queries if that number divides the query heads. ``implementation`` is
+    passed to :func:`jax.nn.dot_product_attention`; ``"xla"`` lets CPU tests
+    check the padding and masking.
+    """
+    if implementation == "cudnn" and q.dtype not in (jnp.bfloat16, jnp.float16):
+        raise ValueError(
+            "implementation='cudnn' requires bfloat16 or float16 attention inputs, "
+            f"got {q.dtype}. Cast the model or use implementation='xla'."
+        )
+    *leading, heads, query_len, head_dim = q.shape
+    key_len = k.shape[-2]
+    padded_query = query_len + -query_len % _CUDNN_SEQUENCE_MULTIPLE
+    padded_key = key_len + -key_len % _CUDNN_SEQUENCE_MULTIPLE
+
+    def batch_first(x: jax.Array, length: int) -> jax.Array:
+        x = jnp.swapaxes(x, -3, -2)
+        x = x.reshape(-1, *x.shape[-3:])
+        return jnp.pad(x, ((0, 0), (0, length - x.shape[1]), (0, 0), (0, 0)))
+
+    q = batch_first(q, padded_query)
+    k, v = batch_first(k, padded_key), batch_first(v, padded_key)
+    batch = q.shape[0]
+    if allowed is None:
+        out = jax.nn.dot_product_attention(
+            q,
+            k,
+            v,
+            query_seq_lengths=jnp.full((batch,), query_len, jnp.int32),
+            key_value_seq_lengths=jnp.full((batch,), key_len, jnp.int32),
+            implementation=implementation,
+        )
+    else:
+        # Materialize the mask for every head: a broadcast head axis fails under
+        # vmap (jax-ml/jax#34920). Padding adds masked queries and keys.
+        mask = jnp.broadcast_to(allowed, (*leading, heads, query_len, key_len))
+        mask = jnp.pad(
+            mask.reshape(batch, heads, query_len, key_len),
+            ((0, 0), (0, 0), (0, padded_query - query_len), (0, padded_key - key_len)),
+        )
+        out = jax.nn.dot_product_attention(
+            q, k, v, mask=mask, implementation=implementation
+        )
+        # cuDNN returns the mean value for fully masked rows instead of zeros.
+        has_key = jnp.swapaxes(jnp.any(mask, axis=-1), 1, 2)
+        out = jnp.where(has_key[..., None], out, 0)
+    out = out[:, :query_len].reshape(*leading, query_len, heads, head_dim)
+    return jnp.swapaxes(out, -3, -2)
+
+
+def with_attention_implementation(
+    model: _Model, implementation: AttentionImplementation
+) -> _Model:
+    """Return ``model`` with every attention module using ``implementation``.
+
+    ``"cudnn"`` runs core and tabular attention through NVIDIA cuDNN's fused
+    kernel (:func:`jax.nn.dot_product_attention`), which computes logits in
+    float32 without materializing them. It requires a CUDA GPU, bfloat16 or
+    float16 inputs, and inactive attention dropout, and it cannot be exported
+    with jax2onnx; switch back to ``"xla"`` before exporting. Parameters and
+    checkpoint layouts are unchanged. The setting is static, so compiled
+    functions retrace after switching.
+    """
+    _check_implementation(implementation)
+
+    def is_attention(node) -> bool:
+        return isinstance(node, eqx.Module) and any(
+            field.name == "implementation" for field in dataclasses.fields(node)
+        )
+
+    def switch(node):
+        if not is_attention(node):
+            return node
+        # tree_at cannot replace static fields, and copy.copy returns the same
+        # module, so rebuild the instance as Equinox's unflattening does.
+        switched = object.__new__(type(node))
+        switched.__dict__.update(node.__dict__)
+        object.__setattr__(switched, "implementation", implementation)
+        return switched
+
+    return jax.tree.map(switch, model, is_leaf=is_attention)
+
+
 @register_attn()
 class Attention(eqx.Module):
     """Multi-head self attention over tensors shaped ``(..., seq, dim)``.
@@ -67,11 +193,15 @@ class Attention(eqx.Module):
     batch-aligned with shape ``(..., query, key)`` or directly broadcastable to
     ``(..., heads, query, key)``. Fully masked query rows receive zero attention
     probability mass.
+
+    ``implementation="cudnn"`` selects the fused kernel described in
+    :func:`with_attention_implementation`.
     """
 
     dim: int = eqx.field(static=True)
     num_heads: int = eqx.field(static=True)
     head_dim: int = eqx.field(static=True)
+    implementation: AttentionImplementation = eqx.field(static=True)
 
     qkv: eqx.nn.Linear
     proj: eqx.nn.Linear
@@ -93,12 +223,15 @@ class Attention(eqx.Module):
         proj_drop: float = 0.0,
         norm_layer: str | type[eqx.Module] = "layernorm",
         eps: float = 1e-5,
+        implementation: AttentionImplementation = "xla",
         **kwargs,
     ):
         self.num_heads = num_heads
         self.head_dim = dim // num_heads
         self.dim = dim
         assert self.head_dim * num_heads == dim, "dim must be divisible by num_heads"
+        _check_implementation(implementation)
+        self.implementation = implementation
 
         key_qkv, key_proj = jr.split(key, 2)
         norm_layer = get_norm(norm_layer)
@@ -139,20 +272,24 @@ class Attention(eqx.Module):
                 )
             q, k = apply_rotary_qk(q, k, rotary)
 
-        attn = jnp.einsum("...hqd,...hkd->...hqk", q, k).astype(jnp.float32) / jnp.sqrt(
-            self.head_dim
-        )
         allowed = None
         if mask is not None:
             allowed = _broadcast_attention_mask(
                 mask,
                 x_ndim=x.ndim,
-                shape=attn.shape,
+                shape=(*q.shape[:-1], k.shape[-2]),
             )
-        attn = jax.nn.softmax(attn, axis=-1, where=allowed).astype(x.dtype)
-        attn = self.attn_drop(attn, inference=inference, key=key1)
+        if self.implementation == "cudnn":
+            _check_cudnn_dropout(self.attn_drop, inference)
+            x = _fused_attention(q, k, v, allowed)
+        else:
+            attn = jnp.einsum("...hqd,...hkd->...hqk", q, k).astype(
+                jnp.float32
+            ) / jnp.sqrt(self.head_dim)
+            attn = jax.nn.softmax(attn, axis=-1, where=allowed).astype(x.dtype)
+            attn = self.attn_drop(attn, inference=inference, key=key1)
+            x = jnp.einsum("...hqk,...hkd->...hqd", attn, v)
 
-        x = jnp.einsum("...hqk,...hkd->...hqd", attn, v)
         x = jnp.swapaxes(x, -3, -2).reshape(*x.shape[:-3], x.shape[-2], self.dim)
         x = _apply_module_last_dim(self.proj, x)
         return self.proj_drop(x, inference=inference, key=key2)

@@ -11,6 +11,11 @@ All notable changes to Equimo are documented here. Equimo follows Semantic Versi
   float32, return the input dtype, and keep the dominant logit's small gradient at high confidence. The logit-target
   loss, for distillation, also preserves near-equality gradients, stops target gradients, and supports higher-order
   derivatives.
+- Experimental fused attention: `equimo.core.layers.with_attention_implementation(model, "cudnn")` runs core,
+  prefix-tuned, and tabular attention through cuDNN's fused kernel for bfloat16 or float16 models on CUDA GPUs, and
+  attention modules accept the same choice as an `implementation` argument. On an RTX 4080, it shortened ViT and EoMT
+  training steps by 7-22% and reduced their temporary memory by 17-56%. It does not support attention dropout or
+  jax2onnx export; the default `"xla"` implementation is unchanged.
 - `semantic_crop_origins` places the fewest evenly spaced crops that cover a scaled image, for sliding-window evaluation
   with `merge_semantic_crops`. With the shorter side scaled to the crop size, it matches the EoMT reference's windows,
   except that its last crop always ends at the image edge: the reference's floating-point spacing stops a pixel short

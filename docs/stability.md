@@ -30,6 +30,10 @@ tensor contract, and Equinox PyTree structure may change in a minor release whil
 adapter is developed. Such changes will be recorded in the changelog. Existing T0 archives remain covered by the
 checkpoint integrity and loading commitments below; this exception applies to the Python and raw-array API around them.
 
+Fused cuDNN attention, selected with `equimo.core.layers.with_attention_implementation` or `implementation="cudnn"`, is
+experimental. Its supported dtypes, masks, and module coverage follow cuDNN and `jax.nn.dot_product_attention` and may
+change in a minor release. The default `implementation="xla"` is stable.
+
 Optional integrations remain optional. Their public Equimo wrappers are stable, but the supported Python range may be
 narrower when an upstream dependency does not publish wheels. Equimo documents and tests those exceptions explicitly.
 

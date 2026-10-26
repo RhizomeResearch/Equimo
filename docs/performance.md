@@ -1,8 +1,8 @@
 # Performance audit
 
 This audit targets redundant computation and host-side traversal while preserving Equimo's numerical tolerances, shapes,
-dtypes, PRNG behavior, public signatures, PyTree structure, and checkpoint formats. Measurements below are CPU results,
-not accelerator performance claims.
+dtypes, PRNG behavior, public signatures, PyTree structure, and checkpoint formats. The audit's measurements are CPU
+results, not accelerator performance claims; the softmax and fused-attention sections report GPU measurements.
 
 ## Changes
 
@@ -97,7 +97,7 @@ were used for the candidates above; this was not an exhaustive profiler run of e
 
 | Area                                                          | Assessment                                                                                                                                                                                          |
 | ------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Core attention; language, audio, and time-series transformers | Preserve explicit softmax precision, masks, fully masked rows, and dropout. Fused-attention substitution needs accelerator measurements and separate parity evidence.                               |
+| Core attention; language, audio, and time-series transformers | Preserve explicit softmax precision, masks, fully masked rows, and dropout. Fused cuDNN attention is opt-in; see [Fused attention](#fused-attention).                                               |
 | Core scans                                                    | SSD constructs a quadratic matrix over chunks, but recurrence reformulation changes floating-point evaluation order. Defer until long-sequence, initial-state, and gradient parity are established. |
 | Grouped tabular attention                                     | Avoiding repeated KV heads produced mixed compiler results. One common bfloat16 case increased temporary memory by approximately 28%; this rewrite was not retained.                                |
 | Linear projections and model stacks                           | Existing `vmap` projections already lower to batched linear algebra; Python loops and reshapes alone are not evidence of runtime overhead. No blanket replacements.                                 |
@@ -178,3 +178,33 @@ float32 models, the corrected TabPFN step took 50.0 ms against 52.7 ms.
 Float32 models were limited by matrix multiplication rather than softmax. With JAX's default precision, the
 attention-pooling head's float32 gradient error was 0.6-2.5%; under `jax.default_matmul_precision("highest")` it was
 0.001-0.02%, because the default runs float32 matrix multiplications as TF32 on this GPU.
+
+## Fused attention
+
+`equimo.core.layers.with_attention_implementation(model, "cudnn")` runs core `Attention`, prefix-tuned attention, and
+tabular `Attention`, `CrossAttention`, and `InContextAttention` through NVIDIA cuDNN's fused kernel, via
+`jax.nn.dot_product_attention`. The kernel computes float32 logits without storing the attention matrix. It is opt-in
+because it requires a CUDA GPU, bfloat16 or float16 inputs, and inactive attention dropout, because jax2onnx cannot
+export it, and because it did not speed up TabPFN below. Switching back with `"xla"` restores the default path; neither
+direction changes parameters or checkpoints.
+
+Environment: NVIDIA RTX 4080, JAX 0.11.2 with CUDA 12, Equinox 0.13.6. Times are medians of 30 compiled bfloat16
+training steps after five warm-ups; memory is XLA's temporary-buffer estimate.
+
+| Workload                                          |                 XLA |               cuDNN |
+| ------------------------------------------------- | ------------------: | ------------------: |
+| ViT-S/16, 224 px, batch 128                       |  92.5 ms, 5,414 MiB |  84.1 ms, 4,468 MiB |
+| ViT-B/16, 224 px, batch 64                        | 121.4 ms, 5,396 MiB | 113.1 ms, 4,449 MiB |
+| ViT-B/16, 448 px, batch 16                        | 160.7 ms, 9,324 MiB | 124.9 ms, 4,117 MiB |
+| EoMT on ViT-S/16, 512 px, batch 8, masked queries |  75.0 ms, 4,948 MiB |  62.0 ms, 2,923 MiB |
+| TabPFN, 1,024 training and 512 test rows          |  30.1 ms, 2,541 MiB |  31.6 ms, 1,288 MiB |
+
+Accuracy did not change. Against float64, bfloat16 attention layers of width 384 and 768 at 197 and 577 tokens, with and
+without a causal mask, had 0.49-0.66% relative error in outputs and gradients with either implementation, because
+bfloat16 projections dominate. Float32 layers had 0.03-0.06%.
+
+The backward kernel requires sequence lengths divisible by 64, so Equimo pads queries and keys and excludes the padding.
+Masks are expanded to every head, because a broadcast head axis fails under `vmap` (jax-ml/jax#34920), and fully masked
+query rows return zeros, as in the XLA path. SHSA is not covered, because its queries and keys are narrower than its
+values. ConvAttention is not covered either: at the short sequences of 224-pixel LowFormer inputs, the fused kernel
+slowed its training step, for example from 0.20 to 0.37 ms for four heads over 196 tokens at batch 64.

@@ -38,6 +38,7 @@ __all__ = [
     "register_ffn",
     "register_mixer",
     "register_norm",
+    "with_attention_implementation",
 ]
 
 from .activation import get_act, register_act
@@ -48,6 +49,7 @@ from .attention import (
     get_attn_block,
     register_attn,
     register_attn_block,
+    with_attention_implementation,
 )
 from .dropout import DropPath, DropPathAdd, get_dropout, register_dropout
 from .ffn import (
