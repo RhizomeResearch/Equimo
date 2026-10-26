@@ -29,6 +29,10 @@ Lockfile output depends on the uv version: a newer global uv rewrites the lock `
 platform markers. After changing `pyproject.toml` (including version bumps), relock with the devenv-provided uv
 (`.devenv/profile/bin/uv lock`, run in practice) and use it for `uv run` so the lock diff stays limited to the change.
 
+The lock keeps JAX at 0.11.2: jax2onnx 0.17.1 fails on JAX 0.12 (`jax._src.core.ClosedJaxpr` was removed), so upgrade
+JAX in the lock only together with a jax2onnx release that supports it, and run `tests/test_onnx_export.py`. With JAX
+0.11 or newer, jax2onnx's `flax.nnx` import fails on flax 0.12.6 and works on 0.12.10 (observed in practice).
+
 Anything that imports JAX must run inside the devenv shell, for example `devenv shell -- uv run pytest ...` (run in
 practice): outside it, even the devenv-provided uv fails to import jaxlib because `libstdc++.so.6` is not on the library
 path.

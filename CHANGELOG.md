@@ -18,6 +18,8 @@ All notable changes to Equimo are documented here. Equimo follows Semantic Versi
 
 ### Changed
 
+- Equimo requires JAX and jaxlib 0.11.1 or newer. With it, a compiled step that captures both a frozen encoder and its
+  images as constants matches eager execution, which JAX 0.8.1 did not.
 - Attention pooling, attention-pooling heads, adapter fusion, the tabular decoder, and the `"softmax"` activation
   compute softmax in at least float32 with the corrected derivative of `equimo.core.ops.softmax`, returning the model
   dtype. Tabular attention computes its softmax in at least float32. Attention logits are cast before scaling, avoiding

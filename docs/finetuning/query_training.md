@@ -147,10 +147,8 @@ those axes to be bound. The qualified distributed route uses `pmap`. Checked `sh
 is not qualified on the tested JAX version.
 
 Pass image batches and mutable normalization state as explicit arguments to compiled training steps, including `pmap`.
-With the minimum supported JAX 0.8.1, capturing both a frozen encoder and the images as compile-time constants produced
-different encoder values in an eager/JIT comparison. The dynamic-image route passes the minimum-version training checks;
-this change does not repair that older compiler behavior. Reusing a prepared context also avoids selecting different
-points when roundoff changes an uncertainty tie between eager and compiled forward execution.
+Reusing a prepared context also avoids selecting different points when roundoff changes an uncertainty tie between eager
+and compiled forward execution.
 
 Return normalization state as auxiliary output of the differentiated forward and commit it once when accepting an
 update. Preparation and loss evaluation do not call the model again. If a caller intentionally recomputes a forward,
