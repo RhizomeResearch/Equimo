@@ -1,0 +1,188 @@
+# equimo.finetune.peft
+
+## Overview
+
+Parameter-efficient fine-tuning (PEFT) methods implemented as Equinox wrapper modules. Each method has a frozen config
+dataclass, an `apply_*` function that resolves a `TargetSpec` against canonical parameter tags and swaps target modules
+for wrappers with `eqx.tree_at`, and, where the math allows, merge/unmerge functions that fold the learned delta back
+into the base weights. LoRA-family and adapter methods also produce and consume portable `FineTuneBundle` deltas, which
+the parent package's `serialization.py` writes to disk. Methods: LoRA (plus rsLoRA, PiSSA, static rank masks, AdaLoRA,
+LoRA-FA, RandLoRA, EVA init, FourierFT), DoRA, bottleneck/parallel adapters, AdaptFormer, adapter banks and
+AdapterFusion, OFT/BOFT orthogonal adapters, IA3, VeRA, scale/shift (SSF), prefix tuning, prompt tuning (soft prompts,
+VPT, P-Tuning v2), and BitFit.
+
+## Interface
+
+- `PEFTConfig`: union alias of
+  `LoRAConfig | DoRAConfig | AdapterConfig | OrthogonalAdapterConfig | FourierFTConfig | PromptConfig | PrefixConfig | ScaleShiftConfig | IA3Config | VeRAConfig`
+  (excludes `BitFitConfig`, `AdaptFormerConfig`, `AdapterBankConfig`, `AdapterFusionConfig`, and `EVAInitializerConfig`)
+  [\_\_init\_\_.py:PEFTConfig]
+- Package exports: public names of `adapters`, `bitfit`, `dora`, `ia3`, `lora`, `prefix`, `prompts`, `scale_shift`, and
+  `vera`. `architecture_hash`, `lora_config_to_dict`, `iter_dora_modules`, `strip_prefixes`, and
+  `iter_prefix_attentions` are only in their module `__all__`; `base`, `_common`, and `_compat` are not re-exported
+  [\_\_init\_\_.py:\_\_all\_\_]
+- Wrapper traversal: `get_path`, `iter_wrappers(model, wrapper_types)` returning `(Path, module)` pairs, and
+  `map_wrappers(model, wrapper_types, fn)` applying one `eqx.tree_at` [base.py:iter_wrappers] [base.py:map_wrappers]
+
+### LoRA family (`lora.py`)
+
+- Configs: `LoRAConfig` (rank 8, alpha 16, target tags `attention.qkv`/`attention.proj`), `RsLoRAConfig`, `PiSSAConfig`,
+  `StaticRankMaskedLoRAConfig`, `AdaLoRAConfig`, `LoRAFAConfig`, `RandLoRAConfig`, `LoRAPlusLabelConfig`,
+  `AdaLoRAMetadata`, `CalibrationSpec`, `EVAInitializerConfig`, `FourierFTConfig` [lora.py:LoRAConfig]
+  [lora.py:RsLoRAConfig] [lora.py:EVAInitializerConfig] [lora.py:FourierFTConfig]
+- Wrappers: `LoRALinear` (`lora_A (rank, in)`, `lora_B (out, rank)`, optional `rank_mask`, `base_weight_delta`,
+  `projection_segments`), `LoRAMergedLinear` (fused QKV marker), `LoRAFALinear`, `RandLoRALinear`, `FourierFTLinear`,
+  `AdaLoRAModule` (with `orthogonality_loss`) [lora.py:LoRALinear] [lora.py:LoRAFALinear] [lora.py:RandLoRALinear]
+  [lora.py:FourierFTLinear] [lora.py:AdaLoRAModule]
+- `apply_lora`, `apply_adalora`, `apply_lora_fa`, `apply_randlora`,
+  `apply_eva_lora(model, config, *, activation_artifacts, key, ...)`, `apply_fourierft` [lora.py:apply_lora]
+  [lora.py:apply_eva_lora] [lora.py:apply_fourierft]
+- `merge_lora` / `unmerge_lora` (all LoRA-family wrappers) and per-family `merge_lora_fa`, `unmerge_lora_fa`,
+  `merge_randlora`, `unmerge_randlora`, `merge_fourierft`, `unmerge_fourierft` [lora.py:merge_lora]
+  [lora.py:unmerge_lora]
+- `extract_lora_delta(model, ...) -> FineTuneBundle`, `load_lora_delta(base_model, bundle)`, `strip_lora(model)`
+  [lora.py:extract_lora_delta] [lora.py:load_lora_delta] [lora.py:strip_lora]
+- `iter_lora_modules`, `iter_adalora_modules`, `iter_lora_fa_modules`, `iter_fourierft_modules`,
+  `iter_randlora_modules`, `lora_rank_groups`,
+  `apply_lora_rank_pattern(model, rank_pattern, *, strict=True, final=False)` [lora.py:lora_rank_groups]
+  [lora.py:apply_lora_rank_pattern]
+- `architecture_hash(model) -> str` (SHA-256 over inexact-leaf paths, shapes, dtypes) and `lora_config_to_dict`
+  [lora.py:architecture_hash] [lora.py:lora_config_to_dict]
+
+### Other methods
+
+- DoRA: `DoRAConfig`, `DoRALinear`, `DoRAMergedLinear`, `apply_dora`, `merge_dora`, `iter_dora_modules`
+  [dora.py:DoRALinear] [dora.py:apply_dora] [dora.py:merge_dora]
+- Adapters: `AdapterConfig`, `ParallelAdapterConfig`, `AdaptFormerConfig`, `AdapterBankConfig`, `AdapterFusionConfig`,
+  `OrthogonalAdapterConfig`; modules `BottleneckAdapter`, `AdaptFormerAdapter`, `SerialAdapterBlock`,
+  `OutputAdapterModule`, `ParallelAdapterBlock`, `AdaptFormerBlock`, `AdapterFusion`, `OrthogonalLinear`
+  [adapters.py:AdapterConfig] [adapters.py:OrthogonalLinear] [adapters.py:AdapterFusion]
+- Adapter functions: `apply_adapters`, `add_adapter`, `set_active_adapter`, `configure_adapter_bank`,
+  `apply_adapter_fusion`, `adapter_fusion_trainable_spec`, `apply_adaptformer`, `apply_orthogonal_adapters`,
+  `merge_orthogonal_adapters`, `unmerge_orthogonal_adapters`, `extract_adapter_delta`, `load_adapter_delta`,
+  `strip_adapters`, `iter_adapter_wrappers`, `iter_orthogonal_adapters` [adapters.py:apply_adapters]
+  [adapters.py:add_adapter] [adapters.py:configure_adapter_bank] [adapters.py:extract_adapter_delta]
+  [adapters.py:load_adapter_delta]
+- IA3: `IA3Config`, `IA3Linear`, `apply_ia3`, `merge_ia3`, `iter_ia3_modules` [ia3.py:IA3Linear] [ia3.py:apply_ia3]
+- VeRA: `VeRAConfig`, `VeRALinear`, `apply_vera`, `merge_vera`, `strip_vera`, `iter_vera_modules` [vera.py:VeRALinear]
+  [vera.py:apply_vera]
+- Scale/shift: `ScaleShiftConfig` (presets `safe_default`, `paper_lian2022_vit`, `convnet`), `ScaleShift`,
+  `ScaleShiftWrapper`, `apply_scale_shift`, `merge_scale_shift`, `iter_scale_shift_wrappers`
+  [scale_shift.py:ScaleShiftConfig] [scale_shift.py:apply_scale_shift] [scale_shift.py:merge_scale_shift]
+- Prefix tuning: `PrefixConfig`, `PrefixTunedModel`, `PrefixAttention`, `PrefixProjection`, `apply_prefixes`,
+  `strip_prefixes`, `iter_prefix_attentions` [prefix.py:PrefixTunedModel] [prefix.py:apply_prefixes]
+- Prompt tuning: `PromptConfig`, `SoftPromptConfig`, `VPTShallowConfig`, `VPTDeepConfig`, `PTuningV2Config`,
+  `PromptedModel`, `apply_prompts` [prompts.py:PromptConfig] [prompts.py:PromptedModel] [prompts.py:apply_prompts]
+- BitFit: `BitFitConfig`, `bitfit_trainable_spec(config=None) -> TrainableSpec` (no wrapper; trainability only)
+  [bitfit.py:bitfit_trainable_spec]
+
+## Invariants
+
+- Hyperparameters on wrappers (rank, alpha, scaling mode, dropout, `train_base`, `mergeable`, `merged`, projection
+  segments, adapter names, active adapter) are `eqx.field(static=True)`, so changing one changes the treedef. Array
+  leaves are factors and masks plus `OrthogonalLinear.unmerged_weight` (a full weight copy once merged),
+  `FourierFTLinear.frequency_indices` (int32), `BottleneckAdapter.residual_scale`, and `AdaptFormerAdapter.scale`
+  [lora.py:LoRALinear] [dora.py:DoRALinear] [adapters.py:SerialAdapterBlock] [adapters.py:OrthogonalLinear]
+  [lora.py:FourierFTLinear] [adapters.py:BottleneckAdapter] [adapters.py:AdaptFormerAdapter]
+- Every `apply_*`, `merge_*`, `unmerge_*`, and `strip_*` returns a new PyTree; inputs are not mutated. Module swaps use
+  `eqx.tree_at`; `apply_prompts` instead wraps the whole model in `PromptedModel`, and `apply_prefixes` swaps attentions
+  and then wraps the result in `PrefixTunedModel` [lora.py:apply_lora] [base.py:map_wrappers] [prompts.py:apply_prompts]
+  [prefix.py:apply_prefixes]
+- Delta starts at zero: LoRA `lora_B`, DoRA `lora_B`, RandLoRA `basis_scales`, FourierFT coefficients, AdaLoRA
+  `singular`, VeRA `vera_output_scale` (`trainable_output_scale_init=0.0`), bottleneck adapter up projections and
+  biases, and OFT skew parameters are zero-initialized; AdapterFusion starts with zero query/key and identity value
+  [lora.py:apply_lora] [lora.py:RandLoRALinear] [lora.py:AdaLoRAModule] [dora.py:\_init_lora] [vera.py:VeRAConfig]
+  [adapters.py:\_init_linear] [adapters.py:\_cayley] [adapters.py:\_adapter_fusion_from_state]
+- PiSSA is the exception: `lora_B` holds the principal singular vectors and is nonzero. With
+  `residual_handling="freeze_residual"` the base weight compensates; with `"none"` nothing does, so the wrapped model's
+  output differs from the base at initialization [lora.py:\_pissa_init] [lora.py:\_pissa_prepare]
+- LoRA scaling is `alpha / rank` for `alpha_over_r` and `alpha / sqrt(rank)` for `alpha_over_sqrt_r`; any other mode
+  raises `ValueError`. Wrapper ranks must be at least 1. `AdaLoRAModule` always uses `alpha / rank`, and `apply_adalora`
+  ignores `config.scaling` and `config.dropout` [lora.py:\_scaling] [lora.py:LoRALinear] [lora.py:AdaLoRAModule]
+  [lora.py:apply_adalora]
+- RandLoRA with `seed` set builds every wrapper's bases from `jr.PRNGKey(seed)`, so same-shape modules share bases; with
+  `seed=None` each module uses its split subkey [lora.py:RandLoRALinear]
+- Unsupported options raise `ValueError`: `apply_lora` with an init other than `kaiming_A_zero_B` or `pissa`,
+  `apply_lora_fa` and `apply_randlora` with `fan_in_fan_out=True`, and `apply_prompts` with
+  `PTuningV2Config(reparameterizer="mlp")` [lora.py:apply_lora] [lora.py:apply_lora_fa] [lora.py:apply_randlora]
+  [prompts.py:\_validate_prompt_config]
+- Target resolution raises `ValueError` when nothing resolves unless `target.allow_empty`; non-linear targets raise
+  `TypeError`; already-wrapped modules of the same type are skipped; paths are processed in sorted order with one split
+  subkey each [lora.py:apply_lora] [dora.py:apply_dora] [ia3.py:\_target_linear_specs]
+- A path containing `qkv` selects `LoRAMergedLinear` / `DoRAMergedLinear`; QKV projection segments require the output
+  dim to be divisible by 3 and axis 0, and zero delta rows outside the selected q/k/v segments [lora.py:LoRALinear]
+  [lora.py:\_projection_segments_for_target] [ia3.py:\_projection_segments_for_target] [dora.py:apply_dora]
+- Merge contract: `merge` raises `ValueError` if the wrapper is not mergeable or already merged, adds the delta cast to
+  the base weight dtype, and sets `merged=True`; `unmerge` of an unmerged wrapper returns it unchanged; a merged wrapper
+  returns `base(x)` [lora.py:AdaLoRAModule] [lora.py:\_merge_additive_lora] [adapters.py:OrthogonalLinear]
+- `merge_dora`, `merge_ia3`, `merge_vera`, and `merge_scale_shift` replace each wrapper with its folded base module:
+  there is no `merged` flag and no unmerge. They raise `ValueError` for `mergeable=False`; `merge_scale_shift` supports
+  only `eqx.nn.Linear` and `eqx.nn.LayerNorm` bases and requires a bias when the shift is nonzero [dora.py:merge_dora]
+  [ia3.py:merge_ia3] [vera.py:merge_vera] [scale_shift.py:\_merge_scale_shift_linear]
+- Dropout runs only when `dropout > 0` and `not inference`, and then requires a PRNG key (`ValueError` otherwise). Most
+  wrappers default to `inference=True`; adapter block wrappers, `PrefixAttention`, and `ScaleShiftWrapper` default to
+  `inference=None`, which counts as training [lora.py:LoRALinear] [\_common.py:dropout] [adapters.py:BottleneckAdapter]
+  [adapters.py:SerialAdapterBlock] [prefix.py:PrefixAttention] [scale_shift.py:ScaleShiftWrapper]
+- Precision: AdapterFusion and prefix-attention logits are computed in at least float32 and the probabilities cast back
+  to the activation dtype; LoRA-FA correction matrices, AdaLoRA orthogonality loss, and OFT orthogonality error are
+  computed in float32 [adapters.py:AdapterFusion] [prefix.py:PrefixAttention] [lora.py:LoRAFALinear]
+  [lora.py:AdaLoRAModule] [adapters.py:OrthogonalLinear]
+- When the base attention has `implementation == "cudnn"`, `PrefixAttention` calls `_fused_attention` instead of the
+  float32-logit softmax path and rejects active attention dropout [prefix.py:PrefixAttention]
+- Bottleneck `residual_scale`, AdaptFormer `scale`, and `ScaleShift` scale and shift are created in float32 and not
+  cast, so they promote bfloat16 activations to float32 [adapters.py:BottleneckAdapter] [adapters.py:AdaptFormerAdapter]
+  [scale_shift.py:\_init_parameter]
+- LoRA-FA with `custom_vjp=True` returns a zero gradient for A; `frozen_A` and `corrected_v3` define the B gradient
+  [lora.py:\_lora_fa_update_corrected_bwd]
+- VeRA frozen matrices `vera_A`/`vera_B` are ordinary leaves kept frozen only by `jax.lax.stop_gradient`; with
+  `shared=True` one basis pair is reused across modules with the same rank, shape, dtype, and init [vera.py:VeRALinear]
+  [vera.py:\_shared_vera_bases]
+- PiSSA with `freeze_residual` stores `-scaling * B0 @ A0` in `base_weight_delta`; `strip_lora` and the loader undo or
+  reapply it [lora.py:\_pissa_prepare] [lora.py:strip_lora] [lora.py:load_lora_delta]
+- Delta loading: `load_lora_delta` and `load_adapter_delta` raise `FineTuneBundleError` on a wrong `bundle.method`, on a
+  non-empty `architecture_hash` that differs from `architecture_hash(base_model)`, and (LoRA) on base weight or bias
+  shape mismatch. The stored hash is computed on the stripped model [lora.py:load_lora_delta]
+  [lora.py:extract_lora_delta] [adapters.py:load_adapter_delta]
+- Adapter banks: more than one active adapter requires `allow_multiple_active=True`; `missing_adapter_policy` is `error`
+  or `ignore`; `add_adapter` rejects parallel placement, duplicate names, and banks that already have fusion
+  [adapters.py:\_normalize_active_adapter] [adapters.py:configure_adapter_bank] [adapters.py:add_adapter]
+- Prefix tuning supports only attentions with `eqx.nn.Linear` `qkv` and `proj`, rejects targets other than
+  `{attention.k, attention.v}` and `direct_kv=True`, and prepends an all-ones mask of width `num_prefix_tokens`. Rotary
+  embedding is applied only to base tokens [prefix.py:\_validate_prefix_config] [prefix.py:\_is_supported_attention]
+  [prefix.py:\_extend_mask] [prefix.py:PrefixAttention]
+- Prompt tuning supports Equimo ViT-like models and simple token models only (`ValueError` otherwise). Prompts are cast
+  to the token dtype at use. `init="normal"` draws float32 prompts; `init="from_embedding_if_available"` (the
+  `SoftPromptConfig` default) copies `token_embed.weight` rows in the embedding dtype, with the same rows for every
+  layer, and falls back to float32 normal prompts when there is no token embedding [prompts.py:PromptedModel]
+  [prompts.py:\_init_prompts] [prompts.py:\_prompt_from_embedding]
+- Without a `head` on the base, `PromptedModel.__call__` discards the prompted features and returns the plain base
+  output [prompts.py:PromptedModel]
+- `PEFTConfig` must equal the set of config types registered by the parent package's serialization codecs, which is
+  checked at import time [\_\_init\_\_.py:PEFTConfig] [../serialization.py:\_validate_codec_config_families]
+
+## Side Effects
+
+- Randomness only from explicit keys passed to `apply_*`. Fixed `jr.PRNGKey(0)` (or a configured seed) is used for
+  RandLoRA seeds, FourierFT without a key, PiSSA fallback, and placeholder construction during delta loading, where
+  stored factors overwrite the random values [lora.py:RandLoRALinear] [lora.py:apply_fourierft]
+  [lora.py:load_lora_delta] [adapters.py:\_bottleneck_from_state]
+- Host transfers that are not jit-traceable: EVA rank allocation (`float(s[i] ** 2)`), VeRA key data stored in static
+  fields, `merge_scale_shift` checking `bool(jnp.any(shift != 0))`, and value hashing via `np.asarray` in
+  `_compat.hash_inexact_pytree` [lora.py:\_eva_rank_allocation] [vera.py:\_key_data_tuple]
+  [scale_shift.py:\_merge_scale_shift_linear] [\_compat.py:hash_inexact_pytree]
+- PiSSA and EVA catch any `Exception` from SVD initialization and fall back without a warning. PiSSA falls back only
+  when `fallback_init == "kaiming_A_zero_B"` (otherwise it re-raises) and records the fallback in metadata
+  [lora.py:\_pissa_prepare] [lora.py:\_eva_lora_A]
+- Call helpers retry when the base raises a `TypeError` mentioning an unexpected keyword argument. `adapters._call_base`
+  and `prefix._call_with_optional_key` retry once without `inference`; `scale_shift._call_base` retries once without
+  `inference` and `key`; the `prompts` helpers retry without `inference`, then without `key` (`_call_block` drops all
+  keyword arguments), so the base can run up to three times [adapters.py:\_call_base]
+  [prefix.py:\_call_with_optional_key] [scale_shift.py:\_call_base] [prompts.py:\_call_with_optional_key]
+  [prompts.py:\_call_block]
+- No disk or network I/O; bundles are in-memory `FineTuneBundle` objects [lora.py:extract_lora_delta]
+  [adapters.py:extract_adapter_delta]
+
+## Verification
+
+- Run:
+  `devenv shell -- uv run pytest tests/finetune/test_lora.py tests/finetune/test_lora_lifecycle.py tests/finetune/test_lora_merged_linear.py tests/finetune/test_lora_plus_labels.py tests/finetune/test_rslora.py tests/finetune/test_pissa.py tests/finetune/test_rank_masked_lora.py tests/finetune/test_dora.py tests/finetune/test_adapters.py tests/finetune/test_ia3.py tests/finetune/test_vera.py tests/finetune/test_scale_shift.py tests/finetune/test_prefix.py tests/finetune/test_prompts.py tests/finetune/test_peft_methods.py tests/finetune/test_peft_invariants.py tests/finetune/test_peft_wrapper_mapping.py tests/finetune/test_peft_compatibility_primitives.py -q`

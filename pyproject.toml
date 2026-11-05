@@ -84,6 +84,8 @@ source-include = [
   "models/huggingface/README.md",
   "models/huggingface/convnext-conversion.json",
 ]
+# Per-directory EGM.md contracts document the source tree for contributors; they are not package data.
+wheel-exclude = ["EGM.md"]
 
 [dependency-groups]
 dev = [

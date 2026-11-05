@@ -9,7 +9,9 @@ and checkpoint compatibility as part of the API.
 ## Repository Map
 
 - `src/equimo/`: installable package, organized into `core`, `vision`, `language`, `audio`, `tabular`, `finetune`,
-  `serialization`, and `conversion`.
+  `serialization`, and `conversion`. Each package directory has an `EGM.md` contract (interface, invariants, side
+  effects, verification command) citing `[file.py:symbol]`; update the nearest one when public behavior changes.
+  `[tool.uv.build-backend] wheel-exclude` keeps them out of the wheel (checked by building with and without it).
 - `tests/`: pytest suite. `tests/finetune/` covers the fine-tuning subsystem; `tests/data/` contains numerical reference
   artifacts.
 - `models/`: maintainer conversion and reference-generation scripts, not the installed model package.
@@ -35,7 +37,9 @@ JAX in the lock only together with a jax2onnx release that supports it, and run 
 
 Anything that imports JAX must run inside the devenv shell, for example `devenv shell -- uv run pytest ...` (run in
 practice): outside it, even the devenv-provided uv fails to import jaxlib because `libstdc++.so.6` is not on the library
-path.
+path. Where `devenv shell` cannot start (for example a sandbox with a read-only `/run/user`), use the venv devenv
+manages, `.devenv/state/venv/bin/python -m pytest ...`, with `LD_LIBRARY_PATH` taken from `.devenv/shell-env.sh` (run in
+practice); `.venv` is not the devenv-managed environment.
 
 Run a focused test while iterating:
 
