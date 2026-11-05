@@ -214,7 +214,6 @@ class VisionTransformer(eqx.Module):
         num_classes: int | None = 1000,
         interpolate_antialias: bool = False,
         eps: float = 1e-5,
-        **kwargs,
     ):
         depth = sum(depths)
         key_patchemb, key_posemb, key_cls, key_reg, key_head, *block_subkeys = jr.split(
@@ -843,12 +842,7 @@ _EUPE_BASE_CFG: dict = {
     "use_mask_token": True,
     "use_global_pos_embed": False,
     "use_local_pos_embed": True,
-    "local_pos_embed_config": {
-        "strategy": "period",
-        "base": 100.0,
-        "normalize_coords": "separate",
-        "rescale_coords": 2.0,
-    },
+    "local_pos_embed_config_patch": _DINOV3_LOCAL_ROPE_CFG,
     "reg_tokens": 4,
     "init_values": 1e-5,
     "eps": 1e-5,

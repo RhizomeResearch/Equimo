@@ -151,8 +151,11 @@ class ScaleShift(eqx.Module):
     def __call__(self, x: jax.Array) -> jax.Array:
         if self.axis == "channel" and x.ndim > 1:
             shape = (self.scale.shape[0],) + (1,) * (x.ndim - 1)
-            return x * self.scale.reshape(shape) + self.shift.reshape(shape)
-        return x * self.scale + self.shift
+            out = x * self.scale.reshape(shape) + self.shift.reshape(shape)
+        else:
+            out = x * self.scale + self.shift
+        # Scale and shift are float32 parameters; keep the activation dtype.
+        return out.astype(x.dtype)
 
 
 class ScaleShiftWrapper(eqx.Module):

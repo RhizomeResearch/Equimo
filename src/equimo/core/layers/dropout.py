@@ -44,10 +44,10 @@ def split_drop_path(drop_path: float | list[float]) -> tuple[float, float]:
 
 @register_dropout()
 class DropPath(eqx.Module, strict=True):
-    """Applies drop path (stochastic depth).
+    """Applies drop path (stochastic depth) to one unbatched example.
 
-    Note that this layer behaves differently during training and inference. During
-    training then dropout is randomly applied; during inference this layer does nothing.
+    During training the whole input is zeroed with probability ``p`` and otherwise
+    rescaled by ``1 / (1 - p)``; during inference this layer does nothing.
     """
 
     p: float
@@ -60,7 +60,7 @@ class DropPath(eqx.Module, strict=True):
     ):
         """**Arguments:**
 
-        - `p`: The fraction of entries to set to zero. (On average.)
+        - `p`: The probability of dropping the whole input.
         - `inference`: Whether to actually apply dropout at all. If `True` then dropout
             is *not* applied. If `False` then dropout is applied. This may be toggled
             with overridden during [`DropPath.__call__`][].
@@ -99,10 +99,10 @@ class DropPath(eqx.Module, strict=True):
                 "DropPath requires a key when running in non-deterministic mode."
             )
         else:
+            # Modules are unbatched, so one draw keeps or drops the whole example.
             q = 1 - lax.stop_gradient(self.p)
-            shape = (x.shape[0],) + (1,) * (x.ndim - 1)
-            mask = jr.bernoulli(key, q, shape)
-            return x * mask / q
+            keep = jr.bernoulli(key, q)
+            return x * keep / q
 
 
 @register_dropout()

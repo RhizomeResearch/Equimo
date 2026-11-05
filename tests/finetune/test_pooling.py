@@ -105,3 +105,11 @@ def test_pool_attention_policy_requires_key():
 
     with pytest.raises(ValueError, match="requires a PRNG key"):
         eqft.pool_features(tokens, pool="attention")
+
+
+def test_attention_pool_returns_feature_dtype():
+    tokens = jnp.arange(20, dtype=jnp.bfloat16).reshape(5, 4)
+
+    pooled = eqft.AttentionPool(4, key=jr.PRNGKey(0))(tokens)
+
+    assert pooled.dtype == jnp.bfloat16

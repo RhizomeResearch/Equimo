@@ -97,9 +97,9 @@ VPT, P-Tuning v2), and BitFit.
   `residual_handling="freeze_residual"` the base weight compensates; with `"none"` nothing does, so the wrapped model's
   output differs from the base at initialization [lora.py:\_pissa_init] [lora.py:\_pissa_prepare]
 - LoRA scaling is `alpha / rank` for `alpha_over_r` and `alpha / sqrt(rank)` for `alpha_over_sqrt_r`; any other mode
-  raises `ValueError`. Wrapper ranks must be at least 1. `AdaLoRAModule` always uses `alpha / rank`, and `apply_adalora`
-  ignores `config.scaling` and `config.dropout` [lora.py:\_scaling] [lora.py:LoRALinear] [lora.py:AdaLoRAModule]
-  [lora.py:apply_adalora]
+  raises `ValueError`. Wrapper ranks must be at least 1. `apply_adalora` applies the configured scaling mode and raises
+  `ValueError` for a nonzero `config.dropout`, since `AdaLoRAModule` has no dropout path [lora.py:\_scaling]
+  [lora.py:LoRALinear] [lora.py:AdaLoRAModule] [lora.py:apply_adalora]
 - RandLoRA with `seed` set builds every wrapper's bases from `jr.PRNGKey(seed)`, so same-shape modules share bases; with
   `seed=None` each module uses its split subkey [lora.py:RandLoRALinear]
 - Unsupported options raise `ValueError`: `apply_lora` with an init other than `kaiming_A_zero_B` or `pissa`,
@@ -129,8 +129,9 @@ VPT, P-Tuning v2), and BitFit.
   [lora.py:AdaLoRAModule] [adapters.py:OrthogonalLinear]
 - When the base attention has `implementation == "cudnn"`, `PrefixAttention` calls `_fused_attention` instead of the
   float32-logit softmax path and rejects active attention dropout [prefix.py:PrefixAttention]
-- Bottleneck `residual_scale`, AdaptFormer `scale`, and `ScaleShift` scale and shift are created in float32 and not
-  cast, so they promote bfloat16 activations to float32 [adapters.py:BottleneckAdapter] [adapters.py:AdaptFormerAdapter]
+- Adapter linears, bottleneck `residual_scale`, AdaptFormer `scale`, and `ScaleShift` scale and shift are float32
+  parameters; `BottleneckAdapter`, `AdaptFormerAdapter`, and `ScaleShift` cast their output back to the activation dtype
+  [adapters.py:BottleneckAdapter] [adapters.py:AdaptFormerAdapter] [scale_shift.py:ScaleShift]
   [scale_shift.py:\_init_parameter]
 - LoRA-FA with `custom_vjp=True` returns a zero gradient for A; `frozen_A` and `corrected_v3` define the B gradient
   [lora.py:\_lora_fa_update_corrected_bwd]
@@ -155,8 +156,8 @@ VPT, P-Tuning v2), and BitFit.
   `SoftPromptConfig` default) copies `token_embed.weight` rows in the embedding dtype, with the same rows for every
   layer, and falls back to float32 normal prompts when there is no token embedding [prompts.py:PromptedModel]
   [prompts.py:\_init_prompts] [prompts.py:\_prompt_from_embedding]
-- Without a `head` on the base, `PromptedModel.__call__` discards the prompted features and returns the plain base
-  output [prompts.py:PromptedModel]
+- `PromptedModel.__call__` reads prompted features out through the base's `head` and raises `ValueError` when the base
+  has none; use `features()` for headless bases [prompts.py:PromptedModel]
 - `PEFTConfig` must equal the set of config types registered by the parent package's serialization codecs, which is
   checked at import time [\_\_init\_\_.py:PEFTConfig] [../serialization.py:\_validate_codec_config_families]
 
@@ -175,9 +176,8 @@ VPT, P-Tuning v2), and BitFit.
   [lora.py:\_pissa_prepare] [lora.py:\_eva_lora_A]
 - Call helpers retry when the base raises a `TypeError` mentioning an unexpected keyword argument. `adapters._call_base`
   and `prefix._call_with_optional_key` retry once without `inference`; `scale_shift._call_base` retries once without
-  `inference` and `key`; the `prompts` helpers retry without `inference`, then without `key` (`_call_block` drops all
-  keyword arguments), so the base can run up to three times [adapters.py:\_call_base]
-  [prefix.py:\_call_with_optional_key] [scale_shift.py:\_call_base] [prompts.py:\_call_with_optional_key]
+  `inference` and `key`; `prompts._call_block` retries without `inference`, then drops all keyword arguments, so a block
+  can run up to three times [adapters.py:\_call_base] [prefix.py:\_call_with_optional_key] [scale_shift.py:\_call_base]
   [prompts.py:\_call_block]
 - No disk or network I/O; bundles are in-memory `FineTuneBundle` objects [lora.py:extract_lora_delta]
   [adapters.py:extract_adapter_delta]

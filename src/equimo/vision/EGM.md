@@ -23,7 +23,7 @@ holds only a docstring; import subpackages explicitly (`equimo.vision.models`, `
 
 - `load_image(path, mean=None, std=None, size=None, center_crop=False) -> [3, H, W]`: reads an RGB image with Pillow,
   scales to `[0, 1]` float32, optionally center-crops to a square, resizes bilinearly to `size x size`, normalizes with
-  `mean` / `std` only when both are given (one alone is ignored), and returns channel-first. `[io.py:load_image]`
+  `mean` / `std` when both are given, and returns channel-first. `[io.py:load_image]`
 
 ### Segmentation post-processing (`segmentation.py`)
 
@@ -64,8 +64,8 @@ holds only a docstring; import subpackages explicitly (`equimo.vision.models`, `
 
 ## Invariants
 
-- `load_image` requires Pillow and raises an `ImportError` naming the `extras` extra when it is missing.
-  `[io.py:load_image]`
+- `load_image` raises `ValueError` when only one of `mean` / `std` is given, and requires Pillow, raising an
+  `ImportError` naming the `extras` extra when it is missing. `[io.py:load_image]`
 - Segmentation helpers expect nonempty `(Q, H, W)` mask logits and `(Q, K + 1)` class logits whose last column is
   no-object, and raise `ValueError` otherwise. Class softmax and mask sigmoid are computed in float32.
   `[segmentation.py:_validate_logits]`, `[segmentation.py:semantic_scores]`, `[segmentation.py:panoptic_predictions]`

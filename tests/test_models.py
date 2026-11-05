@@ -389,8 +389,11 @@ def test_convnext_drop_path():
 # Reference contracts
 
 
-def test_dinov3_local_rope_config_matches_official():
-    model = dinov3_vits16_pretrain_lvd1689m(pretrained=False)
+@pytest.mark.parametrize(
+    "factory", (dinov3_vits16_pretrain_lvd1689m, em.eupe_vits16), ids=("dinov3", "eupe")
+)
+def test_dinov3_local_rope_config_matches_official(factory):
+    model = factory(pretrained=False)
     rope = model.local_pos_embed.patch_rope
 
     D_head = model.dim // 6
@@ -404,6 +407,20 @@ def test_dinov3_local_rope_config_matches_official():
     np.testing.assert_allclose(
         np.asarray(rope.freqs), np.asarray(expected), rtol=0, atol=0
     )
+
+
+def test_vision_transformer_rejects_unknown_constructor_options():
+    with pytest.raises(TypeError, match="local_pos_embed_config"):
+        em.VisionTransformer(
+            img_size=64,
+            in_channels=3,
+            dim=64,
+            patch_size=8,
+            num_heads=[2],
+            depths=[2],
+            local_pos_embed_config={"rescale_coords": 2.0},
+            key=KEY,
+        )
 
 
 def test_lingbot_vits16_rectangular_features():

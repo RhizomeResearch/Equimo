@@ -314,7 +314,10 @@ class BottleneckAdapter(eqx.Module):
                     "A PRNG key is required when adapter dropout is active."
                 )
             y = _common.dropout(y, self.dropout, key)
-        return _common.apply_last_axis(self.up, y) * self.residual_scale
+        # Adapter parameters stay float32; return in the activation dtype so a
+        # low-precision residual stream is not promoted.
+        out = _common.apply_last_axis(self.up, y) * self.residual_scale
+        return out.astype(x.dtype)
 
 
 class AdaptFormerAdapter(eqx.Module):
@@ -362,7 +365,8 @@ class AdaptFormerAdapter(eqx.Module):
         key: jax.Array | None = None,
         inference: bool | None = True,
     ) -> jax.Array:
-        return self.adapter(x, key=key, inference=inference) * self.scale
+        out = self.adapter(x, key=key, inference=inference) * self.scale
+        return out.astype(x.dtype)
 
 
 class SerialAdapterBlock(eqx.Module):

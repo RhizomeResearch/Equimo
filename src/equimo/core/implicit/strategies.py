@@ -150,8 +150,9 @@ class ScheduledInjection(AbstractStackStrategy):
 
     Index ``i`` means "inject *before* block ``i``"; index ``len(blocks)``
     means "inject after the last block". Useful for experiments like injecting
-    at entry and at mid-depth only (e.g. ``indices=(0, 4)``). Indices out of
-    range are silently clamped into the valid range at call time.
+    at entry and at mid-depth only (e.g. ``indices=(0, 4)``). At call time, indices
+    outside ``[0, len(blocks)]`` are ignored; if none remain, injection happens at
+    entry only.
     """
 
     indices: tuple[int, ...] = eqx.field(static=True)

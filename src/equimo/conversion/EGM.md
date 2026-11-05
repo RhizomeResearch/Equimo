@@ -15,20 +15,21 @@ on these helpers. The package `__init__.py` is empty.
 - `convert_params_from_torch(jax_model, replace_cfg, expand_cfg, squeeze_cfg, torch_whitelist, jax_whitelist, strict=True, source="torchhub", ...)`
   \[utils.py:convert_params_from_torch\]: returns the converted array PyTree (and the Torch model when
   `return_torch=True`).
-- `stringify_name(path) -> str` \[utils.py:stringify_name\]: joins `GetAttrKey` names and `SequenceKey` indices with
-  dots; `DictKey` and any other path entries are silently dropped.
+- `stringify_name(path) -> str` \[utils.py:stringify_name\]: joins `GetAttrKey` names, `SequenceKey` indices, and
+  `DictKey` keys with dots; any other path entry raises `TypeError`.
+- `torch_parameter_name(path, replace_cfg) -> str` \[utils.py:torch_parameter_name\]: the PyTorch name a JAX parameter
+  converts from.
 - `expand_torch_tensor(tensor, pos, n)` \[utils.py:expand_torch_tensor\]: adds `n` singleton axes `"before"` or
   `"after"`.
 
 ## Invariants
 
 - `source` selects the Torch model: `"torchhub"` needs `torch_hub_cfg`, `"timm"` needs `timm_cfg`, `"custom"` needs
-  `torch_model`; a missing argument raises `ValueError`. An unknown `source` raises `ValueError` only when `torch_model`
-  is `None`; otherwise the given `torch_model` is used [utils.py:convert_params_from_torch].
-- Parameter names come from `stringify_name`, then `re.sub(r"\.scale|.kernel", ".weight", name)`, then every
-  `replace_cfg` substring replacement in order [utils.py:convert_params_from_torch]. The pattern is unanchored and its
-  `.kernel` dot matches any character, so it rewrites matches anywhere in the name (`conv_kernel` becomes `conv.weight`,
-  `.scale_x` becomes `.weight_x`).
+  `torch_model`; a missing argument raises `ValueError`. Any other `source` raises `ValueError`, even when a
+  `torch_model` is given [utils.py:convert_params_from_torch].
+- Parameter names come from `stringify_name`, then every whole `scale` or `kernel` path component becomes `weight`
+  (`proj.scale_x` and `conv_kernel` are unchanged), then every `replace_cfg` substring replacement applies in order
+  [utils.py:torch_parameter_name].
 - Candidates come only from `torch_model.named_parameters()`; buffers such as BatchNorm running statistics are never
   matched, so JAX arrays that correspond to buffers count as missing [utils.py:convert_params_from_torch].
 - `expand_cfg[name]` is `(pos, n)` passed to `expand_torch_tensor`; `squeeze_cfg[name]` is the `torch.squeeze` dim;

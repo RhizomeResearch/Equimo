@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from equimo.language import SentencePieceTokenizer
 from equimo.language.tokenizers import DEFAULT_TOKENIZER_REPOSITORY
@@ -51,3 +52,52 @@ def test_sentencepiece_unknown_id_is_not_treated_as_padding():
     assert valid_length > 0
     assert 0 in token_ids[0, :valid_length]
     assert padding_mask[0, :valid_length].tolist() == [0] * valid_length
+
+
+class _FakeResponse:
+    def __init__(self, content: bytes):
+        self.content = content
+
+    def raise_for_status(self):
+        pass
+
+
+def _downloader():
+    # ``download`` does not use instance state; skip the TensorFlow-backed constructor.
+    return object.__new__(SentencePieceTokenizer)
+
+
+def test_tokenizer_cache_is_keyed_by_full_url(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    contents = {
+        "https://example.test/rev-a/tok.model": b"revision a",
+        "https://example.test/rev-b/tok.model": b"revision b",
+    }
+    monkeypatch.setattr(
+        "equimo.language.tokenizers.requests.get",
+        lambda url, **kwargs: _FakeResponse(contents[url]),
+    )
+
+    paths = [_downloader().download(url) for url in contents]
+
+    assert paths[0] != paths[1]
+    assert [path.read_bytes() for path in paths] == list(contents.values())
+    assert all(path.is_relative_to(tmp_path / ".cache" / "equimo") for path in paths)
+
+
+def test_missing_language_extra_fails_before_downloading(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    def missing_extra():
+        raise ImportError("language extra missing")
+
+    def unexpected_download(url, **kwargs):
+        raise AssertionError("download attempted without the language extra")
+
+    monkeypatch.setattr(
+        "equimo.language.tokenizers._require_tensorflow_text", missing_extra
+    )
+    monkeypatch.setattr("equimo.language.tokenizers.requests.get", unexpected_download)
+
+    with pytest.raises(ImportError, match="language extra missing"):
+        SentencePieceTokenizer(identifier="tok")

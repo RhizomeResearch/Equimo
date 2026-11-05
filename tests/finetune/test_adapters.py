@@ -433,3 +433,13 @@ def test_named_adapter_bank_rejects_duplicate_and_parallel(tiny_vision_transform
             config=eqft.AdapterConfig(bottleneck=3, placement="parallel"),
             key=jr.PRNGKey(2),
         )
+
+
+@pytest.mark.parametrize(
+    "adapter_cls", (eqft.BottleneckAdapter, eqft.AdaptFormerAdapter)
+)
+def test_adapter_output_keeps_activation_dtype(adapter_cls):
+    adapter = adapter_cls(4, 2, key=jr.PRNGKey(0), up_init="kaiming_uniform")
+    x = jnp.ones((3, 4), dtype=jnp.bfloat16)
+
+    assert adapter(x, inference=True).dtype == jnp.bfloat16

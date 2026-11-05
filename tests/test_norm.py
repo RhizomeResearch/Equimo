@@ -173,6 +173,16 @@ class TestDyT:
         expected = jnp.tanh(layer.alpha * x) * layer.weight + layer.bias
         assert jnp.allclose(layer(x), expected, atol=1e-6)
 
+    def test_registered_name_works_as_block_norm_layer(self):
+        """Blocks build norms as norm_layer(dim, eps=eps); DyT must accept that."""
+        from equimo.core.layers import AttentionBlock
+
+        block = AttentionBlock(DIM, 2, norm_layer="dynamictanh", key=KEY)
+        x = jr.normal(KEY, (4, DIM))
+
+        assert isinstance(block.prenorm, DyT)
+        assert jnp.all(jnp.isfinite(block(x, None, inference=True)))
+
     @pytest.mark.parametrize(
         "dtype", (jnp.bfloat16, jnp.float16), ids=("bfloat16", "float16")
     )

@@ -67,8 +67,6 @@ All of the following are re-exported by `equimo.core.ops` ([`__init__.py`](./__i
   - `initial_states` is neither `(h, p, n)` nor `(1, h, p, n)`.
 - `[scan.py:non_causal_linear_attn]`: raises `ValueError` when `n_groups != 1` and `h % n_groups != 0`. This function
   does no dtype casting.
-- `[scan.py:segsum]`, `[scan.py:ssd]`: the docstrings describe shapes that differ from what the code returns. Trust the
-  code.
 
 ## Side Effects
 

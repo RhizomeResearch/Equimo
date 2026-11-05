@@ -27,6 +27,8 @@ def load_image(
     center_crop: bool = False,
 ) -> Float[Array, "channels height width"]:
     """Load an RGB image as a channel-first float32 JAX array."""
+    if (mean is None) != (std is None):
+        raise ValueError("Normalization needs both mean and std, or neither.")
     try:
         from PIL import Image
     except ImportError as exc:
@@ -49,7 +51,7 @@ def load_image(
                 array, (size, size, array.shape[2]), method="bilinear"
             )
 
-        if mean is not None and std is not None:
+        if mean is not None:
             mean_arr = jnp.array(mean)[None, None, :]
             std_arr = jnp.array(std)[None, None, :]
             array = (array - mean_arr) / std_arr

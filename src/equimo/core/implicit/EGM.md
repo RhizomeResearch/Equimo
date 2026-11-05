@@ -68,8 +68,7 @@ Re-exported by `equimo.core.implicit` ([`__init__.py`](./__init__.py)): `DEQBloc
   adjoint. This package defines no `custom_vjp`.
 - `[deq.py:_init_z0]`: when `z0` is given, it must match `x.shape`. A 1-D `z0` is accepted only for CHW inputs with
   `z0.shape[0] == C` and is broadcast over `h w`. These checks are `assert` statements. An unknown `mode` raises
-  `ValueError` only when `z0 is None`. When `z0` is given, every mode other than `mixed` returns `z0` without checking
-  the mode.
+  `ValueError` before anything else; with `z0` given, every mode other than `mixed` returns `z0`.
 - `[deq.py:_init_z0]`: in `mixed` mode with inference enabled, it returns the base init (`z0` or zeros)
   deterministically. In training, it uses a single Bernoulli(0.5) draw to choose between that base and `N(0, 1) * 0.1`
   noise.
@@ -87,8 +86,7 @@ Re-exported by `equimo.core.implicit` ([`__init__.py`](./__init__.py)): `DEQBloc
 - `[injectors.py:FiLM]`: `gamma_proj` is zero-initialised, so the layer starts as `norm(z) + beta`.
   `[injectors.py:Gated]` stores its gate as a float32 logit of `init_gate`, clamped to `[1e-4, 1 - 1e-4]`.
 - `[strategies.py:ScheduledInjection]`: an empty `indices` raises `ValueError`. At call time, indices outside
-  `[0, len(blocks)]` are dropped (the docstring says "clamped"). If none remain, the strategy falls back to entry
-  injection `(0,)`.
+  `[0, len(blocks)]` are ignored. If none remain, the strategy falls back to entry injection `(0,)`.
 - `[injectors.py:register_injector]`, `[stabilizers.py:register_stabilizer]`, `[strategies.py:register_strategy]`: these
   use the shared `make_register` / `make_get` from `../layers/_registry.py`. Names are lowercased, and a duplicate name
   raises `ValueError` unless `force=True`. A non-`eqx.Module` class raises `TypeError`. Unknown names raise

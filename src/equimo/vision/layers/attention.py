@@ -1105,11 +1105,11 @@ class MllaBlock(eqx.Module):
         l, _ = x.shape
         h = w = int(l**0.5)
 
-        x1 = x + rearrange(
+        x = x + rearrange(
             self.cpe1(rearrange(x, "(h w) c -> c h w", h=h, w=w)),
             "c h w -> (h w) c",
         )
-        x1 = jax.vmap(self.norm1)(x1)
+        x1 = jax.vmap(self.norm1)(x)
 
         if self.use_dwc:
             act_res = self.act(jax.vmap(self.act_proj)(x1))
@@ -1120,7 +1120,7 @@ class MllaBlock(eqx.Module):
         x1 = self.attn(x1, inference=inference, key=key_attn)
 
         if self.use_dwc:
-            x1 = jax.vmap(self.out_proj)(x * act_res)
+            x1 = jax.vmap(self.out_proj)(x1 * act_res)
 
         x = self.drop_path1(x, self.ls1(x1), inference=inference, key=key_dr1)
 

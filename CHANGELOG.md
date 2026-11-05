@@ -2,6 +2,35 @@
 
 All notable changes to Equimo are documented here. Equimo follows Semantic Versioning from version 2.0.0 onward.
 
+## [Unreleased]
+
+### Changed
+
+- `VisionTransformer` raises `TypeError` for unknown constructor arguments instead of ignoring them.
+- `DropPath` keeps or drops the whole unbatched input with one draw, matching `DropPathAdd`; it previously dropped rows
+  of the leading axis (tokens or channels) independently.
+- `PromptedModel.__call__` raises `ValueError` when the base model has no `head`; use `features()` for headless models.
+- `apply_adalora` raises `ValueError` for a nonzero `dropout`, which AdaLoRA wrappers cannot apply.
+- `load_image` raises `ValueError` when only one of `mean` and `std` is given.
+- Tokenizer files are cached under a directory derived from the full URL, so pinned revisions no longer share a cache
+  entry; existing tokenizers are downloaded once more.
+
+### Fixed
+
+- `MllaBlock` (used by `Mlla` and `Vssd`) applies its output projection to the gated attention output and keeps the
+  first convolutional position encoding in the residual stream, as in MLLA and VSSD. Outputs of these models change.
+- EUPE ViTs use the DINOv3 patch RoPE configuration, including training-time coordinate rescaling, which their config
+  previously set under an ignored key. Inference outputs are unchanged.
+- `apply_adalora` honors `scaling="alpha_over_sqrt_r"`.
+- The `dynamictanh` norm (`DyT`) can be used as a block `norm_layer`.
+- Adapters, AdaptFormer, scale/shift, and `AttentionPool` return the activation dtype instead of promoting bfloat16 to
+  float32.
+- `save_delta` without `base_model` accepts a `TrainableSpec(mode="peft")` that trains no head, norm, or bias.
+- `SentencePieceTokenizer` checks for the `language` extra before downloading, writes downloads atomically, and times
+  out after 60 seconds.
+- PyTorch conversion renames only whole `scale` and `kernel` path components, keeps dictionary keys in parameter names,
+  and rejects an unknown `source` even when a `torch_model` is given.
+
 ## [2.7.0] - 2026-10-26
 
 ### Added

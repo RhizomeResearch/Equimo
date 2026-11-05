@@ -55,13 +55,18 @@ class TestDropPath:
         x = jr.normal(KEY, SHAPE)
         assert jnp.all(jnp.isfinite(layer(x, key=KEY)))
 
-    def test_drops_along_first_axis(self):
-        """Mask is broadcast over all but first axis; each row is all-dropped or kept."""
-        layer = DropPath(p=0.9)
-        x = jnp.ones(SHAPE)
-        out = layer(x, key=KEY, inference=False)
-        assert jnp.all(out == out[:, :1])
-        assert jnp.all((out == 0) | jnp.isclose(out, 10.0))
+    @pytest.mark.parametrize("shape", (SHAPE, (32, 8, 8)), ids=("tokens", "chw"))
+    def test_drops_whole_example(self, shape):
+        """Inputs are unbatched, so stochastic depth keeps or drops the entire example."""
+        layer = DropPath(p=0.5)
+        x = jnp.ones(shape)
+        keys = jax.vmap(jr.PRNGKey)(jnp.arange(64))
+        outputs = jax.vmap(lambda key: layer(x, key=key, inference=False))(keys)
+
+        dropped = jnp.all(outputs == 0, axis=tuple(range(1, outputs.ndim)))
+        kept = jnp.all(jnp.isclose(outputs, 2.0), axis=tuple(range(1, outputs.ndim)))
+        assert jnp.all(dropped | kept)
+        assert jnp.any(dropped) and jnp.any(kept)
 
     def test_stochastic_across_keys(self):
         """Different keys must (with overwhelming probability) produce different outputs."""

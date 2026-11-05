@@ -128,8 +128,8 @@ optimizer or training loop: plans expose labels and masks for the caller's optim
   less. Forward methods default to `inference=True`, and dropout with `inference` false or `None` requires a key
   [feature_extraction.py:\_compile_feature_spec] [heads.py:MLPHead] [heads.py:AttentionPoolingClassifierHead]
 - Heads return raw logits. Attention pooling softmaxes go through `equimo.core.ops.softmax` with `where=mask` and logits
-  of at least float32. `AttentionPoolingClassifierHead` casts the probabilities back to the value dtype; `AttentionPool`
-  has a float32 query and does not cast back, so bfloat16 features give a float32 result
+  of at least float32. `AttentionPoolingClassifierHead` casts the probabilities back to the value dtype, and
+  `AttentionPool` (float32 query) returns the pooled features in the feature dtype
   [heads.py:AttentionPoolingClassifierHead] [pooling.py:AttentionPool]
 - The two mask conventions are opposite: the endpoint argument named by `FeatureSpec.mask_field` is a padding mask (True
   marks padding), while the `mask` argument of `pool_features` modules and heads marks valid tokens (True keeps the
@@ -157,9 +157,10 @@ optimizer or training loop: plans expose labels and masks for the caller's optim
   artifacts [serialization.py:save_calibration_artifacts] [serialization.py:load_calibration_artifacts]
 - Delta method dispatch uses the codec registry (`lora`, `dora`, `adapter`, `prompt`, `prefix`, `scale_shift`, `ia3`,
   `vera`); the registered config types must equal `peft.PEFTConfig`. `save_delta` without `base_model` raises
-  `ValueError` when any wrapper has `train_base=True`, when `spec` is any `TrainableSpec` (whatever its flags), or when
-  `spec` has a truthy `train_head`, `train_norm`, or `train_bias` [serialization.py:\_CODECS]
-  [serialization.py:\_validate_codec_config_families] [serialization.py:\_require_base_for_unrepresented_trainables]
+  `ValueError` when any wrapper has `train_base=True`, when `spec` is a `TrainableSpec` whose mode trains base leaves
+  (any mode but `peft` and `frozen`), or when `spec` has a truthy `train_head`, `train_norm`, or `train_bias`
+  [serialization.py:\_CODECS] [serialization.py:\_validate_codec_config_families]
+  [serialization.py:\_require_base_for_unrepresented_trainables]
 
 ## Side Effects
 

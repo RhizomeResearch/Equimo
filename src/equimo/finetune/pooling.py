@@ -197,7 +197,8 @@ class AttentionPool(eqx.Module):
         valid = None if mask is None else mask.astype(bool)
         weights = softmax(scores, axis=0, where=valid)
         pooled = jnp.sum(x * weights[:, None], axis=0)
-        return pooled / jnp.maximum(jnp.sum(weights), self.eps)
+        pooled = pooled / jnp.maximum(jnp.sum(weights), self.eps)
+        return pooled.astype(x.dtype)
 
 
 class GeMPool(eqx.Module):

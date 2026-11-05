@@ -947,6 +947,11 @@ def apply_adalora(
     """Apply paper-form AdaLoRA SVD-triplet wrappers to selected linears."""
 
     config = AdaLoRAConfig() if config is None else config
+    if config.dropout:
+        raise ValueError("AdaLoRA wrappers do not apply dropout; set dropout=0.0.")
+    # AdaLoRAModule derives its scaling as alpha / rank, so pass the alpha that
+    # reproduces the configured scaling mode.
+    effective_alpha = _scaling(config.scaling, config.alpha, config.rank) * config.rank
     module_paths = _target_linear_module_paths(model, config.target, tagger=tagger)
     keys = jr.split(key, len(module_paths))
     updated = model
@@ -965,7 +970,7 @@ def apply_adalora(
             AdaLoRAModule(
                 module,
                 rank=config.rank,
-                alpha=config.alpha,
+                alpha=effective_alpha,
                 train_base=config.train_base,
                 mergeable=config.mergeable,
                 key=subkey,

@@ -64,6 +64,37 @@ def test_adalora_orthogonality_aux_loss_spec_is_explicit(tiny_vision_transformer
     assert spec.reduction == "sum"
 
 
+@pytest.mark.parametrize(
+    "scaling, expected", (("alpha_over_r", 2.0), ("alpha_over_sqrt_r", 4.0))
+)
+def test_adalora_honors_configured_scaling_mode(
+    tiny_vision_transformer, scaling, expected
+):
+    model = eqft.apply_adalora(
+        tiny_vision_transformer,
+        eqft.AdaLoRAConfig(
+            rank=4,
+            alpha=8.0,
+            scaling=scaling,
+            target=eqft.TargetSpec(tags_any=("attention.proj",), max_depth=0),
+        ),
+        key=jr.PRNGKey(13),
+    )
+    _, module = eqft.iter_adalora_modules(model)[0]
+
+    assert module.scaling == pytest.approx(expected)
+    assert module.merge().unmerge().scaling == pytest.approx(expected)
+
+
+def test_adalora_rejects_dropout_it_cannot_apply(tiny_vision_transformer):
+    with pytest.raises(ValueError, match="dropout"):
+        eqft.apply_adalora(
+            tiny_vision_transformer,
+            eqft.AdaLoRAConfig(rank=2, dropout=0.1),
+            key=jr.PRNGKey(14),
+        )
+
+
 def test_adalora_rank_pattern_zeros_singulars_without_persistent_mask(
     tiny_vision_transformer,
 ):

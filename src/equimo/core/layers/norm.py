@@ -156,12 +156,16 @@ class DyT(eqx.Module):
     weight: Float[Array, "dim"]  # noqa: F821
     bias: Float[Array, "dim"]  # noqa: F821
 
-    def __init__(self, dim: int, alpha_init_value: float = 0.5):
+    def __init__(
+        self, dim: int, alpha_init_value: float = 0.5, eps: float | None = None
+    ):
         """Initialize DyT.
 
         Args:
             dim: Dimension of the input features
             alpha_init_value: Initial value for the per-channel scaling factor
+            eps: Ignored. Blocks build norms as ``norm_layer(dim, eps=eps)``, and DyT
+                has no epsilon because it does not divide by a statistic.
         """
         self.alpha = jnp.full((dim,), alpha_init_value)
         self.weight = jnp.ones(dim)

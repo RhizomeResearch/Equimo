@@ -31,6 +31,30 @@ def _trained_like_lora(model):
     return eqx.tree_at(lambda m: m.blocks[0].attn.proj, lora, module)
 
 
+@pytest.mark.parametrize(
+    "spec, needs_base",
+    (
+        (eqft.TrainableSpec(mode="peft", train_head=False), False),
+        (eqft.TrainableSpec(mode="peft"), True),
+        (eqft.TrainableSpec(mode="peft", train_head=False, train_bias=True), True),
+        (eqft.TrainableSpec(mode="full"), True),
+    ),
+    ids=("adapters-only", "head", "bias", "full"),
+)
+def test_save_delta_requires_base_model_only_for_unrepresentable_trainables(
+    tmp_path, spec, needs_base
+):
+    lora = _trained_like_lora(TinyVisionTransformer(key=jr.PRNGKey(0)))
+    path = tmp_path / "delta.eqft"
+
+    if needs_base:
+        with pytest.raises(ValueError, match="requires base_model"):
+            eqft.save_delta(lora, path, spec=spec)
+    else:
+        eqft.save_delta(lora, path, spec=spec)
+        assert path.exists()
+
+
 def test_lora_delta_roundtrip(tmp_path):
     model = TinyVisionTransformer(key=jr.PRNGKey(0))
     lora = _trained_like_lora(model)

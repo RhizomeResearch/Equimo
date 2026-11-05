@@ -452,3 +452,23 @@ def test_prompts_receive_gradients_when_blocks_mix_tokens(tiny_vision_transforme
     grads = eqx.filter_grad(loss_fn)(prompted.prompts)
 
     assert all(jnp.any(grad != 0) for grad in grads)
+
+
+class _HeadlessTokenModel(eqx.Module):
+    token_embed: eqx.nn.Embedding
+    blocks: tuple
+
+    def __call__(self, token_ids):
+        return eqx.filter_vmap(self.token_embed)(token_ids)
+
+
+def test_prompted_headless_model_call_requires_head():
+    model = _HeadlessTokenModel(eqx.nn.Embedding(5, 4, key=jr.PRNGKey(0)), ())
+    prompted = eqft.apply_prompts(
+        model, eqft.PromptConfig(num_tokens=2), key=jr.PRNGKey(1)
+    )
+    token_ids = jnp.array([0, 1, 2])
+
+    assert prompted.features(token_ids).shape == (5, 4)
+    with pytest.raises(ValueError, match="head"):
+        prompted(token_ids)

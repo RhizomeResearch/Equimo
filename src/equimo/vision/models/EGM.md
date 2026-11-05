@@ -125,8 +125,8 @@ auto-imports every module and merges each module's `__all__` into the package na
 - `VisionTransformer` masking requires `use_mask_token=True` (assert) and keeps tokens where the mask is true. RoPE
   requires a static integer `num_heads`. `block_at` raises `IndexError` outside `[0, num_blocks)`.
   `[vit.py:VisionTransformer]`, `[_embedding.py:build_local_rope]`, `[vit.py:VisionTransformer.block_at]`
-- `VisionTransformer.__init__` accepts and ignores unknown `**kwargs`; `_EUPE_BASE_CFG` sets `local_pos_embed_config`,
-  which is not an `__init__` parameter, so EUPE ViTs use the default `local_pos_embed_config_patch`.
+- `VisionTransformer.__init__` takes no `**kwargs`, so an unknown config key raises `TypeError` instead of being
+  ignored. EUPE ViTs share the DINOv3 patch RoPE config (`rescale_coords=2.0` during training).
   `[vit.py:VisionTransformer]`, `[vit.py:_EUPE_BASE_CFG]`
 - `build_token_embeddings` results must stay direct model fields: wrapping them in a submodule changes `jtu.keystr`
   checkpoint paths. `[_embedding.py:build_token_embeddings]`

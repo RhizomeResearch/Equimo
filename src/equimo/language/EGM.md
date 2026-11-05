@@ -49,15 +49,13 @@ fetches Equimo tokenizer files and produces the `(token_ids, padding_mask)` pair
 
 ## Side Effects
 
-- `SentencePieceTokenizer.download` performs an HTTP GET with `requests` when the file is not cached and writes it to
-  `~/.cache/equimo/tokenizers/` (creating the directory) [tokenizers.py:SentencePieceTokenizer.download]. The cache is
-  keyed only by the URL's file basename, so a cached file with the same name from another repository, revision, or host
-  is reused without a download. The constructor reads the model file from disk
+- `SentencePieceTokenizer.download` performs an HTTP GET with `requests` (60 s timeout) when the file is not cached and
+  writes it atomically to `~/.cache/equimo/tokenizers/<sha256(url)[:16]>/<basename>`, so each repository revision has
+  its own cache entry [tokenizers.py:SentencePieceTokenizer.download]. The constructor reads the model file from disk
   [tokenizers.py:SentencePieceTokenizer.\_\_init\_\_].
 - The constructor and `encode` lazily import `tensorflow` and `tensorflow_text`, raising `ImportError` that points to
-  the `language` extra when missing [tokenizers.py:\_require_tensorflow_text]. The constructor checks this after any
-  download, so without the extra it fails after the HTTP GET and cache write
-  [tokenizers.py:SentencePieceTokenizer.\_\_init\_\_].
+  the `language` extra when missing [tokenizers.py:\_require_tensorflow_text]. The constructor checks this before any
+  download [tokenizers.py:SentencePieceTokenizer.\_\_init\_\_].
 - Importing `models.py` registers `TextTransformerEncoder` in the global model registry
   [models.py:TextTransformerEncoder].
 

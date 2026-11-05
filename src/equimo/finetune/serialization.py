@@ -1719,7 +1719,13 @@ def _require_base_for_unrepresented_trainables(model: PyTree, spec: Any | None) 
         )
         if hasattr(leaf, "train_base")
     )
-    explicit_non_adapter = isinstance(spec, TrainableSpec) or any(
+    # Only wrapper (adapter) leaves are representable without a base checkpoint, so
+    # any mode that trains base leaves, or an explicit head/norm/bias flag, needs one.
+    trains_base_leaves = isinstance(spec, TrainableSpec) and spec.mode not in (
+        "peft",
+        "frozen",
+    )
+    explicit_non_adapter = trains_base_leaves or any(
         bool(getattr(spec, name, False))
         for name in ("train_head", "train_norm", "train_bias")
     )

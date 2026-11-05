@@ -160,3 +160,10 @@ def test_scale_shift_labels(tiny_vision_transformer):
     assert plan.trainable.norm.scale_shift.scale is not None
     assert plan.trainable.norm.base.weight is None
     assert "scale_shift_no_decay" in plan.report.trainable_by_label
+
+
+def test_scale_shift_keeps_activation_dtype():
+    transform = eqft.ScaleShift(3)
+    x = jnp.ones((2, 3), dtype=jnp.bfloat16)
+
+    assert transform(x).dtype == jnp.bfloat16

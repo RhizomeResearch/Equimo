@@ -1,9 +1,11 @@
+import hashlib
 from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse
 
 import requests
 
+from equimo._io import atomic_file
 from equimo._pretrained import DEFAULT_REPOSITORY_REVISION
 
 DEFAULT_TOKENIZER_REPOSITORY = (
@@ -37,6 +39,7 @@ class SentencePieceTokenizer:
     ):
         if not identifier and not path and not url:
             raise ValueError("At least one of identifier, path, or url is required.")
+        _, tensorflow_text = _require_tensorflow_text()
 
         if identifier:
             url = f"{repository}/{identifier}.model"
@@ -48,7 +51,6 @@ class SentencePieceTokenizer:
             if not model_file_path.exists():
                 raise FileNotFoundError(f"Tokenizer file not found: {path}")
 
-        _, tensorflow_text = _require_tensorflow_text()
         with open(model_file_path, "rb") as f:
             model = f.read()
         self.tokenizer = tensorflow_text.SentencepieceTokenizer(
@@ -59,17 +61,19 @@ class SentencePieceTokenizer:
         if not (url.startswith("http://") or url.startswith("https://")):
             raise ValueError("Tokenizer URL must start with http:// or https://.")
 
-        parsed_url = urlparse(url)
-        fname = Path(parsed_url.path).name
-        cache_dir = Path("~/.cache/equimo/tokenizers").expanduser()
-        cache_dir.mkdir(parents=True, exist_ok=True)
-        model_file_path = cache_dir / fname
+        fname = Path(urlparse(url).path).name
+        # Key the cache by the full URL so a pinned repository revision never reuses
+        # a same-named file downloaded from another revision or host.
+        url_digest = hashlib.sha256(url.encode()).hexdigest()[:16]
+        model_file_path = (
+            Path("~/.cache/equimo/tokenizers").expanduser() / url_digest / fname
+        )
 
         if not model_file_path.exists():
-            response = requests.get(url)
+            response = requests.get(url, timeout=60)
             response.raise_for_status()
-            with open(model_file_path, "wb") as f:
-                f.write(response.content)
+            with atomic_file(model_file_path) as temporary:
+                temporary.write_bytes(response.content)
 
         return model_file_path
 

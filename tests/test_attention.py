@@ -205,6 +205,42 @@ class TestAttentionLayers:
 
         assert jnp.all(jnp.isfinite(out))
 
+    def test_mlla_block_output_depends_on_attention(self):
+        block = MllaBlock(DIM, input_resolution=(H, W), num_heads=NUM_HEADS, key=KEY)
+        doubled_attn = jax.tree.map(
+            lambda leaf: leaf * 2 if eqx.is_inexact_array(leaf) else leaf, block.attn
+        )
+        perturbed = eqx.tree_at(lambda b: b.attn, block, doubled_attn)
+        x = jr.normal(jr.PRNGKey(1), (SEQLEN, DIM))
+
+        out = block(x, inference=True)
+        perturbed_out = perturbed(x, inference=True)
+
+        assert not jnp.allclose(out, perturbed_out)
+
+    @pytest.mark.parametrize("use_dwc", (True, False))
+    def test_mlla_block_residual_stream_includes_first_position_encoding(self, use_dwc):
+        # Zero layer scales silence the attention and MLP branches, leaving only the
+        # residual stream and its two convolutional position encodings.
+        block = MllaBlock(
+            DIM,
+            input_resolution=(H, W),
+            num_heads=NUM_HEADS,
+            use_dwc=use_dwc,
+            init_values=0.0,
+            key=KEY,
+        )
+        x = jr.normal(jr.PRNGKey(1), (SEQLEN, DIM))
+
+        def position_encoding(conv, tokens):
+            grid = tokens.T.reshape(DIM, H, W)
+            return conv(grid).reshape(DIM, SEQLEN).T
+
+        after_first = x + position_encoding(block.cpe1, x)
+        expected = after_first + position_encoding(block.cpe2, after_first)
+
+        assert jnp.allclose(block(x, inference=True), expected, atol=1e-5)
+
     def test_registry(self):
         assert get_attn("attention") is Attention
         assert get_attn_block("attentionblock") is AttentionBlock

@@ -138,8 +138,9 @@ shared core layers (activation, dropout, FFN, generic, Mamba mixer, norm) so mod
 - Several token modules assume a square grid (`h = w = int(l**0.5)`) without an explicit check; `LinearAttention` raises
   `ValueError` if `n != h * w`, and `PosCNN` raises if the length is not a perfect square. `[attention.py:MllaBlock]`,
   `[attention.py:PartialFormerBlock]`, `[patch.py:PatchMerging]`, `[attention.py:LinearAttention]`, `[posemb.py:PosCNN]`
-- In `MllaBlock` with `use_dwc=True`, the output projection is applied to `x * act_res` (the block input), not to the
-  attention output. `[attention.py:MllaBlock]`
+- `MllaBlock` follows the MLLA/VSSD block: the residual stream is `x + cpe1(x)`, the attention branch runs on `norm1` of
+  that stream, and with `use_dwc=True` the output projection is `out_proj(attn_output * act_res)`.
+  `[attention.py:MllaBlock]`
 - `PatchEmbedding` raises on non-positive spatial size. When `img_size` is set, it asserts the input matches `img_size`
   unless `dynamic_img_size`, and with `dynamic_img_size` asserts divisibility by the patch size unless
   `dynamic_img_pad`. With `img_size=None` neither check runs and the strided conv drops leftover pixels unless

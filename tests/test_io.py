@@ -1188,6 +1188,17 @@ class TestLoadImage:
         out = load_image(sample_image_path, center_crop=True, size=32)
         assert out.shape == (3, 32, 32)
 
+    @pytest.mark.parametrize(
+        "stats",
+        ({"mean": [0.5, 0.5, 0.5]}, {"std": [0.2, 0.2, 0.2]}),
+        ids=("mean", "std"),
+    )
+    def test_normalization_requires_mean_and_std_together(self, stats):
+        from equimo.vision.io import load_image
+
+        with pytest.raises(ValueError, match="mean and std"):
+            load_image("unused.png", **stats)
+
 
 def test_optional_extras_smoke(tmp_path):
     pil_image = require_extra("PIL.Image", "extras")

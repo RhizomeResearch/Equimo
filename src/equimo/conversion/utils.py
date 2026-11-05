@@ -4,7 +4,7 @@ from typing import Any, Dict, Literal, Optional, Tuple
 import equinox as eqx
 import jax
 import jax.numpy as jnp
-from jax.tree_util import GetAttrKey, SequenceKey
+from jax.tree_util import DictKey, GetAttrKey, SequenceKey
 from loguru import logger
 
 
@@ -15,9 +15,26 @@ def stringify_name(path: Tuple) -> str:
     for p in path:
         if isinstance(p, GetAttrKey):
             stringified.append(p.name)
-        if isinstance(p, SequenceKey):
+        elif isinstance(p, SequenceKey):
             stringified.append(str(p.idx))
+        elif isinstance(p, DictKey):
+            stringified.append(str(p.key))
+        else:
+            raise TypeError(f"Unsupported tree path entry {p!r} in {path!r}.")
     return ".".join(stringified)
+
+
+# Equinox names some weights `scale` (norms) or `kernel`; PyTorch calls them `weight`.
+_EQUINOX_WEIGHT_COMPONENT = re.compile(r"(?<![^.])(?:scale|kernel)(?![^.])")
+
+
+def torch_parameter_name(path: Tuple, replace_cfg: Dict[str, str]) -> str:
+    """Map an Equinox parameter path to the PyTorch parameter name it converts from."""
+
+    name = _EQUINOX_WEIGHT_COMPONENT.sub("weight", stringify_name(path))
+    for old, new in replace_cfg.items():
+        name = name.replace(old, new)
+    return name
 
 
 def expand_torch_tensor(tensor, pos: str, n: int):
@@ -95,9 +112,8 @@ def convert_params_from_torch(
                     "The `timm` source is selected but `timm_cfg` is None."
                 )
             torch_model = timm.create_model(*timm_cfg)
-
-    if torch_model is None:
-        raise ValueError(f"Unknown conversion source: {source!r}")
+        case _:
+            raise ValueError(f"Unknown conversion source: {source!r}")
 
     torch_params = dict(torch_model.named_parameters())
 
@@ -108,11 +124,7 @@ def convert_params_from_torch(
     torch_params_flat = []
     for path, param in jax_params_flat:
         # Match the parameters' path of pytorch
-        param_path = stringify_name(path)
-        param_path = re.sub(r"\.scale|.kernel", ".weight", param_path)
-
-        for old, new in replace_cfg.items():
-            param_path = param_path.replace(old, new)
+        param_path = torch_parameter_name(path, replace_cfg)
 
         shape = param.shape
 

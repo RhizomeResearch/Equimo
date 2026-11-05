@@ -128,25 +128,25 @@ class PromptedModel(eqx.Module):
         inference: bool | None = True,
         **kwargs,
     ):
-        features = self.features(*args, key=key, inference=inference, **kwargs)
-        if hasattr(self.base, "head"):
-            if _is_equimo_vit_like(self.base):
-                from equimo.utils import pool_sd
-
-                x = jax.vmap(self.base.norm)(features)
-                x = pool_sd(
-                    x,
-                    num_prefix_tokens=self.num_base_prefix_tokens
-                    + self.config.num_tokens,
-                    pool_type=self.base.global_pool,
-                    reduce_include_prefix=False,
-                )
-                return self.base.head(x)
-            token_index = (
-                self.config.num_tokens if _prepends_before_all(self.config) else 0
+        if not hasattr(self.base, "head"):
+            raise ValueError(
+                "PromptedModel.__call__ reads out prompted features through the base "
+                "model's `head`; this base has none, so call `features()` instead."
             )
-            return self.base.head(features[token_index])
-        return _call_model(self.base, *args, key=key, inference=inference, **kwargs)
+        features = self.features(*args, key=key, inference=inference, **kwargs)
+        if _is_equimo_vit_like(self.base):
+            from equimo.utils import pool_sd
+
+            x = jax.vmap(self.base.norm)(features)
+            x = pool_sd(
+                x,
+                num_prefix_tokens=self.num_base_prefix_tokens + self.config.num_tokens,
+                pool_type=self.base.global_pool,
+                reduce_include_prefix=False,
+            )
+            return self.base.head(x)
+        token_index = self.config.num_tokens if _prepends_before_all(self.config) else 0
+        return self.base.head(features[token_index])
 
 
 def apply_prompts(
@@ -502,31 +502,6 @@ def _base_prefix_count(model) -> int:
 
 def _map_tokens(fn, x: jax.Array) -> jax.Array:
     return fn(x) if x.ndim == 1 else jax.vmap(fn)(x)
-
-
-def _call_model(model, *args, key, inference, **kwargs):
-    return _call_with_optional_key(model, *args, key=key, inference=inference, **kwargs)
-
-
-def _call_with_optional_key(fn, *args, key, inference, **kwargs):
-    call_kwargs = dict(kwargs)
-    if key is not None:
-        call_kwargs["key"] = key
-    if inference is not None:
-        call_kwargs["inference"] = inference
-    try:
-        return fn(*args, **call_kwargs)
-    except TypeError as error:
-        if "unexpected keyword argument" not in str(error):
-            raise
-        call_kwargs.pop("inference", None)
-        try:
-            return fn(*args, **call_kwargs)
-        except TypeError as second_error:
-            if "unexpected keyword argument" not in str(second_error):
-                raise
-            call_kwargs.pop("key", None)
-            return fn(*args, **call_kwargs)
 
 
 def _prepends_before_all(config: PromptConfig) -> bool:

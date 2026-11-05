@@ -94,9 +94,8 @@ names that are not re-exported there.
 
 ### Drop-path, mixer, and containers
 
-- `[dropout.py:DropPath]`: stochastic depth over the leading axis, rescaled by `1 / (1 - p)`. The mask has shape
-  `(x.shape[0], 1, ...)`, so on an unbatched input it drops rows of the leading axis (tokens of a `(seqlen, dim)`
-  input), not the whole sample.
+- `[dropout.py:DropPath]`: stochastic depth for one unbatched example: a single draw zeroes the whole input with
+  probability `p`, otherwise it is rescaled by `1 / (1 - p)`.
 - `[dropout.py:DropPathAdd]`: returns `x1 + x2`, or `x1` alone when the branch is dropped. `x2` is not rescaled.
 - `[dropout.py:split_drop_path]`: maps a float or a 1- or 2-element list to two rates. Not re-exported.
 - `[mamba.py:Mamba2Mixer]`: Mamba2 / VSSD mixer over `(seqlen, dim)`. It uses `equimo.core.ops.non_causal_linear_attn`
@@ -167,7 +166,7 @@ names that are not re-exported there.
 
 - `[norm.py:RMSNormGated]`, `[norm.py:DyT]`, `[norm.py:RMSNorm2d]`, `[norm.py:SimpleNorm]`, `[norm.py:SimpleNorm2d]`,
   `[norm.py:GRN]`, `[norm.py:LayerNorm2d]`: compute in float32 and return the input dtype. `eps` is a static field on
-  all of them except `DyT`, which has no `eps` (`DyT(dim, alpha_init_value=0.5)`).
+  all of them except `DyT`, which accepts and ignores `eps` so it can be built as `norm_layer(dim, eps=eps)`.
 - `[norm.py:LayerScale.__call__]`: raises `ValueError` on a channel mismatch, and casts `gamma` to `x.dtype`.
 - `[norm.py:GRN.__call__]`: guards the `sqrt` gradient at 0 with `jnp.where`.
 - `[ffn.py:DINOHead.__call__]`: L2-normalizes in float32 with `+1e-12` in the denominator, then casts back.

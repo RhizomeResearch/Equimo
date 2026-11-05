@@ -49,6 +49,9 @@ def _init_z0(
           and small Gaussian noise with Bernoulli p=0.5. At inference it
           falls back to the base init deterministically.
     """
+    if mode not in ("zeros", "ones", "random", "mixed"):
+        raise ValueError(f"Unknown initialization mode: {mode}")
+
     if z0 is not None:
         if z0.ndim == 1:
             assert x.ndim == 3, "The method currently only supports 3D inputs (CHW)."
@@ -76,12 +79,9 @@ def _init_z0(
 
     if mode == "zeros":
         return jnp.zeros_like(x)
-    elif mode == "ones":
+    if mode == "ones":
         return jnp.ones_like(x)
-    elif mode == "random":
-        return jr.normal(key, x.shape, x.dtype) * 0.01
-    else:
-        raise ValueError(f"Unknown initialization mode: {mode}")
+    return jr.normal(key, x.shape, x.dtype) * 0.01
 
 
 class DEQCell(eqx.Module):

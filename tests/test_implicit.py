@@ -670,10 +670,12 @@ def test_init_z0_mixed_training_varies_with_key():
     assert jnp.all(jnp.isfinite(z_b))
 
 
-def test_init_z0_unknown_mode_raises():
+@pytest.mark.parametrize("given_z0", (False, True), ids=("no_z0", "with_z0"))
+def test_init_z0_unknown_mode_raises(given_z0):
     x = jnp.zeros((DIM, H, W))
+    z0 = jnp.ones_like(x) if given_z0 else None
     with pytest.raises(ValueError, match="Unknown initialization mode"):
-        _init_z0(x, None, mode="bogus", inference=True, key=KEY)
+        _init_z0(x, z0, mode="bogus", inference=True, key=KEY)
 
 
 def test_init_z0_1d_z0_is_broadcast_to_feature_map():

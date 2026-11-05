@@ -88,10 +88,11 @@ def segsum(x: jnp.ndarray):
     Produces a 1-semiseperable matrix which is equivalent to a scalar SSM.
 
     Args:
-        x (seq_len, n_heads): input tensor
+        x (..., T): per-step log decays along the last axis.
 
     Returns:
-        output tensor of shape (seq_len, n_heads)
+        Array of shape (..., T, T) whose entry ``[i, j]`` is ``sum(x[j + 1 : i + 1])``
+        for ``j <= i`` and ``-inf`` above the diagonal.
     """
     T = x.shape[-1]
     x = repeat(x, "... d -> ... d e", e=T)
@@ -120,21 +121,22 @@ def ssd(
     structured matrix multiplication that is equivalent to a scalar SSM.
 
     Args:
-        u (jnp.ndarray): Input tensor of shape (l, n, d_head).
-        A (jnp.ndarray): State transition matrix of shape (d, l, n).
-        B (jnp.ndarray): Input matrix of shape (l, n, d_state).
-        C (jnp.ndarray): Output matrix of shape (l, n, d_state).
-        chunk_size: matrix partition size.
-        initial_states: (1, n, d_state)
+        x (jnp.ndarray): Input tensor of shape (l, h, p).
+        A (jnp.ndarray): Per-step log decays of shape (l, h).
+        B (jnp.ndarray): Input matrix of shape (l, h, n).
+        C (jnp.ndarray): Output matrix of shape (l, h, n).
+        chunk_size: Matrix partition size; must divide ``l``.
+        initial_states: Optional state of shape (h, p, n) or (1, h, p, n).
 
     Returns:
-        y (jnp.ndarray): Output tensor of shape (l, n, d_head).
-        state (jnp.ndarray): Output tensor of shape (l, n, d_state).
+        y (jnp.ndarray): Output tensor of shape (l, h, p), in ``x.dtype``.
+        final_state (jnp.ndarray): Final SSM state of shape (h, p, n), in ``x.dtype``.
 
     Notes:
         - l: sequence length
-        - d: hidden dimension
-        - n: number of heads
+        - h: number of heads
+        - p: head dimension
+        - n: state dimension
 
     Implementation taken from:
         https://github.com/walln/scratch/blob/ab0b6b891830375b7aa64c8e46e77783b843f5ca/src/scratch/language_modeling/mamba/mamba.py#L537
