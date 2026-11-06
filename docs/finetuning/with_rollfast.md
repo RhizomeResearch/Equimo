@@ -24,8 +24,9 @@ Rollfast validates that `plan.trainable` and `plan.labels` have matching PyTree 
 learning-rate multipliers exactly once, and keeps frozen leaves absent from optimizer state. Equimo core does not import
 Rollfast.
 
-For tag- or role-aware policies, prefer `group.tags_all`, `group.roles`, and `group.mixed_roles`. The older `group.tags`
-and `group.role` fields are representative metadata from the first leaf assigned to that optimizer label.
+Rollfast tag rules match `group.tags`, the tags shared by every leaf assigned to that optimizer label; `group.tags_all`
+lists the tags of any of its leaves. For role-aware policies, prefer `group.roles` and `group.mixed_roles`: `group.role`
+is representative metadata from the first leaf assigned to that label.
 
 For memory-sensitive runs, Rollfast can use blockwise 8-bit AdamW state for eligible optimizer moments. Equimo still
 emits the same plan; Rollfast decides which groups are large and safe enough to quantize:

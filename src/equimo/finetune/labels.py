@@ -103,6 +103,9 @@ def _merge_group_spec(group: GroupSpec, info: ParamInfo) -> GroupSpec:
             f"Optimizer label {group.label!r} has inconsistent learning rate "
             f"or weight decay at {info.logical_id!r}."
         )
+    # Tag-based optimizer rules read ``tags``, so it keeps only the tags every
+    # leaf of the group shares.
+    tags = tuple(sorted(set(group.tags).intersection(info.tags)))
     tags_all = tuple(sorted(set(group.tags_all).union(info.tags)))
     roles = set(group.roles)
     if info.role:
@@ -110,6 +113,7 @@ def _merge_group_spec(group: GroupSpec, info: ParamInfo) -> GroupSpec:
     sorted_roles = tuple(sorted(roles))
     return replace(
         group,
+        tags=tags,
         tags_all=tags_all,
         roles=sorted_roles,
         mixed_roles=len(sorted_roles) > 1,

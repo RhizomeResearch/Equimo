@@ -95,6 +95,19 @@ def test_apply_lora_rank_pattern_updates_rank_masks():
     assert jnp.array_equal(updated.linear.rank_mask, mask)
 
 
+def test_apply_lora_rank_pattern_keeps_wrapper_metadata():
+    model = eqft.apply_lora(
+        TinyLinearModel(),
+        eqft.PiSSAConfig(rank=2, target=eqft.TargetSpec(predicate=eqft.is_linear)),
+        key=jr.PRNGKey(0),
+    )
+    assert model.linear.metadata
+
+    updated = eqft.apply_lora_rank_pattern(model, {"linear": jnp.array([True, False])})
+
+    assert updated.linear.metadata == model.linear.metadata
+
+
 def test_apply_lora_rank_pattern_validates_paths_and_shapes():
     model = _rank_masked_linear_lora()
 

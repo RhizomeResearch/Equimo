@@ -187,6 +187,9 @@ class equimo.finetune.GroupSpec(label: 'str', role: 'str', depth: 'int | None', 
 Defined in `equimo.finetune.config`.
 
 > Metadata for one optimizer group label.
+>
+> `tags` holds the tags shared by every leaf of the group and `tags_all` the tags of any of its leaves; `role` is the
+> first leaf's role and `roles` lists every leaf's role.
 
 <!-- equimo.finetune:initialize_calibration_collector -->
 

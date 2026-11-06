@@ -2437,6 +2437,7 @@ def _replace_lora_rank_mask(
         base_weight_delta=module.base_weight_delta,
         merged=module.merged,
         projection_segments=module.projection_segments,
+        metadata=module.metadata,
     )
 
 

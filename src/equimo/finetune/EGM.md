@@ -124,6 +124,8 @@ optimizer or training loop: plans expose labels and masks for the caller's optim
   `top_block_lr_multiplier * decay ** (max_depth + 1)` when it is `None`; other leaves use 1.0. `max_depth` is the
   deepest trainable block with `rebase_selected_depth=True` and the deepest block otherwise [labels.py:\_label_base]
   [labels.py:\_lr_multiplier] [labels.py:\_merge_group_spec]
+- `GroupSpec.tags` is the intersection of the group's leaf tags and `tags_all` their union; `role` is the first leaf's
+  role and `roles` every leaf's role [labels.py:\_merge_group_spec]
 - `validate_plan` recomputes the report from `plan.combine()` and raises `ValueError` on any mismatch in fingerprint,
   partitions, labels, identities, mask, or group specs. Fingerprints are `sha256:` hashes of sorted compact JSON
   [inspection.py:validate_plan] [inspection.py:\_hash_json]

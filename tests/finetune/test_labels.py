@@ -69,6 +69,13 @@ def test_group_spec_metadata_aggregates_mixed_embedding_roles():
     )
 
     group = plan.group_specs["embed_no_decay"]
+    leaf_tags = [
+        set(info.tags)
+        for info in jtu.tree_leaves(plan.param_info)
+        if info.label == "embed_no_decay"
+    ]
+    assert len(leaf_tags) > 1
+    assert set(group.tags) == set.intersection(*leaf_tags)
     assert "embedding.position" not in group.tags
     assert {
         "embedding.class_token",

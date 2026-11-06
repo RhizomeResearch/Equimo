@@ -29,9 +29,10 @@ leaves, and effective optimizer groups. Save its `plan_fingerprint` with the opt
 plan from a restored model, call `eqft.validate_plan(plan, expected_fingerprint=saved_fingerprint)` before restoring
 optimizer state. The fingerprint covers structure and group policy; ordinary parameter updates do not change it.
 
-`GroupSpec.role` and `GroupSpec.tags` preserve the first leaf's representative metadata for compatibility. Use
-`GroupSpec.roles`, `GroupSpec.tags_all`, and `GroupSpec.mixed_roles` when external tooling needs deterministic metadata
-for all leaves assigned to a label.
+`GroupSpec.tags` holds the tags shared by every leaf assigned to a label, so a tag-based optimizer rule applies to a
+whole group or not at all; `GroupSpec.tags_all` holds the tags of any of its leaves. `GroupSpec.role` preserves the
+first leaf's representative role for compatibility. Use `GroupSpec.roles` and `GroupSpec.mixed_roles` when external
+tooling needs deterministic role metadata for all leaves assigned to a label.
 
 Non-goals: optimizers, schedules, distributed training, dataloaders, feature caches, experiment tracking, and training
 loops.

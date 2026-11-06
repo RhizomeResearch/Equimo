@@ -405,7 +405,12 @@ class ParamInfo:
 
 @dataclass(frozen=True)
 class GroupSpec:
-    """Metadata for one optimizer group label."""
+    """Metadata for one optimizer group label.
+
+    ``tags`` holds the tags shared by every leaf of the group and ``tags_all``
+    the tags of any of its leaves; ``role`` is the first leaf's role and
+    ``roles`` lists every leaf's role.
+    """
 
     label: str
     role: str

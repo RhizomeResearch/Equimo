@@ -58,6 +58,10 @@ All notable changes to Equimo are documented here. Equimo follows Semantic Versi
 - EUPE ViTs compute their RoPE periods in bfloat16, as the EUPE checkpoints store them. Pretrained outputs are
   unchanged; models built with `pretrained=False` previously used float32 periods.
 - LoRA-FA with `custom_vjp=False`, RandLoRA, and AdaptFormer with a fixed scale stop gradients to their frozen arrays.
+- `GroupSpec.tags` holds the tags shared by every leaf of the group instead of the first leaf's tags, so tag-based
+  optimizer rules, such as Rollfast's `GroupRule(tag=...)`, no longer depend on which leaf a group happened to start
+  with.
+- `apply_lora_rank_pattern` keeps the `metadata` of LoRA wrappers, such as PiSSA's initialization record.
 - `apply_adalora` honors `scaling="alpha_over_sqrt_r"`.
 - The `dynamictanh` norm (`DyT`) can be used as a block `norm_layer`.
 - Adapters, AdaptFormer, scale/shift, and `AttentionPool` return the activation dtype instead of promoting bfloat16 to
