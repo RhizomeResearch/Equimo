@@ -126,11 +126,13 @@ optimizer or training loop: plans expose labels and masks for the caller's optim
   depth uses execution order across chunks [../core/tags.py:canonical_tags_for_path] [tags.py:make_param_info]
   [\_blocks.py:vision_block_depths]
 - Labels are `<base>_decay` or `<base>_no_decay`, and leaves sharing a label must agree on multiplier and weight decay.
-  LLRD multipliers: head leaves use `head_lr_multiplier`; block leaves use
+  PEFT leaves use the method as base (`lora_A`, `vera`, ...); unless every multiplier below is 1.0, the base also names
+  the location, as other leaves are labeled (`lora_A_block_03`, `lora_B_head`), so each label keeps one rate. LLRD
+  multipliers: head leaves use `head_lr_multiplier`; block leaves use
   `top_block_lr_multiplier * decay ** (max_depth - depth)`; embedding leaves use `embedding_lr_multiplier`, or
   `top_block_lr_multiplier * decay ** (max_depth + 1)` when it is `None`; other leaves use 1.0. `max_depth` is the
   deepest trainable block with `rebase_selected_depth=True` and the deepest block otherwise [labels.py:\_label_base]
-  [labels.py:\_lr_multiplier] [labels.py:\_merge_group_spec]
+  [labels.py:\_uniform_learning_rates] [labels.py:\_lr_multiplier] [labels.py:\_merge_group_spec]
 - `GroupSpec.tags` is the intersection of the group's leaf tags and `tags_all` their union; `role` is the first leaf's
   role and `roles` every leaf's role [labels.py:\_merge_group_spec]
 - `validate_plan` recomputes the report from `plan.combine()` and raises `ValueError` on any mismatch in fingerprint,

@@ -151,6 +151,27 @@ def _label_for_info(
 
 
 def _label_base(info: ParamInfo, config: LLRDConfig) -> str:
+    method = _peft_label(info)
+    if method is None:
+        return _location_label(info, config)
+    # An optimizer group has one learning rate, so PEFT labels name the
+    # location whenever the configuration gives locations different rates.
+    if _uniform_learning_rates(config):
+        return method
+    return f"{method}_{_location_label(info, config)}"
+
+
+def _uniform_learning_rates(config: LLRDConfig) -> bool:
+    """Whether :func:`_lr_multiplier` gives every leaf a multiplier of one."""
+    return (
+        config.decay == 1.0
+        and config.top_block_lr_multiplier == 1.0
+        and config.head_lr_multiplier == 1.0
+        and config.embedding_lr_multiplier in (None, 1.0)
+    )
+
+
+def _peft_label(info: ParamInfo) -> str | None:
     if "lora.factor_A" in info.tags:
         return "lora_A"
     if "lora.factor_B" in info.tags:
@@ -189,6 +210,10 @@ def _label_base(info: ParamInfo, config: LLRDConfig) -> str:
         return "ia3"
     if "vera" in info.tags:
         return "vera"
+    return None
+
+
+def _location_label(info: ParamInfo, config: LLRDConfig) -> str:
     if "head" in info.tags:
         return config.head_label
     if info.depth is not None:

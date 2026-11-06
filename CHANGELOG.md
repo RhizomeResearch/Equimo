@@ -71,6 +71,9 @@ All notable changes to Equimo are documented here. Equimo follows Semantic Versi
   optimizer rules, such as Rollfast's `GroupRule(tag=...)`, no longer depend on which leaf a group happened to start
   with.
 - `apply_lora_rank_pattern` keeps the `metadata` of LoRA wrappers, such as PiSSA's initialization record.
+- Plans with layer-wise learning-rate decay, or other non-uniform multipliers, on PEFT models no longer raise
+  "inconsistent learning rate": PEFT labels then also name the block, head, or embedding (`lora_A_block_03_decay`
+  instead of `lora_A_decay`). Labels under uniform rates are unchanged.
 - `apply_adalora` honors `scaling="alpha_over_sqrt_r"`.
 - The `dynamictanh` norm (`DyT`) can be used as a block `norm_layer`.
 - Adapters, AdaptFormer, scale/shift, and `AttentionPool` return the activation dtype instead of promoting bfloat16 to

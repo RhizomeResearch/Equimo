@@ -22,6 +22,11 @@ plan = eqft.prepare_finetune(
 Use `eqft.LLRDConfig.uniform()` when a recipe should keep a uniform backbone learning-rate multiplier while still
 emitting weight-decay labels.
 
+PEFT parameters are labeled by method (`lora_A_decay`, `vera_no_decay`). When learning rates vary, the label also names
+the block, head, or embedding, so each optimizer group keeps one rate: LoRA on a ViT with `decay=0.75` gives
+`lora_A_block_00_decay` through `lora_A_block_11_decay`. The method still comes first, so rules matching a label prefix
+such as `lora_B` keep working.
+
 Patch embedding freeze means `patch_embed` leaves are absent from `plan.trainable`; they do not get a zero learning
 rate.
 
