@@ -116,6 +116,28 @@ def test_lora_delta_saved_with_stored_rope_frequencies_loads(tmp_path):
     )
 
 
+def test_delta_that_changed_stored_rope_frequencies_raises_targeted_error(tmp_path):
+    model = _rope_vision_transformer()
+    freqs = model.local_pos_embed.patch_rope.freqs
+    old_base = eqx.tree_at(
+        lambda base: base.local_pos_embed.patch_rope, model, _StoredFreqs(freqs)
+    )
+    # Weight decay shrank the stored frequencies during a full fine-tune.
+    old_trained = eqx.tree_at(
+        lambda trained: trained.local_pos_embed.patch_rope.freqs, old_base, freqs * 0.9
+    )
+    path = tmp_path / "full.eqft"
+    eqft.save_delta(
+        old_trained, path, base_model=old_base, spec=eqft.TrainableSpec(mode="full")
+    )
+
+    with pytest.raises(
+        eqft.FineTuneBundleError,
+        match=r"local_pos_embed\.patch_rope\.freqs.*equimo<2\.8",
+    ):
+        eqft.load_delta(model, path)
+
+
 def test_lora_delta_incompatible_shape_raises(tmp_path):
     model = TinyVisionTransformer(key=jr.PRNGKey(0))
     lora = _trained_like_lora(model)

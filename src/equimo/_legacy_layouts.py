@@ -34,6 +34,11 @@ def _stored_names(node: Any) -> tuple[str, ...]:
     return getattr(type(node), "_legacy_stored_leaves", ())
 
 
+def is_legacy_stored_leaf(node: Any, name: object) -> bool:
+    """Whether artifacts saved before Equimo 2.8 stored ``node.<name>`` as a leaf."""
+    return name in _stored_names(node)
+
+
 def _has_stored_leaves(node: Any) -> bool:
     return bool(_stored_names(node))
 

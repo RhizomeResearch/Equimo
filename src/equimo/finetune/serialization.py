@@ -35,6 +35,7 @@ from equimo._io import (
     sha256_stream,
     validate_sha256,
 )
+from equimo._legacy_layouts import is_legacy_stored_leaf
 
 from ._typing import PyTree
 from ._serialization_codecs import (
@@ -1694,6 +1695,13 @@ def _apply_trainable_delta(model: PyTree, bundle: FineTuneBundle) -> PyTree:
         if not eqx.is_inexact_array(leaf):
             raise FineTuneBundleError(
                 f"Trainable delta expects an inexact array at {entry['path']}."
+            )
+        if is_legacy_stored_leaf(get_path(updated, path[:-1]), path[-1]):
+            raise FineTuneBundleError(
+                f"Trainable delta changes {entry['path']}, which Equimo now "
+                "computes from the module configuration instead of storing. It "
+                "was probably changed by weight decay during training; load this "
+                "bundle with equimo<2.8."
             )
         expected_shape = tuple(entry["shape"])
         if tuple(leaf.shape) != expected_shape:

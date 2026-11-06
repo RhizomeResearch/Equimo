@@ -59,7 +59,8 @@ models; this is a correctness fix, since optimizers could change those values th
 before 2.8 remain readable throughout the v2 release line: `load_weights` recognizes the older layout and raises
 `ValueError` if a stored value differs from the computed one by more than four machine epsilons of its dtype, while
 `inspect_checkpoint` accepts the older signature without comparing values. Fine-tuning bundle and PMT hashes or digests
-that covered those values are accepted when they match the older layout.
+that covered those values are accepted when they match the older layout, but loading a bundle whose trained delta
+changed one of them raises `FineTuneBundleError`.
 
 Each Equimo release pins its built-in Hugging Face model repository to an immutable revision and embeds the Git LFS
 SHA-256 of every uploaded archive. An explicit archive SHA-256 can also be supplied to `load_weights` for deployments

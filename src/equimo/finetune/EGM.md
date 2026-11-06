@@ -164,10 +164,12 @@ optimizer or training loop: plans expose labels and masks for the caller's optim
 - Bundle archives contain exactly `manifest.json` and `arrays.eqx`, use format `equimo.finetune.bundle` version 1, and
   never pickle; size limits, the arrays SHA-256, schema version, architecture hash, `sha256:` base-checkpoint hash, and
   lineage hashes are checked on load and raise `FineTuneBundleError`. Architecture and base-checkpoint hashes recorded
-  before Equimo 2.8, which also covered values Equimo now computes such as RoPE frequencies, are accepted
+  before Equimo 2.8, which also covered values Equimo now computes such as RoPE frequencies, are accepted; a trained
+  delta entry for such a value (a module's `_legacy_stored_leaves`) raises `FineTuneBundleError`
   [serialization.py:\_read_archive] [serialization.py:\_encode_value] [serialization.py:\_check_schema]
   [serialization.py:\_check_hash] [serialization.py:\_check_base_checkpoint]
-  [serialization.py:\_check_bundle_lineage_consistency] [peft/lora.py:matches_architecture_hash]
+  [serialization.py:\_check_bundle_lineage_consistency] [serialization.py:\_apply_trainable_delta]
+  [peft/lora.py:matches_architecture_hash]
 - `l2_sp_loss`, `adapter_norm_loss`, and `task_vector_norm_loss` cover trainable leaves only
   (`equimo.core.parameters.trainable_mask`), so buffers are never penalized [regularization.py:\_trainable_entries]
 - Calibration archives use the same two members, size limits, and arrays SHA-256 check, with format

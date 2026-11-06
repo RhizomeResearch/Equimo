@@ -17,7 +17,8 @@ bundle = eqft.save_delta(model, "delta.eqft", base_model=base_model, spec=spec)
 
 Loading checks architecture hashes and target shapes. Incompatible bases raise a method-specific error. Bundles saved
 before Equimo 2.8, whose architecture and base-checkpoint hashes also covered values Equimo now computes (RoPE
-frequencies, coordinate tables), still load.
+frequencies, coordinate tables), still load, unless their trained delta changed one of those values (for example through
+weight decay in a full fine-tune): that raises `FineTuneBundleError`, and such bundles need `equimo<2.8`.
 
 Use `save_finetune_bundle` and `load_finetune_bundle` when you already have a `FineTuneBundle`. Bundle metadata includes
 parameter counts, dtype summary, target paths, a base checkpoint hash, mergeability, and optional user metadata.
