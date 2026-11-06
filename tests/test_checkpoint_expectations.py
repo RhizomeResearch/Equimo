@@ -311,7 +311,7 @@ def test_reader_rechecks_bytes_after_inspection(tmp_path, monkeypatch):
     path = make_checkpoint(tmp_path / "model")
     from equimo import serialization
 
-    inspect = serialization.inspect_checkpoint
+    inspect = serialization._inspect_checkpoint
 
     def changed_after_inspection(*args, **kwargs):
         result = inspect(*args, **kwargs)
@@ -321,7 +321,7 @@ def test_reader_rechecks_bytes_after_inspection(tmp_path, monkeypatch):
         weights.write_bytes(payload)
         return result
 
-    monkeypatch.setattr(serialization, "inspect_checkpoint", changed_after_inspection)
+    monkeypatch.setattr(serialization, "_inspect_checkpoint", changed_after_inspection)
     with pytest.raises(ValueError, match="changed during loading"):
         load_weights(ScaledLinear(), path=path)
 

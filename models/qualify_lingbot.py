@@ -127,6 +127,8 @@ def compare_variant(
         jax.config.update("jax_enable_x64", True)
         architecture = record["model_config"]["architecture"]
         rope_config = architecture["local_pos_embed_config_patch"]
+        # The author checkpoint stores float32 periods; computing them in
+        # float32 keeps exactly those values in the float64 model.
         rope = VisionRoPE(
             "period",
             dim=native.dim,
@@ -135,12 +137,7 @@ def compare_variant(
             normalize_coords=rope_config["normalize_coords"],
             rescale_coords=rope_config["rescale_coords"],
             dtype=jnp.float64,
-            periods_dtype=jnp.float64,
-        )
-        rope = eqx.tree_at(
-            lambda layer: layer.freqs,
-            rope,
-            native.local_pos_embed.patch_rope.freqs.astype(jnp.float64),
+            periods_dtype=jnp.float32,
         )
         native = eqx.tree_at(
             lambda model: model.local_pos_embed.patch_rope, native, rope

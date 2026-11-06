@@ -972,6 +972,22 @@ def loss_and_grads(model_fp32, images, labels, key):
     return softmax_cross_entropy_with_integer_labels(logits, labels).mean()
 ```
 
+Give the optimizer only the trainable leaves and Equimo's weight-decay mask. `trainable_mask` leaves out buffers, such
+as frozen PEFT bases, which weight decay would otherwise change; `weight_decay_mask` leaves biases, norms, layer scales,
+state-space dynamics, position embeddings, and learned prefix tokens undecayed:
+
+```python
+import optax
+from equimo.core.parameters import trainable_mask, weight_decay_mask
+
+params, static = eqx.partition(model_fp32, trainable_mask(model_fp32))
+optimizer = optax.adamw(3e-4, weight_decay=0.05, mask=weight_decay_mask)
+opt_state = optimizer.init(params)
+```
+
+Differentiate with respect to `params` and rebuild the model with `eqx.combine(params, static)`. Fine-tuning plans apply
+the same policy.
+
 Numerically sensitive operations cast locally to float32 and return the model dtype: normalization statistics, rotary
 factors, and every softmax. Attention between tokens applies `jax.nn.softmax` to float32 logits. Other softmaxes
 (attention pooling, attention-pooling heads, adapter fusion, the tabular decoder, and the `"softmax"` activation) use

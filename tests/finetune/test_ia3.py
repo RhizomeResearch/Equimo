@@ -101,4 +101,6 @@ def test_ia3_labels(tiny_vision_transformer):
 
     assert plan.trainable.blocks[0].attn.proj.ia3 is not None
     assert plan.trainable.blocks[0].attn.proj.base.weight is None
-    assert "ia3_decay" in plan.report.trainable_by_label
+    # Decay would pull the multiplicative scales toward zero, not the identity.
+    assert "ia3_no_decay" in plan.report.trainable_by_label
+    assert "ia3_decay" not in plan.report.trainable_by_label

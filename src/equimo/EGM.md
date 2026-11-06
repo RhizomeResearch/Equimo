@@ -59,6 +59,9 @@ calls `serialization.py:load_weights`, which downloads into `~/.cache/equimo/` w
     used by `finetune/serialization.py`.
   - `[_pretrained.py:PRETRAINED_ARCHIVE_SHA256]` maps about 130 pretrained identifiers to archive digests. It is used by
     `serialization.download` and `vision/models/convnext.py`.
+  - `[_legacy_layouts.py:legacy_leaves_with_path]`, `legacy_layout` and `restore_layout` describe pre-2.8 layouts. They
+    are used by `serialization.py`, `finetune/peft/_compat.py` (bundle hashes) and `vision/_encoder_identity.py` (PMT
+    encoder digests).
 
 ### Invariants
 
@@ -79,7 +82,15 @@ calls `serialization.py:load_weights`, which downloads into `~/.cache/equimo/` w
     could be verified (`[serialization.py:_inspect_checkpoint_directory]`, `[serialization.py:load_weights]`);
   - a supplied model must match the recorded class (`module.qualname`) and signature (`sha256:` over the array keypaths
     and shapes in PyTree traversal order; `sort_keys=True` orders only the keys inside each entry)
-    (`[serialization.py:_model_class]`, `[serialization.py:_model_signature]`).
+    (`[serialization.py:_model_class]`, `[serialization.py:_model_signature]`);
+  - checkpoints written before Equimo 2.8 also stored values that modules now compute (classes naming them in
+    `_legacy_stored_leaves`, such as RoPE frequencies). When the signature (versioned) or the weight stream
+    (schema-less) matches that older layout, `load_weights` reads it through `[_legacy_layouts.py:legacy_layout]` and
+    drops the values, raising `ValueError` if one differs from the computed value by more than four machine epsilons of
+    its dtype (`[serialization.py:_layout_for_signature]`, `[serialization.py:_layout_for_stream]`,
+    `[_legacy_layouts.py:restore_layout]`). Hashes of older bundles and PMT artifacts include those values, recomputed
+    on the CPU backend, whose results the published checkpoints match bit for bit
+    (`[_legacy_layouts.py:_stored_value]`).
 - Download trust (`[serialization.py:download]`):
   - the expected archive digest is `expected_sha256` if given, otherwise the pinned `PRETRAINED_ARCHIVE_SHA256` entry
     for the default repository, otherwise the server's `X-Linked-Etag`/`ETag` SHA-256;

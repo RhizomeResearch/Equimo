@@ -4,8 +4,42 @@ All notable changes to Equimo are documented here. Equimo follows Semantic Versi
 
 ## [Unreleased]
 
+### Added
+
+- `equimo.core.parameters` describes how optimizers should treat each leaf, for every training workflow:
+  `trainable_mask` (an Equinox filter excluding buffers), `weight_decay_mask` (also usable as an Optax `mask`),
+  `DEFAULT_NO_DECAY_TAGS`, `buffer_mask`, `module_tags`, and the field markers `buffer()` and `tagged(...)`. The path
+  tagger moved to `equimo.core.tags`; `equimo.finetune` re-exports it unchanged.
+
 ### Changed
 
+- RoPE and Swin position embeddings compute the values that follow from their configuration (`VisionRoPE.freqs`,
+  `DinoRoPE.periods`, `RoPE.rotations`, and the `PosEmbMLPSwinv1D`/`PosEmbMLPSwinv2D` coordinate and index tables) when
+  used instead of storing them as PyTree leaves, so optimizers no longer see them and weight decay can no longer change
+  them. They remain readable as attributes. The structural signatures of models using them change. Checkpoints,
+  fine-tuning bundles, and PMT artifacts saved by earlier versions still load; `load_weights` raises `ValueError` when a
+  stored value differs from the computed one by more than rounding, for example after weight decay.
+- Frozen PEFT arrays are declared buffers and excluded from every trainability mode: VeRA `vera_A`/`vera_B`, LoRA-FA
+  `frozen_A`/`correction_matrix`, RandLoRA bases, PiSSA `base_weight_delta`, OFT `unmerged_weight`, and a fixed
+  AdaptFormer `scale`. `mode="full"` previously trained the VeRA bases, the LoRA-FA correction matrix, and the OFT
+  backup weight.
+- The default no-weight-decay policy (`LLRDConfig.no_weight_decay_tags`, `DEFAULT_NO_DECAY_TAGS`) also excludes layer
+  scales (`block.layer_scale`, including PMD lateral scales) and state-space dynamics (`ssm`: Mamba `A_log`, `D`,
+  `dt_bias`; Parcae `A_log`, `dt_bias`, `B`, `C`). Leaves of registered normalization layers are tagged `norm` whatever
+  their field name, including norms inside `eqx.nn.Sequential`, and leaves named `*_bias` are tagged `bias`. This also
+  changes the leaves that the `norm`, `head_plus_norm`, and `bias` trainability modes select, plan labels, and plan
+  fingerprints.
+- The path tagger tags arrays with at most one axis `vector`, and the default no-weight-decay policy excludes them, as
+  timm, MAE, and OpenCLIP do. Every built-in backbone already excluded its vectors; PEFT vectors no longer decay: DoRA
+  magnitudes, AdaLoRA singular values, VeRA and RandLoRA scales, IA3 vectors, scale/shift parameters, and adapter
+  residual scales. Their plan labels change from `*_decay` to `*_no_decay`.
+- Position-embedding tables are evaluated while tracing, so `jax.jit` programs and ONNX exports hold them as constants
+  instead of recomputing them on every call. MLLA attention rotates queries and keys with one RoPE call, so its programs
+  hold one table per block.
+- `VisionParcae.weight_decay_mask()` follows the default policy, so it also leaves biases, norms, and embeddings
+  undecayed.
+- `update_ema_model` averages only trainable leaves; integer arrays and buffers take the current model's values.
+- `l2_sp_loss`, `adapter_norm_loss`, and `task_vector_norm_loss` skip buffers.
 - `VisionTransformer` raises `TypeError` for unknown constructor arguments instead of ignoring them.
 - `DropPath` keeps or drops the whole unbatched input with one draw, matching `DropPathAdd`; it previously dropped rows
   of the leading axis (tokens or channels) independently.
@@ -21,6 +55,9 @@ All notable changes to Equimo are documented here. Equimo follows Semantic Versi
   first convolutional position encoding in the residual stream, as in MLLA and VSSD. Outputs of these models change.
 - EUPE ViTs use the DINOv3 patch RoPE configuration, including training-time coordinate rescaling, which their config
   previously set under an ignored key. Inference outputs are unchanged.
+- EUPE ViTs compute their RoPE periods in bfloat16, as the EUPE checkpoints store them. Pretrained outputs are
+  unchanged; models built with `pretrained=False` previously used float32 periods.
+- LoRA-FA with `custom_vjp=False`, RandLoRA, and AdaptFormer with a fixed scale stop gradients to their frozen arrays.
 - `apply_adalora` honors `scaling="alpha_over_sqrt_r"`.
 - The `dynamictanh` norm (`DyT`) can be used as a block `norm_layer`.
 - Adapters, AdaptFormer, scale/shift, and `AttentionPool` return the activation dtype instead of promoting bfloat16 to

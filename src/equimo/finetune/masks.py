@@ -49,8 +49,7 @@ def resolve_trainable_paths(
     if spec.freeze is not None:
         selected.difference_update(_target_paths(model, spec.freeze, tagger=tagger))
 
-    selected.difference_update(_paths_with_any_tag(infos, {"peft.metadata"}))
-    selected.difference_update(_nontrainable_peft_scale_paths(model))
+    selected.difference_update(_paths_with_any_tag(infos, {"peft.metadata", "buffer"}))
 
     if not selected and spec.mode != "frozen":
         raise ValueError("Trainability plan selected no trainable floating leaves.")
@@ -237,25 +236,6 @@ def _trainable_peft_base_paths(model: PyTree) -> set[Path]:
             if eqx.is_inexact_array(leaf):
                 paths.add((*wrapper_path, "base", *key_path_to_path(base_key_path)))
     return paths
-
-
-def _nontrainable_peft_scale_paths(model: PyTree) -> set[Path]:
-    paths: set[Path] = set()
-    for key_path, node in jtu.tree_leaves_with_path(
-        model,
-        is_leaf=_has_nontrainable_peft_scale,
-    ):
-        if _has_nontrainable_peft_scale(node):
-            paths.add((*key_path_to_path(key_path), "scale"))
-    return paths
-
-
-def _has_nontrainable_peft_scale(node: Any) -> bool:
-    return (
-        hasattr(node, "scale")
-        and hasattr(node, "scale_trainable")
-        and not bool(getattr(node, "scale_trainable"))
-    )
 
 
 def _is_trainable_base_wrapper(node: Any) -> bool:

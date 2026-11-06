@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from typing import Any, Callable, TypeAlias
 
-Path: TypeAlias = tuple[str | int, ...]
+from equimo.core.tags import Path
+
 PyTree: TypeAlias = Any
 FilterSpec: TypeAlias = Any
 LeafPredicate: TypeAlias = Callable[[Path, Any], bool]

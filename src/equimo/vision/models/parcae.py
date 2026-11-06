@@ -44,6 +44,7 @@ from equimo.vision.layers.attention import get_attn, get_attn_block
 from equimo.core.layers.ffn import get_ffn
 from equimo.core.layers.generic import BlockChunk, make_transformer_block_chunk
 from equimo.core.layers.norm import get_norm
+from equimo.core.parameters import tagged, weight_decay_mask
 from equimo.vision.layers.patch import PatchEmbedding
 from equimo.vision.models._embedding import build_local_rope, build_token_embeddings
 from equimo.vision.layers.posemb import CompositeVisionRoPE, LearnedPosEmbed
@@ -253,9 +254,9 @@ class VisionParcaeDiagonalInjection(eqx.Module):
     may differ from the prelude embedding dimension.
     """
 
-    A_log: jax.Array
-    dt_bias: jax.Array
-    B: jax.Array
+    A_log: jax.Array = tagged("ssm")
+    dt_bias: jax.Array = tagged("ssm")
+    B: jax.Array = tagged("ssm")
 
     input_dim: int = eqx.field(static=True)
     state_dim: int = eqx.field(static=True)
@@ -528,7 +529,7 @@ class VisionParcae(eqx.Module):
     prelude: BlockChunk | None
     adapter: eqx.Module
     core_block: BlockChunk | None
-    C: eqx.nn.Linear
+    C: eqx.nn.Linear = tagged("ssm")
     coda: BlockChunk | None
 
     pos_drop: eqx.nn.Dropout
@@ -1642,20 +1643,15 @@ class VisionParcae(eqx.Module):
     def weight_decay_mask(self) -> "VisionParcae":
         """Return a pytree mask for AdamW-style decoupled weight decay.
 
-        ``True`` leaves receive weight decay.  The diagonal dynamical-system
-        parameters ``A_log``, ``dt_bias``, ``B`` and the readout ``C.weight`` are
-        marked ``False`` to match the Parcae reference implementation.
+        ``True`` leaves receive weight decay. This is
+        :func:`equimo.core.parameters.weight_decay_mask`: besides biases,
+        normalization parameters, and embeddings, the diagonal dynamical-system
+        parameters ``A_log``, ``dt_bias``, ``B`` and the readout ``C`` carry the
+        ``ssm`` tag and are marked ``False``, as in the Parcae reference
+        implementation.
         """
 
-        mask = jax.tree_util.tree_map(lambda _: True, self)
-        mask = eqx.tree_at(lambda m: m.C.weight, mask, replace=False)
-        if isinstance(self.adapter, VisionParcaeDiagonalInjection):
-            mask = eqx.tree_at(
-                lambda m: (m.adapter.A_log, m.adapter.dt_bias, m.adapter.B),
-                mask,
-                replace=(False, False, False),
-            )
-        return mask
+        return weight_decay_mask(self)
 
     def _infer_hw_from_tokens(
         self,

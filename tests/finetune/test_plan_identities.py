@@ -161,7 +161,7 @@ def test_adalora_leaf_roles_and_groups_are_complete(tiny_vision_transformer):
     }
     assert set(plan.group_specs) == {
         "adalora_P_decay",
-        "adalora_singular_decay",
+        "adalora_singular_no_decay",
         "adalora_Q_decay",
     }
     assert plan.trainable.blocks[0].attn.proj.base.weight is None

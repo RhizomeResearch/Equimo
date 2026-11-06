@@ -33,7 +33,10 @@ platform markers. After changing `pyproject.toml` (including version bumps), rel
 
 The lock keeps JAX at 0.11.2: jax2onnx 0.17.1 fails on JAX 0.12 (`jax._src.core.ClosedJaxpr` was removed), so upgrade
 JAX in the lock only together with a jax2onnx release that supports it, and run `tests/test_onnx_export.py`. With JAX
-0.11 or newer, jax2onnx's `flax.nnx` import fails on flax 0.12.6 and works on 0.12.10 (observed in practice).
+0.11 or newer, jax2onnx's `flax.nnx` import fails on flax 0.12.6 and works on 0.12.10 (observed in practice). Equimo
+code does not work around jax2onnx bugs; they are fixed upstream. With jax2onnx 0.17.1, `tests/test_onnx_export.py`
+fails where export evaluates `jnp.stack` or `jnp.concatenate` eagerly, as the `posemb.py` tables are (`RoPE`, Swin
+tables, `mlla`) (observed in practice).
 
 Anything that imports JAX must run inside the devenv shell, for example `devenv shell -- uv run pytest ...` (run in
 practice): outside it, even the devenv-provided uv fails to import jaxlib because `libstdc++.so.6` is not on the library
@@ -95,6 +98,12 @@ revision (observed in practice). Delete them before finishing.
 - Models may later be sharded across multiple devices. Keep model code compatible with JAX sharding and avoid
   assumptions that arrays or parameters live on a single device.
 - Preserve Equinox PyTree structure and static-field semantics. Do not mutate modules or arrays in place.
+- Optimizers change every array leaf they receive: weight decay moves arrays even when the forward pass stops their
+  gradient. Compute values that follow from static configuration (RoPE frequencies, coordinate tables) in a property
+  instead of storing them (`_static_table` in `posemb.py` evaluates it while tracing, so jit and ONNX programs hold it
+  as a constant instead of recomputing it every call); declare stored arrays that are never trained with
+  `equimo.core.parameters.buffer()` and read them through `jax.lax.stop_gradient`. A class that stops storing a leaf
+  lists it in `_legacy_stored_leaves` so older checkpoints still load (`equimo._legacy_layouts`).
 - Models must work in low precision, including `bfloat16` and potentially lower precision formats. Preserve existing
   dtype behavior; perform numerically sensitive operations in sufficient precision with explicit, local casts, then
   return results in the expected dtype instead of silently promoting the model.

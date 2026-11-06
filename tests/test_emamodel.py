@@ -4,6 +4,7 @@ import jax.numpy as jnp
 import pytest
 
 from equimo.core import update_ema_model
+from equimo.core.parameters import buffer
 
 
 class _EmaState(eqx.Module):
@@ -38,3 +39,27 @@ def test_update_ema_model_updates_multiple_leaves_through_jit():
     assert jnp.allclose(result.scalar, 1.0)
     assert jnp.allclose(result.vector, jnp.array([3.0, 7.0, 11.0]))
     assert result.metadata == "ema"
+
+
+class _EmaStateWithConstants(eqx.Module):
+    weight: jax.Array
+    index: jax.Array
+    basis: jax.Array = buffer()
+
+
+def test_update_ema_model_copies_integer_and_buffer_leaves():
+    ema_model = _EmaStateWithConstants(
+        jnp.array([0.0]), jnp.array([1, 2]), jnp.array([1.0, 1.0])
+    )
+    current_model = _EmaStateWithConstants(
+        jnp.array([4.0]), jnp.array([3, 4]), jnp.array([2.0, 2.0])
+    )
+
+    result = update_ema_model(
+        ema_model, eqx.filter(current_model, eqx.is_array), decay=0.5
+    )
+
+    assert jnp.allclose(result.weight, 2.0)
+    assert result.index.dtype == jnp.int32
+    assert jnp.array_equal(result.index, current_model.index)
+    assert jnp.array_equal(result.basis, current_model.basis)

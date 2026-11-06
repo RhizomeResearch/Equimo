@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import pytest
 import equinox as eqx
+import jax
 import jax.numpy as jnp
 import jax.random as jr
 
 import equimo.finetune as eqft
+from equimo.vision.models import VisionTransformer
 
 from fixtures import TinyVisionTransformer
 
@@ -65,6 +67,42 @@ def test_lora_delta_roundtrip(tmp_path):
     loaded = eqft.load_delta(model, path)
 
     assert jnp.allclose(lora(x), loaded(x), atol=1e-6)
+
+
+class _StoredFreqs(eqx.Module):
+    """``VisionRoPE`` as models before Equimo 2.8 held it."""
+
+    freqs: jax.Array
+
+
+def test_lora_delta_saved_with_stored_rope_frequencies_loads(tmp_path):
+    model = VisionTransformer(
+        img_size=16,
+        in_channels=3,
+        dim=16,
+        patch_size=8,
+        num_heads=2,
+        depths=[1],
+        num_classes=2,
+        use_local_pos_embed=True,
+        key=jr.PRNGKey(0),
+    )
+    old_base = eqx.tree_at(
+        lambda base: base.local_pos_embed.patch_rope,
+        model,
+        _StoredFreqs(model.local_pos_embed.patch_rope.freqs),
+    )
+    old_lora = eqft.apply_lora(old_base, eqft.LoRAConfig(rank=2), key=jr.PRNGKey(1))
+    path = tmp_path / "delta.eqft"
+    bundle = eqft.save_delta(old_lora, path)
+    assert bundle.architecture_hash and bundle.base_checkpoint_id
+
+    loaded = eqft.load_delta(model, path)
+
+    assert jnp.array_equal(
+        loaded.blocks[0].blocks[0].attn.qkv.lora_A,
+        old_lora.blocks[0].blocks[0].attn.qkv.lora_A,
+    )
 
 
 def test_lora_delta_incompatible_shape_raises(tmp_path):

@@ -208,7 +208,7 @@ def conversion_config(variant):
             },
             {"patch_embed.proj.bias": ["after", 2]},
             {"pos_embed": 0, "cls_token": 0, "storage_tokens": 0},
-            ["local_pos_embed.patch_rope.freqs"],
+            [],
         )
 
     replace_cfg = {

@@ -842,7 +842,13 @@ _EUPE_BASE_CFG: dict = {
     "use_mask_token": True,
     "use_global_pos_embed": False,
     "use_local_pos_embed": True,
-    "local_pos_embed_config_patch": _DINOV3_LOCAL_ROPE_CFG,
+    # EUPE was trained with bfloat16 RoPE periods; its checkpoints store them
+    # (as float32), and PyTorch loads them over its float32 periods. Only the
+    # period values are rounded: the RoPE math stays float32 (``dtype``).
+    "local_pos_embed_config_patch": {
+        **_DINOV3_LOCAL_ROPE_CFG,
+        "periods_dtype": jnp.bfloat16,
+    },
     "reg_tokens": 4,
     "init_values": 1e-5,
     "eps": 1e-5,

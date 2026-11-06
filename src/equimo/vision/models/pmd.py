@@ -14,6 +14,7 @@ from jax import lax
 from equimo.core._prng import split_for_mode
 from equimo.core.layers.attention import Attention, AttentionBlock
 from equimo.core.layers.rotary import RotaryFactors, insert_rotary_identity
+from equimo.core.parameters import tagged
 from equimo.utils import nearest_power_of_2_divisor
 from equimo.vision.models.eomt import (
     MaskEmbedding,
@@ -308,7 +309,8 @@ class Lateral(eqx.Module):
     norm: eqx.Module
     fc1: eqx.nn.Linear
     fc2: eqx.nn.Linear
-    scale: jax.Array
+    # A per-channel residual output scale, which is what a layer scale is.
+    scale: jax.Array = tagged("block.layer_scale")
     norm_layer: str = eqx.field(static=True)
 
     def __init__(self, config: PMTConfig, *, key: jax.Array):

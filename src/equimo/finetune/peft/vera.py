@@ -9,6 +9,8 @@ import jax
 import jax.numpy as jnp
 import jax.random as jr
 
+from equimo.core.parameters import buffer
+
 from .._typing import Path, PyTree
 from ..config import TargetSpec
 from ..paths import path_to_str
@@ -38,8 +40,8 @@ class VeRALinear(eqx.Module):
     """VeRA wrapper with frozen random bases and trainable scales."""
 
     base: eqx.nn.Linear
-    vera_A: jax.Array
-    vera_B: jax.Array
+    vera_A: jax.Array = buffer()
+    vera_B: jax.Array = buffer()
     vera_input_scale: jax.Array
     vera_output_scale: jax.Array
     shared: bool = eqx.field(static=True)

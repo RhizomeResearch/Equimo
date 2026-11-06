@@ -22,7 +22,11 @@ import pytest
 
 import equimo.audio.models as am
 import equimo.vision.models as em
-from equimo.serialization import _model_class, _model_signature
+from equimo.serialization import (
+    _layout_for_signature,
+    _model_class,
+    _model_signature,
+)
 from equimo.tabular.models.tabpfn import TabPFN
 from equimo.timeseries.models.t0 import T0
 from equimo.vision.layers.attention import HATBlock
@@ -242,6 +246,31 @@ def test_structure_signature_is_stable(name):
         f"{name}: PyTree structure (array-leaf paths/shapes) changed — this "
         "breaks loading of every saved checkpoint of this model."
     )
+
+
+# Checkpoints written before Equimo 2.8 also stored values these models now
+# compute, such as RoPE frequencies; ``load_weights`` reads them through
+# ``equimo._legacy_layouts``.
+PRE_2_8_SIGNATURES = {
+    "hat_block": (
+        "sha256:46c8b66cf51e699439b3de91048aff5007efe93ba291a9744a4870ccf92f6a00"
+    ),
+    "mlla_tiny": (
+        "sha256:1d75588db207b17d6f3f0cd080e6f8dc26cbd6f7c69185ef6721aa8af485b953"
+    ),
+    "vit_tiny_rope_mode": (
+        "sha256:f83d08857438a53329124a9693d7dcfa40815babefc3b12b5dea62bec8599b4e"
+    ),
+    "vit_tiny_rope_period": (
+        "sha256:f83d08857438a53329124a9693d7dcfa40815babefc3b12b5dea62bec8599b4e"
+    ),
+}
+
+
+@pytest.mark.parametrize("name", sorted(PRE_2_8_SIGNATURES))
+def test_pre_2_8_signature_is_still_accepted(name):
+    model = BUILDERS[name]()
+    assert _layout_for_signature(model, PRE_2_8_SIGNATURES[name]) is not model
 
 
 def test_goldens_have_no_stale_entries():

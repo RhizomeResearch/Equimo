@@ -8,16 +8,13 @@ from typing import Any
 import equinox as eqx
 import jax.tree_util as jtu
 
+from equimo.core.tags import infer_block_depth
+
 from ._typing import Path, PyTree
 from ._blocks import model_block_depth, vision_block_depths
 from .config import GroupSpec, LLRDConfig, ParamInfo
 from .paths import iter_param_leaves, key_path_to_path
-from .tags import (
-    Tagger,
-    _model_param_info,
-    canonical_tags_for_path,
-    infer_block_depth,
-)
+from .tags import Tagger, _model_param_info, canonical_tags_for_path
 
 
 def make_param_labels(

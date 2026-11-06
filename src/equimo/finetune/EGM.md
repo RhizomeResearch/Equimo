@@ -24,7 +24,7 @@ optimizer or training loop: plans expose labels and masks for the caller's optim
 - Paths: `key_path_to_path`, `path_to_str`, `str_to_path`, `is_path_prefix`, `iter_param_leaves`, `iter_param_paths`,
   `extract_param_paths`, `make_path_tree`, `make_param_info_tree` [paths.py:path_to_str] [paths.py:str_to_path]
 - Tags: `CANONICAL_TAGS`, `Tagger`, `canonical_tags_for_path`, `infer_depth`, `make_tag_tree`, `iter_param_infos`,
-  `make_param_info`, `infer_role`, `merge_taggers` [tags.py:canonical_tags_for_path] [tags.py:make_param_info]
+  `make_param_info`, `infer_role`, `merge_taggers` [../core/tags.py:canonical_tags_for_path] [tags.py:make_param_info]
 - Selection: `resolve_target(model, target, *, allow_empty=False, tagger)`, `resolve_target_paths`, `is_linear`
   [selectors.py:resolve_target]
 - Masks and labels: `make_trainable_filter`, `resolve_trainable_paths`, `make_param_labels`,
@@ -98,10 +98,15 @@ optimizer or training loop: plans expose labels and masks for the caller's optim
 - Only inexact (floating) array leaves are parameters; trainable masks are `False` and labels `None` for every other
   leaf [masks.py:make_trainable_filter] [labels.py:make_labeled_param_info_tree]
 - Trainable paths are resolved from the mode, then `train_head`/`train_norm`/`train_bias`, then wrapper bases with
-  `train_base=True` in `peft` mode, minus `freeze` targets, `peft.metadata` leaves, and the `scale` leaf of wrappers
-  with `scale_trainable=False`. An empty selection raises `ValueError` unless the mode is `frozen`;
-  `TrainableSpec.expected_logical_ids` must match the selection exactly [masks.py:resolve_trainable_paths]
-  [masks.py:\_base_trainable_paths] [masks.py:\_nontrainable_peft_scale_paths]
+  `train_base=True` in `peft` mode, minus `freeze` targets and leaves tagged `peft.metadata` or `buffer` (fields
+  declared with `equimo.core.parameters.buffer`, such as VeRA bases or a fixed AdaptFormer `scale`), in every mode. An
+  empty selection raises `ValueError` unless the mode is `frozen`; `TrainableSpec.expected_logical_ids` must match the
+  selection exactly [masks.py:resolve_trainable_paths] [masks.py:\_base_trainable_paths]
+- `ParamInfo.tags` combine path tags with the tags modules give a leaf (`equimo.core.parameters.module_tags`): `norm`
+  for leaves of registered normalization layers, `block.layer_scale` and `ssm` from field declarations, and `buffer`
+  [tags.py:make_param_info]
+- `LLRDConfig.no_weight_decay_tags` defaults to `equimo.core.parameters.DEFAULT_NO_DECAY_TAGS`, the same policy as
+  `equimo.core.parameters.weight_decay_mask` [config.py:LLRDConfig]
 - `TargetSpec` resolution is the union of `tags_all`, `tags_any`, `include`, and `predicate` (all inexact leaves when
   none is set), filtered by depth bounds and `exclude`. `predicate` is also called on whole `eqx.nn` `Linear`,
   `LayerNorm`, `Embedding`, and `Conv1d`/`Conv2d`/`Conv3d` modules, and a matching module selects every leaf under it.
@@ -110,8 +115,9 @@ optimizer or training loop: plans expose labels and masks for the caller's optim
 - `path_to_str` escapes `\` and `.` and prefixes integer-looking string parts with `\s`, so `str_to_path` round-trips
   paths unambiguously [paths.py:\_format_path_part] [paths.py:\_decode_path_part]
 - Canonical tags (`attention.qkv`, `attention.proj`, `attention.q/k/v`, `mlp.fc1`, `mlp.fc2`, `mlp.hidden`, `head`,
-  `block.N`, `bias`, `weight`) are derived from path parts; Equimo ViT block depth uses execution order across chunks
-  [tags.py:canonical_tags_for_path] [tags.py:make_param_info] [\_blocks.py:vision_block_depths]
+  `block.N`, `bias` for `bias` and `*_bias` leaves, `weight`) are derived from path parts; Equimo ViT block depth uses
+  execution order across chunks [../core/tags.py:canonical_tags_for_path] [tags.py:make_param_info]
+  [\_blocks.py:vision_block_depths]
 - Labels are `<base>_decay` or `<base>_no_decay`, and leaves sharing a label must agree on multiplier and weight decay.
   LLRD multipliers: head leaves use `head_lr_multiplier`; block leaves use
   `top_block_lr_multiplier * decay ** (max_depth - depth)`; embedding leaves use `embedding_lr_multiplier`, or
@@ -148,9 +154,13 @@ optimizer or training loop: plans expose labels and masks for the caller's optim
   [calibration.py:finalize_calibration_collector]
 - Bundle archives contain exactly `manifest.json` and `arrays.eqx`, use format `equimo.finetune.bundle` version 1, and
   never pickle; size limits, the arrays SHA-256, schema version, architecture hash, `sha256:` base-checkpoint hash, and
-  lineage hashes are checked on load and raise `FineTuneBundleError` [serialization.py:\_read_archive]
-  [serialization.py:\_encode_value] [serialization.py:\_check_schema] [serialization.py:\_check_hash]
-  [serialization.py:\_check_base_checkpoint] [serialization.py:\_check_bundle_lineage_consistency]
+  lineage hashes are checked on load and raise `FineTuneBundleError`. Architecture and base-checkpoint hashes recorded
+  before Equimo 2.8, which also covered values Equimo now computes such as RoPE frequencies, are accepted
+  [serialization.py:\_read_archive] [serialization.py:\_encode_value] [serialization.py:\_check_schema]
+  [serialization.py:\_check_hash] [serialization.py:\_check_base_checkpoint]
+  [serialization.py:\_check_bundle_lineage_consistency] [peft/lora.py:matches_architecture_hash]
+- `l2_sp_loss`, `adapter_norm_loss`, and `task_vector_norm_loss` cover trainable leaves only
+  (`equimo.core.parameters.trainable_mask`), so buffers are never penalized [regularization.py:\_trainable_entries]
 - Calibration archives use the same two members, size limits, and arrays SHA-256 check, with format
   `equimo.finetune.calibration` version 1 and the encoded artifacts under the manifest's `artifacts` key.
   `load_calibration_artifacts` raises `FineTuneBundleError` on another format or version and validates the loaded

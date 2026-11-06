@@ -33,7 +33,7 @@
   },
   "hat_block": {
     "model_class": "equimo.vision.layers.attention.HATBlock",
-    "model_signature": "sha256:46c8b66cf51e699439b3de91048aff5007efe93ba291a9744a4870ccf92f6a00"
+    "model_signature": "sha256:bfd8af670379a8f3ef0d076193a6c4cdc851097a88d19c63a8cc3720293134c1"
   },
   "iformer_t": {
     "model_class": "equimo.vision.models.iformer.IFormer",
@@ -45,7 +45,7 @@
   },
   "mlla_tiny": {
     "model_class": "equimo.vision.models.mlla.Mlla",
-    "model_signature": "sha256:1d75588db207b17d6f3f0cd080e6f8dc26cbd6f7c69185ef6721aa8af485b953"
+    "model_signature": "sha256:d43f0ba521c71432196231bdbeaa84471810e1ed66341bee0804fba6581c3ede"
   },
   "mobilenetv3_small": {
     "model_class": "equimo.vision.models.mobilenet.MobileNetv3",
@@ -85,11 +85,11 @@
   },
   "vit_tiny_rope_mode": {
     "model_class": "equimo.vision.models.vit.VisionTransformer",
-    "model_signature": "sha256:f83d08857438a53329124a9693d7dcfa40815babefc3b12b5dea62bec8599b4e"
+    "model_signature": "sha256:08862d7fcacbfc2833a37a2c031676149c6b6a53d4a335d9b04a8d0984794a3a"
   },
   "vit_tiny_rope_period": {
     "model_class": "equimo.vision.models.vit.VisionTransformer",
-    "model_signature": "sha256:f83d08857438a53329124a9693d7dcfa40815babefc3b12b5dea62bec8599b4e"
+    "model_signature": "sha256:08862d7fcacbfc2833a37a2c031676149c6b6a53d4a335d9b04a8d0984794a3a"
   },
   "vit_tiny_untied_cls_norm": {
     "model_class": "equimo.vision.models.vit.VisionTransformer",

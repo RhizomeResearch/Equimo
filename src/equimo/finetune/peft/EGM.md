@@ -135,15 +135,20 @@ VPT, P-Tuning v2), and BitFit.
   [scale_shift.py:\_init_parameter]
 - LoRA-FA with `custom_vjp=True` returns a zero gradient for A; `frozen_A` and `corrected_v3` define the B gradient
   [lora.py:\_lora_fa_update_corrected_bwd]
-- VeRA frozen matrices `vera_A`/`vera_B` are ordinary leaves kept frozen only by `jax.lax.stop_gradient`; with
-  `shared=True` one basis pair is reused across modules with the same rank, shape, dtype, and init [vera.py:VeRALinear]
+- Frozen arrays are declared with `equimo.core.parameters.buffer` and read through `jax.lax.stop_gradient`: VeRA
+  `vera_A`/`vera_B`, LoRA-FA `frozen_A`/`correction_matrix`, RandLoRA `random_A`/`random_B`, PiSSA `base_weight_delta`,
+  OFT `unmerged_weight`, and AdaptFormer `scale` when `scale_trainable=False`. Trainability plans, `trainable_mask`, and
+  `weight_decay_mask` exclude them [vera.py:VeRALinear] [lora.py:LoRAFALinear] [lora.py:RandLoRALinear]
+  [adapters.py:OrthogonalLinear] [adapters.py:AdaptFormerAdapter]
+- VeRA with `shared=True` reuses one basis pair across modules with the same rank, shape, dtype, and init
   [vera.py:\_shared_vera_bases]
 - PiSSA with `freeze_residual` stores `-scaling * B0 @ A0` in `base_weight_delta`; `strip_lora` and the loader undo or
   reapply it [lora.py:\_pissa_prepare] [lora.py:strip_lora] [lora.py:load_lora_delta]
 - Delta loading: `load_lora_delta` and `load_adapter_delta` raise `FineTuneBundleError` on a wrong `bundle.method`, on a
-  non-empty `architecture_hash` that differs from `architecture_hash(base_model)`, and (LoRA) on base weight or bias
-  shape mismatch. The stored hash is computed on the stripped model [lora.py:load_lora_delta]
-  [lora.py:extract_lora_delta] [adapters.py:load_adapter_delta]
+  non-empty `architecture_hash` that `matches_architecture_hash(expected, base_model)` rejects, and (LoRA) on base
+  weight or bias shape mismatch. The stored hash is computed on the stripped model; hashes recorded before Equimo 2.8,
+  which also covered values Equimo now computes such as RoPE frequencies, still match [lora.py:load_lora_delta]
+  [lora.py:extract_lora_delta] [lora.py:matches_architecture_hash] [adapters.py:load_adapter_delta]
 - Adapter banks: more than one active adapter requires `allow_multiple_active=True`; `missing_adapter_policy` is `error`
   or `ignore`; `add_adapter` rejects parallel placement, duplicate names, and banks that already have fusion
   [adapters.py:\_normalize_active_adapter] [adapters.py:configure_adapter_bank] [adapters.py:add_adapter]

@@ -51,7 +51,9 @@ auto-imports every module and merges each module's `__all__` into the package na
 - `VisionParcae(img_size, in_channels, dim, patch_size, num_heads, *, key, ...)`: prelude blocks, a weight-shared core
   looped `h[t+1] = R(adapter(h[t], e))` inside a statically bounded `lax.scan`, then readout `C` and coda. `__call__`,
   `features`, `forward_features`, `intermediate_features` accept `num_steps` / `num_steps_pair`; `sample_num_steps`,
-  `readout`, `weight_decay_mask`, and spectral diagnostics are public. `[parcae.py:VisionParcae]`
+  `readout`, `weight_decay_mask`, and spectral diagnostics are public. `weight_decay_mask()` is
+  `equimo.core.parameters.weight_decay_mask(self)`: the injection `A_log`, `dt_bias`, `B` and the readout `C` carry the
+  `ssm` tag, so they are not decayed, nor are biases, norms, and embeddings. `[parcae.py:VisionParcae]`
 - `VisionParcae.intermediate_features` indexes the fixed triple (recurrent state, `C` projection, coda output), not
   blocks. `[parcae.py:VisionParcae.intermediate_features]`
 - Injection adapters `VisionParcaeDiagonalInjection`, `VisionParcaeDiagonalExactZOHInjection`,
@@ -126,8 +128,8 @@ auto-imports every module and merges each module's `__all__` into the package na
   requires a static integer `num_heads`. `block_at` raises `IndexError` outside `[0, num_blocks)`.
   `[vit.py:VisionTransformer]`, `[_embedding.py:build_local_rope]`, `[vit.py:VisionTransformer.block_at]`
 - `VisionTransformer.__init__` takes no `**kwargs`, so an unknown config key raises `TypeError` instead of being
-  ignored. EUPE ViTs share the DINOv3 patch RoPE config (`rescale_coords=2.0` during training).
-  `[vit.py:VisionTransformer]`, `[vit.py:_EUPE_BASE_CFG]`
+  ignored. EUPE ViTs share the DINOv3 patch RoPE config (`rescale_coords=2.0` during training) but compute periods in
+  bfloat16, as the EUPE checkpoints store them. `[vit.py:VisionTransformer]`, `[vit.py:_EUPE_BASE_CFG]`
 - `build_token_embeddings` results must stay direct model fields: wrapping them in a submodule changes `jtu.keystr`
   checkpoint paths. `[_embedding.py:build_token_embeddings]`
 - `DenseStageFeatures` and `TokenStemFeatures` mixins must declare no fields and no `__init__`; required attributes are

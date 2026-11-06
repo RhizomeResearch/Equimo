@@ -83,7 +83,7 @@ from .peft.lora import (
     load_lora_delta,
     strip_lora,
 )
-from .peft.lora import architecture_hash, merge_lora
+from .peft.lora import architecture_hash, matches_architecture_hash, merge_lora
 from .peft.prefix import (
     PrefixConfig,
     PrefixProjection,
@@ -1158,11 +1158,13 @@ def _load_dora_delta(base_model: PyTree, bundle: FineTuneBundle) -> PyTree:
 
 
 def _check_hash(base_model: PyTree, bundle: FineTuneBundle, method_name: str) -> None:
-    actual_hash = architecture_hash(base_model)
-    if bundle.architecture_hash and bundle.architecture_hash != actual_hash:
+    if bundle.architecture_hash and not matches_architecture_hash(
+        bundle.architecture_hash, base_model
+    ):
         raise FineTuneBundleError(
             f"{method_name} delta architecture hash mismatch: "
-            f"expected {bundle.architecture_hash}, got {actual_hash}."
+            f"expected {bundle.architecture_hash}, "
+            f"got {architecture_hash(base_model)}."
         )
 
 
@@ -1453,13 +1455,14 @@ def _param_count(tree: PyTree) -> int:
     )
 
 
-def _checkpoint_hash(tree: PyTree) -> str:
+def _checkpoint_hash(tree: PyTree, *, legacy_layout: bool = False) -> str:
     return hash_inexact_pytree(
         tree,
         include_head=True,
         include_values=True,
         logical_ids_only=False,
         prefix="sha256:",
+        legacy_layout=legacy_layout,
     )
 
 
@@ -1467,13 +1470,15 @@ def _check_base_checkpoint(base_model: PyTree, bundle: FineTuneBundle) -> None:
     expected = bundle.base_checkpoint_id or bundle.lineage.base_value_hash
     if not expected or not expected.startswith("sha256:"):
         return
-    if (
-        bundle.architecture_hash
-        and architecture_hash(base_model) != bundle.architecture_hash
+    if bundle.architecture_hash and not matches_architecture_hash(
+        bundle.architecture_hash, base_model
     ):
         return
     actual = _checkpoint_hash(base_model)
-    if actual != expected:
+    if actual == expected:
+        return
+    # Bundles saved before Equimo 2.8 also hashed values Equimo now computes.
+    if _checkpoint_hash(base_model, legacy_layout=True) != expected:
         raise FineTuneBundleError(
             f"{bundle.method} delta base checkpoint mismatch: "
             f"expected {expected}, got {actual}."

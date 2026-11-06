@@ -40,6 +40,19 @@ def _base_digest(model: PMT) -> str:
     return encoder_array_digest(model.backbone)
 
 
+def _matching_base_digest(model: PMT, recorded: object) -> str | None:
+    """Return the digest of *model*'s encoder that *recorded* names, if any.
+
+    Artifacts saved before Equimo 2.8 hashed values Equimo now computes, such
+    as RoPE frequencies, so their digest is accepted too.
+    """
+    for legacy_layout in (False, True):
+        digest = encoder_array_digest(model.backbone, legacy_layout=legacy_layout)
+        if digest == recorded:
+            return digest
+    return None
+
+
 def _check_state(model: PMT, state: eqx.nn.State | None) -> eqx.nn.State | None:
     if model.is_stateful():
         if not isinstance(state, eqx.nn.State):
@@ -156,12 +169,12 @@ def load_pmt_checkpoint(
         _FullCheckpoint,
         load_weights(snapshot, path=path, inference_mode=False, limits=limits),
     )
-    if _base_digest(loaded.model) != recorded["base_digest"]:
+    if _matching_base_digest(loaded.model, recorded["base_digest"]) is None:
         raise ValueError("Full PMT checkpoint encoder digest mismatch.")
     model = eqx.tree_at(
         lambda candidate: candidate.backbone_digest,
         loaded.model,
-        recorded["base_digest"],
+        _base_digest(loaded.model),
     )
     return model, loaded.state, loaded.mask_state
 
@@ -200,8 +213,9 @@ def load_pmt_decoder(
         template.head, _check_state(template, state), _mask_state(template, None)
     )
     recorded = _recorded_configuration(path, snapshot, limits=limits)
+    base_digest = _matching_base_digest(template, recorded.get("base_digest"))
     expected = _configuration(
-        template, kind="decoder", base_digest=_base_digest(template)
+        template, kind="decoder", base_digest=base_digest or _base_digest(template)
     )
     _check_configuration(recorded, expected, full=False)
     loaded = cast(

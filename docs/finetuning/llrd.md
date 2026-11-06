@@ -25,4 +25,8 @@ emitting weight-decay labels.
 Patch embedding freeze means `patch_embed` leaves are absent from `plan.trainable`; they do not get a zero learning
 rate.
 
-Bias, norm, position embedding, class token, and mask token leaves are no-weight-decay by default.
+Bias, norm, layer-scale, state-space dynamics (`ssm`), position embedding, and learned prefix token leaves, and every
+other array with at most one axis (`vector`, such as IA3 vectors or DoRA magnitudes), are no-weight-decay by default
+(`equimo.core.parameters.DEFAULT_NO_DECAY_TAGS`, the same policy as `equimo.core.parameters.weight_decay_mask`).
+DINOv2/v3-style pretraining decays position embeddings and tokens; pass `no_weight_decay_tags` without those tags to
+match it. Buffers, such as frozen PEFT bases, are never trainable.

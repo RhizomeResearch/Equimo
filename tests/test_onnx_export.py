@@ -10,6 +10,13 @@ import pytest
 from jax2onnx import to_onnx
 
 from equimo.core.ops import softmax
+from equimo.vision.layers.posemb import (
+    DinoRoPE,
+    PosEmbMLPSwinv1D,
+    PosEmbMLPSwinv2D,
+    RoPE,
+    VisionRoPE,
+)
 
 from cases.model_cases import MODEL_CASES, extract_features
 
@@ -45,6 +52,57 @@ def test_softmax_exports_the_jax_softmax_graph(variant):
     )
     (actual,) = session.run(["y"], {"x": np.asarray(x)})
     np.testing.assert_allclose(actual, call(jax.nn.softmax)(x), rtol=1e-6, atol=0)
+
+
+_SWIN_V2 = dict(window_size=(4, 4), pretrained_window_size=(0, 0), num_heads=2)
+
+
+@pytest.mark.parametrize(
+    ("cls", "kwargs", "table"),
+    [
+        (RoPE, dict(shape=(4, 3, 16)), "rotations"),
+        (DinoRoPE, dict(dim=64, num_heads=2), "periods"),
+        (VisionRoPE, dict(strategy="period", dim=64, num_heads=2), "freqs"),
+        (
+            VisionRoPE,
+            dict(
+                strategy="period",
+                dim=64,
+                num_heads=2,
+                base=None,
+                min_period=1.0,
+                max_period=50.0,
+            ),
+            "freqs",
+        ),
+        (VisionRoPE, dict(strategy="mode", dim=64, num_heads=2), "freqs"),
+        (PosEmbMLPSwinv1D, dict(dim=8, rank=2, seq_len=16), "relative_coords_table"),
+        (PosEmbMLPSwinv2D, dict(_SWIN_V2, seq_len=16), "relative_coords_table"),
+        (PosEmbMLPSwinv2D, dict(_SWIN_V2, seq_len=16), "relative_position_index"),
+    ],
+    ids=lambda value: value if isinstance(value, str) else None,
+)
+def test_posemb_tables_export_as_constants(cls, kwargs, table):
+    if cls in (PosEmbMLPSwinv1D, PosEmbMLPSwinv2D):
+        kwargs = dict(kwargs, key=jr.PRNGKey(0))
+    module = cls(**kwargs)
+    expected = getattr(module, table)
+
+    model = to_onnx(
+        lambda x: x + getattr(module, table),
+        inputs=[jnp.zeros_like(expected)],
+        opset=18,
+    )
+
+    # The table follows from static fields, so no graph op may recompute it.
+    assert [node.op_type for node in model.graph.node] == ["Add"]
+    session = ort.InferenceSession(
+        model.SerializeToString(), providers=["CPUExecutionProvider"]
+    )
+    (actual,) = session.run(
+        None, {model.graph.input[0].name: np.zeros(expected.shape, expected.dtype)}
+    )
+    np.testing.assert_array_equal(actual, expected)
 
 
 @pytest.mark.parametrize("case", MODEL_CASES, ids=lambda case: case.registry_name)

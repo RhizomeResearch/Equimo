@@ -12,6 +12,8 @@ import jax.random as jr
 import jax.tree_util as jtu
 import numpy as np
 
+from equimo._legacy_layouts import legacy_leaves_with_path
+
 from .._typing import Path, PyTree
 from ..config import FineTuneBundleError
 from ..paths import key_path_to_path, path_to_str
@@ -96,12 +98,22 @@ def hash_inexact_pytree(
     include_values: bool,
     logical_ids_only: bool,
     prefix: str,
+    legacy_layout: bool = False,
 ) -> str:
-    """Hash inexact leaves using explicit persisted-format policies."""
+    """Hash inexact leaves using explicit persisted-format policies.
+
+    With *legacy_layout*, hash the leaves a pre-2.8 version of *model* had,
+    including values Equimo now computes (see :mod:`equimo._legacy_layouts`),
+    to check hashes recorded by older bundles.
+    """
 
     digest = hashlib.sha256()
-    filtered = eqx.filter(model, eqx.is_inexact_array)
-    for key_path, leaf in jtu.tree_leaves_with_path(filtered):
+    entries = (
+        legacy_leaves_with_path(model)
+        if legacy_layout
+        else jtu.tree_leaves_with_path(model)
+    )
+    for key_path, leaf in entries:
         if not eqx.is_inexact_array(leaf):
             continue
         path = key_path_to_path(key_path)

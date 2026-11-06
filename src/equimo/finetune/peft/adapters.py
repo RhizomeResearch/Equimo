@@ -14,6 +14,7 @@ import jax.tree_util as jtu
 
 from equimo.core._prng import split_for_mode
 from equimo.core.ops import softmax
+from equimo.core.parameters import buffer
 
 from .._typing import Path, PyTree
 from ..config import FineTuneBundle, FineTuneBundleError, TargetSpec, TrainableSpec
@@ -30,7 +31,7 @@ from ._compat import (
     linear_weight as _linear_weight,
 )
 from .base import get_path, iter_wrappers
-from .lora import architecture_hash
+from .lora import architecture_hash, matches_architecture_hash
 from . import _common
 
 
@@ -324,7 +325,7 @@ class AdaptFormerAdapter(eqx.Module):
     """AdaptFormer adapter branch."""
 
     adapter: BottleneckAdapter
-    scale: jax.Array
+    scale: jax.Array = buffer(when=lambda adapter: not adapter.scale_trainable)
     scale_trainable: bool = eqx.field(static=True)
 
     def __init__(
@@ -365,7 +366,10 @@ class AdaptFormerAdapter(eqx.Module):
         key: jax.Array | None = None,
         inference: bool | None = True,
     ) -> jax.Array:
-        out = self.adapter(x, key=key, inference=inference) * self.scale
+        scale = (
+            self.scale if self.scale_trainable else jax.lax.stop_gradient(self.scale)
+        )
+        out = self.adapter(x, key=key, inference=inference) * scale
         return out.astype(x.dtype)
 
 
@@ -459,7 +463,7 @@ class OrthogonalLinear(eqx.Module):
 
     base: eqx.Module
     skew: jax.Array
-    unmerged_weight: jax.Array | None
+    unmerged_weight: jax.Array | None = buffer()
     side: Literal["input", "output"] = eqx.field(static=True)
     parameterization: Literal["cayley", "butterfly_cayley"] = eqx.field(static=True)
     block_size: int | None = eqx.field(static=True)
@@ -986,11 +990,13 @@ def load_adapter_delta(base_model: PyTree, bundle: FineTuneBundle) -> PyTree:
         raise FineTuneBundleError(
             f"Expected an adapter bundle, got method={bundle.method!r}."
         )
-    actual_hash = architecture_hash(base_model)
-    if bundle.architecture_hash and bundle.architecture_hash != actual_hash:
+    if bundle.architecture_hash and not matches_architecture_hash(
+        bundle.architecture_hash, base_model
+    ):
         raise FineTuneBundleError(
             "Adapter delta architecture hash mismatch: "
-            f"expected {bundle.architecture_hash}, got {actual_hash}."
+            f"expected {bundle.architecture_hash}, "
+            f"got {architecture_hash(base_model)}."
         )
 
     updated = base_model

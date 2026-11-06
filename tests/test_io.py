@@ -32,6 +32,7 @@ from equimo.serialization import (
     save_model,
 )
 from equimo.vision.io import _center_crop_square
+from equimo.vision.layers.posemb import VisionRoPE
 from _optional import require_extra
 
 KEY = jr.PRNGKey(0)
@@ -287,6 +288,76 @@ class _TinyModel(eqx.Module):
         return jax.vmap(self.linear)(x)
 
 
+def _drop_versioned_metadata(path):
+    """Turn a saved checkpoint directory into a schema-less v2-alpha one."""
+    metadata_path = path / "metadata.json"
+    metadata = json.loads(metadata_path.read_text())
+    for key in (
+        "format",
+        "format_version",
+        "weights_sha256",
+        "model_class",
+        "model_signature",
+    ):
+        metadata.pop(key)
+    metadata_path.write_text(json.dumps(metadata))
+
+
+class _RoPEModel(eqx.Module):
+    linear: eqx.nn.Linear
+    rope: eqx.Module
+
+
+class _StoredFreqs(eqx.Module):
+    """``VisionRoPE`` as checkpoints written before Equimo 2.8 store it."""
+
+    freqs: jax.Array
+
+
+def _rope_model(key):
+    return _RoPEModel(
+        eqx.nn.Linear(8, 4, key=key), VisionRoPE("period", dim=32, num_heads=2)
+    )
+
+
+def _save_pre_2_8_rope_checkpoint(path, *, freqs_scale=1.0, versioned=True):
+    trained = _rope_model(jr.PRNGKey(1))
+    stored = eqx.tree_at(
+        lambda model: model.rope,
+        trained,
+        _StoredFreqs(trained.rope.freqs * freqs_scale),
+    )
+    save_model(path, stored, {"dim": 32}, compression=False)
+    if not versioned:
+        _drop_versioned_metadata(path)
+    return trained
+
+
+@pytest.mark.filterwarnings("ignore:.*v2-alpha checkpoint:RuntimeWarning")
+@pytest.mark.parametrize("versioned", [True, False], ids=["versioned", "schema_less"])
+# Backends round transcendental functions differently, by a unit or two.
+@pytest.mark.parametrize("freqs_scale", [1.0, 1.0 + 2**-23], ids=["exact", "rounded"])
+def test_load_weights_reads_checkpoints_storing_rope_frequencies(
+    tmp_path, versioned, freqs_scale
+):
+    trained = _save_pre_2_8_rope_checkpoint(
+        tmp_path / "model", freqs_scale=freqs_scale, versioned=versioned
+    )
+
+    loaded = load_weights(_rope_model(KEY), path=tmp_path / "model")
+
+    assert jnp.array_equal(loaded.linear.weight, trained.linear.weight)
+    assert jnp.array_equal(loaded.linear.bias, trained.linear.bias)
+    assert isinstance(loaded.rope, VisionRoPE)
+
+
+def test_load_weights_rejects_changed_stored_rope_frequencies(tmp_path):
+    _save_pre_2_8_rope_checkpoint(tmp_path / "model", freqs_scale=0.99)
+
+    with pytest.raises(ValueError, match="weight decay"):
+        load_weights(_rope_model(KEY), path=tmp_path / "model")
+
+
 class TestSaveLoadRoundTrip:
     def _make_model(self):
         return _TinyModel(8, 4, key=KEY)
@@ -296,17 +367,7 @@ class TestSaveLoadRoundTrip:
 
     def _make_legacy_directory(self, path):
         save_model(path, self._make_model(), self._model_config(), compression=False)
-        metadata_path = path / "metadata.json"
-        metadata = json.loads(metadata_path.read_text())
-        for key in (
-            "format",
-            "format_version",
-            "weights_sha256",
-            "model_class",
-            "model_signature",
-        ):
-            metadata.pop(key)
-        metadata_path.write_text(json.dumps(metadata))
+        _drop_versioned_metadata(path)
         return path
 
     def test_save_creates_lz4_file(self, tmp_path):
@@ -728,7 +789,7 @@ class TestSaveLoadRoundTrip:
 
         deserialise.assert_not_called()
 
-    def test_load_weights_reuses_public_inspection(self, tmp_path, monkeypatch):
+    def test_load_weights_reuses_checkpoint_inspection(self, tmp_path, monkeypatch):
         path = save_model(
             tmp_path / "model_dir",
             self._make_model(),
@@ -737,8 +798,8 @@ class TestSaveLoadRoundTrip:
         )
         from equimo import serialization
 
-        inspect = MagicMock(wraps=serialization.inspect_checkpoint)
-        monkeypatch.setattr(serialization, "inspect_checkpoint", inspect)
+        inspect = MagicMock(wraps=serialization._inspect_checkpoint)
+        monkeypatch.setattr(serialization, "_inspect_checkpoint", inspect)
 
         load_weights(self._make_model(), path=path)
 

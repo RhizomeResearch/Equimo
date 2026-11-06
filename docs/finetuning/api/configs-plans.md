@@ -236,7 +236,7 @@ type equimo.finetune.LeafPredicate = Callable[[tuple[str | int, ...], Any], bool
 ## `LLRDConfig`
 
 ```python
-class equimo.finetune.LLRDConfig(decay: 'float' = 0.75, depth_axis: 'DepthAxis' = 'block', top_block_lr_multiplier: 'float' = 1.0, head_lr_multiplier: 'float' = 1.0, embedding_lr_multiplier: 'float | None' = None, rebase_selected_depth: 'bool' = False, no_weight_decay_tags: 'tuple[str, ...]' = ('bias', 'norm', 'embedding.position', 'embedding.class_token', 'embedding.register_token', 'embedding.distillation_token', 'embedding.mask_token'), block_label_format: 'str' = 'block_{depth:02d}', head_label: 'str' = 'head', embedding_label: 'str' = 'embed') -> None
+class equimo.finetune.LLRDConfig(decay: 'float' = 0.75, depth_axis: 'DepthAxis' = 'block', top_block_lr_multiplier: 'float' = 1.0, head_lr_multiplier: 'float' = 1.0, embedding_lr_multiplier: 'float | None' = None, rebase_selected_depth: 'bool' = False, no_weight_decay_tags: 'tuple[str, ...]' = ('bias', 'norm', 'block.layer_scale', 'ssm', 'vector', 'embedding.position', 'embedding.class_token', 'embedding.register_token', 'embedding.distillation_token', 'embedding.mask_token'), block_label_format: 'str' = 'block_{depth:02d}', head_label: 'str' = 'head', embedding_label: 'str' = 'embed') -> None
 ```
 
 Defined in `equimo.finetune.config`.

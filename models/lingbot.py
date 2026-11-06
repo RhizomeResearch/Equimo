@@ -65,12 +65,8 @@ def sha256_file(path: Path) -> str:
 def source_name(destination: str) -> str:
     """Map one Equimo array path to its author checkpoint tensor."""
     name = destination.lstrip(".")
-    names = {
-        "local_pos_embed.patch_rope.freqs": "rope_embed.periods",
-        "reg_tokens": "storage_tokens",
-    }
-    if name in names:
-        return names[name]
+    if name == "reg_tokens":
+        return "storage_tokens"
     block = re.fullmatch(r"blocks\[0\]\.blocks\[(\d+)\]\.(.+)", name)
     if block is not None:
         suffix = block[2].replace("prenorm.", "norm1.").replace("norm.", "norm2.")
@@ -155,6 +151,18 @@ def convert(variant: str, source: Path, output_dir: Path) -> tuple[Path, Path]:
     )
     model = getattr(vision_models, identifier)(pretrained=False)
     mapping: dict[str, str] = {}
+
+    # Equimo computes the RoPE periods from the configuration; they must
+    # reproduce the author's buffer exactly.
+    if "rope_embed.periods" not in state:
+        raise ValueError("Missing source tensor 'rope_embed.periods'.")
+    periods = np.asarray(state["rope_embed.periods"])
+    expected_periods = np.asarray(model.local_pos_embed.patch_rope.freqs)
+    if periods.dtype != expected_periods.dtype or not np.array_equal(
+        periods, expected_periods
+    ):
+        raise ValueError("Author RoPE periods differ from the configured periods.")
+    accounted.add("rope_embed.periods")
 
     def replace(path, leaf):
         if not eqx.is_array(leaf):

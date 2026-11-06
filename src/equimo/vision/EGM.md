@@ -52,15 +52,17 @@ holds only a docstring; import subpackages explicitly (`equimo.vision.models`, `
 
 - `save_pmt_checkpoint(path, model, *, state=None, mask_state=None) -> Path` and
   `load_pmt_checkpoint(path, template, *, state=None, limits=None) -> (PMT, state, PMTMaskState)`: full encoder and
-  decoder snapshots. The loaded model's `backbone_digest` is set to the recorded `base_digest`.
+  decoder snapshots. The loaded model's `backbone_digest` is set to the digest of its loaded encoder.
   `[pmt_checkpoint.py:save_pmt_checkpoint]`, `[pmt_checkpoint.py:load_pmt_checkpoint]`
 - `save_pmt_decoder(...)` and `load_pmt_decoder(...)`: decoder-only artifacts bound to exact encoder arrays.
   `[pmt_checkpoint.py:save_pmt_decoder]`, `[pmt_checkpoint.py:load_pmt_decoder]`
 
 ### Encoder identity (`_encoder_identity.py`)
 
-- `encoder_array_digest(encoder) -> str`: SHA-256 over every array leaf's path, shape, dtype, and bytes; used for PMT
-  `backbone_digest` and checkpoint binding. `[_encoder_identity.py:encoder_array_digest]`
+- `encoder_array_digest(encoder, *, legacy_layout=False) -> str`: SHA-256 over every array leaf's path, shape, dtype,
+  and bytes; used for PMT `backbone_digest` and checkpoint binding. `legacy_layout=True` also hashes the values
+  `equimo._legacy_layouts` re-inserts, as encoders before Equimo 2.8 stored them.
+  `[_encoder_identity.py:encoder_array_digest]`
 
 ## Invariants
 
@@ -84,9 +86,10 @@ holds only a docstring; import subpackages explicitly (`equimo.vision.models`, `
   patch size, positional configuration) with the template and raises on mismatch. `[pmt_checkpoint.py:_check_state]`,
   `[pmt_checkpoint.py:_mask_state]`, `[pmt_checkpoint.py:_configuration]`, `[pmt_checkpoint.py:_check_configuration]`
 - Full checkpoints verify the loaded encoder digest against the recorded `base_digest`; decoder-only artifacts require a
-  bound `backbone_id` (not `"unbound"`) and the template's current encoder digest must match the recorded one.
-  `[pmt_checkpoint.py:load_pmt_checkpoint]`, `[pmt_checkpoint.py:save_pmt_decoder]`,
-  `[pmt_checkpoint.py:load_pmt_decoder]`
+  bound `backbone_id` (not `"unbound"`) and the template's current encoder digest must match the recorded one. A
+  recorded digest that matches the encoder's pre-2.8 layout is accepted too. `[pmt_checkpoint.py:load_pmt_checkpoint]`,
+  `[pmt_checkpoint.py:save_pmt_decoder]`, `[pmt_checkpoint.py:load_pmt_decoder]`,
+  `[pmt_checkpoint.py:_matching_base_digest]`
 - `encoder_array_digest` pulls arrays to the host and must run outside traced functions.
   `[_encoder_identity.py:encoder_array_digest]`
 - Global conventions for the subtree: modules are unbatched, forward endpoints take `key: PRNGKeyArray | None = None`

@@ -13,6 +13,7 @@ import jax.numpy as jnp
 import jax.tree_util as jtu
 
 from equimo.core._prng import split_for_mode
+from equimo.core.parameters import trainable_mask
 
 from ._typing import Path, PyTree
 from .config import AuxLossSpec
@@ -147,7 +148,7 @@ def adapter_norm_loss(
     tag_set = frozenset(tags)
     pairs = tuple(
         _norm_leaf(leaf)
-        for path, leaf in _inexact_array_entries(model)
+        for path, leaf in _trainable_entries(model)
         if not canonical_tags_for_path(path, leaf).isdisjoint(tag_set)
     )
     if not pairs:
@@ -218,7 +219,7 @@ def task_vector_norm_loss(
     """Return an optionally scaled norm penalty for a task-vector delta tree."""
 
     delta = getattr(task_vector, "delta", task_vector)
-    pairs = tuple(_norm_leaf(leaf) for _, leaf in _inexact_array_entries(delta))
+    pairs = tuple(_norm_leaf(leaf) for _, leaf in _trainable_entries(delta))
     if not pairs:
         return jnp.asarray(0.0)
     sums, counts = zip(*pairs, strict=True)
@@ -556,8 +557,8 @@ def _matched_l2_entries(
     model: PyTree,
     reference: PyTree,
 ) -> tuple[tuple[Path, jax.Array, jax.Array], ...]:
-    model_entries = _inexact_array_entries(model)
-    reference_entries = _inexact_array_entries(reference)
+    model_entries = _trainable_entries(model)
+    reference_entries = _trainable_entries(reference)
     if len(model_entries) != len(reference_entries):
         raise ValueError(
             "l2_sp_loss requires compatible inexact-array tree structures."
@@ -614,11 +615,17 @@ def _include_l2_new_path(path: Path, leaf: jax.Array, config: L2SPConfig) -> boo
     return "head" in tags or "head" in path_parts or "head" in path_to_str(path)
 
 
-def _inexact_array_entries(tree: PyTree) -> tuple[tuple[Path, jax.Array], ...]:
+def _trainable_entries(tree: PyTree) -> tuple[tuple[Path, jax.Array], ...]:
+    # Buffers are excluded: a penalty on their values would change them
+    # through its gradient even though the forward pass stops theirs.
     return tuple(
         (key_path_to_path(key_path), leaf)
-        for key_path, leaf in jtu.tree_leaves_with_path(tree)
-        if eqx.is_inexact_array(leaf)
+        for (key_path, leaf), trainable in zip(
+            jtu.tree_leaves_with_path(tree),
+            jtu.tree_leaves(trainable_mask(tree)),
+            strict=True,
+        )
+        if trainable
     )
 
 

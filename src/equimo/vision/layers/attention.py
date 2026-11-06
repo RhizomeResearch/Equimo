@@ -914,13 +914,13 @@ class LinearAttention(eqx.Module):
         inference: Optional[bool] = None,
     ) -> Float[Array, "seqlen dim"]:
         n, c = x.shape
-        h, w = self.rope.rotations.shape[:2]
+        h, w = self.rope.shape[:2]
         if n != h * w:
             raise ValueError(
                 f"Input sequence length {n} does not match configured grid {h}x{w}."
             )
 
-        q, k = rearrange(
+        qk = rearrange(
             jax.vmap(self.qk)(x),
             "n (qk h d) -> qk h n d",
             qk=2,
@@ -928,14 +928,17 @@ class LinearAttention(eqx.Module):
         )
         v = rearrange(x, "n (h d) -> h n d", h=self.num_heads)
 
-        q = jax.nn.elu(q) + 1.0
-        k = jax.nn.elu(k) + 1.0
+        qk = jax.nn.elu(qk) + 1.0
+        q, k = qk
 
-        q_2d = rearrange(q, "h (x y) d -> x y (h d)", x=h, y=w)
-        k_2d = rearrange(k, "h (x y) d -> x y (h d)", x=h, y=w)
-
-        q_rope = rearrange(self.rope(q_2d), "x y (h d) -> h (x y) d", h=self.num_heads)
-        k_rope = rearrange(self.rope(k_2d), "x y (h d) -> h (x y) d", h=self.num_heads)
+        # One RoPE call for q and k builds its rotation table once, which
+        # keeps a single copy of it in compiled and exported programs.
+        qk_2d = rearrange(qk, "qk h (x y) d -> qk x y (h d)", x=h, y=w)
+        q_rope, k_rope = rearrange(
+            jax.vmap(self.rope)(qk_2d),
+            "qk x y (h d) -> qk h (x y) d",
+            h=self.num_heads,
+        )
 
         # Compute attention
         z = 1 / (

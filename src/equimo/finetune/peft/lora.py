@@ -11,6 +11,8 @@ import jax
 import jax.numpy as jnp
 import jax.random as jr
 
+from equimo.core.parameters import buffer
+
 from .._typing import Path, PyTree
 from ..config import (
     CalibrationArtifact,
@@ -198,7 +200,7 @@ class LoRALinear(eqx.Module):
     lora_A: jax.Array
     lora_B: jax.Array
     rank_mask: jax.Array | None
-    base_weight_delta: jax.Array | None
+    base_weight_delta: jax.Array | None = buffer()
     rank: int = eqx.field(static=True)
     alpha: float = eqx.field(static=True)
     scaling_mode: ScalingMode = eqx.field(static=True)
@@ -338,9 +340,9 @@ class LoRAFALinear(eqx.Module):
     """LoRA-FA wrapper with frozen A and trainable B."""
 
     base: _LinearLike
-    frozen_A: jax.Array
+    frozen_A: jax.Array = buffer()
     lora_fa_B: jax.Array
-    correction_matrix: jax.Array
+    correction_matrix: jax.Array = buffer()
     rank: int = eqx.field(static=True)
     alpha: float = eqx.field(static=True)
     scaling_mode: ScalingMode = eqx.field(static=True)
@@ -425,7 +427,8 @@ class LoRAFALinear(eqx.Module):
         if self.merged:
             return y
         if not self.custom_vjp:
-            return y + (self.lora_fa_B @ (self.frozen_A @ x)) * self.scaling
+            frozen_A = jax.lax.stop_gradient(self.frozen_A)
+            return y + (self.lora_fa_B @ (frozen_A @ x)) * self.scaling
         if self.gradient_mode == "corrected_v3":
             update = _lora_fa_update_corrected(
                 self.frozen_A,
@@ -489,8 +492,8 @@ class RandLoRALinear(eqx.Module):
     """RandLoRA wrapper with frozen random bases and trainable composition scales."""
 
     base: _LinearLike
-    random_A: jax.Array
-    random_B: jax.Array
+    random_A: jax.Array = buffer()
+    random_B: jax.Array = buffer()
     basis_scales: jax.Array
     rank: int = eqx.field(static=True)
     basis_count: int = eqx.field(static=True)
@@ -589,8 +592,8 @@ class RandLoRALinear(eqx.Module):
         delta = jnp.einsum(
             "b,bor,bri->oi",
             self.basis_scales,
-            self.random_B,
-            self.random_A,
+            jax.lax.stop_gradient(self.random_B),
+            jax.lax.stop_gradient(self.random_A),
         )
         delta = _mask_projection_segments(
             delta * self.scaling, self.projection_segments
@@ -1466,11 +1469,13 @@ def load_lora_delta(base_model: PyTree, bundle: FineTuneBundle) -> PyTree:
             f"Expected a LoRA bundle, got method={bundle.method!r}."
         )
 
-    actual_hash = architecture_hash(base_model)
-    if bundle.architecture_hash and bundle.architecture_hash != actual_hash:
+    if bundle.architecture_hash and not matches_architecture_hash(
+        bundle.architecture_hash, base_model
+    ):
         raise FineTuneBundleError(
             "LoRA delta architecture hash mismatch: "
-            f"expected {bundle.architecture_hash}, got {actual_hash}."
+            f"expected {bundle.architecture_hash}, "
+            f"got {architecture_hash(base_model)}."
         )
 
     updated = base_model
@@ -1760,12 +1765,30 @@ def apply_lora_rank_pattern(
 def architecture_hash(model: PyTree) -> str:
     """Hash parameter paths, shapes, and dtypes for compatibility checks."""
 
+    return _architecture_hash(model, legacy_layout=False)
+
+
+def matches_architecture_hash(expected: str, model: PyTree) -> bool:
+    """Return whether *expected* is the architecture hash of *model*.
+
+    Hashes recorded before Equimo 2.8 also cover values Equimo now computes,
+    such as RoPE frequencies, and are accepted too.
+    """
+
+    return any(
+        expected == _architecture_hash(model, legacy_layout=legacy)
+        for legacy in (False, True)
+    )
+
+
+def _architecture_hash(model: PyTree, *, legacy_layout: bool) -> str:
     return hash_inexact_pytree(
         model,
         include_head=True,
         include_values=False,
         logical_ids_only=False,
         prefix="",
+        legacy_layout=legacy_layout,
     )
 
 

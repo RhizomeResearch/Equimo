@@ -3,8 +3,9 @@ import hashlib
 import json
 import tarfile
 import tempfile
+from collections.abc import Iterable
 from pathlib import Path
-from typing import BinaryIO, cast
+from typing import Any, BinaryIO, cast
 import warnings
 
 import equinox as eqx
@@ -33,6 +34,11 @@ from equimo._io import (
     sha256_file,
     sha256_stream,
     validate_sha256,
+)
+from equimo._legacy_layouts import (
+    legacy_layout,
+    legacy_leaves_with_path,
+    restore_layout,
 )
 from equimo._pretrained import DEFAULT_REPOSITORY_REVISION, PRETRAINED_ARCHIVE_SHA256
 from equimo.registry import _SAFE_IDENTIFIER_RE
@@ -671,6 +677,32 @@ def inspect_checkpoint(
         the exact path supplied by the caller, not an extraction-cache path.
     """
 
+    info, _ = _inspect_checkpoint(
+        path,
+        model=model,
+        allow_legacy=allow_legacy,
+        expected_weights_sha256=expected_weights_sha256,
+        expected_model_config=expected_model_config,
+        limits=limits,
+    )
+    return info
+
+
+def _inspect_checkpoint(
+    path: Path,
+    *,
+    model: eqx.Module | None,
+    allow_legacy: bool,
+    expected_weights_sha256: str | None,
+    expected_model_config: dict | None,
+    limits: CheckpointLimits | None,
+) -> tuple[CheckpointInfo, Any]:
+    """Inspect a checkpoint and return the template its weights match.
+
+    The template is *model*, or its pre-2.8 layout when the checkpoint stores
+    values that Equimo now computes (see :mod:`equimo._legacy_layouts`).
+    """
+
     limits = resolve_limits(limits)
     if expected_weights_sha256 is not None:
         expected_weights_sha256 = validate_sha256(
@@ -720,7 +752,7 @@ def _inspect_checkpoint_directory(
     expected_weights_sha256: str | None,
     expected_model_config: dict | None,
     limits: CheckpointLimits,
-) -> CheckpointInfo:
+) -> tuple[CheckpointInfo, Any]:
     metadata_path = path / "metadata.json"
     weights_path = path / "weights.eqx"
     if not metadata_path.is_file() or not weights_path.is_file():
@@ -778,10 +810,9 @@ def _inspect_checkpoint_directory(
                 "allow_legacy=True to inspect it as unverified."
             )
         actual_checksum = _weights_checksum(weights_path, expected_weights_sha256)
-        with weights_path.open("rb") as handle:
-            _scan_weights(handle, model, limits)
+        layout = _layout_for_stream(weights_path, model, limits)
         equimo_version = metadata.get("equimo_version")
-        return CheckpointInfo(
+        info = CheckpointInfo(
             path=result_path,
             format=None,
             format_version=None,
@@ -792,6 +823,7 @@ def _inspect_checkpoint_directory(
             verified=False,
             legacy=True,
         )
+        return info, layout
 
     if metadata.get("format") != _CHECKPOINT_FORMAT:
         raise ValueError(f"Unsupported checkpoint format {metadata.get('format')!r}.")
@@ -831,6 +863,7 @@ def _inspect_checkpoint_directory(
             f"{expected_checksum}, got {actual_checksum}."
         )
 
+    layout = model
     if model is not None:
         actual_class = _model_class(model)
         if expected_class != actual_class:
@@ -838,17 +871,12 @@ def _inspect_checkpoint_directory(
                 f"Checkpoint model class mismatch: expected {expected_class!r}, "
                 f"got {actual_class!r}."
             )
-        actual_signature = _model_signature(model)
-        if expected_signature != actual_signature:
-            raise ValueError(
-                "Checkpoint model signature mismatch: expected "
-                f"{expected_signature!r}, got {actual_signature!r}."
-            )
+        layout = _layout_for_signature(model, expected_signature)
 
     with weights_path.open("rb") as handle:
-        _scan_weights(handle, model, limits)
+        _scan_weights(handle, layout, limits)
 
-    return CheckpointInfo(
+    info = CheckpointInfo(
         path=result_path,
         format=_CHECKPOINT_FORMAT,
         format_version=format_version,
@@ -859,6 +887,43 @@ def _inspect_checkpoint_directory(
         verified=True,
         legacy=False,
     )
+    return info, layout
+
+
+def _layout_for_signature(model: eqx.Module, expected_signature: str) -> Any:
+    """Return *model* or its pre-2.8 layout, whichever has *expected_signature*."""
+    actual_signature = _model_signature(model)
+    if expected_signature == actual_signature:
+        return model
+    legacy = legacy_layout(model)
+    if legacy is not None and expected_signature == _signature(
+        legacy_leaves_with_path(model)
+    ):
+        return legacy
+    raise ValueError(
+        "Checkpoint model signature mismatch: expected "
+        f"{expected_signature!r}, got {actual_signature!r}."
+    )
+
+
+def _layout_for_stream(
+    weights_path: Path, model: eqx.Module | None, limits: CheckpointLimits
+) -> Any:
+    """Return *model* or its pre-2.8 layout, whichever the weight stream matches."""
+    try:
+        with weights_path.open("rb") as handle:
+            _scan_weights(handle, model, limits)
+        return model
+    except ValueError as error:
+        legacy = None if model is None else legacy_layout(model)
+        if legacy is None:
+            raise
+        try:
+            with weights_path.open("rb") as handle:
+                _scan_weights(handle, legacy, limits)
+        except ValueError:
+            raise error from None
+        return legacy
 
 
 def _scan_weights(
@@ -957,7 +1022,7 @@ def load_weights(
             and identifier in PRETRAINED_ARCHIVE_SHA256
         )
     )
-    checkpoint = inspect_checkpoint(
+    checkpoint, layout = _inspect_checkpoint(
         load_path,
         model=model,
         allow_legacy=True,
@@ -987,13 +1052,19 @@ def load_weights(
             )
         if sha256_stream(staged) != checkpoint.weights_sha256:
             raise ValueError("Checkpoint weights changed during loading.")
-        _scan_weights(staged, model, limits)
-        model = eqx.tree_deserialise_leaves(staged, model)
+        _scan_weights(staged, layout, limits)
+        loaded = eqx.tree_deserialise_leaves(staged, layout)
         if staged.read(1):
             raise ValueError(
                 "Checkpoint weights contain trailing data after model leaves."
             )
-    model = eqx.nn.inference_mode(model, inference_mode)
+    if layout is not model:
+        logger.info(
+            "Checkpoint stores values that Equimo now computes; save the model "
+            "again to drop them."
+        )
+        loaded = restore_layout(loaded)
+    model = eqx.nn.inference_mode(loaded, inference_mode)
 
     logger.info("Weights loaded successfully.")
     return model
@@ -1005,12 +1076,16 @@ def _model_class(model: eqx.Module) -> str:
 
 
 def _model_signature(model: eqx.Module) -> str:
+    return _signature(jtu.tree_leaves_with_path(model))
+
+
+def _signature(entries: Iterable[tuple[tuple[Any, ...], Any]]) -> str:
     leaves = [
         {
-            "path": jtu.keystr(path),
+            "path": jtu.keystr(tuple(path)),
             "shape": tuple(int(dimension) for dimension in leaf.shape),
         }
-        for path, leaf in jtu.tree_leaves_with_path(model)
+        for path, leaf in entries
         if eqx.is_array(leaf)
     ]
     payload = json.dumps(leaves, sort_keys=True, separators=(",", ":")).encode()

@@ -450,7 +450,7 @@ def main(argv=None):
             "storage_tokens": 0,
         }
         torch_whitelist = []
-        jax_whitelist = ["local_pos_embed.patch_rope.freqs", "pos_embed.periods"]
+        jax_whitelist = []
 
         arr = rng.standard_normal((3, cfg["img_size"], cfg["img_size"])).astype(
             np.float32

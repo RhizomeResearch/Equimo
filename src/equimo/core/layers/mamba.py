@@ -9,6 +9,7 @@ from einops import rearrange
 from jaxtyping import Array, Float, PRNGKeyArray
 
 from equimo.core.layers.norm import RMSNormGated, get_norm
+from equimo.core.parameters import tagged
 from equimo.core.ops.scan import non_causal_linear_attn
 from equimo.core.layers._registry import make_get, make_register
 
@@ -80,9 +81,9 @@ class Mamba2Mixer(eqx.Module):
 
     in_proj: eqx.nn.Linear
     conv: eqx.nn.Conv
-    dt_bias: Float[Array, "n_heads"]
-    A_log: Float[Array, "n_heads"]
-    D: Float[Array, "n_heads"]
+    dt_bias: Float[Array, "n_heads"] = tagged("ssm")
+    A_log: Float[Array, "n_heads"] = tagged("ssm")
+    D: Float[Array, "n_heads"] = tagged("ssm")
     norm: eqx.Module
     out_proj: eqx.nn.Linear
 

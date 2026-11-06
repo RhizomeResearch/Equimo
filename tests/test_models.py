@@ -390,16 +390,21 @@ def test_convnext_drop_path():
 
 
 @pytest.mark.parametrize(
-    "factory", (dinov3_vits16_pretrain_lvd1689m, em.eupe_vits16), ids=("dinov3", "eupe")
+    ("factory", "periods_dtype"),
+    (
+        (dinov3_vits16_pretrain_lvd1689m, jnp.float32),
+        # The EUPE checkpoints store periods rounded to bfloat16.
+        (em.eupe_vits16, jnp.bfloat16),
+    ),
+    ids=("dinov3", "eupe"),
 )
-def test_dinov3_local_rope_config_matches_official(factory):
+def test_dinov3_local_rope_config_matches_official(factory, periods_dtype):
     model = factory(pretrained=False)
     rope = model.local_pos_embed.patch_rope
 
     D_head = model.dim // 6
-    expected = 100.0 ** (
-        2.0 * jnp.arange(D_head // 4, dtype=jnp.float32) / float(D_head // 2)
-    )
+    exponents = 2.0 * jnp.arange(D_head // 4, dtype=periods_dtype) / float(D_head // 2)
+    expected = (100.0**exponents).astype(jnp.float32)
 
     assert rope.freqs.dtype == jnp.float32
     assert rope.normalize_coords == "separate"

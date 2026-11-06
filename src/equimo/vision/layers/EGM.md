@@ -165,9 +165,13 @@ shared core layers (activation, dropout, FFN, generic, Mamba mixer, norm) so mod
   `CompositeVisionRoPE` requires matching patch and register layouts, raises when `num_registers > 0` is not a perfect
   square and `reg_grid` is omitted, and its `__call__` raises when `H * W` differs from the patch-token count.
   `[posemb.py:RoPE]`, `[posemb.py:DinoRoPE]`, `[posemb.py:VisionRoPE]`, `[posemb.py:CompositeVisionRoPE]`
-- `VisionRoPE.freqs` and `DinoRoPE.periods` are non-static array leaves; freeze them or exclude them from weight decay
-  in optimizer masks. Buffers in `PosEmbMLPSwinv1D`, `PosEmbMLPSwinv2D`, and `RoPE` are wrapped in `stop_gradient`.
-  `[posemb.py:VisionRoPE]`, `[posemb.py:PosEmbMLPSwinv2D]`
+- `VisionRoPE.freqs`, `DinoRoPE.periods`, `RoPE.rotations`, and the `PosEmbMLPSwinv1D`/`PosEmbMLPSwinv2D` coordinate and
+  index tables are properties computed from static fields, not PyTree leaves, so optimizers never see them. Each class
+  names them in `_legacy_stored_leaves`; checkpoints written before Equimo 2.8 stored them and load through
+  `equimo._legacy_layouts`. `[posemb.py:VisionRoPE]`, `[posemb.py:PosEmbMLPSwinv2D]`
+- `[posemb.py:_static_table]` evaluates those tables even while tracing, so `jax.jit` programs and ONNX exports hold
+  them as constants; `tests/test_onnx_export.py` checks that each table exports as a constant. `LinearAttention` applies
+  its `RoPE` to queries and keys in one call, so programs hold one table per block. `[attention.py:LinearAttention]`
 - `LearnedPosEmbed` validates `cls_token` and `reg_tokens` shapes and resamples the grid part only, leaving prefix rows
   unchanged. `[posemb.py:LearnedPosEmbed]`
 

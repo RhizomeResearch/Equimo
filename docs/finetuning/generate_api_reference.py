@@ -86,6 +86,7 @@ MODULE_GROUPS = {
     "equimo.finetune.labels": "selectors-tags",
     "equimo.finetune.masks": "selectors-tags",
     "equimo.finetune.tags": "selectors-tags",
+    "equimo.core.tags": "selectors-tags",
     "equimo.finetune.heads": "heads-pooling",
     "equimo.finetune.pooling": "heads-pooling",
     "equimo.finetune.feature_extraction": "heads-pooling",

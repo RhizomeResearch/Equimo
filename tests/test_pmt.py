@@ -24,6 +24,8 @@ from equimo.vision.models.pmd import (
     ReferenceBatchNorm,
     anneal_pmt_mask_state,
 )
+from equimo.vision import pmt_checkpoint
+from equimo.vision._encoder_identity import encoder_array_digest
 from equimo.vision.models.pmt import mask_free_pmt
 from equimo.vision.pmt_checkpoint import (
     load_pmt_checkpoint,
@@ -442,6 +444,41 @@ def test_native_checkpoints_and_exact_base_rejection(tmp_path: Path, norm: str):
             wrong_ontology,
             state=ontology_state if norm == "batchnorm" else None,
         )
+
+
+class _StoredFreqs(eqx.Module):
+    """``VisionRoPE`` as encoders before Equimo 2.8 held it."""
+
+    freqs: jax.Array
+
+
+def test_decoder_bound_to_encoder_with_stored_rope_frequencies_loads(
+    tmp_path: Path, monkeypatch
+):
+    model, _ = _model()
+    old_backbone = eqx.tree_at(
+        lambda backbone: backbone.local_pos_embed.patch_rope,
+        model.backbone,
+        _StoredFreqs(model.backbone.local_pos_embed.patch_rope.freqs),
+    )
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            pmt_checkpoint,
+            "_base_digest",
+            lambda _: encoder_array_digest(old_backbone),
+        )
+        decoder = save_pmt_decoder(tmp_path / "decoder", model)
+    template, _ = eqx.nn.make_with_state(PMT)(
+        model.backbone,
+        3,
+        key=jr.PRNGKey(5),
+        config=model.head.config,
+        backbone_id="tiny-base",
+    )
+
+    restored, _, _ = load_pmt_decoder(decoder, template)
+
+    np.testing.assert_array_equal(restored.head.queries, model.head.queries)
 
 
 def test_batchnorm_collective_axes_are_bound_to_checkpoints(tmp_path: Path):

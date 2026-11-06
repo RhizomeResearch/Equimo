@@ -3,6 +3,7 @@ import jax.numpy as jnp
 from jax import lax
 from jaxtyping import Array, Float
 from equimo.core.layers._registry import make_get, make_register
+from equimo.core.parameters import tagged
 
 _NORM_REGISTRY: dict[str, type[eqx.Module]] = {}
 
@@ -80,7 +81,7 @@ class LayerScale(eqx.Module):
     mixed-precision training contracts.
     """
 
-    gamma: Float[Array, "C"]  # noqa: F821
+    gamma: Float[Array, "C"] = tagged("block.layer_scale")  # noqa: F821
     axis: int = eqx.field(static=True)
 
     def __init__(

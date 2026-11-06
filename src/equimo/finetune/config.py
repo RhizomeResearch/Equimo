@@ -7,6 +7,8 @@ from typing import Any, Literal, Mapping
 
 import equinox as eqx
 
+from equimo.core.parameters import DEFAULT_NO_DECAY_TAGS
+
 from ._typing import LeafPredicate, Path, PyTree
 
 TrainableMode = Literal[
@@ -352,15 +354,7 @@ class LLRDConfig:
     head_lr_multiplier: float = 1.0
     embedding_lr_multiplier: float | None = None
     rebase_selected_depth: bool = False
-    no_weight_decay_tags: tuple[str, ...] = (
-        "bias",
-        "norm",
-        "embedding.position",
-        "embedding.class_token",
-        "embedding.register_token",
-        "embedding.distillation_token",
-        "embedding.mask_token",
-    )
+    no_weight_decay_tags: tuple[str, ...] = DEFAULT_NO_DECAY_TAGS
     block_label_format: str = "block_{depth:02d}"
     head_label: str = "head"
     embedding_label: str = "embed"

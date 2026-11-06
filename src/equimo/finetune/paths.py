@@ -8,16 +8,12 @@ from typing import Any
 import equinox as eqx
 import jax.tree_util as jtu
 
+from equimo.core.tags import key_path_to_path
+
 from ._typing import Path, PyTree
 from .config import ParamInfo
 
 LeafFilter = Callable[[Any], bool]
-
-
-def key_path_to_path(key_path: tuple[Any, ...]) -> Path:
-    """Convert a JAX key path into Equimo's stable path representation."""
-
-    return tuple(_key_to_part(key) for key in key_path)
 
 
 def path_to_str(path: Path) -> str:
@@ -117,25 +113,6 @@ def _param_info_from_leaf(key_path: tuple[Any, ...], leaf: Any) -> ParamInfo:
         is_array=eqx.is_array(leaf),
         is_inexact_array=eqx.is_inexact_array(leaf),
     )
-
-
-def _key_to_part(key: Any) -> str | int:
-    if isinstance(key, jtu.GetAttrKey):
-        return key.name
-    if isinstance(key, jtu.SequenceKey):
-        return key.idx
-    if isinstance(key, jtu.DictKey):
-        return _normalise_part(key.key)
-
-    flattened_index_key = getattr(jtu, "FlattenedIndexKey", None)
-    if flattened_index_key is not None and isinstance(key, flattened_index_key):
-        return _normalise_part(key.key)
-
-    return _normalise_part(key)
-
-
-def _normalise_part(part: Any) -> str | int:
-    return part if isinstance(part, int) else str(part)
 
 
 def _parse_path_part(part: str) -> str | int:

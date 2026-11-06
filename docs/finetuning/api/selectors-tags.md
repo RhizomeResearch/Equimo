@@ -33,7 +33,7 @@ Utilities for locating, describing, labeling, and filtering PyTree leaves.
 ## `CANONICAL_TAGS`
 
 ```python
-equimo.finetune.CANONICAL_TAGS = ('embedding', 'embedding.patch', 'embedding.position', 'embedding.class_token', 'embedding.register_token', 'embedding.distillation_token', 'embedding.mask_token', 'embedding.token', 'block', 'block.attention', 'block.attention.qkv', 'block.attention.q', 'block.attention.k', 'block.attention.v', 'block.attention.proj', 'attention', 'attention.qkv', 'attention.q', 'attention.k', 'attention.v', 'attention.proj', 'block.mlp', 'block.mlp.hidden', 'block.mlp.fc1', 'block.mlp.fc2', 'block.norm.pre', 'block.norm.post', 'block.drop_path', 'block.layer_scale', 'mlp', 'mlp.hidden', 'mlp.fc1', 'mlp.fc2', 'stem', 'stage', 'stage.block', 'stage.downsample', 'conv', 'conv.depthwise', 'conv.pointwise', 'norm', 'pool', 'head', 'head.classifier', 'head.projection', 'audio.frontend', 'audio.spectrogram', 'audio.patch_embed', 'audio.frame_encoder', 'audio.transformer.block', 'audio.pooling', 'audio.ctc_head', 'audio.tagging_head', 'text.embedding', 'text.position', 'text.token_type', 'text.block', 'text.attention.qkv', 'text.attention.q', 'text.attention.k', 'text.attention.v', 'text.attention.proj', 'text.mlp.fc1', 'text.mlp.fc2', 'text.pooler', 'text.projection_head', 'tabular.encoder', 'tabular.tokenizer', 'tabular.block', 'tabular.head')
+equimo.finetune.CANONICAL_TAGS = ('embedding', 'embedding.patch', 'embedding.position', 'embedding.class_token', 'embedding.register_token', 'embedding.distillation_token', 'embedding.mask_token', 'embedding.token', 'block', 'block.attention', 'block.attention.qkv', 'block.attention.q', 'block.attention.k', 'block.attention.v', 'block.attention.proj', 'attention', 'attention.qkv', 'attention.q', 'attention.k', 'attention.v', 'attention.proj', 'block.mlp', 'block.mlp.hidden', 'block.mlp.fc1', 'block.mlp.fc2', 'block.norm.pre', 'block.norm.post', 'block.drop_path', 'block.layer_scale', 'mlp', 'mlp.hidden', 'mlp.fc1', 'mlp.fc2', 'stem', 'stage', 'stage.block', 'stage.downsample', 'conv', 'conv.depthwise', 'conv.pointwise', 'norm', 'pool', 'head', 'head.classifier', 'head.projection', 'audio.frontend', 'audio.spectrogram', 'audio.patch_embed', 'audio.frame_encoder', 'audio.transformer.block', 'audio.pooling', 'audio.ctc_head', 'audio.tagging_head', 'text.embedding', 'text.position', 'text.token_type', 'text.block', 'text.attention.qkv', 'text.attention.q', 'text.attention.k', 'text.attention.v', 'text.attention.proj', 'text.mlp.fc1', 'text.mlp.fc2', 'text.pooler', 'text.projection_head', 'tabular.encoder', 'tabular.tokenizer', 'tabular.block', 'tabular.head', 'ssm', 'buffer', 'vector')
 ```
 
 <!-- equimo.finetune:canonical_tags_for_path -->
@@ -46,9 +46,11 @@ equimo.finetune.CANONICAL_TAGS = ('embedding', 'embedding.patch', 'embedding.pos
 equimo.finetune.canonical_tags_for_path(path: 'Path', leaf: 'Any | None' = None) -> 'frozenset[str]'
 ```
 
-Defined in `equimo.finetune.tags`.
+Defined in `equimo.core.tags`.
 
 > Infer canonical semantic tags from an Equimo-style parameter path.
+>
+> When *leaf* is an array with at most one axis, it also gets `vector`.
 
 <!-- equimo.finetune:extract_param_paths -->
 
@@ -74,7 +76,7 @@ Defined in `equimo.finetune.paths`.
 equimo.finetune.infer_depth(path: 'Path') -> 'int | None'
 ```
 
-Defined in `equimo.finetune.tags`.
+Defined in `equimo.core.tags`.
 
 > Infer semantic block depth from common Equimo path shapes.
 

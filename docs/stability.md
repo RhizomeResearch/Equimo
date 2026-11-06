@@ -53,6 +53,11 @@ line. Their internal checksum cannot be reconstructed, so readers identify that 
 rejects them by default and returns an explicitly unverified result only when `allow_legacy=True`; `load_weights`
 continues to read them with a warning. Equimo v1 archives and the removed v1 `load_model` API are outside this contract.
 
+Before Equimo 2.8, RoPE and Swin position embeddings stored values that follow from their configuration, such as RoPE
+frequencies, as PyTree leaves. They are now computed when used, which changes the structural signature of the affected
+models. Model archives, fine-tuning bundles, and PMT artifacts that store those values remain readable throughout the v2
+release line: readers recognize the older layout and check that every stored value equals the computed one.
+
 Each Equimo release pins its built-in Hugging Face model repository to an immutable revision and embeds the Git LFS
 SHA-256 of every uploaded archive. An explicit archive SHA-256 can also be supplied to `load_weights` for deployments
 that maintain their own digest manifest.

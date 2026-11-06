@@ -1,10 +1,13 @@
+import functools
 import math
-from typing import Literal, Optional, Tuple
+from collections.abc import Callable
+from typing import Any, ClassVar, Literal, Optional, Tuple
 
 import equinox as eqx
 import jax
 import jax.numpy as jnp
 import jax.random as jr
+import numpy as np
 from einops import rearrange
 from jaxtyping import Array, Float, Integer, PRNGKeyArray
 
@@ -24,6 +27,46 @@ register_posemb = make_register(_POSEMB_REGISTRY)
 
 
 get_posemb = make_get(_POSEMB_REGISTRY)
+
+
+def _static_table(method: Callable[[Any], jax.Array]) -> property:
+    """Make a property for a table that follows from static fields.
+
+    The table is evaluated even while tracing, so compiled and exported
+    programs (``jax.jit``, ONNX) hold it as a constant instead of recomputing
+    it on every call.
+    """
+
+    @functools.wraps(method)
+    def evaluate(self: Any) -> jax.Array:
+        with jax.ensure_compile_time_eval():
+            return method(self)
+
+    return property(evaluate)
+
+
+def _rope_periods(
+    D_head: int,
+    *,
+    base: Optional[float],
+    min_period: Optional[float],
+    max_period: Optional[float],
+    periods_dtype: jnp.dtype,
+) -> jax.Array:
+    """Return the ``D_head // 4`` axial RoPE periods in ``periods_dtype``."""
+    D_quarter = D_head // 4
+    if base is not None:
+        k = jnp.arange(D_quarter, dtype=periods_dtype)
+        return base ** (2.0 * k / float(D_head // 2))
+    # Geometric progression from min_period to max_period, endpoints included
+    # like torch.linspace.
+    assert min_period is not None and max_period is not None
+    base_ratio = max_period / min_period
+    exponents = jnp.linspace(0.0, 1.0, D_quarter, dtype=periods_dtype)
+    periods = base_ratio**exponents  # in [1, base_ratio]
+    periods = periods / base_ratio  # in [1/base_ratio, 1]
+    periods = periods * max_period  # in [min_period, max_period]
+    return periods.astype(periods_dtype)
 
 
 @register_posemb()
@@ -185,14 +228,15 @@ class PosEmbMLPSwinv1D(eqx.Module):
         rank: Dimensionality of position encoding (1 for 1D, 2 for 2D)
         seq_len: Length of input sequence
         cpb_mlp: MLP network for computing position embeddings
-        relative_coords_table: Table of relative coordinates (static)
     """
+
+    # Checkpoints written before Equimo 2.8 stored these computed values as leaves.
+    _legacy_stored_leaves: ClassVar[tuple[str, ...]] = ("relative_coords_table",)
 
     rank: int = eqx.field(static=True)
     seq_len: int = eqx.field(static=True)
 
     cpb_mlp: eqx.Module
-    relative_coords_table: Float[Array, "..."]
 
     def __init__(
         self,
@@ -224,31 +268,33 @@ class PosEmbMLPSwinv1D(eqx.Module):
             ]
         )
 
+    @_static_table
+    def relative_coords_table(self) -> Float[Array, "..."]:
+        """Relative coordinates fed to ``cpb_mlp``, in [-1, 1]."""
         if self.rank == 1:
-            relative_coords_h = jnp.arange(0, seq_len)
-            relative_coords_h -= seq_len // 2
-            relative_coords_h /= seq_len // 2
-            self.relative_coords_table = relative_coords_h[:, jnp.newaxis]
-        else:
-            seq_len = int(seq_len**0.5)
-            relative_coords_h = jnp.arange(0, seq_len)
-            relative_coords_w = jnp.arange(0, seq_len)
-            relative_coords_table = jnp.stack(
-                jnp.meshgrid(relative_coords_h, relative_coords_w)
-            )
-            relative_coords_table -= seq_len // 2
-            relative_coords_table /= seq_len // 2
-            self.relative_coords_table = relative_coords_table
+            relative_coords_h = jnp.arange(0, self.seq_len)
+            relative_coords_h -= self.seq_len // 2
+            relative_coords_h /= self.seq_len // 2
+            return relative_coords_h[:, jnp.newaxis]
+
+        seq_len = int(self.seq_len**0.5)
+        relative_coords_h = jnp.arange(0, seq_len)
+        relative_coords_w = jnp.arange(0, seq_len)
+        relative_coords_table = jnp.stack(
+            jnp.meshgrid(relative_coords_h, relative_coords_w)
+        )
+        relative_coords_table -= seq_len // 2
+        relative_coords_table /= seq_len // 2
+        return relative_coords_table
 
     def __call__(
         self,
         x: Float[Array, "..."],
     ) -> Float[Array, "..."]:
-        coords_table = jax.lax.stop_gradient(self.relative_coords_table)
         if self.rank == 1:
-            table = coords_table
+            table = self.relative_coords_table
         else:
-            table = rearrange(coords_table, "c h w -> (h w) c")
+            table = rearrange(self.relative_coords_table, "c h w -> (h w) c")
 
         pos_emb = jax.vmap(self.cpb_mlp)(table)
 
@@ -267,19 +313,25 @@ class PosEmbMLPSwinv2D(eqx.Module):
         num_heads: Number of attention heads
         seq_len: Length of input sequence
         window_size: Size of local attention window
+        pretrained_window_size: Window size used to normalize coordinates
+        no_log: Whether to skip the log-spacing of coordinates
         cpb_mlp: MLP for computing position bias
-        relative_coords_table: Table of relative coordinates (static)
-        relative_position_index: Index mapping for relative positions (static)
     """
+
+    # Checkpoints written before Equimo 2.8 stored these computed values as leaves.
+    _legacy_stored_leaves: ClassVar[tuple[str, ...]] = (
+        "relative_coords_table",
+        "relative_position_index",
+    )
 
     ct_correct: bool = eqx.field(static=True)
     num_heads: int = eqx.field(static=True)
     seq_len: int = eqx.field(static=True)
     window_size: Tuple[int, int] = eqx.field(static=True)
+    pretrained_window_size: Tuple[int, int] = eqx.field(static=True)
+    no_log: bool = eqx.field(static=True)
 
     cpb_mlp: eqx.nn.Sequential
-    relative_coords_table: Float[Array, "..."]
-    relative_position_index: Integer[Array, "..."]
 
     def __init__(
         self,
@@ -296,6 +348,8 @@ class PosEmbMLPSwinv2D(eqx.Module):
         key1, key2 = jr.split(key, 2)
 
         self.window_size = window_size
+        self.pretrained_window_size = tuple(pretrained_window_size)
+        self.no_log = no_log
         self.num_heads = num_heads
         self.seq_len = seq_len
         self.ct_correct = ct_correct
@@ -308,11 +362,16 @@ class PosEmbMLPSwinv2D(eqx.Module):
             ]
         )
 
+    @_static_table
+    def relative_coords_table(self) -> Float[Array, "1 h w 2"]:
+        """Normalized, optionally log-spaced relative coordinates of a window."""
+        window_size = self.window_size
+        pretrained_window_size = self.pretrained_window_size
         relative_coords_h = jnp.arange(
-            -(self.window_size[0] - 1), self.window_size[0], dtype=jnp.float32
+            -(window_size[0] - 1), window_size[0], dtype=jnp.float32
         )
         relative_coords_w = jnp.arange(
-            -(self.window_size[1] - 1), self.window_size[1], dtype=jnp.float32
+            -(window_size[1] - 1), window_size[1], dtype=jnp.float32
         )
         relative_coords_table = jnp.stack(
             jnp.meshgrid(relative_coords_h, relative_coords_w)
@@ -337,16 +396,18 @@ class PosEmbMLPSwinv2D(eqx.Module):
                 relative_coords_table[:, :, :, 1] / window_size[1] - 1
             )
 
-        if not no_log:
+        if not self.no_log:
             relative_coords_table = relative_coords_table * 8
             relative_coords_table = (
                 jnp.sign(relative_coords_table)
                 * jnp.log2(jnp.abs(relative_coords_table) + 1.0)
                 / jnp.log2(8)
             )
+        return relative_coords_table
 
-        self.relative_coords_table = relative_coords_table
-
+    @_static_table
+    def relative_position_index(self) -> Integer[Array, "n n"]:
+        """Index of each query-key offset into the flattened coordinate table."""
         coords_h = jnp.arange(self.window_size[0])
         coords_w = jnp.arange(self.window_size[1])
         coords = jnp.stack(jnp.meshgrid(coords_h, coords_w))
@@ -359,13 +420,13 @@ class PosEmbMLPSwinv2D(eqx.Module):
         relative_coords = relative_coords.at[:, :, 0].set(
             relative_coords[:, :, 0] * (2 * self.window_size[1] - 1)
         )
-        self.relative_position_index = jnp.sum(relative_coords, axis=-1)
+        return jnp.sum(relative_coords, axis=-1)
 
     def __call__(
         self, x: Float[Array, "..."], local_window_size: int
     ) -> Float[Array, "..."]:
-        coords_table = jax.lax.stop_gradient(self.relative_coords_table)
-        position_index = jax.lax.stop_gradient(self.relative_position_index)
+        coords_table = self.relative_coords_table
+        position_index = self.relative_position_index
         relative_position_bias_table = jax.vmap(jax.vmap(jax.vmap(self.cpb_mlp)))(
             coords_table
         ).reshape(-1, self.num_heads)
@@ -426,10 +487,15 @@ class RoPE(eqx.Module):
     relative positions through rotational differences.
 
     Attributes:
-        rotations: Precomputed rotation matrices for position encoding
+        shape: Position axes followed by the feature dimension
+        base: Frequency base
     """
 
-    rotations: jax.Array
+    # Checkpoints written before Equimo 2.8 stored these computed values as leaves.
+    _legacy_stored_leaves: ClassVar[tuple[str, ...]] = ("rotations",)
+
+    shape: tuple[int, ...] = eqx.field(static=True)
+    base: int = eqx.field(static=True)
 
     def __init__(self, shape: tuple, base: int = 10000):
         channel_dims, feature_dim = shape[:-1], shape[-1]
@@ -441,10 +507,15 @@ class RoPE(eqx.Module):
                 "`feature_dim` must be positive and divisible by twice the "
                 "number of position axes."
             )
-        k_max = feature_dim // (2 * len(channel_dims))
+        self.shape = tuple(shape)
+        self.base = base
 
-        # angles
-        theta_ks = jnp.power(base, -jnp.arange(k_max) / k_max)
+    @_static_table
+    def rotations(self) -> Float[Array, "*positions k 2"]:
+        """Cosine and sine of every position angle, stacked on the last axis."""
+        channel_dims, feature_dim = self.shape[:-1], self.shape[-1]
+        k_max = feature_dim // (2 * len(channel_dims))
+        theta_ks = jnp.power(self.base, -jnp.arange(k_max) / k_max)
         angles = jnp.concatenate(
             [
                 t[..., None] * theta_ks
@@ -454,19 +525,15 @@ class RoPE(eqx.Module):
             ],
             axis=-1,
         )
-
-        # rotations
-        rotations_re = jnp.cos(angles)
-        rotations_im = jnp.sin(angles)
-        self.rotations = jnp.stack([rotations_re, rotations_im], axis=-1)
+        return jnp.stack([jnp.cos(angles), jnp.sin(angles)], axis=-1)
 
     def __call__(
         self,
         x: Float[Array, "..."],
     ) -> Float[Array, "..."]:
-        rotations_ng = jax.lax.stop_gradient(self.rotations)
-        cos = jnp.repeat(rotations_ng[..., 0], 2, axis=-1).astype(x.dtype)
-        sin = jnp.repeat(rotations_ng[..., 1], 2, axis=-1).astype(x.dtype)
+        rotations = self.rotations
+        cos = jnp.repeat(rotations[..., 0], 2, axis=-1).astype(x.dtype)
+        sin = jnp.repeat(rotations[..., 1], 2, axis=-1).astype(x.dtype)
         factors = RotaryFactors(
             sin=sin.reshape(-1, x.shape[-1]),
             cos=cos.reshape(-1, x.shape[-1]),
@@ -510,12 +577,15 @@ class DinoRoPE(eqx.Module):
 
     Notes
     -----
-    - The `periods` buffer is persistent (part of the tree) and not trainable; we
-      stop gradients on it inside `__call__`.
-    - `periods_dtype` controls the precision used to construct the deterministic
-      periods buffer before casting it to `dtype`. It can be set lower to match
-      checkpoints with quantized RoPE periods, but defaults to float32.
+    - `periods` is computed from the configuration when used, so it is not a
+      PyTree leaf and never reaches an optimizer.
+    - `periods_dtype` controls the precision used to compute the periods before
+      casting them to `dtype`. It can be set lower to match checkpoints with
+      quantized RoPE periods, but defaults to float32.
     """
+
+    # Checkpoints written before Equimo 2.8 stored these computed values as leaves.
+    _legacy_stored_leaves: ClassVar[tuple[str, ...]] = ("periods",)
 
     D_head: int = eqx.field(static=True)
     normalize_coords: Literal["min", "max", "separate"] = eqx.field(static=True)
@@ -523,9 +593,10 @@ class DinoRoPE(eqx.Module):
     jitter_coords: Optional[float] = eqx.field(static=True)
     rescale_coords: Optional[float] = eqx.field(static=True)
     dtype: jnp.dtype = eqx.field(static=True)
-
-    # Persistent, non-trainable buffer
-    periods: Float[Array, "..."]
+    base: Optional[float] = eqx.field(static=True)
+    min_period: Optional[float] = eqx.field(static=True)
+    max_period: Optional[float] = eqx.field(static=True)
+    periods_dtype: jnp.dtype = eqx.field(static=True)
 
     def __init__(
         self,
@@ -557,26 +628,23 @@ class DinoRoPE(eqx.Module):
         self.jitter_coords = jitter_coords
         self.rescale_coords = rescale_coords
         self.dtype = dtype
+        self.base = base
+        self.min_period = min_period
+        self.max_period = max_period
+        self.periods_dtype = periods_dtype
 
         self.D_head = dim // num_heads
-        D_quarter = self.D_head // 4
 
-        if base is not None:
-            denom = self.D_head // 2
-            k = jnp.arange(D_quarter, dtype=periods_dtype)
-            periods = base ** (2.0 * k / float(denom))
-        else:
-            # Geometric progression from min_period to max_period (inclusive endpoints behavior per torch linspace)
-            assert min_period is not None and max_period is not None
-            base_ratio = max_period / min_period
-            exponents = jnp.linspace(0.0, 1.0, D_quarter, dtype=periods_dtype)
-            periods = base_ratio**exponents  # in [1, base_ratio]
-            periods = periods / base_ratio  # in [1/base_ratio, 1]
-            periods = periods * max_period  # in [min_period, max_period]
-            periods = periods.astype(periods_dtype)
-
-        # Persistent buffer (will be copied with the tree; we stop gradients in __call__)
-        self.periods = periods.astype(dtype)
+    @_static_table
+    def periods(self) -> Float[Array, "D_quarter"]:  # noqa: F821
+        """RoPE periods, computed in ``periods_dtype`` and returned in ``dtype``."""
+        return _rope_periods(
+            self.D_head,
+            base=self.base,
+            min_period=self.min_period,
+            max_period=self.max_period,
+            periods_dtype=self.periods_dtype,
+        ).astype(self.dtype)
 
     def _make_coords(self, H: int, W: int) -> jnp.ndarray:
         """Create normalized coords in [-1, 1], shape [H*W, 2], dtype=self.dtype."""
@@ -657,7 +725,7 @@ class DinoRoPE(eqx.Module):
 
         # Angles
         # angles: [HW, 2, D_quarter] where periods: [D_quarter]
-        periods = jax.lax.stop_gradient(self.periods).astype(dtype)
+        periods = self.periods.astype(dtype)
         angles = (2.0 * jnp.pi * coords[:, :, None]) / periods[
             None, None, :
         ]  # [HW, 2, D_quarter]
@@ -689,14 +757,15 @@ class VisionRoPE(eqx.Module):
     In both cases ``get_factors(H=..., W=...)`` returns layout-aware factors
     with shape ``(H*W, D_out)``.
 
-    ``freqs`` is a deterministic RoPE buffer, not a learnable parameter. For
-    period-based RoPE it stores periods despite the generic name; keep it
-    serialized for checkpoint parity, but freeze/no-decay it in optimizer masks.
+    ``freqs`` is computed from the configuration when used, so it is not a
+    PyTree leaf and never reaches an optimizer. For period-based RoPE it holds
+    periods despite the generic name.
     """
 
+    # Checkpoints written before Equimo 2.8 stored these computed values as leaves.
+    _legacy_stored_leaves: ClassVar[tuple[str, ...]] = ("freqs",)
+
     # common
-    # Stop-gradient is applied at use sites; optimizer masks must still exclude it.
-    freqs: Float[Array, "F"]  # noqa: F821
     dtype: jnp.dtype = eqx.field(static=True)
 
     # strategy selector
@@ -710,9 +779,19 @@ class VisionRoPE(eqx.Module):
     shift_coords: Optional[float] = eqx.field(static=True, default=None)
     jitter_coords: Optional[float] = eqx.field(static=True, default=None)
     rescale_coords: Optional[float] = eqx.field(static=True, default=None)
+    base: Optional[float] = eqx.field(static=True, default=None)
+    min_period: Optional[float] = eqx.field(static=True, default=None)
+    max_period: Optional[float] = eqx.field(static=True, default=None)
+    periods_dtype: Optional[jnp.dtype] = eqx.field(static=True, default=None)
 
     # mode-based fields (VisionRotaryEmbedding)
     pt_seq_len: Optional[int] = eqx.field(static=True, default=None)
+    rope_dim: Optional[int] = eqx.field(static=True, default=None)
+    freqs_for: Optional[str] = eqx.field(static=True, default=None)
+    theta: Optional[float] = eqx.field(static=True, default=None)
+    max_freq: Optional[float] = eqx.field(static=True, default=None)
+    num_freqs: Optional[int] = eqx.field(static=True, default=None)
+    custom_freqs: Optional[tuple[float, ...]] = eqx.field(static=True, default=None)
 
     def __init__(
         self,
@@ -754,27 +833,15 @@ class VisionRoPE(eqx.Module):
                     "Exactly one of `base` or `min_period`+`max_period` required."
                 )
 
-            D_head = dim // num_heads
-            D_quarter = D_head // 4
-
-            if base is not None:
-                denom = D_head // 2
-                k = jnp.arange(D_quarter, dtype=periods_dtype)
-                freqs = base ** (2.0 * k / float(denom))
-            else:
-                assert min_period is not None and max_period is not None
-                ratio = max_period / min_period
-                exp = jnp.linspace(0.0, 1.0, D_quarter, dtype=periods_dtype)
-                freqs = ratio**exp / ratio * max_period
-                freqs = freqs.astype(periods_dtype)
-
-            self.freqs = freqs.astype(dtype)
-            self.D_head = D_head
+            self.D_head = dim // num_heads
             self.normalize_coords = normalize_coords
             self.shift_coords = shift_coords
             self.jitter_coords = jitter_coords
             self.rescale_coords = rescale_coords
-            self.pt_seq_len = None
+            self.base = base
+            self.min_period = min_period
+            self.max_period = max_period
+            self.periods_dtype = periods_dtype
 
         elif strategy == "mode":
             # When called from VisionTransformer, dim=embed_dim. For mode strategy
@@ -783,33 +850,50 @@ class VisionRoPE(eqx.Module):
                 dim = dim // num_heads // 2
 
             if custom_freqs is not None:
-                freqs = jnp.asarray(custom_freqs)
-            elif freqs_for == "lang":
+                self.custom_freqs = tuple(np.asarray(custom_freqs).ravel().tolist())
+            elif freqs_for in ("lang", "pixel"):
                 if dim is None:
                     raise ValueError("strategy='mode' requires `dim`.")
-                freqs = 1.0 / (
-                    theta
-                    ** (jnp.arange(0, dim, 2)[: dim // 2].astype(jnp.float32) / dim)
-                )
-            elif freqs_for == "pixel":
-                if dim is None:
-                    raise ValueError("strategy='mode' requires `dim`.")
-                freqs = jnp.linspace(1.0, max_freq / 2.0, dim // 2) * jnp.pi
-            elif freqs_for == "constant":
-                freqs = jnp.ones(num_freqs, dtype=jnp.float32)
-            else:
+            elif freqs_for != "constant":
                 raise ValueError(f"Unknown modality '{freqs_for}'")
 
-            self.freqs = freqs.astype(dtype)
             self.pt_seq_len = pt_seq_len
-            self.D_head = None
-            self.normalize_coords = None
-            self.shift_coords = None
-            self.jitter_coords = None
-            self.rescale_coords = None
+            self.rope_dim = dim
+            self.freqs_for = freqs_for
+            self.theta = theta
+            self.max_freq = max_freq
+            self.num_freqs = num_freqs
 
         else:
             raise ValueError(f"Unknown strategy '{strategy}'. Use 'period' or 'mode'.")
+
+    @_static_table
+    def freqs(self) -> Float[Array, "F"]:  # noqa: F821
+        """Periods (period strategy) or frequencies (mode strategy) in ``dtype``."""
+        if self.strategy == "period":
+            assert self.D_head is not None and self.periods_dtype is not None
+            freqs = _rope_periods(
+                self.D_head,
+                base=self.base,
+                min_period=self.min_period,
+                max_period=self.max_period,
+                periods_dtype=self.periods_dtype,
+            )
+        elif self.custom_freqs is not None:
+            freqs = jnp.asarray(self.custom_freqs)
+        elif self.freqs_for == "lang":
+            dim = self.rope_dim
+            assert dim is not None and self.theta is not None
+            freqs = 1.0 / (
+                self.theta
+                ** (jnp.arange(0, dim, 2)[: dim // 2].astype(jnp.float32) / dim)
+            )
+        elif self.freqs_for == "pixel":
+            assert self.rope_dim is not None and self.max_freq is not None
+            freqs = jnp.linspace(1.0, self.max_freq / 2.0, self.rope_dim // 2) * jnp.pi
+        else:
+            freqs = jnp.ones(self.num_freqs, dtype=jnp.float32)
+        return freqs.astype(self.dtype)
 
     def _coords_period(
         self, H: int, W: int, *, key: PRNGKeyArray, inference: bool
@@ -890,7 +974,7 @@ class VisionRoPE(eqx.Module):
         (sin=0, cos=1) so that RoPE leaves them unchanged.
         """
         dtype = self.dtype
-        freqs = jax.lax.stop_gradient(self.freqs).astype(dtype)
+        freqs = self.freqs
 
         if self.strategy == "period":
             assert self.D_head is not None
