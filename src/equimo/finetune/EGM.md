@@ -201,8 +201,11 @@ optimizer or training loop: plans expose labels and masks for the caller's optim
   [merging.py:greedy_soup]
 - Host synchronization that is not jit-traceable: calibration finalize and validation, and full-value hashing of base
   models during bundle enrichment and merge checks [calibration.py:finalize_calibration_collector]
-  [serialization.py:\_checkpoint_hash] [merging.py:\_checkpoint_hash]. A base-checkpoint or architecture hash that does
-  not match is computed again in the pre-2.8 layout, which evaluates the computed tables on the CPU backend
+  [serialization.py:\_checkpoint_hash] [merging.py:\_checkpoint_hash]. These value hashes also cover the static fields
+  of modules that compute values from their configuration (RoPE and Swin position embeddings), so base models that
+  differ only in RoPE settings do not match [peft/\_compat.py:hash_inexact_pytree]
+  [../\_legacy_layouts.py:computed_value_settings]. A base-checkpoint or architecture hash that does not match is
+  computed again in the pre-2.8 layout, which evaluates the computed tables on the CPU backend
   [serialization.py:\_check_base_checkpoint] [../\_legacy_layouts.py:legacy_leaves_with_path]
 
 ## Verification

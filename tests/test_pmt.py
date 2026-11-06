@@ -36,7 +36,11 @@ from equimo.vision.pmt_checkpoint import (
 
 
 def _model(
-    seed: int = 0, *, norm: str = "groupnorm", norm_kwargs: dict | None = None
+    seed: int = 0,
+    *,
+    norm: str = "groupnorm",
+    norm_kwargs: dict | None = None,
+    rope: dict | None = None,
 ) -> tuple[PMT, eqx.nn.State]:
     backbone = VisionTransformer(
         img_size=16,
@@ -49,6 +53,13 @@ def _model(
         num_classes=0,
         dynamic_img_size=True,
         use_local_pos_embed=True,
+        local_pos_embed_config_patch={
+            "strategy": "period",
+            "base": 100.0,
+            "normalize_coords": "separate",
+            "dtype": jnp.float32,
+            **(rope or {}),
+        },
         global_pos_embed_reg=True,
         key=jr.PRNGKey(seed),
     )
@@ -149,6 +160,27 @@ def test_cached_features_reject_a_different_encoder_with_the_same_name():
     assert features.backbone_digest != different.backbone_digest
     with pytest.raises(ValueError, match="encoder"):
         different.decode(features, key=jr.PRNGKey(18))
+
+
+def test_encoders_differing_only_in_rope_periods_are_distinct(tmp_path: Path):
+    model, _ = _model()
+    other, _ = _model(rope={"base": None, "min_period": 0.5, "max_period": 2.0})
+    image = jr.normal(jr.PRNGKey(17), (3, 16, 24))
+    decoder = save_pmt_decoder(tmp_path / "decoder", model)
+
+    arrays = [
+        jtu.tree_leaves(eqx.filter(pmt.backbone, eqx.is_array))
+        for pmt in (model, other)
+    ]
+    assert all(jnp.array_equal(a, b) for a, b in zip(*arrays, strict=True))
+    assert not jnp.array_equal(
+        other.backbone.local_pos_embed.patch_rope.freqs,
+        model.backbone.local_pos_embed.patch_rope.freqs,
+    )
+    with pytest.raises(ValueError, match="encoder"):
+        other.decode(model.encode(image), key=jr.PRNGKey(18))
+    with pytest.raises(ValueError, match="base identity"):
+        load_pmt_decoder(decoder, other)
 
 
 @pytest.mark.parametrize("norm", ["layernorm", "rmsnorm", "none"])
@@ -452,8 +484,23 @@ class _StoredFreqs(eqx.Module):
     freqs: jax.Array
 
 
-def test_decoder_bound_to_encoder_with_stored_rope_frequencies_loads(
-    tmp_path: Path, monkeypatch
+_POSITIONS_BEFORE_COMPUTED_ROPE = (
+    ("global.type", "LearnedPosEmbed"),
+    ("local.type", "CompositeVisionRoPE"),
+    ("global.embed_size", "2"),
+    ("global.antialias", "False"),
+    ("local.strategy", "period"),
+    ("local.normalize_coords", "separate"),
+    ("local.shift_coords", "None"),
+    ("local.jitter_coords", "None"),
+    ("local.rescale_coords", "None"),
+    ("local.dtype", "float32"),
+)
+
+
+@pytest.mark.parametrize("kind", ["full", "decoder"])
+def test_artifacts_bound_to_encoder_with_stored_rope_frequencies_load(
+    tmp_path: Path, monkeypatch, kind: str
 ):
     model, _ = _model()
     old_backbone = eqx.tree_at(
@@ -461,22 +508,38 @@ def test_decoder_bound_to_encoder_with_stored_rope_frequencies_loads(
         model.backbone,
         _StoredFreqs(model.backbone.local_pos_embed.patch_rope.freqs),
     )
+    # Equimo before 2.8 stored the frequencies and recorded this positional
+    # configuration, which the stored layout cannot compute.
     with monkeypatch.context() as patch:
         patch.setattr(
             pmt_checkpoint,
             "_base_digest",
             lambda _: encoder_array_digest(old_backbone),
         )
-        decoder = save_pmt_decoder(tmp_path / "decoder", model)
-    template, _ = eqx.nn.make_with_state(PMT)(
-        model.backbone,
-        3,
-        key=jr.PRNGKey(5),
-        config=model.head.config,
-        backbone_id="tiny-base",
-    )
+        patch.setattr(
+            VisionTransformer,
+            "_feature_position_configuration",
+            lambda _: _POSITIONS_BEFORE_COMPUTED_ROPE,
+        )
+        if kind == "full":
+            old_model = eqx.tree_at(lambda pmt: pmt.backbone, model, old_backbone)
+            path = save_pmt_checkpoint(tmp_path / kind, old_model)
+        else:
+            path = save_pmt_decoder(tmp_path / kind, model)
 
-    restored, _, _ = load_pmt_decoder(decoder, template)
+    if kind == "full":
+        template, _ = _model(seed=99)
+        restored, _, _ = load_pmt_checkpoint(path, template)
+        assert restored.backbone_digest == model.backbone_digest
+    else:
+        template, _ = eqx.nn.make_with_state(PMT)(
+            model.backbone,
+            3,
+            key=jr.PRNGKey(5),
+            config=model.head.config,
+            backbone_id="tiny-base",
+        )
+        restored, _, _ = load_pmt_decoder(path, template)
 
     np.testing.assert_array_equal(restored.head.queries, model.head.queries)
 

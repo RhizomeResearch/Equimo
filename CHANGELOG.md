@@ -21,6 +21,9 @@ All notable changes to Equimo are documented here. Equimo follows Semantic Versi
   saved by earlier versions still load; `load_weights` raises `ValueError` when a stored value differs from the computed
   one by more than rounding, for example after weight decay, and bundles whose trained delta changed such a value cannot
   be loaded either. Earlier versions cannot read checkpoints, bundles, or PMT artifacts that 2.8 saves for these models.
+  The value hashes that identify a model (fine-tuning bundle base-checkpoint hashes, merge checks, PMT encoder digests)
+  cover the static fields of these modules instead, such as RoPE `base` and `periods_dtype`, so a base model that
+  differs only in those settings is rejected.
 - Frozen PEFT arrays are declared buffers and excluded from every trainability mode: VeRA `vera_A`/`vera_B`, LoRA-FA
   `frozen_A`/`correction_matrix`, RandLoRA bases, PiSSA `base_weight_delta`, OFT `unmerged_weight`, and a fixed
   AdaptFormer `scale`. `mode="full"` previously trained the VeRA bases, the LoRA-FA correction matrix, and the OFT

@@ -60,9 +60,11 @@ holds only a docstring; import subpackages explicitly (`equimo.vision.models`, `
 ### Encoder identity (`_encoder_identity.py`)
 
 - `encoder_array_digest(encoder, *, legacy_layout=False) -> str`: SHA-256 over every array leaf's path, shape, dtype,
-  and bytes; used for PMT `backbone_digest` and checkpoint binding. `legacy_layout=True` also hashes the values
-  `equimo._legacy_layouts` re-inserts, as encoders before Equimo 2.8 stored them.
-  `[_encoder_identity.py:encoder_array_digest]`
+  and bytes, plus the static fields of modules that compute values from their configuration (RoPE and Swin position
+  embeddings), so encoders that differ only in RoPE settings get different digests; used for PMT `backbone_digest` and
+  checkpoint binding. `legacy_layout=True` instead hashes the values `equimo._legacy_layouts` re-inserts, as encoders
+  before Equimo 2.8 stored them. `[_encoder_identity.py:encoder_array_digest]`,
+  `[../_legacy_layouts.py:computed_value_settings]`
 
 ## Invariants
 

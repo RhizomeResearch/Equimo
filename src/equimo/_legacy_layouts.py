@@ -10,6 +10,7 @@ values at those positions reproduces the older layout exactly.
 
 from __future__ import annotations
 
+import dataclasses
 from typing import Any
 
 import equinox as eqx
@@ -138,3 +139,24 @@ def legacy_leaves_with_path(model: PyTree) -> list[tuple[tuple[Any, ...], Any]]:
             for name in _stored_names(node)
         )
     return entries
+
+
+def computed_value_settings(model: PyTree) -> list[tuple[tuple[Any, ...], str, str]]:
+    """Return ``(key path, field name, str(value))`` for the static fields of
+    every module that computes values older artifacts stored.
+
+    Hashes over arrays covered those values while modules stored them; they
+    now follow from these fields, so hashes that identify a model include
+    them. Strings keep the hashes independent of floating-point rounding.
+    """
+
+    settings: list[tuple[tuple[Any, ...], str, str]] = []
+    for path, node in jtu.tree_leaves_with_path(model, is_leaf=_has_stored_leaves):
+        if not _has_stored_leaves(node):
+            continue
+        settings.extend(
+            (path, field.name, str(getattr(node, field.name)))
+            for field in dataclasses.fields(node)
+            if field.metadata.get("static", False)
+        )
+    return settings

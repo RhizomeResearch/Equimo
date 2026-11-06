@@ -100,9 +100,9 @@ restored, state, mask_state = load_pmt_decoder(decoder_path, matching_template,
 ```
 
 Full archives contain the encoder, decoder, normalization state, and mask schedule state. Decoder-only archives are
-bound to the exact encoder array digest, feature and positional configuration, input view, and ordered class ontology.
-Both use the bounded native checkpoint reader; pass `limits=` when loading under a stricter local budget. Give the model
-a descriptive `backbone_id` and `class_ontology` before saving a decoder-only archive.
+bound to the exact encoder digest (its arrays and RoPE settings), feature and positional configuration, input view, and
+ordered class ontology. Both use the bounded native checkpoint reader; pass `limits=` when loading under a stricter
+local budget. Give the model a descriptive `backbone_id` and `class_ontology` before saving a decoder-only archive.
 
 `anneal_pmt_mask_state(step, start_steps, end_steps)` computes per-block polynomial mask-retention probabilities. Pass
 the result as `mask_state` during training, and save it with the decoder. Once every probability is zero,

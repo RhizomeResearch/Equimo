@@ -7,6 +7,7 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import jax.random as jr
+import jax.tree_util as jtu
 
 import equimo.finetune as eqft
 from equimo.vision.models import VisionTransformer
@@ -75,8 +76,8 @@ class _StoredFreqs(eqx.Module):
     freqs: jax.Array
 
 
-def test_lora_delta_saved_with_stored_rope_frequencies_loads(tmp_path):
-    model = VisionTransformer(
+def _rope_vision_transformer(*, base: float = 100.0):
+    return VisionTransformer(
         img_size=16,
         in_channels=3,
         dim=16,
@@ -85,8 +86,18 @@ def test_lora_delta_saved_with_stored_rope_frequencies_loads(tmp_path):
         depths=[1],
         num_classes=2,
         use_local_pos_embed=True,
+        local_pos_embed_config_patch={
+            "strategy": "period",
+            "base": base,
+            "normalize_coords": "separate",
+            "dtype": jnp.float32,
+        },
         key=jr.PRNGKey(0),
     )
+
+
+def test_lora_delta_saved_with_stored_rope_frequencies_loads(tmp_path):
+    model = _rope_vision_transformer()
     old_base = eqx.tree_at(
         lambda base: base.local_pos_embed.patch_rope,
         model,
@@ -114,6 +125,21 @@ def test_lora_delta_incompatible_shape_raises(tmp_path):
 
     with pytest.raises(eqft.FineTuneBundleError, match="architecture hash mismatch"):
         eqft.load_delta(incompatible, path)
+
+
+def test_lora_delta_rejects_a_base_with_other_rope_periods(tmp_path):
+    model = _rope_vision_transformer()
+    other = _rope_vision_transformer(base=1000.0)
+    lora = eqft.apply_lora(model, eqft.LoRAConfig(rank=2), key=jr.PRNGKey(1))
+    path = tmp_path / "delta.eqft"
+    eqft.save_delta(lora, path)
+
+    arrays = [
+        jtu.tree_leaves(eqx.filter(base, eqx.is_array)) for base in (model, other)
+    ]
+    assert all(jnp.array_equal(a, b) for a, b in zip(*arrays, strict=True))
+    with pytest.raises(eqft.FineTuneBundleError, match="base checkpoint mismatch"):
+        eqft.load_delta(other, path)
 
 
 @pytest.mark.parametrize("method", ("adalora", "lora_fa", "fourierft"))

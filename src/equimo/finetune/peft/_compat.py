@@ -12,7 +12,7 @@ import jax.random as jr
 import jax.tree_util as jtu
 import numpy as np
 
-from equimo._legacy_layouts import legacy_leaves_with_path
+from equimo._legacy_layouts import computed_value_settings, legacy_leaves_with_path
 
 from .._typing import Path, PyTree
 from ..config import FineTuneBundleError
@@ -102,9 +102,11 @@ def hash_inexact_pytree(
 ) -> str:
     """Hash inexact leaves using explicit persisted-format policies.
 
-    With *legacy_layout*, hash the leaves a pre-2.8 version of *model* had,
-    including values Equimo now computes (see :mod:`equimo._legacy_layouts`),
-    to check hashes recorded by older bundles.
+    With *include_values*, the hash also covers the settings of modules that
+    compute values from their configuration, such as RoPE periods. With
+    *legacy_layout*, hash the leaves a pre-2.8 version of *model* had,
+    including those values (see :mod:`equimo._legacy_layouts`), to check
+    hashes recorded by older bundles.
     """
 
     digest = hashlib.sha256()
@@ -127,6 +129,11 @@ def hash_inexact_pytree(
         digest.update(str(leaf.dtype).encode())
         if include_values:
             digest.update(np.asarray(leaf).tobytes())
+    if include_values and not legacy_layout:
+        for key_path, name, setting in computed_value_settings(model):
+            path = key_path_to_path(key_path)
+            if include_head or not is_head_path(path):
+                digest.update(f"{path_to_str(path)}.{name}={setting}".encode())
     return f"{prefix}{digest.hexdigest()}"
 
 

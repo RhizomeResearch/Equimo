@@ -94,7 +94,8 @@ calls `serialization.py:load_weights`, which downloads into `~/.cache/equimo/` w
     it can succeed on a checkpoint that `load_weights` rejects. The computed values, which `restore_layout` compares
     against and older bundle and PMT hashes include, are recomputed on the CPU backend when one is available (the
     published checkpoints match its results bit for bit), otherwise on the default device
-    (`[_legacy_layouts.py:_stored_value]`).
+    (`[_legacy_layouts.py:_stored_value]`). Current bundle and PMT hashes cover the static fields of those modules
+    instead (`[_legacy_layouts.py:computed_value_settings]`).
 - Download trust (`[serialization.py:download]`):
   - the expected archive digest is `expected_sha256` if given, otherwise the pinned `PRETRAINED_ARCHIVE_SHA256` entry
     for the default repository, otherwise the server's `X-Linked-Etag`/`ETag` SHA-256;
