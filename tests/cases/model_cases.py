@@ -627,16 +627,7 @@ MODEL_CASES = (
     ModelCase("vision", "lowformer", _build_lowformer),
     ModelCase("vision", "mlla", _build_mlla),
     ModelCase("vision", "mobilenetv3", _build_mobilenetv3),
-    ModelCase(
-        "vision",
-        "partialformer",
-        _build_partialformer,
-        onnx_batched=False,
-        onnx_batch_limitation=(
-            "jax2onnx 0.15.1 vmapped lowering drifts beyond the established "
-            "runtime tolerance; unbatched lowering retains parity"
-        ),
-    ),
+    ModelCase("vision", "partialformer", _build_partialformer),
     ModelCase("vision", "reduceformer", _build_reduceformer),
     ModelCase("vision", "shvit", _build_shvit),
     ModelCase("vision", "vision_parcae", _build_vision_parcae),
