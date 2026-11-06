@@ -23,7 +23,8 @@ def make_optax_tx_from_plan(plan, base_schedule, weight_decay=0.05):
             learning_rate=lambda step, mult=mult: base_schedule(step) * mult,
             weight_decay=wd,
         )
-    return optax.partition(transforms, plan.labels)
+    # A function returning the labels: optax would call a callable label tree, such as a model.
+    return optax.partition(transforms, lambda _: plan.labels)
 
 
 try:

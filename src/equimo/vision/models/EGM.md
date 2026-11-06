@@ -52,8 +52,10 @@ auto-imports every module and merges each module's `__all__` into the package na
   looped `h[t+1] = R(adapter(h[t], e))` inside a statically bounded `lax.scan`, then readout `C` and coda. `__call__`,
   `features`, `forward_features`, `intermediate_features` accept `num_steps` / `num_steps_pair`; `sample_num_steps`,
   `readout`, `weight_decay_mask`, and spectral diagnostics are public. `weight_decay_mask()` is
-  `equimo.core.parameters.weight_decay_mask(self)`: the injection `A_log`, `dt_bias`, `B` and the readout `C` carry the
-  `ssm` tag, so they are not decayed, nor are biases, norms, and embeddings. `[parcae.py:VisionParcae]`
+  `equimo.core.parameters.weight_decay_mask(self)`: the injection `A_log`, `dt_bias`, `B` and the readout `C` (weight
+  and bias) carry the `ssm` tag, so they are not decayed, nor are other leaves with a `DEFAULT_NO_DECAY_TAGS` tag
+  (biases, norms, layer scales, vectors, position embeddings, and class, register, and mask tokens). The patch embedding
+  still decays. `[parcae.py:VisionParcae]`
 - `VisionParcae.intermediate_features` indexes the fixed triple (recurrent state, `C` projection, coda output), not
   blocks. `[parcae.py:VisionParcae.intermediate_features]`
 - Injection adapters `VisionParcaeDiagonalInjection`, `VisionParcaeDiagonalExactZOHInjection`,
@@ -79,7 +81,8 @@ auto-imports every module and merges each module's `__all__` into the package na
   `encoder_features` / `features`; `mask_free_pmt(model, mask_state)`. `[pmt.py:PMT]`, `[pmt.py:mask_free_pmt]`
 - `PMTConfig` (frozen dataclass with `small()`, `base()`, `large()` presets), `PMTFeatures`, `PMTOutput`,
   `PMTMaskState`, `anneal_pmt_mask_state`, `ReferenceBatchNorm` (stateful, cross-device BatchNorm), `PlainMaskDecoder`.
-  `PMDAttention` and `Lateral` are decoder internals outside `pmd.__all__`; import them from `pmd`.
+  `PMDAttention` and `Lateral` are decoder internals outside `pmd.__all__`; import them from `pmd`. `Lateral.scale` is
+  tagged `block.layer_scale`, so the default no-decay policy and layer-scale selectors treat it as a layer scale.
   `[pmd.py:PMTConfig]`, `[pmd.py:ReferenceBatchNorm]`, `[pmd.py:PlainMaskDecoder]`, `[pmd.py:PMDAttention]`,
   `[pmd.py:Lateral]`
 

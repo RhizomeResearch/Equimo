@@ -55,8 +55,11 @@ continues to read them with a warning. Equimo v1 archives and the removed v1 `lo
 
 Before Equimo 2.8, RoPE and Swin position embeddings stored values that follow from their configuration, such as RoPE
 frequencies, as PyTree leaves. They are now computed when used, which changes the structural signature of the affected
-models. Model archives, fine-tuning bundles, and PMT artifacts that store those values remain readable throughout the v2
-release line: readers recognize the older layout and check that every stored value equals the computed one.
+models; this is a correctness fix, since optimizers could change those values through weight decay. Model archives saved
+before 2.8 remain readable throughout the v2 release line: `load_weights` recognizes the older layout and raises
+`ValueError` if a stored value differs from the computed one by more than four machine epsilons of its dtype, while
+`inspect_checkpoint` accepts the older signature without comparing values. Fine-tuning bundle and PMT hashes or digests
+that covered those values are accepted when they match the older layout.
 
 Each Equimo release pins its built-in Hugging Face model repository to an immutable revision and embeds the Git LFS
 SHA-256 of every uploaded archive. An explicit archive SHA-256 can also be supplied to `load_weights` for deployments

@@ -53,8 +53,9 @@ Biases, normalization parameters, layer scales, and state-space dynamics
 ``vector`` covers every other array with at most one axis, as timm, MAE, and
 OpenCLIP exclude them: decay would pull scales such as IA3 vectors, SSF scales,
 and DoRA magnitudes toward zero instead of toward the identity.
-Position embeddings and learned prefix tokens follow timm, DeiT, and MAE
-fine-tuning; DINOv2/v3 pretraining decays them, so drop those tags to match it.
+Position embeddings and learned class, register, distillation, and mask tokens
+follow timm, DeiT, and MAE fine-tuning; DINOv2/v3 pretraining decays them, so
+drop those tags to match it.
 """
 
 

@@ -1645,7 +1645,8 @@ class VisionParcae(eqx.Module):
 
         ``True`` leaves receive weight decay. This is
         :func:`equimo.core.parameters.weight_decay_mask`: besides biases,
-        normalization parameters, and embeddings, the diagonal dynamical-system
+        normalization parameters, layer scales, vectors, and position
+        embeddings, the diagonal dynamical-system
         parameters ``A_log``, ``dt_bias``, ``B`` and the readout ``C`` carry the
         ``ssm`` tag and are marked ``False``, as in the Parcae reference
         implementation.

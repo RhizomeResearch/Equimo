@@ -20,11 +20,13 @@ optimizer or training loop: plans expose labels and masks for the caller's optim
   `vit_base`, `vit_large_or_huge`, `audio_transformer`), `ParamInfo`, `GroupSpec`, `ParameterReport`, `TrainableReport`,
   `FineTunePlan` (`combine()`), `FineTuneBundle`, `FineTuneBundleError` [config.py:TargetSpec] [config.py:TrainableSpec]
   [config.py:FeatureSpec] [config.py:LLRDConfig] [config.py:FineTunePlan] [config.py:FineTuneBundle]
-- Typing aliases `Path`, `PyTree`, `FilterSpec`, `LeafPredicate` [\_typing.py:Path]
+- Typing aliases `Path` (from `equimo.core.tags`), `PyTree`, `FilterSpec`, `LeafPredicate` [../core/tags.py:Path]
+  [\_typing.py:PyTree]
 - Paths: `key_path_to_path`, `path_to_str`, `str_to_path`, `is_path_prefix`, `iter_param_leaves`, `iter_param_paths`,
   `extract_param_paths`, `make_path_tree`, `make_param_info_tree` [paths.py:path_to_str] [paths.py:str_to_path]
-- Tags: `CANONICAL_TAGS`, `Tagger`, `canonical_tags_for_path`, `infer_depth`, `make_tag_tree`, `iter_param_infos`,
-  `make_param_info`, `infer_role`, `merge_taggers` [../core/tags.py:canonical_tags_for_path] [tags.py:make_param_info]
+- Tags: `CANONICAL_TAGS`, `Tagger`, `canonical_tags_for_path`, `infer_depth` (re-exported from `equimo.core.tags`),
+  `make_tag_tree`, `iter_param_infos`, `make_param_info`, `infer_role`, `merge_taggers`
+  [../core/tags.py:canonical_tags_for_path] [tags.py:make_param_info]
 - Selection: `resolve_target(model, target, *, allow_empty=False, tagger)`, `resolve_target_paths`, `is_linear`
   [selectors.py:resolve_target]
 - Masks and labels: `make_trainable_filter`, `resolve_trainable_paths`, `make_param_labels`,
@@ -102,11 +104,14 @@ optimizer or training loop: plans expose labels and masks for the caller's optim
   declared with `equimo.core.parameters.buffer`, such as VeRA bases or a fixed AdaptFormer `scale`), in every mode. An
   empty selection raises `ValueError` unless the mode is `frozen`; `TrainableSpec.expected_logical_ids` must match the
   selection exactly [masks.py:resolve_trainable_paths] [masks.py:\_base_trainable_paths]
-- `ParamInfo.tags` combine path tags with the tags modules give a leaf (`equimo.core.parameters.module_tags`): `norm`
-  for leaves of registered normalization layers, `block.layer_scale` and `ssm` from field declarations, and `buffer`
-  [tags.py:make_param_info]
+- `ParamInfo` records built from a model (`iter_param_infos`, `make_tag_tree`, selectors, masks, labels) combine path
+  tags with the tags modules give a leaf (`equimo.core.parameters.module_tags`): `norm` for leaves of registered
+  normalization layers, `block.layer_scale` and `ssm` from field declarations, and `buffer`. `make_param_info` adds
+  module tags only through its `module_tags` argument [tags.py:\_model_param_info] [tags.py:make_param_info]
 - `LLRDConfig.no_weight_decay_tags` defaults to `equimo.core.parameters.DEFAULT_NO_DECAY_TAGS`, the same policy as
-  `equimo.core.parameters.weight_decay_mask` [config.py:LLRDConfig]
+  `equimo.core.parameters.weight_decay_mask` for the leaves a plan trains. `make_param_labels` without `trainable_paths`
+  treats every floating leaf as trainable, buffers included, and labels buffers by these tags alone
+  [config.py:LLRDConfig] [labels.py:make_labeled_param_info_tree]
 - `TargetSpec` resolution is the union of `tags_all`, `tags_any`, `include`, and `predicate` (all inexact leaves when
   none is set), filtered by depth bounds and `exclude`. `predicate` is also called on whole `eqx.nn` `Linear`,
   `LayerNorm`, `Embedding`, and `Conv1d`/`Conv2d`/`Conv3d` modules, and a matching module selects every leaf under it.
@@ -115,8 +120,10 @@ optimizer or training loop: plans expose labels and masks for the caller's optim
 - `path_to_str` escapes `\` and `.` and prefixes integer-looking string parts with `\s`, so `str_to_path` round-trips
   paths unambiguously [paths.py:\_format_path_part] [paths.py:\_decode_path_part]
 - Canonical tags (`attention.qkv`, `attention.proj`, `attention.q/k/v`, `mlp.fc1`, `mlp.fc2`, `mlp.hidden`, `head`,
-  `block.N`, `bias` for `bias` and `*_bias` leaves, `weight`) are derived from path parts; Equimo ViT block depth uses
-  execution order across chunks [../core/tags.py:canonical_tags_for_path] [tags.py:make_param_info]
+  `block.N`, `bias` for `bias` and `*_bias` leaves, `weight`) are derived from path parts, and `vector` from the leaf:
+  any array with at most one axis, so PEFT vectors (DoRA magnitudes, AdaLoRA singular values, VeRA and RandLoRA scales,
+  IA3 vectors, FourierFT coefficients, scale/shift, adapter scales) get `*_no_decay` labels by default. Equimo ViT block
+  depth uses execution order across chunks [../core/tags.py:canonical_tags_for_path] [tags.py:make_param_info]
   [\_blocks.py:vision_block_depths]
 - Labels are `<base>_decay` or `<base>_no_decay`, and leaves sharing a label must agree on multiplier and weight decay.
   LLRD multipliers: head leaves use `head_lr_multiplier`; block leaves use
@@ -194,7 +201,9 @@ optimizer or training loop: plans expose labels and masks for the caller's optim
   [merging.py:greedy_soup]
 - Host synchronization that is not jit-traceable: calibration finalize and validation, and full-value hashing of base
   models during bundle enrichment and merge checks [calibration.py:finalize_calibration_collector]
-  [serialization.py:\_checkpoint_hash] [merging.py:\_checkpoint_hash]
+  [serialization.py:\_checkpoint_hash] [merging.py:\_checkpoint_hash]. A base-checkpoint or architecture hash that does
+  not match is computed again in the pre-2.8 layout, which evaluates the computed tables on the CPU backend
+  [serialization.py:\_check_base_checkpoint] [../\_legacy_layouts.py:legacy_leaves_with_path]
 
 ## Verification
 

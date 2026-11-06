@@ -166,12 +166,18 @@ shared core layers (activation, dropout, FFN, generic, Mamba mixer, norm) so mod
   square and `reg_grid` is omitted, and its `__call__` raises when `H * W` differs from the patch-token count.
   `[posemb.py:RoPE]`, `[posemb.py:DinoRoPE]`, `[posemb.py:VisionRoPE]`, `[posemb.py:CompositeVisionRoPE]`
 - `VisionRoPE.freqs`, `DinoRoPE.periods`, `RoPE.rotations`, and the `PosEmbMLPSwinv1D`/`PosEmbMLPSwinv2D` coordinate and
-  index tables are properties computed from static fields, not PyTree leaves, so optimizers never see them. Each class
-  names them in `_legacy_stored_leaves`; checkpoints written before Equimo 2.8 stored them and load through
-  `equimo._legacy_layouts`. `[posemb.py:VisionRoPE]`, `[posemb.py:PosEmbMLPSwinv2D]`
+  index tables are properties computed from static fields, not PyTree leaves, so optimizers never see them and
+  `eqx.tree_at` cannot replace them: build a module with other constructor arguments (`base`, `min_period`,
+  `max_period`, `periods_dtype`, or the mode fields) instead. `VisionRoPE(custom_freqs=...)` stores the values as a
+  static tuple, so they must be concrete at construction. Each class names the tables in `_legacy_stored_leaves`;
+  checkpoints written before Equimo 2.8 stored them and load through `equimo._legacy_layouts`, which raises `ValueError`
+  when a stored value differs from the computed one by more than rounding (for example after weight decay).
+  `[posemb.py:VisionRoPE]`, `[posemb.py:PosEmbMLPSwinv2D]`
 - `[posemb.py:_static_table]` evaluates those tables even while tracing, so `jax.jit` programs and ONNX exports hold
-  them as constants; `tests/test_onnx_export.py` checks that each table exports as a constant. `LinearAttention` applies
-  its `RoPE` to queries and keys in one call, so programs hold one table per block. `[attention.py:LinearAttention]`
+  them as constants; `tests/test_onnx_export.py::test_posemb_tables_export_as_constants` checks that each table exports
+  as a constant. Exporting `RoPE` and the Swin tables needs a jax2onnx release that includes enpasos/jax2onnx#291.
+  `LinearAttention` applies its `RoPE` to queries and keys in one call, so programs hold one table per block.
+  `[attention.py:LinearAttention]`
 - `LearnedPosEmbed` validates `cls_token` and `reg_tokens` shapes and resamples the grid part only, leaving prefix rows
   unchanged. `[posemb.py:LearnedPosEmbed]`
 
@@ -192,3 +198,6 @@ shared core layers (activation, dropout, FFN, generic, Mamba mixer, norm) so mod
 
 - Run:
   `devenv shell -- uv run pytest tests/test_attention.py tests/test_convolution.py tests/test_downsample.py tests/test_patch.py tests/test_posemb.py tests/test_squeeze_excite.py tests/test_wavelet.py tests/test_layer_registry_coverage.py tests/test_generic.py -q`
+- The computed position-embedding tables are also covered by
+  `devenv shell -- uv run pytest tests/test_onnx_export.py::test_posemb_tables_export_as_constants tests/test_io.py tests/test_checkpoint_signature_stability.py -q`
+  (constant export, which needs jax2onnx with enpasos/jax2onnx#291, and loading pre-2.8 checkpoints).

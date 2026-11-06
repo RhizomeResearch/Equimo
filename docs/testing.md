@@ -82,6 +82,7 @@ so adding a fixture updates an explicit gap instead of relying on an unnoticed s
 recorded as unsupported while Banax 0.1.2 initializes its loop error state in float32; all other representative
 contracts enforce bfloat16 output dtype.
 
-ONNX adapters are batched through `vmap` except PartialFormer: jax2onnx 0.15.1 introduces a vmap-only numerical drift
-beyond the established tolerance, while its unbatched export retains runtime parity. This exception is encoded in the
-model inventory so it cannot become an unnoticed fallback.
+ONNX adapters are batched through `vmap`. The model inventory can mark a family unbatched (`onnx_batched=False` with an
+`onnx_batch_limitation` reason) so such an exception cannot become an unnoticed fallback; no family needs it. With
+jax2onnx 0.17.1 and 0.18.0, the exports of MLLA, batched PartialFormer, and the `RoPE` and Swin position-embedding
+tables fail inside jax2onnx; enpasos/jax2onnx#291 fixes them.

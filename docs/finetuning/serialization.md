@@ -15,7 +15,9 @@ Attach base-model lineage and the applied spec as metadata:
 bundle = eqft.save_delta(model, "delta.eqft", base_model=base_model, spec=spec)
 ```
 
-Loading checks architecture hashes and target shapes. Incompatible bases raise a method-specific error.
+Loading checks architecture hashes and target shapes. Incompatible bases raise a method-specific error. Bundles saved
+before Equimo 2.8, whose architecture and base-checkpoint hashes also covered values Equimo now computes (RoPE
+frequencies, coordinate tables), still load.
 
 Use `save_finetune_bundle` and `load_finetune_bundle` when you already have a `FineTuneBundle`. Bundle metadata includes
 parameter counts, dtype summary, target paths, a base checkpoint hash, mergeability, and optional user metadata.

@@ -75,7 +75,7 @@ returns the same array and accepts unused `key` and `inference` arguments for th
 It does not contain decoder query tokens. For code that accepts either PMT or EoMT predictions, annotate the result with
 `equimo.vision.segmentation.QuerySegmentationOutput`.
 
-For either Small backbone above with three output classes, the native `pmt_head_finetune` plan reports 29,204,756 total
+For either Small backbone above with three output classes, the native `pmt_head_finetune` plan reports 29,204,740 total
 and 7,603,588 trainable parameters. GroupNorm has zero model-state bytes; BatchNorm has 12,304 bytes of running state
 across four taps. Two float32 optimizer slots for the trainable leaves require 60,828,704 bytes, excluding gradients,
 step counters, and temporary activations. Recompute these four values when class count, precision, norm, or decoder

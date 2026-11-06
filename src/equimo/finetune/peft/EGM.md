@@ -47,7 +47,9 @@ VPT, P-Tuning v2), and BitFit.
   `apply_lora_rank_pattern(model, rank_pattern, *, strict=True, final=False)` [lora.py:lora_rank_groups]
   [lora.py:apply_lora_rank_pattern]
 - `architecture_hash(model) -> str` (SHA-256 over inexact-leaf paths, shapes, dtypes) and `lora_config_to_dict`
-  [lora.py:architecture_hash] [lora.py:lora_config_to_dict]
+  [lora.py:architecture_hash] [lora.py:lora_config_to_dict]. `matches_architecture_hash(expected, model) -> bool` also
+  accepts the hash of the model's pre-2.8 layout; it is module-level only, outside `lora.__all__`
+  [lora.py:matches_architecture_hash]
 
 ### Other methods
 
@@ -135,11 +137,14 @@ VPT, P-Tuning v2), and BitFit.
   [scale_shift.py:\_init_parameter]
 - LoRA-FA with `custom_vjp=True` returns a zero gradient for A; `frozen_A` and `corrected_v3` define the B gradient
   [lora.py:\_lora_fa_update_corrected_bwd]
-- Frozen arrays are declared with `equimo.core.parameters.buffer` and read through `jax.lax.stop_gradient`: VeRA
-  `vera_A`/`vera_B`, LoRA-FA `frozen_A`/`correction_matrix`, RandLoRA `random_A`/`random_B`, PiSSA `base_weight_delta`,
-  OFT `unmerged_weight`, and AdaptFormer `scale` when `scale_trainable=False`. Trainability plans, `trainable_mask`, and
-  `weight_decay_mask` exclude them [vera.py:VeRALinear] [lora.py:LoRAFALinear] [lora.py:RandLoRALinear]
-  [adapters.py:OrthogonalLinear] [adapters.py:AdaptFormerAdapter]
+- Frozen arrays are declared with `equimo.core.parameters.buffer`: VeRA `vera_A`/`vera_B`, LoRA-FA
+  `frozen_A`/`correction_matrix`, RandLoRA `random_A`/`random_B`, PiSSA `base_weight_delta`, OFT `unmerged_weight`, and
+  AdaptFormer `scale` when `scale_trainable=False`. Trainability plans, `trainable_mask`, and `weight_decay_mask`
+  exclude them. Those the forward pass reads get zero gradients: the VeRA and RandLoRA bases and a fixed AdaptFormer
+  `scale` through `jax.lax.stop_gradient`, LoRA-FA `frozen_A` through it with `custom_vjp=False` and otherwise through a
+  VJP that returns zero for it and `correction_matrix`. The forward pass never reads PiSSA `base_weight_delta` (saving,
+  loading, and stripping do) or OFT `unmerged_weight` (only `unmerge` does) [vera.py:VeRALinear] [lora.py:LoRAFALinear]
+  [lora.py:RandLoRALinear] [lora.py:LoRALinear] [adapters.py:OrthogonalLinear] [adapters.py:AdaptFormerAdapter]
 - VeRA with `shared=True` reuses one basis pair across modules with the same rank, shape, dtype, and init
   [vera.py:\_shared_vera_bases]
 - PiSSA with `freeze_residual` stores `-scaling * B0 @ A0` in `base_weight_delta`; `strip_lora` and the loader undo or

@@ -82,7 +82,8 @@ names that are not re-exported there.
 
 ### Normalization
 
-- `[norm.py:LayerScale]`: per-channel `gamma` applied along `axis`.
+- `[norm.py:LayerScale]`: per-channel `gamma` applied along `axis`. `gamma` is tagged `block.layer_scale`, which keeps
+  it out of weight decay by default.
 - `[norm.py:maybe_layer_scale]`: returns `Identity` when `init_values is None`. Not re-exported.
 - `[norm.py:RMSNormGated]`: RMS norm with an optional gate `z` multiplied in before normalizing.
 - `[norm.py:DyT]`: dynamic tanh, `tanh(alpha * x) * weight + bias`.
@@ -99,7 +100,8 @@ names that are not re-exported there.
 - `[dropout.py:DropPathAdd]`: returns `x1 + x2`, or `x1` alone when the branch is dropped. `x2` is not rescaled.
 - `[dropout.py:split_drop_path]`: maps a float or a 1- or 2-element list to two rates. Not re-exported.
 - `[mamba.py:Mamba2Mixer]`: Mamba2 / VSSD mixer over `(seqlen, dim)`. It uses `equimo.core.ops.non_causal_linear_attn`
-  ([../ops/EGM.md](../ops/EGM.md)).
+  ([../ops/EGM.md](../ops/EGM.md)). `dt_bias`, `A_log` and `D` are tagged `ssm`, which keeps them out of weight decay by
+  default.
 - `[generic.py:Residual]`: computes `drop_path(x, ls(module(x)))`. The wrapped module receives `key` and `inference`
   only when `pass_args=True`.
 - `[generic.py:WindowedSequence]`: pads a `(C, H, W)` input to a multiple of `window_size`, runs the blocks on each
@@ -206,7 +208,9 @@ names that are not re-exported there.
   - `[dropout.py:_DROPOUT_REGISTRY]`
   - `[mamba.py:_MIXER_REGISTRY]`
 
-  The `register_*` decorators mutate these registries at runtime. Other modalities depend on these names.
+  The `register_*` decorators mutate these registries at runtime. Other modalities depend on these names. Membership in
+  `_NORM_REGISTRY` also gives the leaves an instance holds directly the `norm` tag in `equimo.core.parameters` masks and
+  fine-tuning tags, unless their field declares tags; the registry is read when the tags are computed.
 
 - `[generic.py:_core_layer_registries]`: imports the attention, dropout, ffn, mamba and norm modules lazily, the first
   time it is called.

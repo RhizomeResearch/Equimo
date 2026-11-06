@@ -56,7 +56,7 @@ Equimo is organized by modality, with reusable building blocks separated from mo
 
 | Namespace              | Purpose                                                                                 |
 | ---------------------- | --------------------------------------------------------------------------------------- |
-| `equimo.core`          | Shared layers, scan ops, implicit/DEQ utilities, EMA helpers                            |
+| `equimo.core`          | Shared layers, scan ops, implicit/DEQ utilities, EMA helpers, parameter tags and masks  |
 | `equimo.vision`        | Vision models, vision layers, and image IO                                              |
 | `equimo.language`      | Text encoders and tokenizers                                                            |
 | `equimo.audio`         | Audio models, layers, and checkpoint-linked AST waveform preprocessing                  |
@@ -974,7 +974,8 @@ def loss_and_grads(model_fp32, images, labels, key):
 
 Give the optimizer only the trainable leaves and Equimo's weight-decay mask. `trainable_mask` leaves out buffers, such
 as frozen PEFT bases, which weight decay would otherwise change; `weight_decay_mask` leaves biases, norms, layer scales,
-state-space dynamics, position embeddings, and learned prefix tokens undecayed:
+state-space dynamics, every other array with at most one axis, position embeddings, and learned class, register,
+distillation, and mask tokens undecayed:
 
 ```python
 import optax

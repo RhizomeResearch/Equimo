@@ -11,7 +11,8 @@ catalog, digest-pinned checkpoint save/download/load with resource limits, and g
 The subpackages layer as follows:
 
 - `core` is the shared base: layers with string-keyed registries, numerical kernels, PRNG helpers that allow key-free
-  inference, the config-registry model factory, and Deep Equilibrium layers.
+  inference, the config-registry model factory, Deep Equilibrium layers, and parameter tags with the `buffer`/`tagged`
+  field markers and the trainable and weight-decay masks built on them.
 - `vision`, `language`, `audio`, `tabular` and `timeseries` are modalities. Each one builds models from `core` layers
   plus its own layers, and registers them in the root registry under its modality name.
 - `finetune` operates on any of those models: trainable selection, PEFT wrappers, heads, merging, and delta
@@ -80,16 +81,19 @@ calls `serialization.py:load_weights`, which downloads into `~/.cache/equimo/` w
   - `inspect_checkpoint` rejects schema-less v2-alpha (legacy) checkpoints unless `allow_legacy=True`, while
     `load_weights` always allows them and emits a `RuntimeWarning` when neither the weights nor the archive checksum
     could be verified (`[serialization.py:_inspect_checkpoint_directory]`, `[serialization.py:load_weights]`);
-  - a supplied model must match the recorded class (`module.qualname`) and signature (`sha256:` over the array keypaths
-    and shapes in PyTree traversal order; `sort_keys=True` orders only the keys inside each entry)
-    (`[serialization.py:_model_class]`, `[serialization.py:_model_signature]`);
+  - a supplied model must match the recorded class (`module.qualname`) and either its own signature or that of its
+    pre-2.8 layout (`sha256:` over the array keypaths and shapes in PyTree traversal order; `sort_keys=True` orders only
+    the keys inside each entry) (`[serialization.py:_model_class]`, `[serialization.py:_model_signature]`);
   - checkpoints written before Equimo 2.8 also stored values that modules now compute (classes naming them in
     `_legacy_stored_leaves`, such as RoPE frequencies). When the signature (versioned) or the weight stream
     (schema-less) matches that older layout, `load_weights` reads it through `[_legacy_layouts.py:legacy_layout]` and
-    drops the values, raising `ValueError` if one differs from the computed value by more than four machine epsilons of
-    its dtype (`[serialization.py:_layout_for_signature]`, `[serialization.py:_layout_for_stream]`,
-    `[_legacy_layouts.py:restore_layout]`). Hashes of older bundles and PMT artifacts include those values, recomputed
-    on the CPU backend, whose results the published checkpoints match bit for bit
+    drops the values, raising `ValueError` unless each stored value passes `np.allclose` against the computed one with
+    `rtol = atol = 4 * finfo(dtype).eps` (exact match for non-floating dtypes)
+    (`[serialization.py:_layout_for_signature]`, `[serialization.py:_layout_for_stream]`,
+    `[_legacy_layouts.py:restore_layout]`). `inspect_checkpoint` accepts the older layout too but compares no values, so
+    it can succeed on a checkpoint that `load_weights` rejects. The computed values, which `restore_layout` compares
+    against and older bundle and PMT hashes include, are recomputed on the CPU backend when one is available (the
+    published checkpoints match its results bit for bit), otherwise on the default device
     (`[_legacy_layouts.py:_stored_value]`).
 - Download trust (`[serialization.py:download]`):
   - the expected archive digest is `expected_sha256` if given, otherwise the pinned `PRETRAINED_ARCHIVE_SHA256` entry
@@ -135,7 +139,7 @@ calls `serialization.py:load_weights`, which downloads into `~/.cache/equimo/` w
 
 - core: [./core/EGM.md](./core/EGM.md) - shared layers with string-keyed registries (attention with XLA and opt-in cuDNN
   paths, rotary, FFNs, norms, drop-path, Mamba2), float32-safe softmax/cross-entropy and SSM kernels, PRNG mode helpers,
-  the EMA update, `build_model_variant`, and Deep Equilibrium layers.
+  the EMA update, `build_model_variant`, Deep Equilibrium layers, and parameter tags, field markers and masks.
 - vision: [./vision/EGM.md](./vision/EGM.md) - registered image architectures (ViT family with DINOv2/v3, SigLIP2, TIPS,
   EUPE, LingBot and ViT-5 presets, ConvNeXt, EoMT, PMT, and others), vision layers and registries, query-segmentation
   training losses, image loading, segmentation post-processing, and PMT checkpoints.
@@ -161,6 +165,9 @@ calls `serialization.py:load_weights`, which downloads into `~/.cache/equimo/` w
 - Numerically sensitive operations (attention logits, softmax, norms, scan exponents, pooling accumulators) compute in
   at least float32 and cast back to the input dtype. Token attention uses `jax.nn.softmax`, while other softmaxes and
   the classification losses use `equimo.core.ops` ([./core/ops/EGM.md](./core/ops/EGM.md)).
+- Arrays a module stores but never trains are declared `equimo.core.parameters.buffer()`, which keeps them out of the
+  trainable and weight-decay masks; values that follow from static configuration (RoPE frequencies, coordinate tables)
+  are computed, not stored ([./core/EGM.md](./core/EGM.md), [./vision/layers/EGM.md](./vision/layers/EGM.md)).
 - Layers and models are resolved by lowercased string names through per-family registries built from
   `core/layers/_registry.py`, and models through `[registry.py:register_model]`. Registering a duplicate name raises
   unless `force=True`.

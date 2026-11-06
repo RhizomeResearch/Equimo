@@ -22,19 +22,23 @@ its submodule.
 - `[emamodel.py:update_ema_model]`: `update_ema_model(ema_model, current_params, decay=0.9999)`, a `jax.jit`-compiled
   function. It returns a new module whose trainable leaves are `decay * ema + (1 - decay) * new`.
 - `[tags.py:canonical_tags_for_path]`: `canonical_tags_for_path(path, leaf=None) -> frozenset[str]` infers tags such as
-  `bias`, `norm` and `embedding.position` from a parameter path, and `vector` when *leaf* is an array with at most one
-  axis. `[tags.py:key_path_to_path]` converts a JAX key path to that path form. `equimo.finetune` re-exports both.
+  `norm` and `embedding.position` from a parameter path, `bias` for a last path part named `bias` or ending in `_bias`,
+  and `vector` when *leaf* is an array with at most one axis. `[tags.py:CANONICAL_TAGS]` lists the canonical tags,
+  `Tagger` is the `(path, leaf) -> Iterable[str]` type, `[tags.py:infer_depth]` derives block indices, and
+  `[tags.py:key_path_to_path]` converts a JAX key path to the path form. `equimo.finetune` re-exports
+  `canonical_tags_for_path`, `CANONICAL_TAGS`, and `infer_depth`; `key_path_to_path` is available from
+  `equimo.finetune.paths`.
 - `[parameters.py:tagged]`: `tagged(*tags, when=None, **field_kwargs)` declares an Equinox field whose leaves carry
-  `tags`, optionally only when `when(module)` is true. `[parameters.py:buffer]` is `tagged("buffer", ...)`: an array the
-  module stores but never trains.
+  `tags`, optionally only when `when(module)` is true, and raises `ValueError` without tags. `[parameters.py:buffer]` is
+  `tagged("buffer", ...)`: an array the module stores but never trains.
 - `[parameters.py:module_tags]`, `[parameters.py:buffer_mask]`, `[parameters.py:trainable_mask]`: return the tree with
   each leaf replaced by its module-given tags, by whether it is a buffer, and by whether it is a floating array outside
   buffers. `trainable_mask` is an Equinox filter specification.
 - `[parameters.py:weight_decay_mask]`:
   `weight_decay_mask(tree, *, no_decay_tags=DEFAULT_NO_DECAY_TAGS, tagger=canonical_tags_for_path)` returns whether each
   leaf decays. It can be passed directly as an optax `mask`. `[parameters.py:DEFAULT_NO_DECAY_TAGS]` lists biases,
-  norms, layer scales, state-space dynamics (`ssm`), arrays with at most one axis (`vector`), position embeddings and
-  learned prefix tokens.
+  norms, layer scales, state-space dynamics (`ssm`), arrays with at most one axis (`vector`), position embeddings, and
+  learned class, register, distillation, and mask tokens.
 - `[factory.py:build_model_variant]`:
   `build_model_variant(model_cls, registry, variant, *, pretrained=False, inference_mode=True, key=None, deepcopy_cfg=False, pretrained_variants=None, pretrained_identifiers=None, pretrained_label=None, allow_pretrained_overrides=True, **overrides)`.
   - It builds `model_cls(**(base_cfg | variant_cfg | overrides), key=key)`, where `registry[variant]` is the pair
@@ -102,9 +106,10 @@ Subdirectories:
 ## Verification
 
 - Run:
-  `devenv shell -- uv run pytest tests/test_emamodel.py tests/test_core_parameters.py tests/test_model_factory.py tests/test_prng_free_inference.py tests/test_models.py::test_vit_intermediate_features_last_block_matches_features -q`
+  `devenv shell -- uv run pytest tests/test_emamodel.py tests/test_core_parameters.py tests/finetune/test_tags.py tests/test_model_factory.py tests/test_prng_free_inference.py tests/test_models.py::test_vit_intermediate_features_last_block_matches_features -q`
 - `tests/test_emamodel.py` covers `emamodel.py`, `tests/test_core_parameters.py` covers `parameters.py`,
   `tests/test_model_factory.py` covers `factory.py`, and `tests/test_prng_free_inference.py` covers `_prng.py`.
-  `tags.py` is covered through `tests/finetune/test_tags.py`. `intermediates.py` has no direct test: the ViT
+  `tags.py` is covered through `tests/finetune/test_tags.py`, and its `vector` rule through `weight_decay_mask` in
+  `tests/test_core_parameters.py`. `intermediates.py` has no direct test: the ViT
   `intermediate_features(..., n_last_blocks=2)` test exercises it indirectly, and its `ValueError` cases are untested.
 - The subdirectories each have their own Verification commands.

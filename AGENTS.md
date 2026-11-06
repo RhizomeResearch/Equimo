@@ -106,7 +106,8 @@ revision (observed in practice). Delete them before finishing.
   instead of storing them (`_static_table` in `posemb.py` evaluates it while tracing, so jit and ONNX programs hold it
   as a constant instead of recomputing it every call); declare stored arrays that are never trained with
   `equimo.core.parameters.buffer()` and read them through `jax.lax.stop_gradient`. A class that stops storing a leaf
-  lists it in `_legacy_stored_leaves` so older checkpoints still load (`equimo._legacy_layouts`).
+  lists it in `_legacy_stored_leaves`, in stored order, and keeps it readable as an attribute so older checkpoints still
+  load (`equimo._legacy_layouts`); this only works when those leaves came after the class's other array leaves.
 - Models must work in low precision, including `bfloat16` and potentially lower precision formats. Preserve existing
   dtype behavior; perform numerically sensitive operations in sufficient precision with explicit, local casts, then
   return results in the expected dtype instead of silently promoting the model.

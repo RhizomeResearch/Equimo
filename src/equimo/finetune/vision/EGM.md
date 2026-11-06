@@ -42,8 +42,8 @@ adapter and distillation presets, and model-specific fine-tuning plans for the E
   unique head resolves), so the original head stays in place [dense.py:make_dense_probe]
   [../feature_extraction.py:\_headless_backbone]
 - `eomt_full_finetune` raises `TypeError` for non-`EoMT` models; it trains all parameters in `mode="full"` except
-  inexact leaves under `backbone.local_pos_embed`, `backbone.mask_token`, and `backbone.local_cls_norm`, and labels
-  groups with `LLRDConfig(decay=decay)` [eomt.py:eomt_full_finetune]
+  buffers and the inexact leaves under `backbone.mask_token` and `backbone.local_cls_norm`, which EoMT does not use, and
+  labels groups with `LLRDConfig(decay=decay)` [eomt.py:eomt_full_finetune]
 - `pmt_head_finetune` raises `TypeError` for non-`PMT` models and `ValueError` when `model.is_stateful()` (BatchNorm)
   and no `eqx.nn.State` is passed; it uses `TrainableSpec(mode="head")`, `LLRDConfig(decay=1.0)`, and forwards the state
   as `model_state` [pmt.py:pmt_head_finetune]

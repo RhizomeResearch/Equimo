@@ -1,6 +1,7 @@
 # Full and Partial Fine-Tuning
 
-Full fine-tuning selects all parameter leaves unless a freeze selector removes them:
+Full fine-tuning selects every floating-point leaf except buffers (such as frozen PEFT bases) and PEFT metadata, minus
+head leaves when `train_head=False` and anything a freeze selector removes:
 
 ```python
 plan = eqft.prepare_finetune(
