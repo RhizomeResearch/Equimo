@@ -27,7 +27,7 @@ All notable changes to Equimo are documented here. Equimo follows Semantic Versi
 - Frozen PEFT arrays are declared buffers and excluded from every trainability mode: VeRA `vera_A`/`vera_B`, LoRA-FA
   `frozen_A`/`correction_matrix`, RandLoRA bases, PiSSA `base_weight_delta`, OFT `unmerged_weight`, and a fixed
   AdaptFormer `scale`. `mode="full"` previously trained the VeRA bases, the LoRA-FA correction matrix, and the OFT
-  backup weight.
+  backup weight. `make_param_labels` without `trainable_paths` gives buffers the label `None` instead of a decay label.
 - The default no-weight-decay policy (`LLRDConfig.no_weight_decay_tags`, `DEFAULT_NO_DECAY_TAGS`) also excludes layer
   scales (`block.layer_scale`, including PMD lateral scales) and state-space dynamics (`ssm`: Mamba `A_log`, `D`,
   `dt_bias`; Parcae `A_log`, `dt_bias`, `B`, `C`). Leaves of registered normalization layers are tagged `norm` whatever

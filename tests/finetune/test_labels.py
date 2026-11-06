@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import jax.random as jr
 import jax.tree_util as jtu
 
 import equimo.finetune as eqft
@@ -57,6 +58,20 @@ def test_make_param_labels_direct(tiny_vision_transformer):
     assert labels.head.weight == "head_decay"
     assert labels.head.bias == "head_no_decay"
     assert labels.blocks[1].attn.qkv.weight == "block_01_decay"
+
+
+def test_make_param_labels_leaves_buffers_unlabeled(tiny_vision_transformer):
+    model = eqft.apply_vera(
+        tiny_vision_transformer,
+        eqft.VeRAConfig(rank=3, target=eqft.TargetSpec(tags_any=("attention.proj",))),
+        key=jr.PRNGKey(0),
+    )
+
+    labels = eqft.make_param_labels(model)
+
+    proj = labels.blocks[0].attn.proj
+    assert (proj.vera_A, proj.vera_B) == (None, None)
+    assert proj.vera_output_scale.endswith("_no_decay")
 
 
 def test_group_spec_metadata_aggregates_mixed_embedding_roles():

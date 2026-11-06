@@ -28,6 +28,6 @@ rate.
 Bias, norm, layer-scale, state-space dynamics (`ssm`), position embedding, and learned class, register, distillation,
 and mask token leaves, and every other array with at most one axis (`vector`, such as IA3 vectors or DoRA magnitudes),
 are no-weight-decay by default (`equimo.core.parameters.DEFAULT_NO_DECAY_TAGS`, the same policy as
-`equimo.core.parameters.weight_decay_mask` for the leaves a plan trains). DINOv2/v3-style pretraining decays position
-embeddings and tokens; pass `no_weight_decay_tags` without those tags to match it. Buffers, such as frozen PEFT bases,
-are never trainable in a plan.
+`equimo.core.parameters.weight_decay_mask`). DINOv2/v3-style pretraining decays position embeddings and tokens; pass
+`no_weight_decay_tags` without those tags to match it. Buffers, such as frozen PEFT bases, are never trainable and get
+no label, in plans and in `make_param_labels`.

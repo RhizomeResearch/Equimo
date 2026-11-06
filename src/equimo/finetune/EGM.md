@@ -110,8 +110,8 @@ optimizer or training loop: plans expose labels and masks for the caller's optim
   module tags only through its `module_tags` argument [tags.py:\_model_param_info] [tags.py:make_param_info]
 - `LLRDConfig.no_weight_decay_tags` defaults to `equimo.core.parameters.DEFAULT_NO_DECAY_TAGS`, the same policy as
   `equimo.core.parameters.weight_decay_mask` for the leaves a plan trains. `make_param_labels` without `trainable_paths`
-  treats every floating leaf as trainable, buffers included, and labels buffers by these tags alone
-  [config.py:LLRDConfig] [labels.py:make_labeled_param_info_tree]
+  treats every floating leaf except buffers as trainable and gives buffers the label `None` [config.py:LLRDConfig]
+  [labels.py:make_labeled_param_info_tree]
 - `TargetSpec` resolution is the union of `tags_all`, `tags_any`, `include`, and `predicate` (all inexact leaves when
   none is set), filtered by depth bounds and `exclude`. `predicate` is also called on whole `eqx.nn` `Linear`,
   `LayerNorm`, `Embedding`, and `Conv1d`/`Conv2d`/`Conv3d` modules, and a matching module selects every leaf under it.

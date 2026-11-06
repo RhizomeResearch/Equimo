@@ -24,7 +24,11 @@ def make_param_labels(
     trainable_paths: frozenset[Path] | None = None,
     tagger: Tagger = canonical_tags_for_path,
 ) -> PyTree:
-    """Return a PyTree of optimizer-group labels for parameter leaves."""
+    """Return a PyTree of optimizer-group labels for parameter leaves.
+
+    Without ``trainable_paths``, every floating leaf except buffers is
+    labeled; other leaves get ``None``.
+    """
 
     info_tree, _ = make_labeled_param_info_tree(
         model,
@@ -47,8 +51,17 @@ def make_labeled_param_info_tree(
     config = LLRDConfig(decay=1.0) if llrd_config is None else llrd_config
     block_depths = vision_block_depths(model)
     param_info = _model_param_info(model, tagger)
+    selected_paths = (
+        frozenset(
+            path
+            for path, leaf in iter_param_leaves(model)
+            if "buffer" not in param_info(path, leaf).tags
+        )
+        if trainable_paths is None
+        else trainable_paths
+    )
     all_depths = _depths(model, config, block_depths)
-    selected_depths = _depths(model, config, block_depths, trainable_paths)
+    selected_depths = _depths(model, config, block_depths, selected_paths)
     filtered = eqx.filter(model, eqx.is_inexact_array)
     group_specs: dict[str, GroupSpec] = {}
 
@@ -59,7 +72,7 @@ def make_labeled_param_info_tree(
         path = key_path_to_path(key_path)
         base = param_info(path, leaf)
         base = replace(base, depth=_depth_for_path(path, config, block_depths))
-        trainable = trainable_paths is None or path in trainable_paths
+        trainable = path in selected_paths
         weight_decay = trainable and _uses_weight_decay(base, config)
         lr_multiplier = (
             _lr_multiplier(base, config, all_depths, selected_depths)

@@ -163,6 +163,8 @@ equimo.finetune.make_param_labels(model: 'PyTree', llrd_config: 'LLRDConfig | No
 Defined in `equimo.finetune.labels`.
 
 > Return a PyTree of optimizer-group labels for parameter leaves.
+>
+> Without `trainable_paths`, every floating leaf except buffers is labeled; other leaves get `None`.
 
 <!-- equimo.finetune:make_path_tree -->
 
