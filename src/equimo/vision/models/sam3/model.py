@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import equinox as eqx
 import jax.random as jr
-from jaxtyping import Array, Float, PRNGKeyArray
+from jaxtyping import Array, Float, Int, PRNGKeyArray
 
 from equimo.core.factory import build_model_variant
 from equimo.registry import register_model
@@ -24,7 +24,14 @@ from equimo.vision.models.sam3.interactive import (
     InteractiveOutput,
     InteractivePrompt,
 )
-from equimo.vision.models.sam3.tracker import Sam3Tracker
+from equimo.vision.models.sam3.tracker import (
+    Association,
+    CommitPlan,
+    Sam3Tracker,
+    TrackerState,
+    TrackOutput,
+    associate,
+)
 
 
 @register_model("sam3", modality="vision")
@@ -153,6 +160,48 @@ class Sam3(eqx.Module):
     ) -> InteractiveOutput:
         """Segment one object from points, a box or a mask."""
         return self.interactive(features, prompt)
+
+    def propagate(
+        self,
+        state: TrackerState,
+        features: ImageFeatures,
+        frame_index: Int[Array, ""],
+        key: PRNGKeyArray | None = None,
+        inference: bool = True,
+        *,
+        num_frames: int | None = None,
+    ) -> TrackOutput:
+        """Track every bucket into a frame (experimental).
+
+        ``num_frames`` is the clip length, ``None`` when it is unknown. It only
+        scales the temporal encoding of object pointers.
+        """
+        return self.tracker.propagate(
+            state, features, frame_index, num_frames=num_frames
+        )
+
+    def associate(
+        self,
+        detections: DetectorOutput,
+        tracks: TrackOutput,
+        state: TrackerState,
+        key: PRNGKeyArray | None = None,
+        inference: bool = True,
+    ) -> Association:
+        """Compute the flags the host policy decides from (experimental)."""
+        return associate(detections, tracks, state)
+
+    def commit(
+        self,
+        state: TrackerState,
+        features: ImageFeatures,
+        tracks: TrackOutput,
+        plan: CommitPlan,
+        key: PRNGKeyArray | None = None,
+        inference: bool = True,
+    ) -> TrackerState:
+        """Apply the host's plan and store the frame's memory (experimental)."""
+        return self.tracker.commit(self.interactive, state, features, tracks, plan)
 
 
 _SAM31_BASE_CFG: dict = {

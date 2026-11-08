@@ -39,7 +39,8 @@ jax2onnx's `flax.nnx` import fails on flax 0.12.6 and works on 0.12.10 (observed
 
 Equimo code does not work around jax2onnx bugs; they are fixed upstream. With jax2onnx 0.17.1 and 0.18.0,
 `tests/test_onnx_export.py` fails for the `posemb.py` tables (`RoPE`, Swin), `mlla`, and batched `partialformer`;
-enpasos/jax2onnx#291 fixes them, and the whole file passes against that branch on JAX 0.11.2 (run in practice).
+enpasos/jax2onnx#291 fixes them, and the whole file passes against that branch on JAX 0.11.2 (run in practice). `sam3`
+fails at the same RoPE table with the locked jax2onnx (run in practice; not yet run against that branch).
 
 Anything that imports JAX must run inside the devenv shell, for example `devenv shell -- uv run pytest ...` (run in
 practice): outside it, even the devenv-provided uv fails to import jaxlib because `libstdc++.so.6` is not on the library

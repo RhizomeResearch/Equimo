@@ -368,8 +368,8 @@ class MaskDecoder(eqx.Module):
         sparse_valid: Bool[Array, " tokens"],
         dense: Float[Array, "dim grid grid"],
         high_res: tuple[jax.Array, jax.Array],
-    ) -> tuple[jax.Array, jax.Array, jax.Array]:
-        """Return mask logits (float32), predicted IoU and the object score logit."""
+    ) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array]:
+        """Return mask logits (float32), IoU, the object score and the mask tokens."""
         dtype = image.dtype
         grid = image.shape[-1]
         tokens = jnp.concatenate(
@@ -388,14 +388,18 @@ class MaskDecoder(eqx.Module):
             tokens, flatten_map(image + dense), flatten_map(image_pos), valid
         )
         pixels = self.upsampler(unflatten_map(attended, grid), high_res)
+        mask_tokens = tokens[2 : 2 + _INTERACTIVE_MASK_TOKENS]
         masks = jnp.einsum(
             "qc,chw->qhw",
-            self.mask_embed(tokens[2 : 2 + _INTERACTIVE_MASK_TOKENS]).astype(
-                jnp.float32
-            ),
+            self.mask_embed(mask_tokens).astype(jnp.float32),
             pixels.astype(jnp.float32),
         )
-        return masks, self.iou_head(tokens[0]), self.object_head(tokens[1])[0]
+        return (
+            masks,
+            self.iou_head(tokens[0]),
+            self.object_head(tokens[1])[0],
+            mask_tokens,
+        )
 
 
 class MultiplexMaskDecoder(eqx.Module):
@@ -550,10 +554,16 @@ class InteractiveHead(eqx.Module):
     def __call__(
         self, features: ImageFeatures, prompt: InteractivePrompt
     ) -> InteractiveOutput:
+        return self.predict_with_tokens(features, prompt)[0]
+
+    def predict_with_tokens(
+        self, features: ImageFeatures, prompt: InteractivePrompt
+    ) -> tuple[InteractiveOutput, Float[Array, "masks dim"]]:
+        """Return the output and the mask tokens the tracker builds pointers from."""
         high, middle, low = features.interactive
         image = low + self.no_memory_embed[:, None, None].astype(low.dtype)
         sparse, valid, dense = self.prompt_encoder(prompt)
-        masks, iou, object_score = self.mask_decoder(
+        masks, iou, object_score, tokens = self.mask_decoder(
             image,
             self.prompt_encoder.dense_position_encoding(),
             sparse,
@@ -562,12 +572,13 @@ class InteractiveHead(eqx.Module):
             (high, middle),
         )
         num_labels = jnp.sum(prompt.point_labels != -1) + 2 * prompt.has_box
-        return InteractiveOutput(
+        output = InteractiveOutput(
             mask_logits=masks,
             iou=iou,
             object_score_logit=object_score,
             selected=_select_mask(masks, iou, num_labels),
         )
+        return output, tokens
 
 
 __all__ = ["InteractiveOutput", "InteractivePrompt"]

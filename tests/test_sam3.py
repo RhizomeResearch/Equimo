@@ -19,11 +19,16 @@ from equimo.finetune import (
 )
 from equimo.vision.layers.posemb import VisionRoPE
 from equimo.vision.models.sam3 import (
+    CommitPlan,
     ConceptPrompt,
     DetectorOutput,
+    ImageFeatures,
     InteractivePrompt,
     Sam3,
+    TrackerState,
+    TrackOutput,
     decode_concepts,
+    pad_tracker_buckets,
 )
 from equimo.vision.models.sam3 import tracker as tracker_module
 from equimo.vision.models.sam3.common import exchanged_rope_factors
@@ -31,7 +36,16 @@ from equimo.vision.models.sam3.decoding import greedy_iom_nms, single_frame_nms
 from equimo.vision.models.sam3.detector import joint_logit
 from equimo.vision.models.sam3.encoder import ViTDetBlock
 from equimo.vision.models.sam3.interactive import _select_mask
-from equimo.vision.models.sam3.tracker import _memory_key_rotary
+from equimo.vision.models.sam3.tracker import (
+    SLOT_ACTIVE,
+    SLOT_EMPTY,
+    SLOT_REMOVED,
+    _keep_per_group,
+    _memory_key_rotary,
+    _selected_memory_frames,
+    _shrunk_slots,
+    associate,
+)
 
 GPU = pytest.mark.skipif(
     jax.default_backend() != "gpu", reason="cuDNN attention requires a CUDA GPU"
@@ -121,7 +135,7 @@ def _all_outputs(model: Sam3, image, text, slot_masks, memory) -> dict[str, jax.
     attended = tracker.memory_attention(
         jnp.moveaxis(low, 0, -1).reshape(GRID * GRID, dim),
         memory,
-        jnp.zeros_like(memory),
+        memory,
         num_spatial_keys=jnp.asarray(GRID * GRID),
         key_lengths=jnp.asarray(GRID * GRID + 2),
     )
@@ -489,7 +503,7 @@ def test_memory_attention_ignores_keys_past_the_length(model):
     base = attention(
         x,
         MEMORY,
-        jnp.zeros_like(MEMORY),
+        MEMORY,
         num_spatial_keys=jnp.asarray(GRID * GRID),
         key_lengths=lengths,
     )
@@ -497,7 +511,7 @@ def test_memory_attention_ignores_keys_past_the_length(model):
     other = attention(
         x,
         changed_memory,
-        jnp.zeros_like(MEMORY),
+        changed_memory,
         num_spatial_keys=jnp.asarray(GRID * GRID),
         key_lengths=lengths,
     )
@@ -511,9 +525,9 @@ def test_memory_attention_chunking_matches_one_block(model, monkeypatch):
         "num_spatial_keys": jnp.asarray(GRID * GRID),
         "key_lengths": jnp.asarray(GRID * GRID + 2),
     }
-    whole = attention(x, MEMORY, jnp.zeros_like(MEMORY), **kwargs)
+    whole = attention(x, MEMORY, MEMORY, **kwargs)
     monkeypatch.setattr(tracker_module, "_ATTENTION_CHUNK_QUERIES", 3)
-    chunked = attention(x, MEMORY, jnp.zeros_like(MEMORY), **kwargs)
+    chunked = attention(x, MEMORY, MEMORY, **kwargs)
     assert jnp.allclose(whole, chunked, rtol=1e-6, atol=1e-6)
 
 
@@ -639,3 +653,585 @@ def test_cudnn_attention_matches_xla_in_bfloat16():
             rtol=0.05,
             atol=0.05,
         ), name
+
+
+SOURCE_SIZE = (40, 60)
+
+
+@pytest.fixture(scope="module")
+def frame_features(model) -> ImageFeatures:
+    return model.encode_image(IMAGE)
+
+
+def _new_mask() -> jax.Array:
+    return jr.normal(jr.PRNGKey(11), (MASK_SIZE, MASK_SIZE))
+
+
+def _plan(state: TrackerState, frame, **fields) -> CommitPlan:
+    plan = CommitPlan.empty(state, jnp.asarray(frame, jnp.int32), SOURCE_SIZE)
+    if not fields:
+        return plan
+    return eqx.tree_at(
+        lambda p: tuple(getattr(p, name) for name in fields),
+        plan,
+        tuple(fields.values()),
+    )
+
+
+def _add_slots(state: TrackerState, frame, *slots: tuple[int, int]) -> CommitPlan:
+    add = jnp.zeros_like(state.slot_status, dtype=bool)
+    new_masks = jnp.zeros_like(state.last_masks)
+    for bucket, slot in slots:
+        add = add.at[bucket, slot].set(True)
+        new_masks = new_masks.at[bucket, slot].set(_new_mask())
+    return _plan(state, frame, add=add, new_masks=new_masks)
+
+
+def _step(model, state, features, frame, plan):
+    tracks = model.propagate(state, features, frame)
+    return model.commit(state, features, tracks, plan), tracks
+
+
+@pytest.fixture(scope="module")
+def step():
+    return eqx.filter_jit(_step)
+
+
+def _run(step, model, features, state, plans):
+    for plan in plans:
+        state, tracks = step(model, state, features, plan.frame_index, plan)
+    return state, tracks
+
+
+def test_tracking_compiles_once_per_bucket_count(model, frame_features):
+    traced_buckets = []
+
+    def counted(model, state, features, frame, plan, detections):
+        traced_buckets.append(state.slot_status.shape[0])
+        state, tracks = _step(model, state, features, frame, plan)
+        return state, model.associate(detections, tracks, state)
+
+    counted = eqx.filter_jit(counted)
+    detections = _output_with_masks(
+        jr.normal(jr.PRNGKey(12), (4, MASK_SIZE, MASK_SIZE)), jnp.zeros(4)
+    )
+
+    def advance(state, plan):
+        return counted(
+            model, state, frame_features, plan.frame_index, plan, detections
+        )[0]
+
+    state = model.tracker.empty_state(1)
+    state = advance(state, _add_slots(state, 0, (0, 0)))
+    state = advance(state, _add_slots(state, 1, (0, 1)))
+    remove = jnp.zeros((1, 2), bool).at[0, 0].set(True)
+    state = advance(state, _plan(state, 2, remove=remove))
+    state = advance(state, _plan(state, 3))
+    assert traced_buckets == [1]
+
+    state = pad_tracker_buckets(state, 2)
+    state = advance(state, _add_slots(state, 4, (1, 0)))
+    state = advance(state, _plan(state, 5))
+    assert traced_buckets == [1, 2]
+
+    state = pad_tracker_buckets(state, 4)
+    state = advance(state, _plan(state, 6))
+    assert traced_buckets == [1, 2, 4]
+
+
+def test_ring_buffers_hold_the_latest_frames(model, frame_features, step):
+    state = model.tracker.empty_state(1)
+    state, _ = step(
+        model,
+        state,
+        frame_features,
+        jnp.asarray(0, jnp.int32),
+        _add_slots(state, 0, (0, 0)),
+    )
+    assert state.recent_is_cond[0, 0]
+    for frame in range(1, 18):
+        state, _ = step(
+            model,
+            state,
+            frame_features,
+            jnp.asarray(frame, jnp.int32),
+            _plan(state, frame),
+        )
+        recent = set(state.recent_frame[0].tolist()) - {-1}
+        pointers = set(state.pointer_frame[0].tolist()) - {-1}
+        assert recent == set(range(max(0, frame - 5), frame + 1))
+        assert pointers == set(range(max(0, frame - 14), frame + 1))
+        assert state.recent_frame[0, frame % 6] == frame
+        assert state.pointer_frame[0, frame % 15] == frame
+        assert not state.recent_is_cond[0, frame % 6]
+    assert state.cond_frame[0].tolist() == [0, -1, -1, -1]
+
+
+def test_conditioning_buffer_keeps_the_four_latest_frames(model, frame_features, step):
+    state = model.tracker.empty_state(1)
+    state, _ = step(
+        model,
+        state,
+        frame_features,
+        jnp.asarray(0, jnp.int32),
+        _add_slots(state, 0, (0, 0)),
+    )
+    recondition = jnp.zeros((1, 2), bool).at[0, 0].set(True)
+    for frame in range(1, 7):
+        plan = _plan(
+            state,
+            frame,
+            recondition=recondition,
+            recondition_masks=jnp.zeros((1, 2, MASK_SIZE, MASK_SIZE)),
+        )
+        state, _ = step(
+            model, state, frame_features, jnp.asarray(frame, jnp.int32), plan
+        )
+    assert set(state.cond_frame[0].tolist()) == {3, 4, 5, 6}
+    assert state.recent_is_cond[0, 6 % 6]
+
+
+def test_selected_frames_skip_conditioning_entries_read_from_their_buffer(model):
+    state = eqx.tree_at(
+        lambda s: (
+            s.cond_frame,
+            s.recent_frame,
+            s.recent_is_cond,
+            s.pointer_frame,
+        ),
+        model.tracker.empty_state(1),
+        (
+            jnp.asarray([[5, 6, 7, 8]], jnp.int32),
+            jnp.asarray([[6, 7, 8, 3, 4, -1]], jnp.int32),
+            jnp.asarray([[True, True, True, True, False, False]]),
+            jnp.asarray([[8, 7, 6, 3] + [-1] * 11], jnp.int32),
+        ),
+    )
+    cond, recent, pointer = _selected_memory_frames(
+        jax.tree.map(lambda leaf: leaf[0], state)
+    )
+    assert cond.tolist() == [True] * 4
+    # Frame 3 was a conditioning frame that left the buffer, so it counts as recent.
+    assert recent.tolist() == [False, False, False, True, True, False]
+    assert pointer.tolist() == [False, False, False, True] + [False] * 11
+
+
+def test_memory_keys_count_only_selected_frames(model, frame_features, step):
+    state = model.tracker.empty_state(1)
+    bucket = jax.tree.map(lambda leaf: leaf[0], state)
+    frame = jnp.asarray(0, jnp.int32)
+    _, _, spatial, lengths = model.tracker._memory_bank(bucket, frame, 15)
+    assert spatial == 0 and lengths == 0
+
+    state, _ = step(model, state, frame_features, frame, _add_slots(state, 0, (0, 0)))
+    bucket = jax.tree.map(lambda leaf: leaf[0], state)
+    keys, values, spatial, lengths = model.tracker._memory_bank(
+        bucket, jnp.asarray(1, jnp.int32), 15
+    )
+    # Frame 0 is read once, as a conditioning frame, not again as a recent one.
+    assert spatial == GRID * GRID
+    assert lengths == GRID * GRID + model.tracker.mask_decoder.num_slots
+    assert keys.shape == values.shape
+
+
+def test_stored_features_are_the_spatial_keys(model, frame_features, step):
+    state = model.tracker.empty_state(1)
+    state, _ = step(
+        model,
+        state,
+        frame_features,
+        jnp.asarray(0, jnp.int32),
+        _add_slots(state, 0, (0, 0)),
+    )
+    frame = jnp.asarray(1, jnp.int32)
+    base = model.propagate(state, frame_features, frame).mask_logits
+    selected = eqx.tree_at(
+        lambda s: s.cond_features, state, state.cond_features.at[0, 0].add(1.0)
+    )
+    unselected = eqx.tree_at(
+        lambda s: s.cond_features, state, state.cond_features.at[0, 1].add(1.0)
+    )
+    assert not jnp.array_equal(
+        model.propagate(selected, frame_features, frame).mask_logits, base
+    )
+    assert jnp.array_equal(
+        model.propagate(unselected, frame_features, frame).mask_logits, base
+    )
+
+
+def test_pointer_encoding_depends_on_the_known_clip_length(model, frame_features, step):
+    state = model.tracker.empty_state(1)
+    state, _ = step(
+        model,
+        state,
+        frame_features,
+        jnp.asarray(0, jnp.int32),
+        _add_slots(state, 0, (0, 0)),
+    )
+    frame = jnp.asarray(1, jnp.int32)
+    streaming = model.propagate(state, frame_features, frame)
+    long_clip = model.propagate(state, frame_features, frame, num_frames=40)
+    short_clip = model.propagate(state, frame_features, frame, num_frames=3)
+    assert jnp.array_equal(streaming.mask_logits, long_clip.mask_logits)
+    assert not jnp.array_equal(streaming.mask_logits, short_clip.mask_logits)
+
+
+def test_slot_status_never_returns_from_removed(model, frame_features, step):
+    state = model.tracker.empty_state(1)
+    state, _ = step(
+        model,
+        state,
+        frame_features,
+        jnp.asarray(0, jnp.int32),
+        _add_slots(state, 0, (0, 0)),
+    )
+    assert state.slot_status[0].tolist() == [SLOT_ACTIVE, SLOT_EMPTY]
+
+    remove = jnp.zeros((1, 2), bool).at[0, 0].set(True)
+    state, _ = step(
+        model,
+        state,
+        frame_features,
+        jnp.asarray(1, jnp.int32),
+        _plan(state, 1, remove=remove),
+    )
+    assert state.slot_status[0].tolist() == [SLOT_REMOVED, SLOT_EMPTY]
+    assert jnp.all(state.last_masks[0, 0] == -1024.0)
+
+    state, _ = step(
+        model,
+        state,
+        frame_features,
+        jnp.asarray(2, jnp.int32),
+        _add_slots(state, 2, (0, 0), (0, 1)),
+    )
+    assert state.slot_status[0].tolist() == [SLOT_REMOVED, SLOT_ACTIVE]
+
+
+def test_released_bucket_is_cleared_and_reused(model, frame_features, step):
+    state = pad_tracker_buckets(model.tracker.empty_state(1), 2)
+    state, _ = step(
+        model,
+        state,
+        frame_features,
+        jnp.asarray(0, jnp.int32),
+        _add_slots(state, 0, (0, 0), (1, 0)),
+    )
+    release = jnp.asarray([False, True])
+    remove = jnp.zeros((2, 2), bool).at[1, 0].set(True)
+    state, _ = step(
+        model,
+        state,
+        frame_features,
+        jnp.asarray(1, jnp.int32),
+        _plan(state, 1, release=release, remove=remove),
+    )
+    cleared = jax.tree.map(lambda leaf: leaf[1], state)
+    empty = jax.tree.map(lambda leaf: leaf[0], model.tracker.empty_state(1))
+    for got, expected in zip(jax.tree.leaves(cleared), jax.tree.leaves(empty)):
+        assert jnp.array_equal(got, expected)
+    assert state.recent_frame[0].tolist() == [0, 1, -1, -1, -1, -1]
+
+    state, _ = step(
+        model,
+        state,
+        frame_features,
+        jnp.asarray(2, jnp.int32),
+        _add_slots(state, 2, (1, 1)),
+    )
+    assert state.bucket_valid.tolist() == [True, True]
+    assert state.slot_status[1].tolist() == [SLOT_EMPTY, SLOT_ACTIVE]
+    assert state.cond_frame[1].tolist() == [2, -1, -1, -1]
+    assert state.recent_frame[1].tolist() == [-1, -1, 2, -1, -1, -1]
+
+
+def test_padding_appends_cleared_buckets_and_rejects_other_sizes(model):
+    state = eqx.tree_at(
+        lambda s: s.slot_status,
+        model.tracker.empty_state(1),
+        jnp.full((1, 2), SLOT_ACTIVE, jnp.int8),
+    )
+    padded = pad_tracker_buckets(state, 2)
+    assert padded.slot_status.tolist() == [
+        [SLOT_ACTIVE, SLOT_ACTIVE],
+        [SLOT_EMPTY, SLOT_EMPTY],
+    ]
+    assert padded.cond_frame[1].tolist() == [-1] * 4
+    for size in (1, 3):
+        with pytest.raises(ValueError, match="power of two"):
+            pad_tracker_buckets(state, size)
+
+
+def test_scan_matches_the_step_by_step_loop(model, frame_features, step):
+    state = model.tracker.empty_state(1)
+    # Adding to a filled slot does nothing, so one plan works for every frame.
+    plan = _add_slots(state, 0, (0, 0))
+    frames = jnp.arange(8, dtype=jnp.int32)
+
+    def scanned(model, state, features, frames, plan):
+        def body(state, frame):
+            state, tracks = _step(
+                model,
+                state,
+                features,
+                frame,
+                eqx.tree_at(lambda p: p.frame_index, plan, frame),
+            )
+            return state, tracks.mask_logits
+
+        return jax.lax.scan(body, state, frames)
+
+    scanned_state, scanned_masks = eqx.filter_jit(scanned)(
+        model, state, frame_features, frames, plan
+    )
+
+    loop_state = state
+    loop_masks = []
+    for frame in frames:
+        frame_plan = eqx.tree_at(lambda p: p.frame_index, plan, frame)
+        loop_state, tracks = step(model, loop_state, frame_features, frame, frame_plan)
+        loop_masks.append(tracks.mask_logits)
+
+    assert jnp.array_equal(scanned_masks, jnp.stack(loop_masks))
+    for got, expected in zip(
+        jax.tree.leaves(scanned_state), jax.tree.leaves(loop_state)
+    ):
+        assert jnp.array_equal(got, expected)
+
+
+def test_tracking_gradients_are_finite_and_reach_the_tracker(model, frame_features):
+    state = model.tracker.empty_state(1)
+
+    def loss(model, state):
+        plan = _add_slots(state, 0, (0, 0))
+        state, _ = _step(model, state, frame_features, plan.frame_index, plan)
+        tracks = model.propagate(state, frame_features, jnp.asarray(1, jnp.int32))
+        return jnp.sum(tracks.mask_logits) + jnp.sum(tracks.pointers)
+
+    gradients = eqx.filter_jit(eqx.filter_grad(loss))(model, state)
+    leaves = jax.tree.leaves(eqx.filter(gradients, eqx.is_inexact_array))
+    assert all(jnp.all(jnp.isfinite(leaf)) for leaf in leaves)
+    assert jnp.any(gradients.tracker.memory_time_embed != 0)
+    assert any(
+        jnp.any(leaf != 0)
+        for leaf in jax.tree.leaves(
+            eqx.filter(gradients.tracker.pointer_proj, eqx.is_inexact_array)
+        )
+    )
+
+
+def test_propagate_runs_under_vmap(model, frame_features):
+    state = model.tracker.empty_state(1)
+    batched = jax.tree.map(lambda leaf: jnp.stack((leaf, leaf)), frame_features)
+    tracks = eqx.filter_vmap(
+        lambda features, frame: model.propagate(state, features, frame)
+    )(batched, jnp.asarray([0, 1], jnp.int32))
+    assert tracks.mask_logits.shape == (2, 1, 2, MASK_SIZE, MASK_SIZE)
+    assert tracks.pointers.shape == (2, 1, 2, DIM)
+
+
+def test_tracking_stays_finite_and_keeps_its_dtypes_in_bfloat16(model, step):
+    half = _to_bfloat16(model)
+    features = half.encode_image(_to_bfloat16(IMAGE))
+    state = half.tracker.empty_state(1)
+    assert state.cond_memory.dtype == jnp.bfloat16
+    state, _ = step(
+        half, state, features, jnp.asarray(0, jnp.int32), _add_slots(state, 0, (0, 0))
+    )
+    assert state.recent_memory.dtype == jnp.bfloat16
+    assert state.cond_pointers.dtype == jnp.bfloat16
+    assert state.last_masks.dtype == jnp.float32
+    tracks = half.propagate(state, features, jnp.asarray(1, jnp.int32))
+    assert tracks.mask_logits.dtype == jnp.float32
+    assert tracks.pointers.dtype == jnp.bfloat16
+    for leaf in (state.recent_memory, tracks.pointers):
+        assert jnp.all(jnp.isfinite(leaf.astype(jnp.float32)))
+
+
+def test_unoccupied_slots_produce_zero_pointers(model, frame_features, step):
+    state = model.tracker.empty_state(1)
+    state, _ = step(
+        model,
+        state,
+        frame_features,
+        jnp.asarray(0, jnp.int32),
+        _add_slots(state, 0, (0, 0)),
+    )
+    tracks = model.propagate(state, frame_features, jnp.asarray(1, jnp.int32))
+    assert jnp.all(tracks.pointers[0, 1] == 0)
+    assert jnp.any(tracks.pointers[0, 0] != 0)
+    assert jnp.all(state.cond_pointers[0, 0, 1] == 0)
+    assert jnp.all(state.last_masks[0, 1] == -1024.0)
+
+
+def test_commit_reconditions_and_suppresses_the_output_masks(
+    model, frame_features, step
+):
+    state = model.tracker.empty_state(1)
+    state, _ = step(
+        model,
+        state,
+        frame_features,
+        jnp.asarray(0, jnp.int32),
+        _add_slots(state, 0, (0, 0), (0, 1)),
+    )
+    replacement = jr.normal(jr.PRNGKey(13), (1, 2, MASK_SIZE, MASK_SIZE))
+    plan = _plan(
+        state,
+        1,
+        recondition=jnp.asarray([[True, False]]),
+        recondition_masks=replacement,
+        suppress=jnp.asarray([[False, True]]),
+    )
+    state, _ = step(model, state, frame_features, jnp.asarray(1, jnp.int32), plan)
+    assert jnp.array_equal(state.last_masks[0, 0], replacement[0, 0])
+    assert jnp.all(state.last_masks[0, 1] == -1024.0)
+    assert state.cond_frame[0].tolist() == [0, 1, -1, -1]
+
+
+def test_reencoding_changes_only_the_flagged_buckets(model, frame_features, step):
+    state = pad_tracker_buckets(model.tracker.empty_state(1), 2)
+    state, _ = step(
+        model,
+        state,
+        frame_features,
+        jnp.asarray(0, jnp.int32),
+        _add_slots(state, 0, (0, 0), (1, 0)),
+    )
+    frame = jnp.asarray(1, jnp.int32)
+    plain, _ = step(model, state, frame_features, frame, _plan(state, 1))
+    reencoded, _ = step(
+        model,
+        state,
+        frame_features,
+        frame,
+        _plan(state, 1, reencode=jnp.asarray([False, True])),
+    )
+    assert jnp.array_equal(reencoded.recent_memory[0], plain.recent_memory[0])
+    assert not jnp.array_equal(reencoded.recent_memory[1], plain.recent_memory[1])
+
+
+def test_masks_keep_pixels_within_their_group_only():
+    masks = jnp.asarray([[[True, True]], [[True, False]], [[False, True]]], dtype=bool)
+    kept = _keep_per_group(masks, jnp.asarray([1, 0, 2]), jnp.asarray([0, 0, 1]), 2)
+    assert kept[:, 0].tolist() == [[False, True], [True, False], [False, True]]
+
+
+def test_area_shrinkage_marks_tracks_losing_most_of_their_area():
+    order = jnp.asarray([1, 0])
+    # The second track outranks the first, which keeps 1 of its 8 pixels here.
+    mostly_lost = jnp.where(_row_masks((0, 8), (0, 7)), 1.0, -1.0)
+    assert _shrunk_slots(mostly_lost, order).tolist() == [True, False]
+    # Here it keeps 4 of 8, above the 30% limit.
+    half_lost = jnp.where(_row_masks((0, 8), (0, 4)), 1.0, -1.0)
+    assert _shrunk_slots(half_lost, order).tolist() == [False, False]
+
+
+def _associate(model, *, logits, boxes, detection_masks, track_masks, active):
+    status = jnp.where(jnp.asarray(active), SLOT_ACTIVE, SLOT_EMPTY)
+    state = eqx.tree_at(
+        lambda s: s.slot_status,
+        model.tracker.empty_state(track_masks.shape[0]),
+        status.astype(jnp.int8),
+    )
+    tracks = TrackOutput(
+        mask_logits=jnp.where(track_masks, 1.0, -1.0),
+        object_score_logits=jnp.full(track_masks.shape[:2], 3.0),
+        iou=jnp.ones(track_masks.shape[:2]),
+        pointers=jnp.zeros((*track_masks.shape[:2], DIM)),
+    )
+    detections = eqx.tree_at(
+        lambda d: d.boxes,
+        _output_with_masks(jnp.where(detection_masks, 1.0, -1.0), jnp.asarray(logits)),
+        jnp.asarray(boxes),
+    )
+    return associate(detections, tracks, state)
+
+
+CENTERED = [0.5, 0.5, 0.1, 0.1]
+
+
+def test_association_runs_the_boundary_filter_after_nms(model):
+    detection_masks = _row_masks((0, 4), (0, 4))
+    out = _associate(
+        model,
+        logits=[3.0, 2.0],
+        boxes=[[0.01, 0.5, 0.1, 0.1], CENTERED],
+        detection_masks=detection_masks,
+        track_masks=_row_masks((0, 1), (0, 1))[None],
+        active=[[True, True]],
+    )
+    # The first detection wins NMS, so the second is gone even though the first
+    # is then dropped by the boundary filter.
+    assert out.keep.tolist() == [False, False]
+
+
+def test_new_detections_ignore_the_keep_mask_only_when_nothing_is_tracked(model):
+    detection_masks = _row_masks((0, 4), (0, 4))
+    kwargs = {
+        "logits": [3.0, 2.0],
+        "boxes": [CENTERED, CENTERED],
+        "detection_masks": detection_masks,
+        "track_masks": _row_masks((4, 8), (6, 8))[None],
+    }
+    untracked = _associate(model, active=[[False, False]], **kwargs)
+    tracked = _associate(model, active=[[True, False]], **kwargs)
+    assert untracked.keep.tolist() == [True, False]
+    assert untracked.new_detection.tolist() == [True, True]
+    assert tracked.new_detection.tolist() == [True, False]
+
+
+def test_association_flags_matches_and_ambiguous_tracks(model):
+    out = _associate(
+        model,
+        logits=[3.0, 3.0],
+        boxes=[CENTERED, CENTERED],
+        detection_masks=_row_masks((0, 2), (4, 8)),
+        track_masks=_row_masks((0, 2), (0, 1))[None],
+        active=[[True, True]],
+    )
+    assert out.keep.tolist() == [True, True]
+    assert out.iom.shape == (2, 2)
+    assert out.iom[0].tolist() == [1.0, 1.0]
+    assert out.matches[0].tolist() == [True, True]
+    assert out.high_iom[0].tolist() == [True, True]
+    # The detection overlaps two tracks, so both pairs are ambiguous.
+    assert out.ambiguous[0].tolist() == [True, True]
+    assert out.new_detection.tolist() == [False, True]
+    assert out.confident_track.tolist() == [True, True]
+    assert jnp.allclose(out.track_iou[0, 1], 0.5)
+
+
+def test_association_skips_inactive_slots(model):
+    out = _associate(
+        model,
+        logits=[3.0, -5.0],
+        boxes=[CENTERED, CENTERED],
+        detection_masks=_row_masks((0, 4), (0, 1)),
+        track_masks=_row_masks((0, 4), (0, 4))[None],
+        active=[[False, True]],
+    )
+    assert out.iom[0].tolist() == [0.0, 1.0]
+    assert out.iom[1].tolist() == [0.0, 0.0]
+    assert jnp.all(out.track_iou[0] == 0)
+
+
+@GPU
+def test_cudnn_propagation_matches_xla_under_the_bucket_vmap():
+    model = _to_bfloat16(_tiny_model(32))
+    fused = with_attention_implementation(model, "cudnn")
+    features = model.encode_image(_to_bfloat16(IMAGE))
+    state = pad_tracker_buckets(model.tracker.empty_state(1), 2)
+    state, _ = _step(
+        model,
+        state,
+        features,
+        jnp.asarray(0, jnp.int32),
+        _add_slots(state, 0, (0, 0), (1, 1)),
+    )
+    frame = jnp.asarray(1, jnp.int32)
+    reference = eqx.filter_jit(model.propagate)(state, features, frame)
+    outputs = eqx.filter_jit(fused.propagate)(state, features, frame)
+    assert jnp.allclose(
+        outputs.mask_logits, reference.mask_logits, rtol=0.05, atol=0.05
+    )

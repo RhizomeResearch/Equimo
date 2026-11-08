@@ -3,10 +3,10 @@
 ## Overview
 
 SAM 3.1 in JAX and Equinox: a ViTDet image encoder with three feature pyramids, a DETR-based concept detector with a
-presence score, a SAM 2-style interactive head, and the tracker's prompt encoder, memory encoder, memory attention and
-multiplex mask decoder. Every endpoint is unbatched and batched with `vmap`. Text arrives as features from the separate
-`sam31_text` model in `equimo.language`. Only the converted weights are under the SAM License; the code stays under
-Equimo's license.
+presence score, a SAM 2-style interactive head, and the tracker's prompt encoder, memory encoder, memory attention,
+multiplex mask decoder and device tracking steps. Every endpoint is unbatched and batched with `vmap`, except that the
+tracker steps carry their own bucket axis. Text arrives as features from the separate `sam31_text` model in
+`equimo.language`. Only the converted weights are under the SAM License; the code stays under Equimo's license.
 
 ## Interface
 
@@ -35,9 +35,38 @@ Equimo's license.
   (pixels, xyxy), `scores`, `query_index`, `presence`. `[decoding.py:decode_concepts]`,
   `[decoding.py:ConceptDetections]`
 - Tracker modules on `Sam3.tracker`: `prompt_encoder`, `memory_encoder(features, masks (2 * num_slots, H, W))`,
-  `memory_attention(x, memory, memory_pos, *, num_spatial_keys, key_lengths)` and
+  `memory_attention(x, keys, values, *, num_spatial_keys, key_lengths)` and
   `mask_decoder(image, image_pos, sparse, dense, high_res, slot_valid) -> MultiplexOutput`. `[tracker.py:Sam3Tracker]`,
   `[tracker.py:MemoryEncoder]`, `[tracker.py:MemoryAttention]`, `[interactive.py:MultiplexMaskDecoder]`
+- Experimental tracking steps on `Sam3`:
+  `propagate(state, features, frame_index, key=None, inference=True, *, num_frames=None) -> TrackOutput`,
+  `associate(detections, tracks, state) -> Association` and `commit(state, features, tracks, plan) -> TrackerState`.
+  `Sam3.tracker.empty_state(num_buckets=1)` builds a state and `pad_tracker_buckets(state, num_buckets)` grows it to a
+  larger power of two. `CommitPlan.empty(state, frame_index, source_size)` builds a plan that changes nothing.
+  `[model.py:Sam3]`, `[tracker.py:Sam3Tracker]`, `[tracker.py:pad_tracker_buckets]`
+
+Experimental pytrees, for `B` buckets of `S` slots, `T = B * S` tracks, grid `G`, `Q` queries and width `dim`; sizes are
+for the published configuration in bfloat16 (`G = 72`, `S = 16`, `dim = 256`, about 59 MB per bucket):
+
+| `TrackerState` field               | Shape                        | Dtype        | Content                                                                 |
+| ---------------------------------- | ---------------------------- | ------------ | ----------------------------------------------------------------------- |
+| `bucket_valid`                     | `(B)`                        | bool         | bucket in use                                                           |
+| `slot_status`                      | `(B, S)`                     | int8         | `SLOT_EMPTY`, `SLOT_ACTIVE` or `SLOT_REMOVED`                           |
+| `cond_memory`, `cond_features`     | `(B, 4, dim, G, G)` each     | model dtype  | memory (attention values) and features (spatial keys), 10.6 MB each     |
+| `cond_pointers`, `cond_frame`      | `(B, 4, S, dim)`, `(B, 4)`   | model, int32 | object pointers and frame index, `-1` when absent                       |
+| `recent_memory`, `recent_features` | `(B, 6, dim, G, G)` each     | model dtype  | ring buffer indexed by `frame % 6`, 15.9 MB each                        |
+| `recent_frame`, `recent_is_cond`   | `(B, 6)`                     | int32, bool  | frame index, `-1` when absent, and whether that frame was conditioning  |
+| `pointers`, `pointer_frame`        | `(B, 15, S, dim)`, `(B, 15)` | model, int32 | ring buffer of object pointers indexed by `frame % 15`                  |
+| `last_masks`, `last_scores`        | `(B, S, 4G, 4G)`, `(B, S)`   | float32      | latest mask logits and object score logits, -1024 and 0 for other slots |
+
+- `TrackOutput`: `mask_logits (B, S, 4G, 4G)` (float32), `object_score_logits (B, S)`, `iou (B, S)` and
+  `pointers (B, S, dim)`, for each slot's mask with the highest predicted IoU. `[tracker.py:TrackOutput]`
+- `Association`: `keep (Q)`, `iom`, `matches`, `high_iom` and `ambiguous` `(Q, T)`, `new_detection` and
+  `confident_detection` `(Q)`, `confident_track (T)`, `track_iou (T, T)`. Track axes are flattened over buckets, and the
+  detection axis has no bucket axis. `[tracker.py:Association]`
+- `CommitPlan`: `frame_index` (scalar), `add`, `recondition`, `suppress`, `remove` and `object_ids` `(B, S)`,
+  `new_masks` and `recondition_masks` `(B, S, 4G, 4G)`, `release`, `reencode` and `state_group` `(B)`, and the static
+  `source_size`. `[tracker.py:CommitPlan]`
 
 ## Invariants
 
@@ -74,6 +103,28 @@ Equimo's license.
   `[tracker.py:_memory_key_rotary]`, `[tracker.py:_chunked_attention]`
 - `MemoryEncoder` resizes masks to 16 times the feature grid in float32 before downsampling.
   `[tracker.py:MemoryEncoder]`
+- A slot goes from empty to active and from active to removed. Objects are only added to empty slots, so a removed slot
+  stays removed until its bucket is released. `[tracker.py:Sam3Tracker.commit]`
+- A released bucket is cleared before the rest of the plan applies, so it equals a bucket from `empty_state` and can
+  take new objects in the same `commit`. `[tracker.py:Sam3Tracker.commit]`, `[tracker.py:_empty_buckets]`
+- `recent_*` and `pointers` are written at `frame % length` for every valid bucket, so with consecutive frames they hold
+  the last 6 and the last 15 frames. The conditioning buffer keeps the 4 latest conditioning frames; a frame committed
+  twice replaces its own entry. A frame is read once: a conditioning frame still in the buffer is skipped in the ring
+  buffers, and one that left the buffer counts as a recent frame. `[tracker.py:_selected_memory_frames]`
+- Spatial keys are the stored features of a memory frame plus position and temporal embeddings; values are the stored
+  memory. Pointer tokens are both, with a temporal encoding added to the keys. `[tracker.py:Sam3Tracker._memory_bank]`
+- Frame indices are traced, and every step keeps its shapes while objects change, so `propagate`, `associate` and
+  `commit` compile once per bucket count, and `commit` once per `source_size`. `[tracker.py:CommitPlan]`
+- `num_frames` only sets the divisor of the pointer temporal encoding, `min(num_frames, 16) - 1` and at least 1. `None`
+  means at least 16 frames. `[tracker.py:Sam3Tracker.propagate]`
+- `commit` applies reconditioning and suppression, marks tracks left with under 30% of their area by per-pixel overlap
+  (higher probability first, ties to the lower object ID) and clamps those masks to -10 for memory only, then encodes
+  memory. A bucket with new objects, or listed in `reencode`, is encoded again from masks made non-overlapping per
+  `state_group` at `source_size`. `[tracker.py:Sam3Tracker.commit]`, `[tracker.py:_shrunk_slots]`,
+  `[tracker.py:_keep_per_group]`
+- `associate` drops detections at probability 0.4 or below, runs greedy IoM NMS at 0.1, then the 0.025 boundary filter,
+  in that order. `new_detection` needs probability 0.65 and no match, and ignores `keep` only when no slot is active.
+  `[tracker.py:associate]`
 
 ## Side Effects
 
