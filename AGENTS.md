@@ -127,11 +127,12 @@ practice); later edits to a tracked file are not limited.
   accurate at high confidence, for under 0.5% of a step. Classification losses use the `equimo.core.ops` losses.
   Measurements are in `docs/performance.md` under "Softmax precision".
 - Opt-in cuDNN attention goes through `_fused_attention` in `core/layers/attention.py`. It pads sequences to multiples
-  of 64 (the backward kernel requires it), expands masks to every head (a broadcast head axis fails under `vmap`,
-  jax-ml/jax#34920), and zeroes fully masked rows (cuDNN returns the mean value). jax2onnx cannot export it. The
-  `implementation` field is static: `eqx.tree_at` cannot replace it and `copy.copy` returns the same module, hence
-  `with_attention_implementation`. CPU tests cover padding and masking with `implementation="xla"`; the cuDNN parity
-  tests in `tests/test_core_attention.py` run only on a GPU (run on an RTX 4080 in practice).
+  of 64 (the backward kernel requires it; the kernel also needs head widths that are multiples of 8 and at most 128, run
+  in practice), expands masks to every head (a broadcast head axis fails under `vmap`, jax-ml/jax#34920), and zeroes
+  fully masked rows (cuDNN returns the mean value). jax2onnx cannot export it. The `implementation` field is static:
+  `eqx.tree_at` cannot replace it and `copy.copy` returns the same module, hence `with_attention_implementation`. CPU
+  tests cover padding and masking with `implementation="xla"`; the cuDNN parity tests in `tests/test_core_attention.py`
+  run only on a GPU (run on an RTX 4080 in practice).
 - Use the repository registries and modality boundaries instead of duplicating shared layers or adding cross-modality
   imports without a demonstrated need.
 

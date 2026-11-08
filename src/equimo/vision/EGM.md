@@ -16,7 +16,7 @@ holds only a docstring; import subpackages explicitly (`equimo.vision.models`, `
   squeeze-and-excitation, and wavelet layers with name-keyed registries and the cross-registry resolver `get_layer`.
 - [`models`](./models/EGM.md): registered architectures (`vit`, `vision_parcae`, `convnext`, `deq`, `eomt`, `pmt`,
   `fastervit`, `iformer`, `lowformer`, `mlla`, `vssd`, `attnet`, `mobilenetv3`, `partialformer`, `reduceformer`,
-  `shvit`) and named preset factories, auto-exported through each module's `__all__`.
+  `shvit`, `sam3`) and named preset factories, auto-exported through each module's `__all__`.
 - [`query_training`](./query_training/EGM.md): JAX-native query matching, point sampling, and Mask2Former-style
   segmentation losses for EoMT and PMT outputs.
 

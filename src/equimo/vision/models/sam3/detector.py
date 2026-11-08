@@ -1,0 +1,688 @@
+"""Concept detector of SAM 3.1: prompt encoding, fusion, DETR decoder and masks."""
+
+from __future__ import annotations
+
+import equinox as eqx
+import jax
+import jax.numpy as jnp
+import jax.random as jr
+from jaxtyping import Array, Bool, Float, Int, PRNGKeyArray
+
+from equimo.core.layers.attention import CrossAttention
+from equimo.vision.models.sam3.common import (
+    MLP,
+    PositionedAttention,
+    flatten_map,
+    group_norm,
+    layer_norm,
+    sine_coordinates,
+    sine_position_encoding,
+    unflatten_map,
+)
+from equimo.vision.models.sam3.encoder import ImageFeatures
+from equimo.vision.ops import grid_sample, roi_align
+
+_EXEMPLAR_POOL_SIZE = 7
+_SCORE_SCALE = 1.0 / 16.0
+_SCORE_CLAMP = 12.0
+
+
+def _pad_to(x: jax.Array, length: int, fill: float | bool | int) -> jax.Array:
+    """Pad the first axis of ``x`` to ``length`` with ``fill``."""
+    missing = length - x.shape[0]
+    if missing < 0:
+        raise ValueError(f"Got {x.shape[0]} entries, more than the maximum {length}.")
+    pad_width = ((0, missing), *((0, 0) for _ in x.shape[1:]))
+    return jnp.pad(x, pad_width, constant_values=fill)
+
+
+class ConceptPrompt(eqx.Module):
+    """Text and exemplar prompt with fixed shapes; padding masks use True for padding.
+
+    Boxes are normalized cxcywh and points normalized xy; labels are 1 for positive
+    and 0 for negative.
+    """
+
+    text_features: Float[Array, "text dim"]
+    text_padding_mask: Bool[Array, " text"]
+    boxes: Float[Array, "boxes 4"]
+    box_labels: Int[Array, " boxes"]
+    box_padding_mask: Bool[Array, " boxes"]
+    points: Float[Array, "points 2"]
+    point_labels: Int[Array, " points"]
+    point_padding_mask: Bool[Array, " points"]
+
+    @classmethod
+    def create(
+        cls,
+        *,
+        text_features: jax.Array | None = None,
+        text_padding_mask: jax.Array | None = None,
+        boxes: jax.Array | None = None,
+        box_labels: jax.Array | None = None,
+        points: jax.Array | None = None,
+        point_labels: jax.Array | None = None,
+        dim: int = 256,
+        max_text_tokens: int = 32,
+        max_boxes: int = 16,
+        max_points: int = 16,
+    ) -> ConceptPrompt:
+        """Pad the given prompts to the maxima; absent prompts are fully padded."""
+        if text_features is None:
+            text_features = jnp.zeros((0, dim), jnp.float32)
+            text_padding_mask = jnp.zeros((0,), bool)
+        elif text_padding_mask is None:
+            text_padding_mask = jnp.zeros(text_features.shape[0], bool)
+        if boxes is None:
+            boxes = jnp.zeros((0, 4), jnp.float32)
+            box_labels = jnp.zeros((0,), jnp.int32)
+        elif box_labels is None:
+            box_labels = jnp.ones(boxes.shape[0], jnp.int32)
+        if points is None:
+            points = jnp.zeros((0, 2), jnp.float32)
+            point_labels = jnp.zeros((0,), jnp.int32)
+        elif point_labels is None:
+            point_labels = jnp.ones(points.shape[0], jnp.int32)
+
+        assert text_padding_mask is not None
+        assert box_labels is not None
+        assert point_labels is not None
+        return cls(
+            text_features=_pad_to(text_features, max_text_tokens, 0.0),
+            text_padding_mask=_pad_to(
+                jnp.asarray(text_padding_mask, bool), max_text_tokens, True
+            ),
+            boxes=_pad_to(boxes, max_boxes, 0.0),
+            box_labels=_pad_to(jnp.asarray(box_labels, jnp.int32), max_boxes, 0),
+            box_padding_mask=_pad_to(jnp.zeros(boxes.shape[0], bool), max_boxes, True),
+            points=_pad_to(points, max_points, 0.0),
+            point_labels=_pad_to(jnp.asarray(point_labels, jnp.int32), max_points, 0),
+            point_padding_mask=_pad_to(
+                jnp.zeros(points.shape[0], bool), max_points, True
+            ),
+        )
+
+
+class DetectorOutput(eqx.Module):
+    """Detector predictions for one image."""
+
+    logits: Float[Array, " queries"]
+    presence_logit: Float[Array, ""]
+    boxes: Float[Array, "queries 4"]
+    mask_logits: Float[Array, "queries height width"]
+    layer_boxes: Float[Array, "layers queries 4"]
+    layer_logits: Float[Array, "layers queries"]
+
+
+def joint_logit(class_logit: jax.Array, presence_logit: jax.Array) -> jax.Array:
+    """Return ``logit(sigmoid(class) * sigmoid(presence))`` in float32.
+
+    With ``a`` and ``b`` the two logits, the result is
+    ``-log(exp(-a) + exp(-b) + exp(-a - b))``, which stays finite and accurate for
+    large logits of either sign.
+    """
+    a = class_logit.astype(jnp.float32)
+    b = jnp.broadcast_to(presence_logit.astype(jnp.float32), a.shape)
+    return -jax.nn.logsumexp(jnp.stack((-a, -b, -a - b)), axis=0)
+
+
+class GeometryBlock(eqx.Module):
+    """Pre-norm exemplar block: self-attention, image cross-attention, feed-forward."""
+
+    norm1: eqx.nn.LayerNorm
+    attn: CrossAttention
+    norm2: eqx.nn.LayerNorm
+    cross_attn: PositionedAttention
+    norm3: eqx.nn.LayerNorm
+    mlp: MLP
+
+    def __init__(
+        self, dim: int, num_heads: int, ffn_features: int, *, key: PRNGKeyArray
+    ):
+        key_attn, key_cross, key_mlp = jr.split(key, 3)
+        self.norm1 = eqx.nn.LayerNorm(dim)
+        self.attn = CrossAttention(dim, num_heads, key=key_attn)
+        self.norm2 = eqx.nn.LayerNorm(dim)
+        self.cross_attn = PositionedAttention(dim, num_heads, key=key_cross)
+        self.norm3 = eqx.nn.LayerNorm(dim)
+        self.mlp = MLP(dim, ffn_features, dim, 2, key=key_mlp)
+
+    def __call__(
+        self,
+        tokens: Float[Array, "tokens dim"],
+        valid: Bool[Array, " tokens"],
+        image: Float[Array, "keys dim"],
+        image_pos: Float[Array, "keys dim"],
+    ) -> Float[Array, "tokens dim"]:
+        normed = layer_norm(self.norm1, tokens)
+        tokens = tokens + self.attn(normed, normed, key_mask=valid)
+        normed = layer_norm(self.norm2, tokens)
+        tokens = tokens + self.cross_attn(normed, image + image_pos, values=image)
+        return tokens + self.mlp(layer_norm(self.norm3, tokens))
+
+
+class GeometryEncoder(eqx.Module):
+    """Encode exemplar boxes and points as prompt tokens."""
+
+    box_pool: eqx.nn.Conv2d
+    box_encoder: eqx.nn.Linear
+    point_encoder: eqx.nn.Linear
+    label_embed: Float[Array, "2 dim"]
+    blocks: tuple[GeometryBlock, ...]
+    norm: eqx.nn.LayerNorm
+    position_features: int = eqx.field(static=True)
+
+    def __init__(
+        self,
+        dim: int,
+        num_heads: int,
+        ffn_features: int,
+        depth: int,
+        *,
+        key: PRNGKeyArray,
+    ):
+        key_pool, key_box, key_point, key_label, *key_blocks = jr.split(key, depth + 4)
+        position_features = dim // 2
+        self.box_pool = eqx.nn.Conv2d(dim, dim, _EXEMPLAR_POOL_SIZE, key=key_pool)
+        self.box_encoder = eqx.nn.Linear(4 * position_features, dim, key=key_box)
+        self.point_encoder = eqx.nn.Linear(2 * position_features, dim, key=key_point)
+        self.label_embed = jr.normal(key_label, (2, dim))
+        self.blocks = tuple(
+            GeometryBlock(dim, num_heads, ffn_features, key=block_key)
+            for block_key in key_blocks
+        )
+        self.norm = eqx.nn.LayerNorm(dim)
+        self.position_features = position_features
+
+    def __call__(
+        self,
+        image_map: Float[Array, "dim grid grid"],
+        image_tokens: Float[Array, "keys dim"],
+        image_pos: Float[Array, "keys dim"],
+        prompt: ConceptPrompt,
+    ) -> tuple[Float[Array, "tokens dim"], Bool[Array, " tokens"]]:
+        dtype = image_map.dtype
+        grid = image_map.shape[-1]
+        center, size = prompt.boxes[:, :2], prompt.boxes[:, 2:]
+        corners = jnp.concatenate((center - size / 2, center + size / 2), axis=-1)
+        pooled = roi_align(image_map, corners * grid, _EXEMPLAR_POOL_SIZE)
+        pooled = jax.vmap(self.box_pool)(pooled).reshape(pooled.shape[0], -1)
+        box_position = sine_coordinates(prompt.boxes, self.position_features)
+        box_tokens = (
+            pooled
+            + jax.vmap(self.box_encoder)(
+                box_position.reshape(box_position.shape[0], -1).astype(dtype)
+            )
+            + self.label_embed[prompt.box_labels].astype(dtype)
+        )
+
+        sampled = grid_sample(image_map, prompt.points * 2.0 - 1.0)
+        point_position = sine_coordinates(prompt.points, self.position_features)
+        point_tokens = (
+            sampled
+            + jax.vmap(self.point_encoder)(
+                point_position.reshape(point_position.shape[0], -1).astype(dtype)
+            )
+            + self.label_embed[prompt.point_labels].astype(dtype)
+        )
+
+        tokens = jnp.concatenate((box_tokens, point_tokens), axis=0)
+        valid = ~jnp.concatenate((prompt.box_padding_mask, prompt.point_padding_mask))
+        for block in self.blocks:
+            tokens = block(tokens, valid, image_tokens, image_pos)
+        return layer_norm(self.norm, tokens), valid
+
+
+class FusionBlock(eqx.Module):
+    """Pre-norm block conditioning image tokens on the prompt tokens."""
+
+    norm1: eqx.nn.LayerNorm
+    attn: PositionedAttention
+    norm2: eqx.nn.LayerNorm
+    cross_attn: CrossAttention
+    norm3: eqx.nn.LayerNorm
+    mlp: MLP
+
+    def __init__(
+        self, dim: int, num_heads: int, ffn_features: int, *, key: PRNGKeyArray
+    ):
+        key_attn, key_cross, key_mlp = jr.split(key, 3)
+        self.norm1 = eqx.nn.LayerNorm(dim)
+        self.attn = PositionedAttention(dim, num_heads, key=key_attn)
+        self.norm2 = eqx.nn.LayerNorm(dim)
+        self.cross_attn = CrossAttention(dim, num_heads, key=key_cross)
+        self.norm3 = eqx.nn.LayerNorm(dim)
+        self.mlp = MLP(dim, ffn_features, dim, 2, key=key_mlp)
+
+    def __call__(
+        self,
+        x: Float[Array, "tokens dim"],
+        pos: Float[Array, "tokens dim"],
+        prompt: Float[Array, "prompt dim"],
+        prompt_valid: Bool[Array, " prompt"],
+    ) -> Float[Array, "tokens dim"]:
+        normed = layer_norm(self.norm1, x)
+        positioned = normed + pos
+        x = x + self.attn(positioned, positioned, values=normed)
+        x = x + self.cross_attn(
+            layer_norm(self.norm2, x), prompt, key_mask=prompt_valid
+        )
+        return x + self.mlp(layer_norm(self.norm3, x))
+
+
+class FusionEncoder(eqx.Module):
+    """Stack of fusion blocks over the image tokens."""
+
+    blocks: tuple[FusionBlock, ...]
+
+    def __init__(
+        self,
+        dim: int,
+        num_heads: int,
+        ffn_features: int,
+        depth: int,
+        *,
+        key: PRNGKeyArray,
+    ):
+        self.blocks = tuple(
+            FusionBlock(dim, num_heads, ffn_features, key=block_key)
+            for block_key in jr.split(key, depth)
+        )
+
+    def __call__(
+        self,
+        x: Float[Array, "tokens dim"],
+        pos: Float[Array, "tokens dim"],
+        prompt: Float[Array, "prompt dim"],
+        prompt_valid: Bool[Array, " prompt"],
+    ) -> Float[Array, "tokens dim"]:
+        for block in self.blocks:
+            x = block(x, pos, prompt, prompt_valid)
+        return x
+
+
+class BoxRelativeBias(eqx.Module):
+    """Log-scale box-to-pixel relative position bias per attention head."""
+
+    mlp: MLP
+    position_features: int = eqx.field(static=True)
+
+    def __init__(self, dim: int, num_heads: int, *, key: PRNGKeyArray):
+        self.position_features = dim // 4
+        self.mlp = MLP(4 * self.position_features, dim, num_heads, 2, key=key)
+
+    def __call__(
+        self, boxes: Float[Array, "queries 4"], grid: int
+    ) -> Float[Array, "heads queries keys"]:
+        with jax.ensure_compile_time_eval():
+            centers = (jnp.arange(grid, dtype=jnp.float32) + 0.5) / grid
+            ys, xs = jnp.meshgrid(centers, centers, indexing="ij")
+            xs, ys = xs.reshape(-1), ys.reshape(-1)
+        scale = jnp.log2(1.0 + grid)
+
+        def log_scaled(value: jax.Array) -> jax.Array:
+            return jnp.sign(value) * jnp.log2(1.0 + jnp.abs(value) * grid) / scale
+
+        # One box at a time: a dense pairwise encoding of 200 queries against
+        # 5,184 keys would need about 2 GB.
+        def one_box(box: jax.Array) -> jax.Array:
+            cx, cy, width, height = box
+            relative = jnp.stack(
+                (
+                    log_scaled(xs - cx),
+                    log_scaled(ys - cy),
+                    jnp.broadcast_to(log_scaled(width), xs.shape),
+                    jnp.broadcast_to(log_scaled(height), xs.shape),
+                ),
+                axis=-1,
+            )
+            encoded = sine_coordinates(relative, self.position_features)
+            return self.mlp(encoded.reshape(encoded.shape[0], -1))
+
+        return jnp.moveaxis(jax.lax.map(one_box, boxes), -1, 0).astype(jnp.float32)
+
+
+class DecoderBlock(eqx.Module):
+    """Post-norm DETR layer: self, prompt and image attention, then feed-forward."""
+
+    attn: PositionedAttention
+    norm1: eqx.nn.LayerNorm
+    cross_attn: tuple[CrossAttention, PositionedAttention]
+    norm2: eqx.nn.LayerNorm
+    norm3: eqx.nn.LayerNorm
+    mlp: MLP
+    norm4: eqx.nn.LayerNorm
+
+    def __init__(
+        self, dim: int, num_heads: int, ffn_features: int, *, key: PRNGKeyArray
+    ):
+        key_attn, key_prompt, key_image, key_mlp = jr.split(key, 4)
+        self.attn = PositionedAttention(dim, num_heads, key=key_attn)
+        self.norm1 = eqx.nn.LayerNorm(dim)
+        self.cross_attn = (
+            CrossAttention(dim, num_heads, key=key_prompt),
+            PositionedAttention(dim, num_heads, key=key_image),
+        )
+        self.norm2 = eqx.nn.LayerNorm(dim)
+        self.norm3 = eqx.nn.LayerNorm(dim)
+        self.mlp = MLP(dim, ffn_features, dim, 2, key=key_mlp)
+        self.norm4 = eqx.nn.LayerNorm(dim)
+
+    def __call__(
+        self,
+        tokens: Float[Array, "tokens dim"],
+        position: Float[Array, "tokens dim"],
+        memory: Float[Array, "keys dim"],
+        memory_pos: Float[Array, "keys dim"],
+        prompt: Float[Array, "prompt dim"],
+        prompt_valid: Bool[Array, " prompt"],
+        bias: Float[Array, "heads tokens keys"],
+    ) -> Float[Array, "tokens dim"]:
+        positioned = tokens + position
+        tokens = layer_norm(
+            self.norm1, tokens + self.attn(positioned, positioned, values=tokens)
+        )
+        prompt_attn, image_attn = self.cross_attn
+        tokens = layer_norm(
+            self.norm2,
+            tokens + prompt_attn(tokens, prompt, key_mask=prompt_valid),
+        )
+        tokens = layer_norm(
+            self.norm3,
+            tokens
+            + image_attn(
+                tokens + position, memory + memory_pos, values=memory, bias=bias
+            ),
+        )
+        feed_forward = self.mlp(tokens.astype(jnp.float32)).astype(tokens.dtype)
+        return layer_norm(self.norm4, tokens + feed_forward)
+
+
+class ConceptDecoder(eqx.Module):
+    """DETR decoder with a presence token and iterative box refinement."""
+
+    queries: Float[Array, "queries dim"]
+    reference_boxes: Float[Array, "queries 4"]
+    presence_token: Float[Array, " dim"]
+    position_proj: MLP
+    relative_bias: BoxRelativeBias
+    blocks: tuple[DecoderBlock, ...]
+    box_head: MLP
+    presence_head: MLP
+    position_features: int = eqx.field(static=True)
+
+    def __init__(
+        self,
+        dim: int,
+        num_heads: int,
+        ffn_features: int,
+        depth: int,
+        num_queries: int,
+        *,
+        key: PRNGKeyArray,
+    ):
+        (
+            key_queries,
+            key_boxes,
+            key_presence,
+            key_position,
+            key_bias,
+            key_box_head,
+            key_presence_head,
+            *key_blocks,
+        ) = jr.split(key, depth + 7)
+        self.queries = jr.normal(key_queries, (num_queries, dim))
+        self.reference_boxes = jr.normal(key_boxes, (num_queries, 4))
+        self.presence_token = jr.normal(key_presence, (dim,))
+        self.position_features = dim // 4
+        self.position_proj = MLP(dim, dim, dim, 2, key=key_position)
+        self.relative_bias = BoxRelativeBias(dim, num_heads, key=key_bias)
+        self.blocks = tuple(
+            DecoderBlock(dim, num_heads, ffn_features, key=block_key)
+            for block_key in key_blocks
+        )
+        self.box_head = MLP(dim, dim, 4, 3, key=key_box_head)
+        self.presence_head = MLP(dim, dim, 1, 3, key=key_presence_head)
+
+    def __call__(
+        self,
+        memory: Float[Array, "keys dim"],
+        memory_pos: Float[Array, "keys dim"],
+        prompt: Float[Array, "prompt dim"],
+        prompt_valid: Bool[Array, " prompt"],
+        grid: int,
+    ) -> tuple[
+        Float[Array, "layers queries dim"],
+        Float[Array, "layers queries 4"],
+        Float[Array, " layers"],
+    ]:
+        dtype = memory.dtype
+        tokens = jnp.concatenate(
+            (self.presence_token[None].astype(dtype), self.queries.astype(dtype)),
+            axis=0,
+        )
+        boxes = jax.nn.sigmoid(self.reference_boxes.astype(jnp.float32))
+        layer_tokens, layer_boxes, layer_presence = [], [], []
+        for block in self.blocks:
+            encoded = sine_coordinates(boxes, self.position_features)
+            position = self.position_proj(
+                encoded.reshape(encoded.shape[0], -1).astype(dtype)
+            )
+            # The presence token has no box, so it gets no position and no bias.
+            position = jnp.concatenate(
+                (jnp.zeros((1, position.shape[-1]), dtype), position), axis=0
+            )
+            bias = self.relative_bias(boxes, grid)
+            bias = jnp.concatenate(
+                (jnp.zeros((bias.shape[0], 1, bias.shape[-1]), bias.dtype), bias),
+                axis=1,
+            )
+            tokens = block(
+                tokens, position, memory, memory_pos, prompt, prompt_valid, bias
+            )
+            delta = self.box_head(tokens[1:]).astype(jnp.float32)
+            clipped = jnp.clip(boxes, 1e-6, 1.0 - 1e-6)
+            boxes = jax.nn.sigmoid(jnp.log(clipped) - jnp.log1p(-clipped) + delta)
+            layer_tokens.append(tokens[1:])
+            layer_boxes.append(boxes)
+            layer_presence.append(self.presence_head(tokens[0])[0])
+        return (
+            jnp.stack(layer_tokens),
+            jnp.stack(layer_boxes),
+            jnp.stack(layer_presence),
+        )
+
+
+class DotProductScoring(eqx.Module):
+    """Score queries by their dot product with the mean-pooled prompt."""
+
+    query_proj: eqx.nn.Linear
+    prompt_proj: eqx.nn.Linear
+
+    def __init__(self, dim: int, *, key: PRNGKeyArray):
+        key_query, key_prompt = jr.split(key)
+        self.query_proj = eqx.nn.Linear(dim, dim, key=key_query)
+        self.prompt_proj = eqx.nn.Linear(dim, dim, key=key_prompt)
+
+    def __call__(
+        self,
+        queries: Float[Array, "queries dim"],
+        prompt: Float[Array, "prompt dim"],
+        prompt_valid: Bool[Array, " prompt"],
+    ) -> Float[Array, " queries"]:
+        weights = prompt_valid.astype(jnp.float32)
+        pooled = jnp.sum(prompt.astype(jnp.float32) * weights[:, None], axis=0) / (
+            jnp.maximum(weights.sum(), 1.0)
+        )
+        projected_prompt = self.prompt_proj(pooled.astype(prompt.dtype))
+        projected_queries = jax.vmap(self.query_proj)(queries)
+        scores = jnp.sum(
+            projected_queries.astype(jnp.float32)
+            * projected_prompt.astype(jnp.float32),
+            axis=-1,
+        )
+        return jnp.clip(scores * _SCORE_SCALE, -_SCORE_CLAMP, _SCORE_CLAMP)
+
+
+class PixelStage(eqx.Module):
+    """3x3 convolution, group norm and ReLU."""
+
+    conv: eqx.nn.Conv2d
+    norm: eqx.nn.GroupNorm
+
+    def __init__(self, channels: int, *, key: PRNGKeyArray):
+        self.conv = eqx.nn.Conv2d(channels, channels, 3, padding=1, key=key)
+        self.norm = eqx.nn.GroupNorm(8, channels)
+
+    def __call__(self, x: Float[Array, "channels height width"]) -> jax.Array:
+        return jax.nn.relu(group_norm(self.norm, self.conv(x)))
+
+
+def _upsample_nearest(x: Float[Array, "channels height width"]) -> jax.Array:
+    channels, height, width = x.shape
+    return jax.image.resize(x, (channels, 2 * height, 2 * width), method="nearest")
+
+
+class SegmentationHead(eqx.Module):
+    """Pixel decoder over the fused memory, dotted with per-query mask embeddings."""
+
+    norm: eqx.nn.LayerNorm
+    cross_attn: CrossAttention
+    stages: tuple[PixelStage, PixelStage, PixelStage]
+    mask_embed: MLP
+
+    def __init__(self, dim: int, num_heads: int, *, key: PRNGKeyArray):
+        key_cross, key_mask, key_low, key_middle, key_high = jr.split(key, 5)
+        self.norm = eqx.nn.LayerNorm(dim)
+        self.cross_attn = CrossAttention(dim, num_heads, key=key_cross)
+        self.stages = (
+            PixelStage(dim, key=key_low),
+            PixelStage(dim, key=key_middle),
+            PixelStage(dim, key=key_high),
+        )
+        self.mask_embed = MLP(dim, dim, dim, 3, key=key_mask)
+
+    def __call__(
+        self,
+        pyramid: tuple[jax.Array, jax.Array, jax.Array],
+        memory: Float[Array, "keys dim"],
+        queries: Float[Array, "queries dim"],
+        prompt: Float[Array, "prompt dim"],
+        prompt_valid: Bool[Array, " prompt"],
+    ) -> Float[Array, "queries height width"]:
+        high, middle, low = pyramid
+        grid = low.shape[-1]
+        attended = memory + self.cross_attn(
+            layer_norm(self.norm, memory), prompt, key_mask=prompt_valid
+        )
+        x = self.stages[0](unflatten_map(attended, grid))
+        x = self.stages[1](_upsample_nearest(x) + middle)
+        x = self.stages[2](_upsample_nearest(x) + high)
+        return jnp.einsum(
+            "qc,chw->qhw",
+            self.mask_embed(queries).astype(jnp.float32),
+            x.astype(jnp.float32),
+        )
+
+
+class DetectorHead(eqx.Module):
+    """Parts of the detector trained by head-only fine-tuning."""
+
+    fusion: FusionEncoder
+    decoder: ConceptDecoder
+    scoring: DotProductScoring
+    segmentation: SegmentationHead
+
+    def __init__(
+        self,
+        dim: int,
+        num_heads: int,
+        ffn_features: int,
+        fusion_depth: int,
+        decoder_depth: int,
+        num_queries: int,
+        *,
+        key: PRNGKeyArray,
+    ):
+        key_fusion, key_decoder, key_scoring, key_segmentation = jr.split(key, 4)
+        self.fusion = FusionEncoder(
+            dim, num_heads, ffn_features, fusion_depth, key=key_fusion
+        )
+        self.decoder = ConceptDecoder(
+            dim, num_heads, ffn_features, decoder_depth, num_queries, key=key_decoder
+        )
+        self.scoring = DotProductScoring(dim, key=key_scoring)
+        self.segmentation = SegmentationHead(dim, num_heads, key=key_segmentation)
+
+
+class ConceptDetector(eqx.Module):
+    """Find every instance of a prompted concept in one image."""
+
+    geometry: GeometryEncoder
+    head: DetectorHead
+
+    def __init__(
+        self,
+        dim: int,
+        num_heads: int,
+        ffn_features: int,
+        *,
+        key: PRNGKeyArray,
+        geometry_depth: int,
+        fusion_depth: int,
+        decoder_depth: int,
+        num_queries: int,
+    ):
+        if dim % 8 != 0:
+            raise ValueError(f"dim ({dim}) must be divisible by 8.")
+        key_geometry, key_head = jr.split(key)
+        self.geometry = GeometryEncoder(
+            dim, num_heads, ffn_features, geometry_depth, key=key_geometry
+        )
+        self.head = DetectorHead(
+            dim,
+            num_heads,
+            ffn_features,
+            fusion_depth,
+            decoder_depth,
+            num_queries,
+            key=key_head,
+        )
+
+    def __call__(
+        self, features: ImageFeatures, prompt: ConceptPrompt
+    ) -> DetectorOutput:
+        high, middle, low = features.detector
+        dtype = low.dtype
+        dim, grid, _ = low.shape
+        pos = flatten_map(sine_position_encoding(grid, grid, dim // 2)).astype(dtype)
+        image_tokens = flatten_map(low)
+
+        geometry_tokens, geometry_valid = self.geometry(low, image_tokens, pos, prompt)
+        prompt_tokens = jnp.concatenate(
+            (prompt.text_features.astype(dtype), geometry_tokens), axis=0
+        )
+        prompt_valid = jnp.concatenate((~prompt.text_padding_mask, geometry_valid))
+
+        memory = self.head.fusion(image_tokens, pos, prompt_tokens, prompt_valid)
+        layer_tokens, layer_boxes, layer_presence = self.head.decoder(
+            memory, pos, prompt_tokens, prompt_valid, grid
+        )
+        layer_scores = jax.vmap(self.head.scoring, in_axes=(0, None, None))(
+            layer_tokens, prompt_tokens, prompt_valid
+        )
+        layer_logits = joint_logit(layer_scores, layer_presence[:, None])
+        mask_logits = self.head.segmentation(
+            (high, middle, low), memory, layer_tokens[-1], prompt_tokens, prompt_valid
+        )
+        return DetectorOutput(
+            logits=layer_logits[-1].astype(dtype),
+            presence_logit=layer_presence[-1].astype(dtype),
+            boxes=layer_boxes[-1].astype(dtype),
+            mask_logits=mask_logits,
+            layer_boxes=layer_boxes.astype(dtype),
+            layer_logits=layer_logits.astype(dtype),
+        )
+
+
+__all__ = ["ConceptPrompt", "DetectorOutput"]

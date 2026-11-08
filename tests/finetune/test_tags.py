@@ -7,6 +7,7 @@ import equimo.finetune as eqft
 import jax
 import jax.numpy as jnp
 import jax.random as jr
+import pytest
 from equimo.finetune.audio import selectors as audio_selectors
 from equimo.finetune.language import selectors as language_selectors
 from equimo.vision.models.vit import dinov2_vits14, dinov2_vits14_reg
@@ -52,6 +53,26 @@ def test_canonical_tags_include_selector_defaults():
     }
 
     assert required <= set(eqft.CANONICAL_TAGS)
+
+
+@pytest.mark.parametrize(
+    "parent",
+    (("cross_attn",), ("cross_attn", 1)),
+    ids=("field", "tuple_entry"),
+)
+@pytest.mark.parametrize(
+    ("child", "tag"),
+    (
+        ("q", "attention.q"),
+        ("k", "attention.k"),
+        ("v", "attention.v"),
+        ("proj", "attention.proj"),
+    ),
+)
+def test_cross_attention_projections_carry_attention_tags(parent, child, tag):
+    tags = eqft.canonical_tags_for_path(("blocks", 0, *parent, child, "weight"))
+
+    assert {"attention", "block.attention", tag, f"block.{tag}"} <= tags
 
 
 def test_semantic_tags_for_tiny_vit(tiny_vision_transformer):

@@ -28,6 +28,7 @@ def test_every_stable_trainable_mode_has_a_real_model_case():
         "text_transformer_encoder",
         "tabpfn",
         "t0",
+        "sam3",
     }
 
 

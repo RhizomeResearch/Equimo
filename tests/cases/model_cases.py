@@ -29,6 +29,7 @@ from equimo.vision.models import (
     MobileNetv3,
     PartialFormer,
     ReduceFormer,
+    Sam3,
     SHViT,
     VisionParcae,
     VisionTransformer,
@@ -637,6 +638,38 @@ def _build_causal_text_transformer(key: jax.Array) -> ModelInvocation:
     )
 
 
+def _build_sam3(key: jax.Array) -> ModelInvocation:
+    model_key, sample_key = _keys(key)
+    model = Sam3(
+        key=model_key,
+        in_channels=3,
+        img_size=56,
+        patch_size=14,
+        embed_dim=16,
+        depth=2,
+        num_heads=2,
+        mlp_features=32,
+        window_size=2,
+        global_blocks=(1,),
+        dim=16,
+        head_num_heads=2,
+        ffn_features=32,
+        geometry_depth=1,
+        fusion_depth=1,
+        decoder_depth=1,
+        num_queries=2,
+        two_way_depth=1,
+        memory_depth=1,
+        memory_heads=2,
+        num_slots=2,
+    )
+    return _spatial_invocation(
+        model,
+        jr.normal(sample_key, (3, 56, 56)),
+        key=model_key,
+    )
+
+
 MODEL_CASES = (
     ModelCase("audio", "ast", _build_ast),
     ModelCase("language", "text_transformer_encoder", _build_text_transformer),
@@ -668,6 +701,7 @@ MODEL_CASES = (
     ModelCase("vision", "eomt", _build_eomt),
     ModelCase("vision", "pmt", _build_pmt),
     ModelCase("language", "causal_text_transformer", _build_causal_text_transformer),
+    ModelCase("vision", "sam3", _build_sam3),
 )
 
 

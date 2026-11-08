@@ -22,7 +22,7 @@ auto-imports every module and merges each module's `__all__` into the package na
   `[fastervit.py:FasterViT]`, `iformer` `[iformer.py:IFormer]`, `lowformer` `[lowformer.py:LowFormer]`, `mlla`
   `[mlla.py:Mlla]`, `vssd` `[vssd.py:Vssd]`, `attnet` `[attnet.py:AttNet]`, `mobilenetv3` `[mobilenet.py:MobileNetv3]`,
   `partialformer` `[partialformer.py:PartialFormer]`, `reduceformer` `[reduceformer.py:ReduceFormer]`, `shvit`
-  `[shvit.py:SHViT]`.
+  `[shvit.py:SHViT]`, `sam3` `[sam3/model.py:Sam3]`.
 
 ### Vision Transformer (`vit.py`)
 
@@ -85,6 +85,12 @@ auto-imports every module and merges each module's `__all__` into the package na
   tagged `block.layer_scale`, so the default no-decay policy and layer-scale selectors treat it as a layer scale.
   `[pmd.py:PMTConfig]`, `[pmd.py:ReferenceBatchNorm]`, `[pmd.py:PlainMaskDecoder]`, `[pmd.py:PMDAttention]`,
   `[pmd.py:Lateral]`
+
+### Concept segmentation and tracking (`sam3/`)
+
+- `Sam3` and the `sam31_multiplex` factory: promptable segmentation with a ViTDet encoder, concept detector, interactive
+  head and tracker modules. `features` returns the detector-level map. See [`sam3/EGM.md`](./sam3/EGM.md).
+  `[sam3/model.py:Sam3]`, `[sam3/model.py:sam31_multiplex]`
 
 ### Convolutional and hybrid backbones
 

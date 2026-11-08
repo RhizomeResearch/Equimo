@@ -16,6 +16,7 @@ lowformer = import_module("equimo.vision.models.lowformer")
 mobilenet = import_module("equimo.vision.models.mobilenet")
 parcae = import_module("equimo.vision.models.parcae")
 reduceformer = import_module("equimo.vision.models.reduceformer")
+sam3 = import_module("equimo.vision.models.sam3")
 vit = import_module("equimo.vision.models.vit")
 
 
@@ -43,5 +44,6 @@ MODEL_VARIANT_REGISTRIES = (
     ModelVariantRegistryCase(
         "reduceformer", reduceformer, reduceformer._REDUCEFORMER_REGISTRY
     ),
+    ModelVariantRegistryCase("sam31", sam3, sam3._SAM3_REGISTRY),
     ModelVariantRegistryCase("vit", vit, vit._VIT_REGISTRY),
 )

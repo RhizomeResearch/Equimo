@@ -71,6 +71,10 @@
     "model_class": "equimo.vision.models.reduceformer.ReduceFormer",
     "model_signature": "sha256:e727dd69354dfb5a5d73276f3e7ffe698afe97c554a83060be902e178d04a909"
   },
+  "sam3_tiny": {
+    "model_class": "equimo.vision.models.sam3.model.Sam3",
+    "model_signature": "sha256:c39b76c1b2978842a4d34218f351250cfed1ce0fdabdd0d6382e4780ce3b3f13"
+  },
   "shvit_tiny": {
     "model_class": "equimo.vision.models.shvit.SHViT",
     "model_signature": "sha256:1418a6e6ed18058adbd6948ce5096a46fb0deb830df8d8bb522477b3b325de2a"
