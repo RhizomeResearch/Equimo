@@ -7,6 +7,10 @@
     "model_class": "equimo.vision.models.attnet.AttNet",
     "model_signature": "sha256:ed225bf9a301c21ebfc2bd7650f9ce693aa570d3c45ba44e7160108f131fa834"
   },
+  "causal_text_transformer_tiny": {
+    "model_class": "equimo.language.models.CausalTextTransformer",
+    "model_signature": "sha256:32cd431fbf291a1fd020f71c0ca329afd99ba77069187939cc7dcc84eba0cd4c"
+  },
   "convnext_tiny_2stage": {
     "model_class": "equimo.vision.models.convnext.ConvNeXt",
     "model_signature": "sha256:19ee75364dcc4699c247b14ac38f66565758fb6e740e9bc6d9dda1cb1daae66c"

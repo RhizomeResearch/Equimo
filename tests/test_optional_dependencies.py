@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import pytest
 
 from equimo.conversion.utils import convert_params_from_torch
-from equimo.language.tokenizers import _require_tensorflow_text
+from equimo.language.tokenizers import _require_clip, _require_tensorflow_text
 from equimo.utils import PCAVisualizer, plot_image_and_feature_map
 from equimo.vision.io import load_image
 
@@ -85,3 +85,16 @@ def test_tokenizer_missing_dependency_names_language_extra(
         _require_tensorflow_text()
 
     _assert_recovery_message(exc_info, cause, "language")
+
+
+@pytest.mark.parametrize("missing_package", ["ftfy", "regex"])
+def test_clip_tokenizer_missing_dependency_names_clip_extra(
+    monkeypatch, missing_package
+):
+    substitutes = {"ftfy": SimpleNamespace()} if missing_package == "regex" else None
+    cause = _make_import_fail(monkeypatch, missing_package, substitutes=substitutes)
+
+    with pytest.raises(ImportError) as exc_info:
+        _require_clip()
+
+    _assert_recovery_message(exc_info, cause, "clip")

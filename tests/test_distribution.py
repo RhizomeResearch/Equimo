@@ -85,6 +85,7 @@ def test_built_distributions_contain_all_package_modules(built_distributions):
 
     with zipfile.ZipFile(wheel) as archive:
         wheel_modules = {path for path in archive.namelist() if path.endswith(".py")}
+        wheel_contents = set(archive.namelist())
         wheel_licenses = {
             path
             for path in archive.namelist()
@@ -101,6 +102,7 @@ def test_built_distributions_contain_all_package_modules(built_distributions):
         }
 
     assert wheel_modules == source_modules
+    assert "equimo/language/data/bpe_simple_vocab_16e6.txt.gz" in wheel_contents
     assert {path.split(".dist-info/licenses/", 1)[1] for path in wheel_licenses} == set(
         EXPECTED_LICENSE_FILES
     )
@@ -119,6 +121,7 @@ def test_built_distributions_contain_all_package_modules(built_distributions):
         f"{sdist_root}/docs/stability.md",
         f"{sdist_root}/docs/timeseries.md",
         f"{sdist_root}/pyproject.toml",
+        f"{sdist_root}/src/equimo/language/data/bpe_simple_vocab_16e6.txt.gz",
     } <= sdist_contents
 
 

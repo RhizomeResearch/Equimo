@@ -5,6 +5,7 @@ from importlib import import_module
 from types import ModuleType
 
 ast = import_module("equimo.audio.models.ast")
+language = import_module("equimo.language.models")
 tabpfn = import_module("equimo.tabular.models.tabpfn")
 t0 = import_module("equimo.timeseries.models.t0")
 attnet = import_module("equimo.vision.models.attnet")
@@ -27,6 +28,9 @@ class ModelVariantRegistryCase:
 
 MODEL_VARIANT_REGISTRIES = (
     ModelVariantRegistryCase("ast", ast, ast._AST_REGISTRY),
+    ModelVariantRegistryCase(
+        "causal_text_transformer", language, language._CAUSAL_TEXT_REGISTRY
+    ),
     ModelVariantRegistryCase("tabpfn", tabpfn, tabpfn._TABPFN_REGISTRY),
     ModelVariantRegistryCase("t0", t0, t0._T0_REGISTRY),
     ModelVariantRegistryCase("attnet", attnet, attnet._ATTNET_REGISTRY),

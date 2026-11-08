@@ -148,6 +148,18 @@ test:extra:language:
   script:
     - uv run --python "$PYTHON_VERSION" pytest -q -p no:cacheprovider tests/test_language_tokenizers.py
 
+test:extra:clip:
+  stage: test
+  parallel:
+    matrix:
+      - PYTHON_VERSION: ["3.12", "3.13", "3.14"]
+  variables:
+    EQUIMO_TEST_OPTIONAL_EXTRA: clip
+  before_script:
+    - uv sync --locked --python "$PYTHON_VERSION" --group dev --extra clip
+  script:
+    - uv run --python "$PYTHON_VERSION" pytest -q -p no:cacheprovider tests/test_language_tokenizers.py
+
 test:extra:torch:
   stage: test
   parallel:
@@ -183,6 +195,7 @@ publish:
     - "test:extra:extras"
     - "test:extra:audio"
     - "test:extra:language"
+    - "test:extra:clip"
     - "test:extra:torch"
     - "build:distribution"
   rules:

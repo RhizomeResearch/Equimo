@@ -22,6 +22,7 @@ import pytest
 
 import equimo.audio.models as am
 import equimo.vision.models as em
+from equimo.language.models import CausalTextTransformer
 from equimo.serialization import (
     _layout_for_signature,
     _model_class,
@@ -176,6 +177,16 @@ BUILDERS = {
     "attnet_xxs": lambda: em.attnet_xxs(key=KEY),
     "mobilenetv3_small": lambda: em.mobilenetv3_small(key=KEY),
     "deq_convnext_t": lambda: em.deq_convnext_t(in_channels=3, num_classes=10, key=KEY),
+    "causal_text_transformer_tiny": lambda: CausalTextTransformer(
+        dim=32,
+        mlp_ratio=2.0,
+        depth=2,
+        num_heads=2,
+        vocab_size=64,
+        context_length=8,
+        out_dim=16,
+        key=KEY,
+    ),
     "ast_tiny": lambda: am.AudioSpectrogramTransformer(
         input_fdim=32,
         input_tdim=64,

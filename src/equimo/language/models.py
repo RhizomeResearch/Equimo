@@ -4,15 +4,22 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import jax.random as jr
-from jaxtyping import Array, Float, Int, PRNGKeyArray
+from jaxtyping import Array, Bool, Float, Int, PRNGKeyArray
 
 from equimo.core._prng import split_for_mode
+from equimo.core.factory import build_model_variant
 from equimo.core.intermediates import intermediate_indices
 from equimo.core.layers.activation import get_act
 from equimo.core.layers.attention import AttentionBlock
 from equimo.registry import register_model
 
-__all__ = ["TextTransformerEncoder", "TransformerEncoderStack", "global_avg_pooling"]
+__all__ = [
+    "CausalTextTransformer",
+    "TextTransformerEncoder",
+    "TransformerEncoderStack",
+    "global_avg_pooling",
+    "sam31_text",
+]
 
 
 def global_avg_pooling(
@@ -255,3 +262,122 @@ class TextTransformerEncoder(eqx.Module):
         return global_avg_pooling(
             x, compatible_paddings=padding_mask[:, None], pooling_dims=[0]
         )
+
+
+@register_model("causal_text_transformer", modality="language")
+class CausalTextTransformer(eqx.Module):
+    """CLIP-style text transformer that returns per-token features.
+
+    Every token attends only to itself and earlier tokens, so its output never
+    depends on what follows it. ``padding_mask`` uses ``True`` for padding and
+    removes padded positions from the attention keys. Token id 0 is a real CLIP
+    token, so padding cannot be inferred from the ids.
+    """
+
+    token_embedding: eqx.nn.Embedding
+    position_embedding: Float[Array, "context_length dim"]
+    transformer: TransformerEncoderStack
+    ln_final: eqx.nn.LayerNorm
+    projection: eqx.nn.Linear | eqx.nn.Identity
+
+    def __init__(
+        self,
+        dim: int,
+        mlp_ratio: float,
+        depth: int,
+        num_heads: int,
+        vocab_size: int,
+        context_length: int,
+        *,
+        key: PRNGKeyArray,
+        out_dim: int | None = None,
+        act_layer: Callable | str = jax.nn.gelu,
+    ):
+        key_emb, key_pos, key_trans, key_proj = jr.split(key, 4)
+        self.token_embedding = eqx.nn.Embedding(
+            num_embeddings=vocab_size,
+            embedding_size=dim,
+            key=key_emb,
+        )
+        self.position_embedding = 0.01 * jr.normal(key_pos, (context_length, dim))
+        self.transformer = TransformerEncoderStack(
+            dim=dim,
+            depth=depth,
+            num_heads=num_heads,
+            mlp_ratio=mlp_ratio,
+            act_layer=act_layer,
+            key=key_trans,
+        )
+        self.ln_final = eqx.nn.LayerNorm(dim)
+        self.projection = (
+            eqx.nn.Identity()
+            if out_dim is None
+            else eqx.nn.Linear(dim, out_dim, key=key_proj)
+        )
+
+    def _attention_mask(
+        self,
+        padding_mask: Bool[Array, "seqlen"],  # noqa: F821
+    ) -> Bool[Array, "seqlen seqlen"]:
+        seq_len = padding_mask.shape[0]
+        with jax.ensure_compile_time_eval():
+            causal = jnp.tril(jnp.ones((seq_len, seq_len), dtype=bool))
+        return causal & (padding_mask == 0)[None, :]
+
+    def features(
+        self,
+        token_ids: Int[Array, "seqlen"],  # noqa: F821
+        padding_mask: Bool[Array, "seqlen"],  # noqa: F821
+        key: PRNGKeyArray | None = None,
+        inference: bool = True,
+    ) -> Float[Array, "seqlen out_dim"]:
+        x = jax.vmap(self.token_embedding)(token_ids) + self.position_embedding
+        x = self.transformer(
+            x,
+            attn_mask=self._attention_mask(padding_mask),
+            inference=inference,
+            key=key,
+        )
+        return jax.vmap(self.projection)(jax.vmap(self.ln_final)(x))
+
+    def __call__(
+        self,
+        token_ids: Int[Array, "seqlen"],  # noqa: F821
+        padding_mask: Bool[Array, "seqlen"],  # noqa: F821
+        key: PRNGKeyArray | None = None,
+        inference: bool = True,
+    ) -> Float[Array, "seqlen out_dim"]:
+        return self.features(token_ids, padding_mask, key=key, inference=inference)
+
+
+_CAUSAL_TEXT_BASE_CFG: dict = {
+    "dim": 1024,
+    "mlp_ratio": 4.0,
+    "depth": 24,
+    "num_heads": 16,
+    "vocab_size": 49408,
+    "context_length": 32,
+    "act_layer": "exactgelu",
+}
+
+_CAUSAL_TEXT_REGISTRY: dict[str, tuple[dict, dict]] = {
+    "sam31_text": (_CAUSAL_TEXT_BASE_CFG, {"out_dim": 256}),
+}
+
+
+def sam31_text(
+    pretrained: bool = False,
+    inference_mode: bool = True,
+    **kwargs,
+) -> CausalTextTransformer:
+    """Build the SAM 3.1 text encoder."""
+    return build_model_variant(
+        CausalTextTransformer,
+        _CAUSAL_TEXT_REGISTRY,
+        "sam31_text",
+        pretrained=pretrained,
+        inference_mode=inference_mode,
+        pretrained_label="SAM 3.1 text",
+        allow_pretrained_overrides=False,
+        **kwargs,
+    )

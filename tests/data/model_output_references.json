@@ -59,6 +59,19 @@
         3.166496753692627e-08
       ]
     },
+    "causal_text_transformer": {
+      "dtype": "float32",
+      "modality": "language",
+      "shape": [
+        4
+      ],
+      "values": [
+        0.20461344718933105,
+        -0.003310600994154811,
+        -0.2549888491630554,
+        0.2366984486579895
+      ]
+    },
     "convnext": {
       "dtype": "float32",
       "modality": "vision",

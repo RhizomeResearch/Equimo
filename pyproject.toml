@@ -62,6 +62,11 @@ language = [
   "tensorflow>=2.18.1",
   "tensorflow-text>=2.18.1",
 ]
+# Required for the CLIP tokenizer in equimo.language
+clip = [
+  "ftfy>=6.1,<7",
+  "regex>=2024.11.6",
+]
 # Required for some external utils
 extras = [
   "matplotlib>=3.10.1",
@@ -118,8 +123,10 @@ ignore = ["E731", "E741", "F722"]
 replace-imports-with-any = ["equinox._module._module"]
 # Optional extras are imported lazily and may be absent from the checked environment.
 allowed-unresolved-imports = [
+  "ftfy.**",
   "matplotlib.**",
   "PIL.**",
+  "regex.**",
   "sklearn.**",
   "tensorflow.**",
   "tensorflow_text.**",
