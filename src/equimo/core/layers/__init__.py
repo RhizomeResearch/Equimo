@@ -2,6 +2,7 @@ __all__ = [
     "Attention",
     "AttentionBlock",
     "BlockChunk",
+    "CrossAttention",
     "DINOHead",
     "DropPath",
     "DropPathAdd",
@@ -45,6 +46,7 @@ from .activation import get_act, register_act
 from .attention import (
     Attention,
     AttentionBlock,
+    CrossAttention,
     get_attn,
     get_attn_block,
     register_attn,

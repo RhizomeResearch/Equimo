@@ -47,6 +47,10 @@ path. Where `devenv shell` cannot start (for example a sandbox with a read-only 
 manages, `.devenv/state/venv/bin/python -m pytest ...`, with `LD_LIBRARY_PATH` taken from `.devenv/shell-env.sh` (run in
 practice); `.venv` is not the devenv-managed environment.
 
+The lock installs CPU-only jaxlib, so GPU-only tests skip by default. To run them on a CUDA machine without changing the
+lock, overlay the CUDA wheels and expose the NixOS driver (run in practice on an RTX 4080; about 3 GB of wheels):
+`devenv shell -- bash -c 'export LD_LIBRARY_PATH=/run/opengl-driver/lib:$LD_LIBRARY_PATH; uv run --with "jax[cuda12]==0.11.2" pytest ...'`.
+
 Run a focused test while iterating:
 
 ```bash

@@ -5,7 +5,8 @@
 The vision modality of Equimo: registered image models, vision-specific layers, query-segmentation training utilities,
 and a few top-level helpers for image loading, segmentation post-processing, and bounded PMT checkpoints. `__init__.py`
 holds only a docstring; import subpackages explicitly (`equimo.vision.models`, `equimo.vision.layers`,
-`equimo.vision.query_training`) or the top-level modules below.
+`equimo.vision.query_training`) or the top-level modules below, including the sampling operations in
+`equimo.vision.ops`.
 
 ## Interface
 
@@ -24,6 +25,14 @@ holds only a docstring; import subpackages explicitly (`equimo.vision.models`, `
 - `load_image(path, mean=None, std=None, size=None, center_crop=False) -> [3, H, W]`: reads an RGB image with Pillow,
   scales to `[0, 1]` float32, optionally center-crops to a square, resizes bilinearly to `size x size`, normalizes with
   `mean` / `std` when both are given, and returns channel-first. `[io.py:load_image]`
+
+### Sampling operations (`ops.py`)
+
+- `roi_align(features (C, H, W), boxes (N, 4), output_size, spatial_scale=1.0, sampling_ratio=-1, aligned=False) -> (N, C, out_h, out_w)`:
+  `torchvision.ops.roi_align` for one image, with `(x1, y1, x2, y2)` boxes multiplied by `spatial_scale`.
+  `[ops.py:roi_align]`
+- `grid_sample(features (C, H, W), points (N, 2)) -> (N, C)`: `torch.nn.functional.grid_sample` with bilinear
+  interpolation, `align_corners=False` and zero padding, for `(x, y)` points in `[-1, 1]`. `[ops.py:grid_sample]`
 
 ### Segmentation post-processing (`segmentation.py`)
 
@@ -70,6 +79,11 @@ holds only a docstring; import subpackages explicitly (`equimo.vision.models`, `
 
 - `load_image` raises `ValueError` when only one of `mean` / `std` is given, and requires Pillow, raising an
   `ImportError` naming the `extras` extra when it is missing. `[io.py:load_image]`
+- `roi_align` with `sampling_ratio <= 0` takes `ceil(roi_size / output_size)` samples per bin and axis, evaluated
+  against a static maximum of `ceil(H / out_h)` by `ceil(W / out_w)` with masking, so it matches torchvision for boxes
+  no larger than the map and samples larger boxes with that maximum. Both operations compute coordinates and weights in
+  float32 and return the dtype of `features`; gradients reach `features` and, through the interpolation weights, the
+  boxes or points. `[ops.py:roi_align]`, `[ops.py:_bin_weights]`, `[ops.py:grid_sample]`
 - Segmentation helpers expect nonempty `(Q, H, W)` mask logits and `(Q, K + 1)` class logits whose last column is
   no-object, and raise `ValueError` otherwise. Class softmax and mask sigmoid are computed in float32.
   `[segmentation.py:_validate_logits]`, `[segmentation.py:semantic_scores]`, `[segmentation.py:panoptic_predictions]`
@@ -115,4 +129,4 @@ holds only a docstring; import subpackages explicitly (`equimo.vision.models`, `
 ## Verification
 
 - Run:
-  `devenv shell -- uv run pytest tests/test_io.py tests/test_eomt.py tests/test_pmt.py tests/test_query_training.py tests/test_query_training_models.py tests/test_models.py tests/test_attention.py tests/test_convolution.py -q`
+  `devenv shell -- uv run pytest tests/test_io.py tests/test_vision_ops.py tests/test_eomt.py tests/test_pmt.py tests/test_query_training.py tests/test_query_training_models.py tests/test_models.py tests/test_attention.py tests/test_convolution.py -q`

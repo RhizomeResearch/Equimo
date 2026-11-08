@@ -97,6 +97,8 @@ def _fused_attention(
     v: jax.Array,
     allowed: jax.Array | None = None,
     *,
+    bias: jax.Array | None = None,
+    key_value_seq_lengths: jax.Array | None = None,
     implementation: AttentionImplementation = "cudnn",
 ) -> jax.Array:
     """Fused dot-product attention over ``(..., heads, seq, head_dim)`` inputs.
@@ -106,7 +108,19 @@ def _fused_attention(
     than queries if that number divides the query heads. ``implementation`` is
     passed to :func:`jax.nn.dot_product_attention`; ``"xla"`` lets CPU tests
     check the padding and masking.
+
+    ``key_value_seq_lengths`` replaces ``allowed`` when the valid keys are packed
+    at the front: it broadcasts to the leading shape ``q.shape[:-3]`` (a scalar
+    for unbatched inputs) and gives the number of valid keys of each entry, so a
+    variable key count needs no dense mask. Entries whose length is 0 return
+    zeros.
+
+    ``bias`` is added to the scaled logits and broadcasts to
+    ``(..., heads, query, key)``. The kernels add it in the dtype of ``q``, so
+    under cuDNN it is rounded to bfloat16 or float16 first.
     """
+    if allowed is not None and key_value_seq_lengths is not None:
+        raise ValueError("Pass either allowed or key_value_seq_lengths, not both.")
     if implementation == "cudnn" and q.dtype not in (jnp.bfloat16, jnp.float16):
         raise ValueError(
             "implementation='cudnn' requires bfloat16 or float16 attention inputs, "
@@ -122,28 +136,42 @@ def _fused_attention(
         x = x.reshape(-1, *x.shape[-3:])
         return jnp.pad(x, ((0, 0), (0, length - x.shape[1]), (0, 0), (0, 0)))
 
+    def batch_scores(x: jax.Array) -> jax.Array:
+        # Materialize every head: a broadcast head axis fails under vmap
+        # (jax-ml/jax#34920). Padded queries and keys get zeros (False).
+        x = jnp.broadcast_to(x, (*leading, heads, query_len, key_len))
+        return jnp.pad(
+            x.reshape(-1, heads, query_len, key_len),
+            ((0, 0), (0, 0), (0, padded_query - query_len), (0, padded_key - key_len)),
+        )
+
     q = batch_first(q, padded_query)
     k, v = batch_first(k, padded_key), batch_first(v, padded_key)
     batch = q.shape[0]
+    if bias is not None:
+        bias = batch_scores(jnp.asarray(bias, q.dtype))
     if allowed is None:
+        if key_value_seq_lengths is None:
+            lengths = jnp.full((batch,), key_len, jnp.int32)
+        else:
+            lengths = jnp.asarray(key_value_seq_lengths, jnp.int32)
+            lengths = jnp.broadcast_to(lengths, tuple(leading)).reshape(batch)
         out = jax.nn.dot_product_attention(
             q,
             k,
             v,
+            bias=bias,
             query_seq_lengths=jnp.full((batch,), query_len, jnp.int32),
-            key_value_seq_lengths=jnp.full((batch,), key_len, jnp.int32),
+            key_value_seq_lengths=lengths,
             implementation=implementation,
         )
+        if key_value_seq_lengths is not None:
+            # Without a valid key the kernels return an average of the values.
+            out = jnp.where((lengths > 0)[:, None, None, None], out, 0)
     else:
-        # Materialize the mask for every head: a broadcast head axis fails under
-        # vmap (jax-ml/jax#34920). Padding adds masked queries and keys.
-        mask = jnp.broadcast_to(allowed, (*leading, heads, query_len, key_len))
-        mask = jnp.pad(
-            mask.reshape(batch, heads, query_len, key_len),
-            ((0, 0), (0, 0), (0, padded_query - query_len), (0, padded_key - key_len)),
-        )
+        mask = batch_scores(allowed)
         out = jax.nn.dot_product_attention(
-            q, k, v, mask=mask, implementation=implementation
+            q, k, v, bias=bias, mask=mask, implementation=implementation
         )
         # cuDNN returns the mean value for fully masked rows instead of zeros.
         has_key = jnp.swapaxes(jnp.any(mask, axis=-1), 1, 2)
@@ -297,6 +325,111 @@ class Attention(eqx.Module):
     def _project_qkv(self, x: jax.Array) -> jax.Array:
         """Project tokens to queries, keys, and values."""
         return _apply_module_last_dim(self.qkv, x)
+
+
+class CrossAttention(eqx.Module):
+    """Multi-head attention from query tokens to separate context tokens.
+
+    Queries come from ``x`` with shape ``(query, dim)``, keys and values from
+    ``context`` with shape ``(key, kv_dim)``. Both are projected to
+    ``internal_dim`` (``dim`` by default; SAM's two-way transformer halves it),
+    and the attended values are projected back to ``dim``.
+
+    ``key_mask`` uses ``True`` for keys to attend to and broadcasts to
+    ``(heads, query, key)``, so a ``(key,)`` mask applies to every query. Fully
+    masked query rows attend to nothing, so their output is ``proj``'s bias.
+    ``bias`` is added to the scaled logits and broadcasts to the same shape;
+    the XLA path adds it in float32, the cuDNN kernel in the input dtype. The layer has no dropout, so
+    ``key`` and ``inference`` are accepted only for the endpoint convention.
+
+    ``implementation="cudnn"`` selects the fused kernel described in
+    :func:`with_attention_implementation`.
+    """
+
+    dim: int = eqx.field(static=True)
+    kv_dim: int = eqx.field(static=True)
+    internal_dim: int = eqx.field(static=True)
+    num_heads: int = eqx.field(static=True)
+    implementation: AttentionImplementation = eqx.field(static=True)
+
+    q: eqx.nn.Linear
+    k: eqx.nn.Linear
+    v: eqx.nn.Linear
+    proj: eqx.nn.Linear
+
+    def __init__(
+        self,
+        dim: int,
+        num_heads: int,
+        *,
+        key: PRNGKeyArray,
+        kv_dim: int | None = None,
+        internal_dim: int | None = None,
+        implementation: AttentionImplementation = "xla",
+    ):
+        kv_dim = dim if kv_dim is None else kv_dim
+        internal_dim = dim if internal_dim is None else internal_dim
+        if internal_dim % num_heads != 0:
+            raise ValueError(
+                f"internal_dim ({internal_dim}) must be divisible by num_heads "
+                f"({num_heads})."
+            )
+        _check_implementation(implementation)
+        self.dim = dim
+        self.kv_dim = kv_dim
+        self.internal_dim = internal_dim
+        self.num_heads = num_heads
+        self.implementation = implementation
+
+        key_q, key_k, key_v, key_proj = jr.split(key, 4)
+        self.q = eqx.nn.Linear(dim, internal_dim, key=key_q)
+        self.k = eqx.nn.Linear(kv_dim, internal_dim, key=key_k)
+        self.v = eqx.nn.Linear(kv_dim, internal_dim, key=key_v)
+        self.proj = eqx.nn.Linear(internal_dim, dim, key=key_proj)
+
+    @property
+    def head_dim(self) -> int:
+        return self.internal_dim // self.num_heads
+
+    def __call__(
+        self,
+        x: Float[Array, "query dim"],
+        context: Float[Array, "key kv_dim"],
+        *,
+        key_mask: Optional[Array] = None,
+        bias: Optional[Array] = None,
+        key: PRNGKeyArray | None = None,
+        inference: bool = True,
+    ) -> Float[Array, "query dim"]:
+        q = self._heads(self.q, x)
+        k = self._heads(self.k, context)
+        v = self._heads(self.v, context)
+
+        allowed = None
+        if key_mask is not None:
+            allowed = jnp.broadcast_to(
+                jnp.asarray(key_mask, dtype=bool),
+                (self.num_heads, x.shape[0], context.shape[0]),
+            )
+        if self.implementation == "cudnn":
+            out = _fused_attention(q, k, v, allowed, bias=bias)
+        else:
+            logits = jnp.einsum("hqd,hkd->hqk", q, k).astype(jnp.float32) / jnp.sqrt(
+                self.head_dim
+            )
+            if bias is not None:
+                logits = logits + jnp.asarray(bias, jnp.float32)
+            weights = jax.nn.softmax(logits, axis=-1, where=allowed).astype(x.dtype)
+            out = jnp.einsum("hqk,hkd->hqd", weights, v)
+
+        out = jnp.swapaxes(out, 0, 1).reshape(x.shape[0], self.internal_dim)
+        return jax.vmap(self.proj)(out)
+
+    def _heads(self, linear: eqx.nn.Linear, tokens: jax.Array) -> jax.Array:
+        """Project ``(seq, features)`` tokens to ``(heads, seq, head_dim)``."""
+        projected = jax.vmap(linear)(tokens)
+        projected = projected.reshape(tokens.shape[0], self.num_heads, self.head_dim)
+        return jnp.swapaxes(projected, 0, 1)
 
 
 @register_attn_block()

@@ -233,7 +233,7 @@ so the vision model takes text features, not token ids.
   with `modality="language"`, and `ClipBpeTokenizer`.
 - `equimo.core.layers.attention`: `CrossAttention`, a multi-head attention with separate query and key-value inputs
   (needed by the fusion encoder, DETR decoder, geometry encoder, segmentation head and two-way transformer), and
-  per-batch key lengths in `_fused_attention`.
+  per-batch key lengths and an additive bias in `_fused_attention`.
 - `equimo.vision.ops` (new module, imported explicitly): `roi_align` and bilinear `grid_sample`. Resizing uses
   `jax.image.resize` directly.
 - `VisionRoPE` is reused unchanged.
@@ -816,7 +816,7 @@ Decisions were made by the author during design; each entry gives the trade-off 
 - **Compilation.** Device steps compile once per bucket count (1, 2, 4, ...); `commit` also once per source frame size.
   Frame indices and object changes within a bucket count never recompile.
 - **Compatibility.** No existing public signature, checkpoint or identity hash changes: `VisionRoPE` is reused without a
-  new field, `_fused_attention` gains an optional argument, and the new extra is optional.
+  new field, `_fused_attention` gains two optional arguments, and the new extra is optional.
 - **Security and licensing.** Archives load only through `load_weights` with pinned digests and checkpoint limits. The
   tokenizer vocabulary ships in the package. The SAM License travels with the weights in the repository and on Hugging
   Face.
@@ -896,8 +896,8 @@ they name what the code does.
 
 - `src/equimo/core/layers/attention.py` (Modify)
   - `_fused_attention` accepts optional `key_value_seq_lengths` of shape `[batch]` when no mask is given, so packed keys
-    reach cuDNN without a dense mask, and zeroes the output rows where the length is 0. Padding to multiples of 64 stays
-    as is.
+    reach cuDNN without a dense mask, and zeroes the output rows where the length is 0. It also accepts an optional
+    `bias`, so the DETR box bias reaches cuDNN. Padding to multiples of 64 stays as is.
   - `CrossAttention` as specified in "Attention and numerics", with `with_attention_implementation` support.
 - `src/equimo/core/layers/__init__.py` (Modify): export `CrossAttention`.
 - `src/equimo/core/layers/EGM.md` (Modify): document per-batch key lengths and `CrossAttention`.

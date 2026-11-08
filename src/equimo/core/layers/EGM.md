@@ -4,8 +4,8 @@
 
 This directory holds the shared building blocks that the vision, language, audio, and tabular models assemble.
 
-- **Attention:** multi-head attention, with an XLA path and an opt-in cuDNN fused path, and a pre-norm transformer
-  block.
+- **Attention:** multi-head self- and cross-attention, with an XLA path and an opt-in cuDNN fused path, and a pre-norm
+  transformer block.
 - **Rotary embeddings:** sin/cos factors applied to queries and keys.
 - **Feed-forward layers:** `Mlp`, the SwiGLU variants, and a DINO projection head.
 - **Normalization:** norms and layer scale.
@@ -49,6 +49,14 @@ names that are not re-exported there.
     `Attention(dim, num_heads, *, key, qkv_bias, proj_bias, qk_norm, attn_drop, proj_drop, norm_layer, eps, implementation="xla")`.
   - Call: `__call__(x (..., seq, dim), key, inference=None, mask=None, rotary=None)`. `key` has no default.
   - Rotary factors are applied after the optional q/k norms.
+- `[attention.py:CrossAttention]`: multi-head attention from query tokens to separate context tokens. Not registered.
+  - Constructor: `CrossAttention(dim, num_heads, *, key, kv_dim=dim, internal_dim=dim, implementation="xla")`. Linear
+    fields `q` (`dim -> internal_dim`), `k` and `v` (`kv_dim -> internal_dim`) and `proj` (`internal_dim -> dim`), all
+    with biases. `head_dim` is a property, `internal_dim // num_heads`.
+  - Call:
+    `__call__(x (query, dim), context (key, kv_dim), *, key_mask=None, bias=None, key=None, inference=True) -> (query, dim)`.
+    Unbatched; batch with `vmap`. `key_mask` uses `True` for keys to attend to and `bias` is an additive logit bias;
+    both broadcast to `(heads, query, key)`. It has no dropout, so `key` and `inference` are unused.
 - `[attention.py:AttentionBlock]`: pre-norm transformer block that computes
   `x + drop_path(ls1(postnorm(attn(prenorm(x)))))`, then `x + drop_path(ls2(mlp(norm(x))))`. `postnorm` is a norm only
   when `post_attention_norm=True`, and `Identity` otherwise.
@@ -58,7 +66,10 @@ names that are not re-exported there.
 - `[attention.py:with_attention_implementation]`: returns the model with every module that has an `implementation` field
   switched to `"xla"` or `"cudnn"`. Parameters are unchanged.
 - `[attention.py:AttentionImplementation]`: `Literal["xla", "cudnn"]`.
-- `[attention.py:_fused_attention]`: internal cuDNN path, a wrapper around `jax.nn.dot_product_attention`.
+- `[attention.py:_fused_attention]`: internal cuDNN path, a wrapper around `jax.nn.dot_product_attention`. Instead of a
+  mask, `key_value_seq_lengths` (broadcast to the leading shape `q.shape[:-3]`, a scalar for unbatched inputs) gives the
+  number of valid keys packed at the front of each entry, so a variable key count needs no dense mask. `bias` is an
+  additive logit bias that broadcasts to `(..., heads, query, key)`.
 - `[rotary.py:RotaryFactors]`: holds `sin` and `cos` of shape `(sequence, feature)`, an optional `scale`, and a static
   `layout` (`[rotary.py:RotaryLayout]`: `"split_half"` or `"interleaved"`).
 - `[rotary.py:apply_rotary]`: applies unscaled factors to one tensor along `sequence_axis=-2`.
@@ -139,14 +150,21 @@ names that are not re-exported there.
   - The softmax is `jax.nn.softmax(..., where=allowed)`. It does not use `equimo.core.ops.softmax`.
   - Probabilities are cast back to `x.dtype`, so fully masked rows get zero probability mass.
   - `rotary.feature_dim` must equal `head_dim`, or `ValueError` is raised.
+- `[attention.py:CrossAttention.__call__]`: follows the `Attention` XLA numerics: float32 logits scaled by
+  `1 / sqrt(head_dim)`, then `bias` added in float32, then `jax.nn.softmax(..., where=key_mask)` and a cast back to
+  `x.dtype`. Fully masked query rows attend to nothing and return `proj`'s bias. With `implementation="cudnn"`, `mask`
+  and `bias` go to `_fused_attention`. `internal_dim` must be divisible by `num_heads`, or `ValueError` is raised.
 - `[attention.py:_broadcast_attention_mask]`: any nonzero mask entry counts as allowed. A mask with the same rank as `x`
   gets a head axis inserted at `-3`. A mask that cannot broadcast raises `ValueError`.
 - `[attention.py:_fused_attention]` (cuDNN path) has these requirements:
   - Query and key/value sequence lengths are zero-padded to multiples of 64 (`_CUDNN_SEQUENCE_MULTIPLE`), because the
     backward kernel needs it. The output is sliced back to the query length.
-  - Masks are expanded to every head, because a broadcast head axis fails under `vmap` (jax-ml/jax#34920). The padding
-    is filled with `False`.
-  - Fully masked rows are zeroed, because cuDNN returns the mean value for them.
+  - Masks and biases are expanded to every head, because a broadcast head axis fails under `vmap` (jax-ml/jax#34920).
+    The padding is filled with `False` and zeros.
+  - The kernels add `bias` in the dtype of `q`, so the cuDNN path rounds it to bfloat16 or float16 first, where the XLA
+    path of `CrossAttention` adds it in float32.
+  - Fully masked rows are zeroed, because cuDNN returns the mean value for them. Entries whose `key_value_seq_lengths`
+    is 0 are zeroed too. Passing both a mask and lengths raises `ValueError`.
   - Inputs must be bfloat16 or float16, or `ValueError` is raised.
   - `[attention.py:_check_cudnn_dropout]` rejects attention dropout that is active.
   - The cuDNN path cannot be exported with jax2onnx (per the `with_attention_implementation` docstring).
@@ -156,6 +174,7 @@ names that are not re-exported there.
 
 ### PRNG keys and drop-path
 
+- `[attention.py:CrossAttention.__call__]` takes `key=None` and never uses it.
 - `[attention.py:Attention.__call__]`, `[attention.py:AttentionBlock.__call__]`, `[ffn.py:Mlp.__call__]`,
   `[ffn.py:SwiGlu.__call__]`, `[generic.py:BlockChunk.__call__]` and `[generic.py:WindowedSequence.__call__]` split keys
   with `equimo.core._prng.split_for_mode`.
