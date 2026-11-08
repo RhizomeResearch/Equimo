@@ -1089,6 +1089,50 @@ def test_commit_reconditions_and_suppresses_the_output_masks(
     assert state.cond_frame[0].tolist() == [0, 1, -1, -1]
 
 
+def test_a_frame_committed_twice_is_read_once(model, frame_features, step):
+    frame = jnp.asarray(0, jnp.int32)
+    state = model.tracker.empty_state(1)
+    state, _ = step(model, state, frame_features, frame, _add_slots(state, 0, (0, 0)))
+    tracks = TrackOutput(
+        mask_logits=state.last_masks,
+        object_score_logits=state.last_scores,
+        iou=jnp.zeros_like(state.last_scores),
+        pointers=state.pointers[:, 0],
+    )
+    state = model.commit(state, frame_features, tracks, _plan(state, 0))
+    bucket = jax.tree.map(lambda leaf: leaf[0], state)
+    _, _, spatial, _ = model.tracker._memory_bank(bucket, jnp.asarray(1, jnp.int32), 15)
+    assert state.recent_is_cond[0, 0]
+    assert spatial == GRID * GRID
+
+
+def test_commit_keeps_an_already_decoded_object(model, frame_features):
+    frame = jnp.asarray(0, jnp.int32)
+    state = model.tracker.empty_state(1)
+    prompt = _interactive_prompt()
+    mask, pointer, score = model.tracker.decode_object(
+        model.interactive, frame_features, prompt
+    )
+    add = jnp.zeros((1, 2), bool).at[0, 0].set(True)
+    plan = _plan(
+        state,
+        0,
+        add=add,
+        decoded=add,
+        new_masks=jnp.zeros_like(state.last_masks).at[0, 0].set(mask),
+        decoded_pointers=jnp.zeros_like(state.pointers[:, 0]).at[0, 0].set(pointer),
+        decoded_scores=jnp.zeros_like(state.last_scores)
+        .at[0, 0]
+        .set(score.astype(jnp.float32)),
+    )
+    tracks = model.propagate(state, frame_features, frame)
+    state = model.commit(state, frame_features, tracks, plan)
+    assert jnp.array_equal(state.last_masks[0, 0], mask)
+    assert jnp.array_equal(state.pointers[0, 0, 0], pointer)
+    assert state.last_scores[0, 0] == score.astype(jnp.float32)
+    assert state.slot_status[0].tolist() == [SLOT_ACTIVE, SLOT_EMPTY]
+
+
 def test_reencoding_changes_only_the_flagged_buckets(model, frame_features, step):
     state = pad_tracker_buckets(model.tracker.empty_state(1), 2)
     state, _ = step(

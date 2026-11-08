@@ -344,11 +344,17 @@ class CommitPlan(eqx.Module):
     ``state_group`` assigns each bucket to the state it was created with.
     ``reencode`` must list every bucket of a state that received objects.
     ``source_size`` is the clip's frame size, static so that it compiles once.
+    ``decoded`` marks added slots whose ``new_masks`` entry is already the
+    object's mask logits, with its pointer and score in ``decoded_pointers`` and
+    ``decoded_scores``; other added slots are decoded from a mask prompt.
     """
 
     frame_index: Int[Array, ""]
     add: Bool[Array, "buckets slots"]
     new_masks: Float[Array, "buckets slots height width"]
+    decoded: Bool[Array, "buckets slots"]
+    decoded_pointers: Float[Array, "buckets slots dim"]
+    decoded_scores: Float[Array, "buckets slots"]
     recondition: Bool[Array, "buckets slots"]
     recondition_masks: Float[Array, "buckets slots height width"]
     suppress: Bool[Array, "buckets slots"]
@@ -374,6 +380,9 @@ class CommitPlan(eqx.Module):
             frame_index=jnp.asarray(frame_index, jnp.int32),
             add=no_slots,
             new_masks=no_masks,
+            decoded=no_slots,
+            decoded_pointers=jnp.zeros_like(state.pointers[:, 0]),
+            decoded_scores=jnp.zeros_like(state.last_scores),
             recondition=no_slots,
             recondition_masks=no_masks,
             suppress=no_slots,
@@ -736,6 +745,20 @@ class Sam3Tracker(eqx.Module):
             low, jnp.concatenate((signal, flags.astype(jnp.float32)), axis=0)
         )
 
+    def decode_object(
+        self,
+        interactive: InteractiveHead,
+        features: ImageFeatures,
+        prompt: InteractivePrompt,
+    ) -> tuple[Float[Array, "height width"], Float[Array, " dim"], Float[Array, ""]]:
+        """Return the prompted object's mask logits, pointer and object score."""
+        output, tokens = interactive.predict_with_tokens(features, prompt)
+        return (
+            output.mask_logits[output.selected],
+            self.pointer_proj(tokens[output.selected]),
+            output.object_score_logit,
+        )
+
     def _new_objects(
         self,
         interactive: InteractiveHead,
@@ -745,15 +768,8 @@ class Sam3Tracker(eqx.Module):
         """Turn detector masks into conditioning masks, pointers and object scores."""
 
         def one_object(mask: jax.Array) -> tuple[jax.Array, jax.Array, jax.Array]:
-            output, tokens = interactive.predict_with_tokens(
-                features,
-                InteractivePrompt.create(mask_input=mask, mask_size=mask.shape[-1]),
-            )
-            return (
-                output.mask_logits[output.selected],
-                self.pointer_proj(tokens[output.selected]),
-                output.object_score_logit,
-            )
+            prompt = InteractivePrompt.create(mask_input=mask, mask_size=mask.shape[-1])
+            return self.decode_object(interactive, features, prompt)
 
         return jax.vmap(jax.vmap(one_object))(masks)
 
@@ -846,10 +862,17 @@ class Sam3Tracker(eqx.Module):
             )
 
         new_logits, new_pointers, new_scores = jax.lax.cond(
-            jnp.any(add),
+            jnp.any(add & ~plan.decoded),
             lambda: self._new_objects(interactive, features, plan.new_masks),
             no_new_objects,
         )
+        new_logits = jnp.where(
+            plan.decoded[..., None, None], plan.new_masks, new_logits
+        )
+        new_pointers = jnp.where(
+            plan.decoded[..., None], plan.decoded_pointers, new_pointers
+        )
+        new_scores = jnp.where(plan.decoded, plan.decoded_scores, new_scores)
         final_logits = jnp.where(add[..., None, None], new_logits, logits)
         final_scores = jnp.where(add, new_scores, tracks.object_score_logits)
         final_active = tracked | add
@@ -929,8 +952,12 @@ class Sam3Tracker(eqx.Module):
                 recent_frame=stored(
                     bucket.recent_frame, recent_slot, frame, bucket_valid
                 ),
+                # A frame committed twice stays conditioning, or it would be read twice.
                 recent_is_cond=stored(
-                    bucket.recent_is_cond, recent_slot, is_cond, bucket_valid
+                    bucket.recent_is_cond,
+                    recent_slot,
+                    is_cond | jnp.any(same_frame),
+                    bucket_valid,
                 ),
                 pointers=stored(bucket.pointers, pointer_slot, pointers, bucket_valid),
                 pointer_frame=stored(

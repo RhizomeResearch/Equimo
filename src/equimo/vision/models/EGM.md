@@ -89,8 +89,9 @@ auto-imports every module and merges each module's `__all__` into the package na
 ### Concept segmentation and tracking (`sam3/`)
 
 - `Sam3` and the `sam31_multiplex` factory: promptable segmentation with a ViTDet encoder, concept detector, interactive
-  head, and tracker modules with experimental tracking steps. `features` returns the detector-level map. See
-  [`sam3/EGM.md`](./sam3/EGM.md). `[sam3/model.py:Sam3]`, `[sam3/model.py:sam31_multiplex]`
+  head, and tracker modules with experimental tracking steps and a host-side video driver in the explicitly imported
+  `sam3/video.py`. `features` returns the detector-level map. See [`sam3/EGM.md`](./sam3/EGM.md).
+  `[sam3/model.py:Sam3]`, `[sam3/model.py:sam31_multiplex]`, `[sam3/video.py:Sam3VideoTracker]`
 
 ### Convolutional and hybrid backbones
 
