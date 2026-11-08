@@ -114,8 +114,10 @@ Both milestones:
 
 ## Open Questions
 
-- **Checkpoint contents.** Whether `sam3.1_multiplex.pt` stores the ViT RoPE tables (`freqs_cis`), the unused
-  `text_projection`, or stale tracker backbone keys. The converter classifies every key and fails on unknown ones.
+- **Checkpoint contents (resolved).** `sam3.1_multiplex.pt` is a bare state dictionary of 1,623 tensors, SHA-256
+  `0567debeec80ba4ac6369540c6c248025283cb3ff2b92827509e57e2b3541cb6`. It stores the ViT RoPE tables (`freqs_cis`) and
+  the unused `text_projection`, and has no stale tracker backbone keys. The converter classifies every key and fails on
+  unknown ones.
 - **Antialiased resize.** The memory encoder resizes 1008 to 1152 with torch's `antialias=True`. For upsampling this is
   expected to equal plain bilinear interpolation; an operator fixture confirms it.
 
@@ -481,9 +483,10 @@ that says refinement on video is not supported.
 ### Weights, conversion and archives
 
 - A maintainer script, `models/sam31.py`, reads `sam3.1_multiplex.pt` on CPU with `torch.load(weights_only=True)` after
-  checking its SHA-256, classifies every key (converted, computed and dropped, unused and dropped), fails on unknown
-  keys, and writes two float32 archives: `sam31_multiplex` (the vision model) and `sam31_text` (the text model).
-  Bfloat16 users cast after loading.
+  checking its SHA-256, classifies every key (converted, computed and dropped, unused and dropped, or unmapped), fails
+  on unknown keys, and writes two float32 archives: `sam31_multiplex` (the vision model) and `sam31_text` (the text
+  model). Bfloat16 users cast after loading. An unmapped key is a checkpoint entry the model has no matching parameter
+  for yet; the converter names them, and every model parameter without a source, and fails until both lists are empty.
 - The archives are always `sam31_multiplex` and `sam31_text`; the SAM 3 paper describes further training of both
   encoders after their Perception Encoder initialization, so neither is a reused standalone model.
 - Digests are pinned in `src/equimo/_pretrained.py` with a new repository revision after upload. Uploading needs the
@@ -976,10 +979,11 @@ they name what the code does.
 - `models/sam31.py` (Create): the converter, with a positional variant (`multiplex` or `text`), `--checkpoint`,
   `--source-dir`, `--output-dir` and `--dry-run` (printing `checkpoint=` and `output=` lines), run in the `reference`
   dependency group. It checks the source file's SHA-256, loads it with `torch.load(weights_only=True)` on CPU,
-  classifies every key (converted, computed and dropped, unused and dropped), fails on unknown keys, splits the packed
-  attention projections, drops the position table's cls row, converts transposed convolutions with `swapaxes(0, 1)` and
-  a spatial flip (forward through `eqx.nn.ConvTranspose2d`), and writes the archive with a conversion record. The
-  torch-to-Equimo key mapping lives here and is imported by the tests through the existing `models` import pattern.
+  classifies every key (converted, computed and dropped, unused and dropped, or unmapped), fails on unknown keys and
+  while any key is unmapped or any model parameter has no source, splits the packed attention projections, drops the
+  position table's cls row, converts transposed convolutions with `swapaxes(0, 1)` and a spatial flip (forward through
+  `eqx.nn.ConvTranspose2d`), and writes the archive with a conversion record. The torch-to-Equimo key mapping lives here
+  and is imported by the tests through the existing `models` import pattern.
 - `models/sam31_reference.py` (Create): the reference harness, run in its own environment. Builds the float32 reference,
   the bfloat16 reference with `use_fa3=False`, and the tiny random-weight configuration (a configuration table shared
   with the tests); registers forward hooks that save outputs; records decision traces from the policy; asserts the 1e-3
@@ -1093,8 +1097,11 @@ Drafting, from this design, Equimo's code, the SAM 3 paper and the SAM 3.1 relea
 1. **Tracking state and steps.** The rest of `tracker.py`. Check: one compilation per bucket count, slot and ring-buffer
    invariants, the scan test.
 1. **Policy and driver.** `video.py`. Check: the driver runs a random-weight clip end to end with growth and release.
-1. **Converter key classification.** `models/sam31.py` without archive writing. Check: every checkpoint key is
-   classified; the dry run prints the expected lines.
+1. **Converter key classification.** `models/sam31.py` without archive writing. The key names, shapes and digest of
+   `sam3.1_multiplex.pt` are read for this mapping; the reference code is not. Check: every checkpoint key is
+   classified; the dry run prints the expected lines. The drafted model does not cover the checkpoint (149 unmapped keys
+   and 62 parameters without a source), so a run fails and lists them until the reference comparison below corrects the
+   model.
 
 Comparison with the reference starts here. Image milestone:
 

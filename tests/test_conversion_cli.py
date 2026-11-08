@@ -8,7 +8,7 @@ import numpy as np
 
 
 ROOT = Path(__file__).parents[1]
-SCRIPTS = ("tips.py", "tips_text.py", "eupe.py")
+SCRIPTS = ("tips.py", "tips_text.py", "eupe.py", "sam31.py")
 HELP_SCRIPTS = (
     "audio_preprocessing.py",
     "ast.py",
@@ -16,6 +16,7 @@ HELP_SCRIPTS = (
     "dinov2.py",
     "dinov3.py",
     "eupe.py",
+    "sam31.py",
     "siglip2.py",
     "t0.py",
     "tabpfn3.py",
@@ -333,6 +334,198 @@ def test_eupe_dry_run_resolves_explicit_paths(tmp_path):
     assert f"source={source_dir.resolve()}" in result.stdout
     assert f"checkpoint={checkpoint.resolve()}" in result.stdout
     assert f"output={(output_dir / 'eupe_vitt16').resolve()}" in result.stdout
+
+
+def load_sam31_converter():
+    spec = importlib.util.spec_from_file_location(
+        "sam31_conversion", ROOT / "models" / "sam31.py"
+    )
+    assert spec is not None and spec.loader is not None
+    converter = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = converter
+    spec.loader.exec_module(converter)
+    return converter
+
+
+def test_sam31_dry_run_prints_resolved_paths(tmp_path):
+    checkpoint = tmp_path / "weights.pt"
+    checkpoint.touch()
+    output_dir = tmp_path / "output"
+
+    result = run_script(
+        "sam31.py",
+        "multiplex",
+        "--checkpoint",
+        str(checkpoint),
+        "--output-dir",
+        str(output_dir),
+        "--dry-run",
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert f"checkpoint={checkpoint.resolve()}" in result.stdout
+    assert f"output={(output_dir / 'sam31_multiplex').resolve()}" in result.stdout
+
+
+def test_sam31_source_dir_locates_the_checkpoint_by_name(tmp_path):
+    (tmp_path / "sam3.1_multiplex.pt").touch()
+
+    result = run_script(
+        "sam31.py",
+        "text",
+        "--source-dir",
+        str(tmp_path),
+        "--output-dir",
+        str(tmp_path / "output"),
+        "--dry-run",
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert f"checkpoint={(tmp_path / 'sam3.1_multiplex.pt').resolve()}" in result.stdout
+    assert f"output={(tmp_path / 'output' / 'sam31_text').resolve()}" in result.stdout
+
+
+def test_sam31_rejects_a_checkpoint_with_the_wrong_digest(tmp_path):
+    checkpoint = tmp_path / "weights.pt"
+    checkpoint.write_bytes(b"not the checkpoint")
+
+    result = run_script("sam31.py", "text", "--checkpoint", str(checkpoint))
+
+    assert result.returncode != 0
+    assert "digest mismatch" in result.stderr
+
+
+@pytest.mark.parametrize(
+    ("key", "field"),
+    [
+        ("detector.backbone.vision_backbone.trunk.ln_pre.weight", "converted"),
+        (
+            "detector.backbone.vision_backbone.trunk.blocks.7.attn.freqs_cis",
+            "computed",
+        ),
+        ("detector.backbone.language_backbone.encoder.text_projection", "unused"),
+        ("detector.transformer.decoder.norm.weight", "unmapped"),
+        ("tracker.model.no_obj_embed_spatial", "unmapped"),
+        (
+            "tracker.model.transformer.encoder.layers.3.image_cross_attn_q_proj.bias",
+            "unmapped",
+        ),
+    ],
+)
+def test_sam31_sorts_a_checkpoint_key_by_outcome(key, field):
+    converter = load_sam31_converter()
+
+    classification = converter.classify_keys([key])
+
+    assert list(getattr(classification, field)) == [key]
+    assert sum(map(len, classification)) == 1
+
+
+def test_sam31_fails_on_a_key_no_list_accounts_for():
+    converter = load_sam31_converter()
+
+    with pytest.raises(ValueError, match="detector.unexpected.weight"):
+        converter.classify_keys(
+            [
+                "detector.backbone.vision_backbone.trunk.ln_pre.weight",
+                "detector.unexpected.weight",
+            ]
+        )
+
+
+def test_sam31_splits_packed_projections_with_the_module_index():
+    converter = load_sam31_converter()
+    key = "detector.backbone.vision_backbone.trunk.blocks.31.attn.qkv.weight"
+
+    conversion = converter.classify_keys([key]).converted[key]
+
+    assert conversion.archive == "multiplex"
+    assert conversion.layout == "split_qkv"
+    assert conversion.destinations == (
+        "trunk.blocks.31.attn.q.weight",
+        "trunk.blocks.31.attn.k.weight",
+        "trunk.blocks.31.attn.v.weight",
+    )
+
+
+def test_sam31_conversion_rules_name_parameters_of_the_models():
+    converter = load_sam31_converter()
+    templates = {name: converter.template_shapes(name) for name in converter.ARCHIVES}
+    keys = [rule.source.replace("{i}", "0") for rule in converter.RULES]
+
+    classification = converter.classify_keys(keys)
+
+    assert not classification.unmapped
+    for key, conversion in classification.converted.items():
+        for destination in conversion.destinations:
+            assert destination in templates[conversion.archive], key
+
+
+@pytest.mark.parametrize(
+    ("source_shape", "template_shape", "message"),
+    [
+        ((256, 256), (128, 256), "converts to shape"),
+        ((256, 256), None, "missing parameter"),
+    ],
+)
+def test_sam31_destination_check_rejects_a_mismatch(
+    source_shape, template_shape, message
+):
+    converter = load_sam31_converter()
+    key = "detector.dot_prod_scoring.hs_proj.weight"
+    classification = converter.classify_keys([key])
+    template = (
+        {}
+        if template_shape is None
+        else {"detector.head.scoring.query_proj.weight": template_shape}
+    )
+
+    with pytest.raises(ValueError, match=message):
+        converter.check_destinations(
+            classification, {key: source_shape}, template, "multiplex"
+        )
+
+
+def test_sam31_destination_check_returns_parameters_without_a_source():
+    converter = load_sam31_converter()
+    key = "detector.dot_prod_scoring.hs_proj.weight"
+    classification = converter.classify_keys([key])
+    template = {
+        "detector.head.scoring.query_proj.weight": (256, 256),
+        "detector.head.scoring.query_proj.bias": (256,),
+    }
+
+    missing = converter.check_destinations(
+        classification, {key: (256, 256)}, template, "multiplex"
+    )
+
+    assert missing == ["detector.head.scoring.query_proj.bias"]
+
+
+@pytest.mark.parametrize(
+    ("keys", "without_source", "status"),
+    [
+        (["detector.dot_prod_scoring.hs_proj.weight"], [], 0),
+        (["detector.transformer.decoder.norm.weight"], [], 1),
+        (["detector.dot_prod_scoring.hs_proj.weight"], ["tracker.parameter"], 1),
+    ],
+)
+def test_sam31_report_fails_until_the_model_covers_the_checkpoint(
+    capsys, keys, without_source, status
+):
+    converter = load_sam31_converter()
+
+    returned = converter.report_classification(
+        converter.classify_keys(keys), without_source
+    )
+
+    assert returned == status
+    output = capsys.readouterr().out
+    assert "converted=" in output
+    for key in without_source:
+        assert f"no source: {key}" in output
+    if status and not without_source:
+        assert f"unmapped: {keys[0]}" in output
 
 
 def test_conversion_scripts_have_no_machine_specific_paths():
