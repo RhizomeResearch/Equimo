@@ -1,0 +1,1050 @@
+{
+  "concept": "yellow school bus",
+  "config": {
+    "context_length": 8,
+    "decoder_depth": 2,
+    "depth": 2,
+    "dim": 16,
+    "embed_dim": 16,
+    "ffn_features": 32,
+    "fusion_depth": 1,
+    "geometry_depth": 1,
+    "global_blocks": [
+      1
+    ],
+    "head_num_heads": 2,
+    "img_size": 56,
+    "max_objects": 4,
+    "memory_depth": 1,
+    "memory_heads": 2,
+    "memory_start_channels": 1,
+    "mlp_features": 32,
+    "num_frames": 20,
+    "num_heads": 2,
+    "num_merges": 512,
+    "num_queries": 4,
+    "num_slots": 2,
+    "patch_size": 14,
+    "pretrain_img_size": 28,
+    "seed": 31,
+    "source_size": [
+      40,
+      60
+    ],
+    "text_depth": 1,
+    "text_heads": 2,
+    "text_width": 16,
+    "two_way_depth": 1,
+    "window_size": 2
+  },
+  "decisions": [
+    {
+      "added": [
+        [
+          0,
+          0
+        ],
+        [
+          1,
+          1
+        ]
+      ],
+      "confirmation": {
+        "consecutive_det_num": [
+          1,
+          1
+        ],
+        "status": [
+          1,
+          1
+        ]
+      },
+      "dropped": 0,
+      "frame": 0,
+      "reconditioned": [],
+      "reconditioned_pairs": [],
+      "removed_duplicate": [],
+      "removed_unmatched": [],
+      "state_details": [
+        {
+          "assignments": [
+            [
+              0,
+              1
+            ]
+          ],
+          "conditioning_objects": [
+            0,
+            1
+          ],
+          "obj_ids": [
+            0,
+            1
+          ],
+          "storage": "cond_frame_outputs"
+        }
+      ],
+      "states": [
+        [
+          0,
+          1
+        ]
+      ],
+      "suppressed": [],
+      "track_ids": []
+    },
+    {
+      "added": [],
+      "confirmation": {
+        "consecutive_det_num": [
+          2,
+          2
+        ],
+        "status": [
+          1,
+          1
+        ]
+      },
+      "dropped": 0,
+      "frame": 0,
+      "reconditioned": [
+        0,
+        1
+      ],
+      "reconditioned_pairs": [
+        [
+          0,
+          0
+        ],
+        [
+          1,
+          1
+        ]
+      ],
+      "removed_duplicate": [],
+      "removed_unmatched": [],
+      "state_details": [
+        {
+          "assignments": [
+            [
+              0,
+              1
+            ]
+          ],
+          "conditioning_objects": [
+            0,
+            1
+          ],
+          "obj_ids": [
+            0,
+            1
+          ],
+          "storage": "cond_frame_outputs"
+        }
+      ],
+      "states": [
+        [
+          0,
+          1
+        ]
+      ],
+      "suppressed": [],
+      "track_ids": [
+        0,
+        1
+      ]
+    },
+    {
+      "added": [],
+      "confirmation": {
+        "consecutive_det_num": [
+          3,
+          3
+        ],
+        "status": [
+          2,
+          2
+        ]
+      },
+      "dropped": 0,
+      "frame": 1,
+      "reconditioned": [],
+      "reconditioned_pairs": [],
+      "removed_duplicate": [],
+      "removed_unmatched": [],
+      "state_details": [
+        {
+          "assignments": [
+            [
+              0,
+              1
+            ]
+          ],
+          "conditioning_objects": [],
+          "obj_ids": [
+            0,
+            1
+          ],
+          "storage": "non_cond_frame_outputs"
+        }
+      ],
+      "states": [
+        [
+          0,
+          1
+        ]
+      ],
+      "suppressed": [],
+      "track_ids": [
+        0,
+        1
+      ]
+    },
+    {
+      "added": [],
+      "confirmation": {
+        "consecutive_det_num": [
+          4,
+          4
+        ],
+        "status": [
+          2,
+          2
+        ]
+      },
+      "dropped": 0,
+      "frame": 2,
+      "reconditioned": [],
+      "reconditioned_pairs": [],
+      "removed_duplicate": [],
+      "removed_unmatched": [],
+      "state_details": [
+        {
+          "assignments": [
+            [
+              0,
+              1
+            ]
+          ],
+          "conditioning_objects": [],
+          "obj_ids": [
+            0,
+            1
+          ],
+          "storage": "non_cond_frame_outputs"
+        }
+      ],
+      "states": [
+        [
+          0,
+          1
+        ]
+      ],
+      "suppressed": [],
+      "track_ids": [
+        0,
+        1
+      ]
+    },
+    {
+      "added": [],
+      "confirmation": {
+        "consecutive_det_num": [
+          0,
+          5
+        ],
+        "status": [
+          2,
+          2
+        ]
+      },
+      "dropped": 0,
+      "frame": 3,
+      "reconditioned": [],
+      "reconditioned_pairs": [],
+      "removed_duplicate": [],
+      "removed_unmatched": [],
+      "state_details": [
+        {
+          "assignments": [
+            [
+              0,
+              1
+            ]
+          ],
+          "conditioning_objects": [],
+          "obj_ids": [
+            0,
+            1
+          ],
+          "storage": "non_cond_frame_outputs"
+        }
+      ],
+      "states": [
+        [
+          0,
+          1
+        ]
+      ],
+      "suppressed": [],
+      "track_ids": [
+        0,
+        1
+      ]
+    },
+    {
+      "added": [],
+      "confirmation": {
+        "consecutive_det_num": [
+          1,
+          6
+        ],
+        "status": [
+          2,
+          2
+        ]
+      },
+      "dropped": 0,
+      "frame": 4,
+      "reconditioned": [],
+      "reconditioned_pairs": [],
+      "removed_duplicate": [],
+      "removed_unmatched": [],
+      "state_details": [
+        {
+          "assignments": [
+            [
+              0,
+              1
+            ]
+          ],
+          "conditioning_objects": [],
+          "obj_ids": [
+            0,
+            1
+          ],
+          "storage": "non_cond_frame_outputs"
+        }
+      ],
+      "states": [
+        [
+          0,
+          1
+        ]
+      ],
+      "suppressed": [],
+      "track_ids": [
+        0,
+        1
+      ]
+    },
+    {
+      "added": [],
+      "confirmation": {
+        "consecutive_det_num": [
+          2,
+          0
+        ],
+        "status": [
+          2,
+          2
+        ]
+      },
+      "dropped": 0,
+      "frame": 5,
+      "reconditioned": [],
+      "reconditioned_pairs": [],
+      "removed_duplicate": [],
+      "removed_unmatched": [],
+      "state_details": [
+        {
+          "assignments": [
+            [
+              0,
+              1
+            ]
+          ],
+          "conditioning_objects": [],
+          "obj_ids": [
+            0,
+            1
+          ],
+          "storage": "non_cond_frame_outputs"
+        }
+      ],
+      "states": [
+        [
+          0,
+          1
+        ]
+      ],
+      "suppressed": [],
+      "track_ids": [
+        0,
+        1
+      ]
+    },
+    {
+      "added": [],
+      "confirmation": {
+        "consecutive_det_num": [
+          3,
+          1
+        ],
+        "status": [
+          2,
+          2
+        ]
+      },
+      "dropped": 0,
+      "frame": 6,
+      "reconditioned": [],
+      "reconditioned_pairs": [],
+      "removed_duplicate": [],
+      "removed_unmatched": [],
+      "state_details": [
+        {
+          "assignments": [
+            [
+              0,
+              1
+            ]
+          ],
+          "conditioning_objects": [],
+          "obj_ids": [
+            0,
+            1
+          ],
+          "storage": "non_cond_frame_outputs"
+        }
+      ],
+      "states": [
+        [
+          0,
+          1
+        ]
+      ],
+      "suppressed": [],
+      "track_ids": [
+        0,
+        1
+      ]
+    },
+    {
+      "added": [],
+      "confirmation": {
+        "consecutive_det_num": [
+          0,
+          0
+        ],
+        "status": [
+          2,
+          2
+        ]
+      },
+      "dropped": 0,
+      "frame": 7,
+      "reconditioned": [],
+      "reconditioned_pairs": [],
+      "removed_duplicate": [],
+      "removed_unmatched": [],
+      "state_details": [
+        {
+          "assignments": [
+            [
+              0,
+              1
+            ]
+          ],
+          "conditioning_objects": [],
+          "obj_ids": [
+            0,
+            1
+          ],
+          "storage": "non_cond_frame_outputs"
+        }
+      ],
+      "states": [
+        [
+          0,
+          1
+        ]
+      ],
+      "suppressed": [
+        1
+      ],
+      "track_ids": [
+        0,
+        1
+      ]
+    },
+    {
+      "added": [],
+      "confirmation": {
+        "consecutive_det_num": [
+          1,
+          1
+        ],
+        "status": [
+          2,
+          2
+        ]
+      },
+      "dropped": 0,
+      "frame": 8,
+      "reconditioned": [],
+      "reconditioned_pairs": [],
+      "removed_duplicate": [],
+      "removed_unmatched": [],
+      "state_details": [
+        {
+          "assignments": [
+            [
+              0,
+              1
+            ]
+          ],
+          "conditioning_objects": [],
+          "obj_ids": [
+            0,
+            1
+          ],
+          "storage": "non_cond_frame_outputs"
+        }
+      ],
+      "states": [
+        [
+          0,
+          1
+        ]
+      ],
+      "suppressed": [],
+      "track_ids": [
+        0,
+        1
+      ]
+    },
+    {
+      "added": [],
+      "confirmation": {
+        "consecutive_det_num": [
+          2,
+          2
+        ],
+        "status": [
+          2,
+          2
+        ]
+      },
+      "dropped": 0,
+      "frame": 9,
+      "reconditioned": [],
+      "reconditioned_pairs": [],
+      "removed_duplicate": [],
+      "removed_unmatched": [],
+      "state_details": [
+        {
+          "assignments": [
+            [
+              0,
+              1
+            ]
+          ],
+          "conditioning_objects": [],
+          "obj_ids": [
+            0,
+            1
+          ],
+          "storage": "non_cond_frame_outputs"
+        }
+      ],
+      "states": [
+        [
+          0,
+          1
+        ]
+      ],
+      "suppressed": [],
+      "track_ids": [
+        0,
+        1
+      ]
+    },
+    {
+      "added": [],
+      "confirmation": {
+        "consecutive_det_num": [
+          3,
+          3
+        ],
+        "status": [
+          2,
+          2
+        ]
+      },
+      "dropped": 0,
+      "frame": 10,
+      "reconditioned": [],
+      "reconditioned_pairs": [],
+      "removed_duplicate": [],
+      "removed_unmatched": [],
+      "state_details": [
+        {
+          "assignments": [
+            [
+              0,
+              1
+            ]
+          ],
+          "conditioning_objects": [],
+          "obj_ids": [
+            0,
+            1
+          ],
+          "storage": "non_cond_frame_outputs"
+        }
+      ],
+      "states": [
+        [
+          0,
+          1
+        ]
+      ],
+      "suppressed": [],
+      "track_ids": [
+        0,
+        1
+      ]
+    },
+    {
+      "added": [],
+      "confirmation": {
+        "consecutive_det_num": [
+          4,
+          4
+        ],
+        "status": [
+          2,
+          2
+        ]
+      },
+      "dropped": 0,
+      "frame": 11,
+      "reconditioned": [],
+      "reconditioned_pairs": [],
+      "removed_duplicate": [],
+      "removed_unmatched": [],
+      "state_details": [
+        {
+          "assignments": [
+            [
+              0,
+              1
+            ]
+          ],
+          "conditioning_objects": [],
+          "obj_ids": [
+            0,
+            1
+          ],
+          "storage": "non_cond_frame_outputs"
+        }
+      ],
+      "states": [
+        [
+          0,
+          1
+        ]
+      ],
+      "suppressed": [],
+      "track_ids": [
+        0,
+        1
+      ]
+    },
+    {
+      "added": [],
+      "confirmation": {
+        "consecutive_det_num": [
+          5,
+          5
+        ],
+        "status": [
+          2,
+          2
+        ]
+      },
+      "dropped": 0,
+      "frame": 12,
+      "reconditioned": [],
+      "reconditioned_pairs": [],
+      "removed_duplicate": [],
+      "removed_unmatched": [],
+      "state_details": [
+        {
+          "assignments": [
+            [
+              0,
+              1
+            ]
+          ],
+          "conditioning_objects": [],
+          "obj_ids": [
+            0,
+            1
+          ],
+          "storage": "non_cond_frame_outputs"
+        }
+      ],
+      "states": [
+        [
+          0,
+          1
+        ]
+      ],
+      "suppressed": [],
+      "track_ids": [
+        0,
+        1
+      ]
+    },
+    {
+      "added": [],
+      "confirmation": {
+        "consecutive_det_num": [
+          6,
+          6
+        ],
+        "status": [
+          2,
+          2
+        ]
+      },
+      "dropped": 0,
+      "frame": 13,
+      "reconditioned": [],
+      "reconditioned_pairs": [],
+      "removed_duplicate": [],
+      "removed_unmatched": [],
+      "state_details": [
+        {
+          "assignments": [
+            [
+              0,
+              1
+            ]
+          ],
+          "conditioning_objects": [],
+          "obj_ids": [
+            0,
+            1
+          ],
+          "storage": "non_cond_frame_outputs"
+        }
+      ],
+      "states": [
+        [
+          0,
+          1
+        ]
+      ],
+      "suppressed": [],
+      "track_ids": [
+        0,
+        1
+      ]
+    },
+    {
+      "added": [],
+      "confirmation": {
+        "consecutive_det_num": [
+          7,
+          7
+        ],
+        "status": [
+          2,
+          2
+        ]
+      },
+      "dropped": 0,
+      "frame": 14,
+      "reconditioned": [],
+      "reconditioned_pairs": [],
+      "removed_duplicate": [],
+      "removed_unmatched": [],
+      "state_details": [
+        {
+          "assignments": [
+            [
+              0,
+              1
+            ]
+          ],
+          "conditioning_objects": [],
+          "obj_ids": [
+            0,
+            1
+          ],
+          "storage": "non_cond_frame_outputs"
+        }
+      ],
+      "states": [
+        [
+          0,
+          1
+        ]
+      ],
+      "suppressed": [],
+      "track_ids": [
+        0,
+        1
+      ]
+    },
+    {
+      "added": [],
+      "confirmation": {
+        "consecutive_det_num": [
+          8,
+          8
+        ],
+        "status": [
+          2,
+          2
+        ]
+      },
+      "dropped": 0,
+      "frame": 15,
+      "reconditioned": [],
+      "reconditioned_pairs": [],
+      "removed_duplicate": [],
+      "removed_unmatched": [],
+      "state_details": [
+        {
+          "assignments": [
+            [
+              0,
+              1
+            ]
+          ],
+          "conditioning_objects": [],
+          "obj_ids": [
+            0,
+            1
+          ],
+          "storage": "non_cond_frame_outputs"
+        }
+      ],
+      "states": [
+        [
+          0,
+          1
+        ]
+      ],
+      "suppressed": [],
+      "track_ids": [
+        0,
+        1
+      ]
+    },
+    {
+      "added": [],
+      "confirmation": {
+        "consecutive_det_num": [
+          9,
+          9
+        ],
+        "status": [
+          2,
+          2
+        ]
+      },
+      "dropped": 0,
+      "frame": 16,
+      "reconditioned": [
+        0,
+        1
+      ],
+      "reconditioned_pairs": [
+        [
+          0,
+          0
+        ],
+        [
+          1,
+          1
+        ]
+      ],
+      "removed_duplicate": [],
+      "removed_unmatched": [],
+      "state_details": [
+        {
+          "assignments": [
+            [
+              0,
+              1
+            ]
+          ],
+          "conditioning_objects": [
+            0,
+            1
+          ],
+          "obj_ids": [
+            0,
+            1
+          ],
+          "storage": "non_cond_frame_outputs"
+        }
+      ],
+      "states": [
+        [
+          0,
+          1
+        ]
+      ],
+      "suppressed": [],
+      "track_ids": [
+        0,
+        1
+      ]
+    },
+    {
+      "added": [],
+      "confirmation": {
+        "consecutive_det_num": [
+          10,
+          10
+        ],
+        "status": [
+          2,
+          2
+        ]
+      },
+      "dropped": 0,
+      "frame": 17,
+      "reconditioned": [],
+      "reconditioned_pairs": [],
+      "removed_duplicate": [],
+      "removed_unmatched": [],
+      "state_details": [
+        {
+          "assignments": [
+            [
+              0,
+              1
+            ]
+          ],
+          "conditioning_objects": [],
+          "obj_ids": [
+            0,
+            1
+          ],
+          "storage": "non_cond_frame_outputs"
+        }
+      ],
+      "states": [
+        [
+          0,
+          1
+        ]
+      ],
+      "suppressed": [],
+      "track_ids": [
+        0,
+        1
+      ]
+    },
+    {
+      "added": [],
+      "confirmation": {
+        "consecutive_det_num": [
+          11,
+          11
+        ],
+        "status": [
+          2,
+          2
+        ]
+      },
+      "dropped": 0,
+      "frame": 18,
+      "reconditioned": [],
+      "reconditioned_pairs": [],
+      "removed_duplicate": [],
+      "removed_unmatched": [],
+      "state_details": [
+        {
+          "assignments": [
+            [
+              0,
+              1
+            ]
+          ],
+          "conditioning_objects": [],
+          "obj_ids": [
+            0,
+            1
+          ],
+          "storage": "non_cond_frame_outputs"
+        }
+      ],
+      "states": [
+        [
+          0,
+          1
+        ]
+      ],
+      "suppressed": [],
+      "track_ids": [
+        0,
+        1
+      ]
+    },
+    {
+      "added": [],
+      "confirmation": {
+        "consecutive_det_num": [
+          12,
+          12
+        ],
+        "status": [
+          2,
+          2
+        ]
+      },
+      "dropped": 0,
+      "frame": 19,
+      "reconditioned": [],
+      "reconditioned_pairs": [],
+      "removed_duplicate": [],
+      "removed_unmatched": [],
+      "state_details": [
+        {
+          "assignments": [
+            [
+              0,
+              1
+            ]
+          ],
+          "conditioning_objects": [],
+          "obj_ids": [
+            0,
+            1
+          ],
+          "storage": "non_cond_frame_outputs"
+        }
+      ],
+      "states": [
+        [
+          0,
+          1
+        ]
+      ],
+      "suppressed": [],
+      "track_ids": [
+        0,
+        1
+      ]
+    }
+  ],
+  "reference_revision": "f1647e8d0c1d280991f4d1b7d974c2704537fe66"
+}

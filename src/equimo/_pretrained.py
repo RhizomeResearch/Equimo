@@ -1,6 +1,6 @@
 """Trusted digests for archives at the pinned pretrained repository revision."""
 
-DEFAULT_REPOSITORY_REVISION = "f8d38176526fc90b6dab8eb7542f8f2ad05631a0"
+DEFAULT_REPOSITORY_REVISION = "f5b691f2b25e3b5a9782440e169c8370ee8ed9f8"
 
 PRETRAINED_ARCHIVE_SHA256 = {
     "ast_base_patch16_audioset_10_10_0_4593": "f40f7e46ffcadba4ebb4bee83c13e8cd640ad31e2eafb85ab83d94ac3faa5c3e",

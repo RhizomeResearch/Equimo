@@ -1998,9 +1998,13 @@ def _confirmed_transitions(decisions: list[dict]) -> list[list[int]]:
     return transitions
 
 
-def test_tracker_replays_the_reference_clip(reference_model, tiny_reference):
+@pytest.mark.parametrize(
+    "clip", ["sam3_tiny_reference", "sam3_tiny_occlusion_reference"]
+)
+def test_tracker_replays_the_reference_clip(reference_model, clip):
     config = _reference_config()
-    decisions = _tiny_decisions()
+    tiny_reference = np.load(REFERENCE_DATA / f"{clip}.npz")
+    decisions = json.loads((REFERENCE_DATA / f"{clip}.json").read_text())["decisions"]
     driver = Sam3VideoTracker(
         reference_model,
         num_frames=config["num_frames"],

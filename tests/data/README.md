@@ -92,5 +92,26 @@ because random weights produce nothing the association policy would act on; the 
 are recorded under `inputs.*` and `outputs.*`. `frames.*` holds, per pass, the scripted detections and tracks, what the
 tracker computed before the script replaced its masks (`raw_track_*`), and what each state stored once the frame was
 executed (`maskmem_features`, `obj_ptr`, `pred_masks`, `object_score_logits`). `points.*` holds the singleton state of
-the object added with points. No scripted occlusion is possible on random weights; the clip's trace has no suppressed
-objects, so the unit tests cover that rule.
+the object added with points.
+
+`sam3_tiny_occlusion_reference.npz` and its JSON companion cover occlusion suppression, which no clip tried for the
+full-weight fixture triggers. Two tracks go empty on different frames and then land on one mask, so the reference
+suppresses the more recently occluded object. The `tiny` command writes it along with the tiny clip.
+
+The hosted full-weight video fixture is `sam31_video_reference.tar.lz4` in `poiretclement/equimo`, a `tar` holding one
+`npz`: the 48 preprocessed frames, the concept's token ids, the reference's decision trace in the `decisions` array, and
+the masks and IDs it emits per frame. `tests/cases/sam31_video_fixture.py` pins its digest and reads it. The clip is
+"[Pigeon feeding, Jardim da Estrela, 2025 01](https://commons.wikimedia.org/wiki/File:Pigeon_feeding,_Jardim_da_Estrela,_2025_01.webm)"
+(CC0), non-square, with several objects of one concept and one track removed as unmatched. Decode 48 frames, every
+second one, from 13 s, and write the float32 fixture with the concept `pigeon`:
+
+```bash
+ffmpeg -ss 13 -i Pigeon_feeding.webm -vf "select='not(mod(n\,2))',setpts=N/TB,scale=640:-2" -fps_mode passthrough \
+  -frames:v 48 -start_number 0 -q:v 2 frames/%05d.jpg
+/path/to/environment/bin/python models/sam31_reference.py video --checkpoint /path/to/sam3.1_multiplex.pt --frames-dir frames --concept pigeon --output-dir /path/to/output
+uv run python tests/cases/sam31_video_fixture.py /path/to/output/sam31_video_reference.npz /path/to/output/sam31_video_reference.tar.lz4
+```
+
+The harness fails when a kept detection, overlap or box center lies within 1e-3 of its threshold, and when the clip does
+not trigger an addition, an unmatched removal, a reconditioning and a confirmation; suppression is covered by the tiny
+occlusion fixture. To run the checks on a GPU, set `JAX_DEFAULT_MATMUL_PRECISION=highest` as for the image fixture.

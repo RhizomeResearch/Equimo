@@ -157,6 +157,27 @@ attention and no rematerialization fails trying to allocate 15.4 GB. Run
 `benchmarks/sam3_image.py {inference,head,lora} --archive-dir DIR --implementation {xla,cudnn}` from the devenv shell
 with the CUDA wheels.
 
+## SAM 3.1 video tracking
+
+Measured on an RTX 4080 (16 GB) with `benchmarks/sam3_video.py`, in bfloat16 on 12 frames of the hosted video fixture,
+with the same allocator settings as above. Buckets are padded to the listed count, so the state and attention arrays
+have the shapes of a clip that uses them; empty buckets attend to no keys, so step time is a lower bound. Each row ran
+in a fresh process except the first two XLA rows, which ran in one process.
+
+| Buckets | Attention | Peak GPU memory | Frame time | Compile (first 4 frames) |
+| ------: | --------- | --------------: | ---------: | -----------------------: |
+|       1 | XLA       |          4.3 GB |     380 ms |                     41 s |
+|       2 | XLA       |          6.1 GB |     593 ms |                     47 s |
+|       4 | XLA       |   out of memory |          - |                        - |
+|       1 | cuDNN     |          4.0 GB |     143 ms |                     38 s |
+|       2 | cuDNN     |          4.0 GB |     151 ms |                     58 s |
+|       4 | cuDNN     |          4.5 GB |     168 ms |                     92 s |
+
+At 4 buckets, cuDNN attention peaks at 4.5 GB, well inside the 15 GB target. XLA attention fails trying to allocate 6.9
+GB for memory attention, so bfloat16 tracking past two buckets needs cuDNN attention. Run
+`benchmarks/sam3_video.py --archive-dir DIR --fixture FILE --implementation {xla,cudnn} --buckets N` from the devenv
+shell with the CUDA wheels.
+
 ## Softmax precision
 
 These GPU measurements choose where Equimo uses the corrected derivative of `equimo.core.ops.softmax`. Environment:

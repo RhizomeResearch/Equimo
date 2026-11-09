@@ -31,6 +31,7 @@ import os
 import subprocess
 import sys
 from contextlib import contextmanager
+from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
 from typing import Any, Callable, Iterator
@@ -110,6 +111,7 @@ IMAGE_RECORDED_OUTPUTS = (
     "outputs.interactive.box",
 )
 IMAGE_MEAN_ABSOLUTE_ERROR = 5e-4
+MEMORY_ATTENTION_QUERY_BLOCK = 1024
 # Several boxes of the fixture's image land a query within the threshold margin.
 # This one clears every margin and keeps several detections.
 EXEMPLAR_OBJECT = 19
@@ -129,6 +131,10 @@ DECISION_TYPES = (
     "suppressed",
     "confirmed",
 )
+# Suppression needs two tracks that both went empty earlier and then land on the same
+# object. No redistributable clip tried triggers it, so the tiny occlusion fixture
+# covers it.
+CLIP_DECISION_TYPES = tuple(kind for kind in DECISION_TYPES if kind != "suppressed")
 
 
 def sha256_file(path: Path) -> str:
@@ -292,17 +298,38 @@ def float32_reference() -> Iterator[None]:
     def math_kernel(_backend: SDPBackend) -> Any:
         return sdpa_kernel(SDPBackend.MATH)
 
+    functional = reference_decoder.torchF
+
+    class ChunkedAttention:
+        """Attend in blocks of queries, because the dense float32 logits need 16 GB."""
+
+        def __getattr__(self, name: str) -> Any:
+            return getattr(functional, name)
+
+        @staticmethod
+        def scaled_dot_product_attention(q: Any, k: Any, v: Any, **kwargs: Any) -> Any:
+            blocks = torch.split(q, MEMORY_ATTENTION_QUERY_BLOCK, dim=-2)
+            return torch.cat(
+                [
+                    functional.scaled_dot_product_attention(block, k, v, **kwargs)
+                    for block in blocks
+                ],
+                dim=-2,
+            )
+
     original_kernel = reference_decoder.sdpa_kernel
     Mlp.forward = plain_mlp
     torch.Tensor.to = keep_float32
     # Memory attention requests FlashAttention 2, which rejects float32.
     reference_decoder.sdpa_kernel = math_kernel
+    reference_decoder.torchF = ChunkedAttention()
     try:
         yield
     finally:
         Mlp.forward = original_mlp
         torch.Tensor.to = original_to
         reference_decoder.sdpa_kernel = original_kernel
+        reference_decoder.torchF = functional
 
 
 def exit_autocast(model: Any) -> None:
@@ -894,12 +921,63 @@ def dropped_detection_mask(size: int) -> np.ndarray:
     return mask
 
 
-def scripted_tracks(track_ids: list[int], size: int) -> np.ndarray:
+def scripted_tracks(frame: int, track_ids: list[int], size: int) -> np.ndarray:
     """Track logits of the tiny clip: every live object on its own block."""
     masks = np.full((len(track_ids), size, size), -8.0, np.float32)
     for row, object_id in enumerate(track_ids):
         masks[row][object_mask(size, object_id)] = 8.0
     return masks
+
+
+OCCLUSION_FRAME = 7
+OCCLUDED_OBJECT_FRAMES = {0: 3, 1: 5}
+
+
+def occlusion_detections(
+    frame: int, track_ids: list[int], size: int
+) -> list[tuple[np.ndarray, float]]:
+    """Detections of the occlusion clip as (mask, probability), highest first.
+
+    Objects 0 and 1 start on frame 0. A detection is withheld on the frame its track
+    goes empty, so that the empty track is not given a new object. On
+    ``OCCLUSION_FRAME`` both tracks sit on one mask, and that mask is detected once.
+    """
+    if frame == OCCLUSION_FRAME:
+        return [(object_mask(size, 0), 0.93)]
+    detections = [
+        (object_mask(size, object_id), probability)
+        for object_id, probability in ((0, 0.93), (1, 0.86))
+        if OCCLUDED_OBJECT_FRAMES.get(object_id) != frame
+    ]
+    return sorted(detections, key=lambda item: -item[1])
+
+
+def occlusion_tracks(frame: int, track_ids: list[int], size: int) -> np.ndarray:
+    """Track logits of the occlusion clip.
+
+    Object 0 goes empty on frame 3 and object 1 on frame 5, so both have been
+    occluded and object 1 more recently. On ``OCCLUSION_FRAME`` both land on the
+    same mask, so object 1 is suppressed.
+    """
+    masks = np.full((len(track_ids), size, size), -8.0, np.float32)
+    for row, object_id in enumerate(track_ids):
+        if OCCLUDED_OBJECT_FRAMES.get(object_id) == frame:
+            continue
+        drawn = 0 if frame == OCCLUSION_FRAME else object_id
+        masks[row][object_mask(size, drawn)] = 8.0
+    return masks
+
+
+@dataclass(frozen=True)
+class Script:
+    """Scripted policy inputs that replace the detector and tracker outputs."""
+
+    detections: Callable[[int, list[int], int], list[tuple[np.ndarray, float]]]
+    tracks: Callable[[int, list[int], int], np.ndarray]
+
+
+TINY_SCRIPT = Script(scripted_detections, scripted_tracks)
+OCCLUSION_SCRIPT = Script(occlusion_detections, occlusion_tracks)
 
 
 def pad_detections(
@@ -948,9 +1026,9 @@ def frame_output(state: dict[str, Any], frame: int) -> tuple[str, dict[str, Any]
 class DecisionTrace:
     """Record the policy's inputs and decisions for every planned frame."""
 
-    def __init__(self, model: Any, scripted: bool, assert_margins: bool) -> None:
+    def __init__(self, model: Any, script: Script | None, assert_margins: bool) -> None:
         self.model = model
-        self.scripted = scripted
+        self.script = script
         self.assert_margins = assert_margins
         self.frames: list[dict[str, Any]] = []
         self.arrays: dict[str, np.ndarray] = {}
@@ -968,6 +1046,17 @@ class DecisionTrace:
         model.run_tracker_update_execution_phase = self.execute
         model._recondition_masklets = self.recondition
         model._get_objects_to_suppress_based_on_most_recently_occluded = self.suppress
+
+    def close(self) -> None:
+        """Remove the hooks, so that another trace can watch the same model."""
+        for name in (
+            "run_tracker_update_planning_phase",
+            "_process_hotstart_gpu",
+            "run_tracker_update_execution_phase",
+            "_recondition_masklets",
+            "_get_objects_to_suppress_based_on_most_recently_occluded",
+        ):
+            delattr(self.model, name)
 
     def hotstart(self, **kwargs: Any) -> Any:
         to_remove, to_suppress, metadata = self._hotstart(**kwargs)
@@ -1045,14 +1134,14 @@ class DecisionTrace:
         self._prefix = f"frames.{frame:03d}.pass{self._pass(frame)}"
         self._suppressed = []
         self._reconditioned_pairs = []
-        if self.scripted:
+        if self.script is not None:
             self.record_raw_tracks(frame, tracks, track_scores, kwargs)
             # The outputs and memory encoder read this same tensor afterwards.
             tracks[:] = torch.from_numpy(
-                scripted_tracks(track_ids, tracks.shape[-1])
+                self.script.tracks(frame, track_ids, tracks.shape[-1])
             ).to(tracks.device)
             self.script_stored_masks(frame, tracks, track_ids, kwargs)
-            detections = scripted_detections(frame, track_ids, tracks.shape[-1])
+            detections = self.script.detections(frame, track_ids, tracks.shape[-1])
             scripted, keep = pad_detections(
                 detections,
                 TINY_CONFIG["num_queries"],
@@ -1167,7 +1256,7 @@ class DecisionTrace:
         states = self._execution(**kwargs)
         record = self.frames[-1]
         record["states"] = [[int(obj) for obj in state["obj_ids"]] for state in states]
-        if self.scripted:
+        if self.script is not None:
             record["state_details"] = [
                 self.record_state(index, state, record["frame"])
                 for index, state in enumerate(states)
@@ -1600,14 +1689,18 @@ def generate_tiny(reference_dir: Path, output_dir: Path, device: str) -> dict:
         for name, module in modules.items():
             recorder.watch(name, module)
         watch_joint_scores(model, recorder)
-        trace = DecisionTrace(model, scripted=True, assert_margins=True)
+        trace = DecisionTrace(model, script=TINY_SCRIPT, assert_margins=True)
         images, pixels = tiny_frames(device)
         arrays = run_tiny_clip(model, images, device)
+        trace.close()
         add_box_prompt_cases(model, recorder, device)
         add_geometry_prompt_cases(model, recorder, device)
         add_mask_nms_case(recorder, device)
         add_antialias_resize_cases(recorder, device)
         recorder.close()
+        occlusion_path = write_tiny_occlusion_fixture(
+            model, images, pixels, output_dir, device
+        )
     if missing := recorder.missing(iter(modules)):
         raise RuntimeError(f"Components never ran: {missing}")
     arrays |= state | recorder.arrays | trace.arrays
@@ -1624,14 +1717,48 @@ def generate_tiny(reference_dir: Path, output_dir: Path, device: str) -> dict:
         },
     )
     return {
-        path.name: provenance(
-            path,
+        fixture.name: provenance(
+            fixture,
             "python models/sam31_reference.py tiny "
             "--reference-dir /path/to/sam3 --output-dir /path/to/output",
             TINY_CONFIG["seed"],
             [3, TINY_CONFIG["img_size"], TINY_CONFIG["img_size"]],
         )
+        for fixture in (path, occlusion_path)
     }
+
+
+def write_tiny_occlusion_fixture(
+    model: Any, images: Any, pixels: np.ndarray, output_dir: Path, device: str
+) -> Path:
+    """Record the scripted occlusion clip, which no redistributable clip reproduces."""
+    import torch
+
+    trace = DecisionTrace(model, script=OCCLUSION_SCRIPT, assert_margins=True)
+    state = initial_state(model, images, device, TINY_CONFIG["source_size"])
+    with torch.inference_mode():
+        model.add_prompt(state, frame_idx=0, text_str=CONCEPT)
+        arrays = render_outputs(
+            model.propagate_in_video(state, start_frame_idx=0, reverse=False),
+            "emitted",
+        )
+    trace.close()
+    if not any(record["suppressed"] for record in trace.frames):
+        raise ValueError("The occlusion clip suppressed no object.")
+    arrays |= trace.arrays
+    arrays["inputs.frames"] = pixels
+    path = output_dir / "sam3_tiny_occlusion_reference.npz"
+    save_fixture(path, arrays)
+    write_json(
+        path.with_suffix(".json"),
+        {
+            "concept": CONCEPT,
+            "config": TINY_CONFIG,
+            "decisions": trace.frames,
+            "reference_revision": REFERENCE_REVISION,
+        },
+    )
+    return path
 
 
 def build_full_model(checkpoint: Path, device: str) -> Any:
@@ -1651,7 +1778,11 @@ def build_full_model(checkpoint: Path, device: str) -> Any:
         warm_up=False,
         async_loading_frames=False,
     )
-    return predictor.model.to(device).eval()
+    model = predictor.model.to(device).eval()
+    # The builder's chunks of 16 frames run out of memory on 16 GB in float32, and a
+    # frame's detections do not depend on the other frames of its chunk.
+    model.batched_grounding_batch_size = 1
+    return model
 
 
 @contextmanager
@@ -1726,7 +1857,7 @@ def generate_image(
         for name, module in component_modules(model).items():
             recorder.watch(name, module)
         watch_joint_scores(model, recorder)
-        DecisionTrace(model, scripted=False, assert_margins=True)
+        DecisionTrace(model, script=None, assert_margins=True)
         resized, source = resized_image(image, 1008)
         images = normalized_frame(resized, device)[None]
         state = initial_state(model, images, device, source, is_image_only=True)
@@ -1870,7 +2001,7 @@ def image_provenance(path: Path, concept: str) -> dict:
 
 
 def generate_video(
-    checkpoint: Path, frames_dir: Path, concept: str, output_dir: Path, precision: str
+    checkpoint: Path, frames_dir: Path, concept: str, output_dir: Path
 ) -> None:
     """Record the decision trace and per-frame masks of a clip with full weights."""
     import torch
@@ -1881,34 +2012,41 @@ def generate_video(
     if not paths:
         raise ValueError(f"No JPEG frames in {frames_dir}.")
     with reference_precision(
-        precision, partial(build_full_model, checkpoint, device)
+        "float32", partial(build_full_model, checkpoint, device)
     ) as model:
-        trace = DecisionTrace(model, scripted=False, assert_margins=True)
+        trace = DecisionTrace(model, script=None, assert_margins=True)
         loaded = [resized_video_frame(path, 1008) for path in paths]
         images = torch.stack([normalized_frame(pixels, device) for pixels, _ in loaded])
-        state = initial_state(model, images, device, loaded[0][1])
+        source_size = loaded[0][1]
+        state = initial_state(model, images, device, source_size)
         with torch.inference_mode():
             model.add_prompt(state, frame_idx=0, text_str=concept)
             arrays = render_outputs(
                 model.propagate_in_video(state, start_frame_idx=0, reverse=False),
                 "emitted",
             )
+        tokens = concept_tokens(model, concept)
     check_decision_coverage(trace.frames)
-    save_fixture(output_dir / f"sam31_video_reference_{precision}.npz", arrays)
-    write_json(
-        output_dir / f"sam31_video_reference_{precision}.json",
-        {
-            "concept": concept,
-            "decisions": trace.frames,
-            "reference_revision": REFERENCE_REVISION,
-        },
-    )
+    arrays |= tokens | {
+        "inputs.frames": np.stack([pixels for pixels, _ in loaded]),
+        "inputs.source_size": np.asarray(source_size, np.int64),
+        "decisions": np.asarray(json.dumps(trace.frames, sort_keys=True)),
+    }
+    save_fixture(output_dir / "sam31_video_reference.npz", arrays)
 
 
 def check_decision_coverage(frames: list[dict[str, Any]]) -> None:
-    """Fail when a clip does not exercise every decision type."""
-    seen = {kind for record in frames for kind in DECISION_TYPES if record.get(kind)}
-    if missing := set(DECISION_TYPES) - seen:
+    """Fail when a clip does not exercise every decision type.
+
+    ``confirmed`` is read from the confirmation status, which the reference stores
+    as an array aligned with the surviving objects.
+    """
+    seen = {
+        kind for record in frames for kind in CLIP_DECISION_TYPES if record.get(kind)
+    }
+    if any(2 in record["confirmation"].get("status", ()) for record in frames):
+        seen.add("confirmed")
+    if missing := set(CLIP_DECISION_TYPES) - seen:
         raise ValueError(f"The clip never triggers: {sorted(missing)}.")
 
 
@@ -1935,10 +2073,10 @@ def parse_args() -> argparse.Namespace:
         command.add_argument("--checkpoint", required=True, type=Path)
         command.add_argument("--concept", required=True)
         command.add_argument("--output-dir", required=True, type=Path)
-        command.add_argument(
-            "--precision", choices=("float32", "bfloat16"), default="float32"
-        )
         if name == "image":
+            command.add_argument(
+                "--precision", choices=("float32", "bfloat16"), default="float32"
+            )
             command.add_argument("--image", required=True, type=Path)
         else:
             command.add_argument("--frames-dir", required=True, type=Path)
@@ -1960,13 +2098,7 @@ def main() -> None:
             args.checkpoint, args.image, args.concept, args.output_dir, args.precision
         )
     else:
-        generate_video(
-            args.checkpoint,
-            args.frames_dir,
-            args.concept,
-            args.output_dir,
-            args.precision,
-        )
+        generate_video(args.checkpoint, args.frames_dir, args.concept, args.output_dir)
         return
     manifest = args.output_dir / "provenance_fragment.json"
     existing = json.loads(manifest.read_text()) if manifest.is_file() else {}

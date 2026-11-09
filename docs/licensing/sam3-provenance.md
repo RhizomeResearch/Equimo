@@ -62,3 +62,15 @@ The reference's own numerics also needed one correction, in the fixture harness 
 `sam3.model.sam3_multiplex_base` turns TF32 on for convolutions and matmul, so the harness now restores float32 after
 that import, and building the video predictor turns it on again, so `models/sam31_reference.py:reference_precision`
 clears it after the build as well as `float32_reference` does after the import.
+
+Generating the full-weight video fixture also needed two changes in the harness, neither of which changes what the
+reference computes. Float32 memory attention runs in blocks of 1,024 queries, because the dense math-kernel logits do
+not fit in 16 GB, and the detector runs one frame at a time instead of in the builder's chunks of 16 frames, for the
+same reason.
+
+## Full-weight video parity
+
+The full-weight check in `tests/test_sam3_reference.py` reproduced the reference's decision trace, object IDs and masks
+on the first run (lowest per-object mask IoU 0.9925), so it logged no behavior difference and no row above (revision
+`ryznoxzq`). The reference numbers detections by their position in its filtered detection list, while the driver reports
+the raw query index, so the check compares objects, as the design's criterion does, and not those indices.

@@ -17,6 +17,10 @@ from equimo.serialization import DEFAULT_REPOSITORY_URL, download
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "tests" / "data" / "reference_provenance.json"
 
+sys.path.insert(0, str(ROOT / "tests"))
+
+from cases.sam31_video_fixture import IDENTIFIER, download_fixture  # noqa: E402
+
 
 def main() -> None:
     manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
@@ -34,6 +38,7 @@ def main() -> None:
     for identifier in identifiers:
         path = download(identifier, DEFAULT_REPOSITORY_URL)
         print(f"Verified {identifier}: {path}")
+    print(f"Verified {IDENTIFIER}: {download_fixture()}")
 
 
 if __name__ == "__main__":
