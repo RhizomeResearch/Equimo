@@ -77,6 +77,9 @@ a full check cannot be run, report exactly what was and was not verified.
 archives can fail that inventory check; verify fresh build outputs before changing package inclusion rules. Confirmed
 with `uv build --no-sources --out-dir <staging-directory>` and the existing distribution assertions.
 
+A license snapshot in Markdown must keep its section numbers: `mdformat` renumbers `4.` to `1.` and so alters the text
+unless they are escaped as `4\.` (run in practice; compare the words with the upstream file after formatting).
+
 `artifact-staging/` is Syncthing-ignored but not git-ignored: jj snapshots scratch files there into the working-copy
 revision (observed in practice). Delete them before finishing, or, for files that stay, such as a reference clone, put a
 `.gitignore` containing `*` in `artifact-staging/` (run in practice). A bare `pytest` also collects a clone kept there;

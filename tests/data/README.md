@@ -74,7 +74,8 @@ Generate into a staging directory, not `tests/data`:
 Each fixture must regenerate byte-identically. The `operators` and `tiny` commands also write
 `provenance_fragment.json`, the entries to copy into `reference_provenance.json`. The tokenizer command needs no GPU.
 
-`sam31_image_reference.npz` holds full-weight component outputs on one image, as seeded index subsets, generated with:
+`sam31_image_reference.npz` holds full-weight component outputs on one image, as seeded index subsets, and the
+reference's detections for one box exemplar with no text, generated with:
 
 ```bash
 /path/to/environment/bin/python models/sam31_reference.py image --checkpoint /path/to/sam3.1_multiplex.pt --image /path/to/coins.png --concept coin --output-dir /path/to/output
@@ -83,8 +84,8 @@ Each fixture must regenerate byte-identically. The `operators` and `tiny` comman
 The image is `skimage/data/coins.png` (Greek coins from Pompeii, Brooklyn Museum Collection, no known copyright
 restrictions), and the fixture stores it resized to 1008 x 1008. To run the checks on a GPU, set
 `JAX_DEFAULT_MATMUL_PRECISION=highest`; the default XLA GPU matmul precision alone exceeds the 5e-4 mean absolute error.
-Until the archive digests are pinned, the checks read converted archives from `EQUIMO_REFERENCE_ARCHIVE_DIR`, which
-holds `sam31/sam31_multiplex.tar.lz4` and `sam31/sam31_text.tar.lz4`, and skip without them.
+The checks read the hosted archives through `pretrained=True`, from the cache filled by
+`models/prefetch_reference_checkpoints.py`, and skip without them.
 
 The tiny clip's decision trace is in `sam3_tiny_reference.json`. Its detection and track masks are a fixed script,
 because random weights produce nothing the association policy would act on; the real detector and tracker still run and

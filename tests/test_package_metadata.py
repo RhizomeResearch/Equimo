@@ -48,6 +48,7 @@ def test_stable_release_metadata_and_documents_are_present():
     )
     for relative_path in (
         "CHANGELOG.md",
+        "docs/licensing/sam3-provenance.md",
         "docs/licensing/t0-source-provenance.md",
         "docs/migration-v2.md",
         "docs/stability.md",
@@ -59,6 +60,7 @@ def test_stable_release_metadata_and_documents_are_present():
         "LICENSES/pretrained/dinov2-Apache-2.0.txt",
         "LICENSES/pretrained/dinov3-License.md",
         "LICENSES/pretrained/eupe-FAIR-Noncommercial-Research-License.md",
+        "LICENSES/pretrained/sam-License.md",
         "LICENSES/pretrained/siglip2-Apache-2.0.txt",
         "LICENSES/pretrained/t0-alpha-Apache-2.0.txt",
         "LICENSES/pretrained/tabpfn-3-License-v1.0.txt",

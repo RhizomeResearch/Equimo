@@ -1,6 +1,6 @@
 """Trusted digests for archives at the pinned pretrained repository revision."""
 
-DEFAULT_REPOSITORY_REVISION = "2ce35f6512516a67ff99c473423e6ca48aa0ae01"
+DEFAULT_REPOSITORY_REVISION = "f8d38176526fc90b6dab8eb7542f8f2ad05631a0"
 
 PRETRAINED_ARCHIVE_SHA256 = {
     "ast_base_patch16_audioset_10_10_0_4593": "f40f7e46ffcadba4ebb4bee83c13e8cd640ad31e2eafb85ab83d94ac3faa5c3e",
@@ -97,6 +97,8 @@ PRETRAINED_ARCHIVE_SHA256 = {
     "lingbot_vitg16": "de9abe4b51fd632c72e283ec8df42e26dc6ed2d67a0c661f61687fe92f3c664a",
     "lingbot_vitl16": "5b4dd945335265b75dedf85169f74102c70aba17891f183108423aff1dd6fac3",
     "lingbot_vits16": "b6fc152475a8d4f7fc48f586848b22fea6d2d4a94d0cce805c3f016f25a0d27f",
+    "sam31_multiplex": "6fd6f169196a11fd9cbeaf549ab17f5c47a707abc0cfaf1022e7f238ff604909",
+    "sam31_text": "b51d1a9d463f63948ab8bc369d0c74211b82a933d1b2aefe308ec105067d114b",
     "siglip2_vitb16_224": "c3976267a12e3b94b373e177a6b6ff97df05f5e40a213b6777d08eb79d5107e5",
     "siglip2_vitb16_256": "2e272ed187d051ec1e5966b25f305449bfe5f95ed2d0cc091af54045f5eea051",
     "siglip2_vitb16_384": "c7ec21d0dc98c9b6cecf8b5d96663c1e5a2db0e4c711b389d72985a62d20c614",

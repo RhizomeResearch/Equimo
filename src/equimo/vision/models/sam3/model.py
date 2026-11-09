@@ -252,7 +252,8 @@ def sam31_multiplex(
     """Build SAM 3.1 at its published configuration.
 
     Text prompts need the separate ``sam31_text`` model. The weights are under
-    the SAM License.
+    the SAM License: publications must acknowledge their use, and uses must
+    comply with its trade-control terms. See ``docs/sam3.md``.
     """
     return build_model_variant(
         Sam3,

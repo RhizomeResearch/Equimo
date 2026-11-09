@@ -366,7 +366,11 @@ def sam31_text(
     inference_mode: bool = True,
     **kwargs,
 ) -> CausalTextTransformer:
-    """Build the SAM 3.1 text encoder."""
+    """Build the SAM 3.1 text encoder.
+
+    The weights are under the SAM License: publications must acknowledge their
+    use, and uses must comply with its trade-control terms. See ``docs/sam3.md``.
+    """
     return build_model_variant(
         CausalTextTransformer,
         _CAUSAL_TEXT_REGISTRY,

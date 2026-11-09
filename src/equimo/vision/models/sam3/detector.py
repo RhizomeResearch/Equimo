@@ -41,7 +41,8 @@ class ConceptPrompt(eqx.Module):
     """Text and exemplar prompt with fixed shapes; padding masks use True for padding.
 
     Boxes are normalized cxcywh and points normalized xy; labels are 1 for positive
-    and 0 for negative.
+    and 0 for negative. The reference has no text-free path: for exemplars alone
+    it encodes the string ``"<text placeholder>"``, so pass its features to match.
     """
 
     text_features: Float[Array, "text dim"]

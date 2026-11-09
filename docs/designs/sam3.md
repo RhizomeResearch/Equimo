@@ -347,7 +347,9 @@ transformer blocks sit in lists named `blocks`. The two random Fourier matrices 
 
 - **Prompt.** The geometry encoder pools box features with `roi_align` (7 x 7, adaptive sampling, `aligned=False`) and
   point features with bilinear `grid_sample`, adds sine encodings and label embeddings, and runs 3 pre-norm layers with
-  cross-attention to the image.
+  cross-attention to the image. The reference has no text-free path: its 3.1 predictor encodes the text
+  `<text placeholder>` for exemplars alone (with a score of 0.52 on one box where an empty text gives 22 detections on
+  the same image), so callers pass those text features to match it.
 - **Fusion encoder.** 6 pre-norm layers over the 72 x 72 detector features: self-attention with position on queries and
   keys, cross-attention to the prompt (text and geometry tokens) with a key mask, ReLU feed-forward.
 - **Decoder.** 6 post-norm DETR layers with 200 learned queries plus the presence token, iterative box refinement from
@@ -1047,7 +1049,8 @@ they name what the code does.
   trace in the JSON companion, following the EoMT pattern, within 3 MB like the existing largest fixture.
 - `tests/data/sam31_image_reference.npz` (Create): full-weight component outputs and text features on one real image,
   stored as fixed seeded index subsets of each output with the indices inside the npz; the preprocessed image is stored
-  as the reference's resized uint8 image.
+  as the reference's resized uint8 image. It also holds the reference's detections for one box exemplar with no text, on
+  a box whose every threshold comparison clears the 1e-3 margin.
 - `tests/cases/reference_cases.py` (Modify): a `REFERENCE_CASES` entry for `sam31_image_reference` with
   `mean_absolute_error` 5e-4, needing both archives.
 - `tests/test_reference_parity.py` (Modify): the family sets gain `("sam31", "vision")` and `("sam31", "text")`.

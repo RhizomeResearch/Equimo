@@ -24,6 +24,7 @@ EXPECTED_LICENSE_FILES = [
     "LICENSES/pretrained/dinov3-License.md",
     "LICENSES/pretrained/eupe-FAIR-Noncommercial-Research-License.md",
     "LICENSES/pretrained/lingbot-vision-Apache-2.0.txt",
+    "LICENSES/pretrained/sam-License.md",
     "LICENSES/pretrained/siglip2-Apache-2.0.txt",
     "LICENSES/pretrained/t0-alpha-Apache-2.0.txt",
     "LICENSES/pretrained/tabpfn-3-License-v1.0.txt",
@@ -110,6 +111,7 @@ def test_built_distributions_contain_all_package_modules(built_distributions):
     assert {
         f"{sdist_root}/PKG-INFO",
         f"{sdist_root}/CHANGELOG.md",
+        f"{sdist_root}/docs/licensing/sam3-provenance.md",
         f"{sdist_root}/docs/licensing/t0-source-provenance.md",
         f"{sdist_root}/LICENSE.md",
         *(f"{sdist_root}/{path}" for path in EXPECTED_LICENSE_FILES),

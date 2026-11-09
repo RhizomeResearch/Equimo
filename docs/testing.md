@@ -39,8 +39,12 @@ Run strict upstream parity after prefetching its verified checkpoints:
 uv sync --locked --group dev --group reference --extra audio
 uv run python models/prefetch_reference_checkpoints.py
 EQUIMO_REQUIRE_REFERENCE_CACHE=1 uv run pytest -m reference_parity \
-  tests/test_reference_parity.py tests/audio/test_preprocessing_parity.py
+  tests/test_reference_parity.py tests/test_sam3_reference.py tests/audio/test_preprocessing_parity.py
 ```
+
+SAM 3.1 image parity runs in the scheduled job on CPU, together with `tests/test_sam3_reference.py`. On a GPU, set
+`JAX_DEFAULT_MATMUL_PRECISION=highest`. Its fixtures come from the reference run in its own environment, because the
+reference needs NumPy below 2 and a CUDA GPU; `tests/data/README.md` has the setup and commands.
 
 The direct T0-vs-upstream API check is intentionally manual because the gated upstream snapshot is not redistributable.
 Set `T0_ALPHA_CHECKPOINT` and run `uv run pytest -m live_reference_parity tests/test_models.py`.

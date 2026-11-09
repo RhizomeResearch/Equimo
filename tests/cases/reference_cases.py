@@ -1,9 +1,7 @@
 """Trusted upstream numerical parity case inventory."""
 
-import os
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from pathlib import Path
 
 import jax
 import jax.numpy as jnp
@@ -15,7 +13,6 @@ import equimo.tabular.models as tabular_models
 import equimo.vision.models as vision_models
 import equimo.finetune as eqft
 from equimo.language import sam31_text
-from equimo.serialization import load_weights
 from equimo.timeseries.models import t0_alpha
 from equimo.vision.models.sam3 import (
     ConceptPrompt,
@@ -33,14 +30,6 @@ class ReferenceCase:
     identifier: str
     fixture: str
     evaluate: Callable[[Mapping[str, np.ndarray]], Mapping[str, np.ndarray]]
-
-
-def local_archive(identifier: str) -> Path:
-    """Where a converted archive is read from until its digest is pinned."""
-    root = Path(
-        os.environ.get("EQUIMO_REFERENCE_ARCHIVE_DIR", "~/.cache/equimo")
-    ).expanduser()
-    return root / identifier.split("_")[0] / f"{identifier}.tar.lz4"
 
 
 def _ast(identifier, factory):
@@ -268,8 +257,8 @@ def _sam31_image(reference):
         )
         for name, prompt in prompts.items()
     }
-    vision = load_weights(sam31_multiplex(), path=local_archive("sam31_multiplex"))
-    text = load_weights(sam31_text(), path=local_archive("sam31_text"))
+    vision = sam31_multiplex(pretrained=True)
+    text = sam31_text(pretrained=True)
     outputs = _sam31_components(
         vision,
         text,

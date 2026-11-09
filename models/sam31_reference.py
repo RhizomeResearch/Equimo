@@ -110,6 +110,9 @@ IMAGE_RECORDED_OUTPUTS = (
     "outputs.interactive.box",
 )
 IMAGE_MEAN_ABSOLUTE_ERROR = 5e-4
+# Several boxes of the fixture's image land a query within the threshold margin.
+# This one clears every margin and keeps several detections.
+EXEMPLAR_OBJECT = 19
 
 # Fixed by the design; the 1e-3 margin keeps numerically legitimate differences
 # from flipping a comparison.
@@ -1556,6 +1559,7 @@ def generate_image(
         recorder.close()
         arrays |= concept_tokens(model, concept)
         interactive = run_interactive_prompts(model, images, device, source, arrays)
+        arrays |= run_exemplars_alone(model, images, device, source, arrays)
     subset: dict[str, np.ndarray] = {"inputs.image": resized}
     recorded = recorder.arrays | interactive
     # The first text batch holds the concept, then the placeholder names.
@@ -1580,6 +1584,37 @@ def concept_tokens(model: Any, concept: str) -> dict[str, np.ndarray]:
     return {
         "inputs.text.token_ids": tokens.cpu().numpy(),
         "inputs.text.padding_mask": (tokens == 0).cpu().numpy(),
+    }
+
+
+def run_exemplars_alone(
+    model: Any,
+    images: Any,
+    device: str,
+    source: tuple[int, int],
+    arrays: dict[str, np.ndarray],
+) -> dict[str, np.ndarray]:
+    """Prompt with one box and no text, on the object ``EXEMPLAR_OBJECT``.
+
+    With no text, the 3.1 predictor leaves its placeholder string in the text batch
+    and encodes that, so the placeholder's token ids are stored as well.
+    """
+    import torch
+
+    boxes = arrays["emitted.000.boxes"][EXEMPLAR_OBJECT : EXEMPLAR_OBJECT + 1]
+    state = initial_state(model, images, device, source, is_image_only=True)
+    with torch.inference_mode():
+        _, output = model.add_prompt(
+            state,
+            frame_idx=0,
+            boxes_xywh=boxes,
+            box_labels=np.ones(1, np.int64),
+        )
+    tokens = concept_tokens(model, "<text placeholder>")
+    return render_outputs(iter([(0, output)]), "emitted.exemplar") | {
+        "inputs.exemplar.boxes_xywh": boxes,
+        "inputs.exemplar.text.token_ids": tokens["inputs.text.token_ids"],
+        "inputs.exemplar.text.padding_mask": tokens["inputs.text.padding_mask"],
     }
 
 

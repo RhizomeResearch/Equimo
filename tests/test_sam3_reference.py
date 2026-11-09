@@ -10,10 +10,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from cases.reference_cases import local_archive
-from equimo._pretrained import PRETRAINED_ARCHIVE_SHA256
-from equimo.language import sam31_text
-from equimo.serialization import load_weights
+from equimo.language import ClipBpeTokenizer, sam31_text
 from equimo.vision.models.sam3 import ConceptPrompt, decode_concepts, sam31_multiplex
 
 DATA_DIR = Path(__file__).parent / "data"
@@ -33,28 +30,21 @@ def reference():
         return {name: fixture[name] for name in fixture.files}
 
 
-def _require_archive(identifier: str) -> Path:
-    archive = local_archive(identifier)
+def _require_archive(identifier: str) -> None:
+    archive = Path(f"~/.cache/equimo/sam31/{identifier}.tar.lz4").expanduser()
     if archive.is_file():
-        return archive
+        return
     message = f"Converted archive {archive} is not cached locally."
-    # An archive without a pinned digest can only come from a local conversion.
-    if (
-        os.environ.get("EQUIMO_REQUIRE_REFERENCE_CACHE") == "1"
-        and identifier in PRETRAINED_ARCHIVE_SHA256
-    ):
+    if os.environ.get("EQUIMO_REQUIRE_REFERENCE_CACHE") == "1":
         pytest.fail(message)
     pytest.skip(message)
 
 
 @pytest.fixture(scope="module")
 def models():
-    vision_archive = _require_archive("sam31_multiplex")
-    text_archive = _require_archive("sam31_text")
-    return (
-        load_weights(sam31_multiplex(), path=vision_archive),
-        load_weights(sam31_text(), path=text_archive),
-    )
+    _require_archive("sam31_multiplex")
+    _require_archive("sam31_text")
+    return sam31_multiplex(pretrained=True), sam31_text(pretrained=True)
 
 
 def _normalize(reference):
@@ -63,12 +53,15 @@ def _normalize(reference):
 
 
 @eqx.filter_jit
-def _detect(vision, text, image, token_ids, padding_mask):
+def _detect(vision, text, image, token_ids, padding_mask, boxes=None):
     features = vision.encode_image(image)
     text_features = text.features(token_ids, padding_mask)
     dim = features.detector[2].shape[0]
     prompt = ConceptPrompt.create(
-        text_features=text_features, text_padding_mask=padding_mask, dim=dim
+        text_features=text_features,
+        text_padding_mask=padding_mask,
+        boxes=boxes,
+        dim=dim,
     )
     return vision.detect(features, prompt)
 
@@ -84,14 +77,22 @@ def _source_size(reference) -> tuple[int, int]:
     return tuple(reference["emitted.000.masks"].shape[1:])
 
 
-def _decode(reference, models, threshold: float, dtype=jnp.float32):
+def _decode(
+    reference,
+    models,
+    threshold: float,
+    dtype=jnp.float32,
+    text_inputs: str = "inputs.text",
+    boxes=None,
+):
     vision, text = models
     output = _detect(
         vision,
         text,
         _normalize(reference).astype(dtype),
-        jnp.asarray(reference["inputs.text.token_ids"][0], jnp.int32),
-        jnp.asarray(reference["inputs.text.padding_mask"][0]),
+        jnp.asarray(reference[f"{text_inputs}.token_ids"][0], jnp.int32),
+        jnp.asarray(reference[f"{text_inputs}.padding_mask"][0]),
+        boxes,
     )
     return decode_concepts(
         output,
@@ -127,6 +128,39 @@ def test_image_decoding_keeps_the_reference_detections(reference, float32_detect
 
     _assert_one_to_one(
         _iou_matrix(masks, reference["emitted.000.masks"]), IMAGE_MASK_IOU
+    )
+
+
+def test_exemplars_alone_keep_the_reference_detections(reference, models):
+    x, y, width, height = reference["inputs.exemplar.boxes_xywh"][0]
+    boxes = jnp.array([[x + width / 2, y + height / 2, width, height]], jnp.float32)
+
+    detections = _decode(
+        reference,
+        models,
+        threshold=BFLOAT16_DETECTION_THRESHOLD,
+        text_inputs="inputs.exemplar.text",
+        boxes=boxes,
+    )
+
+    kept = np.asarray(detections.keep)
+    masks = np.asarray(detections.masks)[kept]
+    _assert_one_to_one(
+        _iou_matrix(masks, reference["emitted.exemplar.000.masks"]), IMAGE_MASK_IOU
+    )
+
+
+def test_exemplar_placeholder_text_gives_the_reference_token_ids(reference):
+    pytest.importorskip("ftfy")
+    pytest.importorskip("regex")
+
+    token_ids, padding_mask = ClipBpeTokenizer().encode(["<text placeholder>"])
+
+    np.testing.assert_array_equal(
+        token_ids[0], reference["inputs.exemplar.text.token_ids"][0]
+    )
+    np.testing.assert_array_equal(
+        padding_mask[0], reference["inputs.exemplar.text.padding_mask"][0]
     )
 
 

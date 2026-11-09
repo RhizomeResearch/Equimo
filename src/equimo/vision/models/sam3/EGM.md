@@ -29,8 +29,8 @@ Equimo's license.
     `iou (4)`, `object_score_logit`, `selected`. `[model.py:Sam3.predict_interactive]`,
     `[interactive.py:InteractiveOutput]`
 - `ConceptPrompt.create(*, text_features, text_padding_mask, boxes, box_labels, points, point_labels, dim=256, max_text_tokens=32, max_boxes=16, max_points=16)`
-  pads shorter prompts; absent prompts are fully padded. Padding masks use `True` for padding.
-  `[detector.py:ConceptPrompt]`
+  pads shorter prompts; absent prompts are fully padded. Padding masks use `True` for padding. To match the reference on
+  exemplars alone, pass the features of the text `"<text placeholder>"` rather than none. `[detector.py:ConceptPrompt]`
 - `InteractivePrompt.create(*, points, point_labels, box, mask_input, mask_size=288, max_points=16)` pads points with
   label -1; points and boxes are in input pixels. `[interactive.py:InteractivePrompt]`
 - `decode_concepts(out, *, output_size, max_detections, threshold=0.5) -> ConceptDetections`: `keep`, `masks`, `boxes`

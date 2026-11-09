@@ -8,8 +8,7 @@ import numpy as np
 import pytest
 
 from cases.pretrained_cases import PRETRAINED_PATH_CASES
-from cases.reference_cases import REFERENCE_CASES, local_archive
-from equimo._pretrained import PRETRAINED_ARCHIVE_SHA256
+from cases.reference_cases import REFERENCE_CASES
 
 
 DATA_DIR = Path(__file__).parent / "data"
@@ -19,15 +18,13 @@ PROVENANCE = json.loads(
 
 
 def _require_checkpoint(identifier):
-    archive = local_archive(identifier)
+    archive = Path(
+        f"~/.cache/equimo/{identifier.split('_')[0]}/{identifier}.tar.lz4"
+    ).expanduser()
     if archive.is_file():
         return
     message = f"Converted checkpoint {identifier!r} is not cached locally."
-    # An archive without a pinned digest can only come from a local conversion.
-    if (
-        os.environ.get("EQUIMO_REQUIRE_REFERENCE_CACHE") == "1"
-        and identifier in PRETRAINED_ARCHIVE_SHA256
-    ):
+    if os.environ.get("EQUIMO_REQUIRE_REFERENCE_CACHE") == "1":
         pytest.fail(message)
     pytest.skip(message)
 
@@ -38,11 +35,7 @@ def test_reference_matrix_tracks_every_available_pretrained_path_fixture():
         for case in PRETRAINED_PATH_CASES
         if case.reference_fixture is not None
     }
-    covered = {
-        case.fixture
-        for case in REFERENCE_CASES
-        if case.identifier in PRETRAINED_ARCHIVE_SHA256
-    }
+    covered = {case.fixture for case in REFERENCE_CASES}
 
     assert expected == covered
     assert {case.family for case in REFERENCE_CASES} == {
@@ -64,6 +57,7 @@ def test_reference_matrix_tracks_every_available_pretrained_path_fixture():
     } == {
         ("eupe", "convnext"),
         ("lingbot", "author-checkpoint"),
+        ("sam31", "text"),
         ("tabpfn", "regressor"),
         ("tips", "vision"),
         ("tips", "text"),
@@ -79,9 +73,7 @@ def test_reference_matrix_tracks_every_available_pretrained_path_fixture():
 def test_pretrained_model_matches_trusted_upstream_reference(case):
     _require_checkpoint(case.identifier)
     provenance = PROVENANCE["fixtures"][case.fixture]
-    # The field appears once the archive's digest is pinned.
-    if case.identifier in PRETRAINED_ARCHIVE_SHA256:
-        assert provenance["identifier"] == case.identifier
+    assert provenance["identifier"] == case.identifier
     comparison = provenance.get(
         "comparison",
         {"metric": "mean_absolute_error", "atol": provenance["tolerance"]},

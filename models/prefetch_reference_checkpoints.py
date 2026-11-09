@@ -22,9 +22,13 @@ def main() -> None:
     manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
     identifiers = sorted(
         {
-            provenance["identifier"]
+            identifier
             for provenance in manifest["fixtures"].values()
             if "identifier" in provenance
+            for identifier in (
+                provenance["identifier"],
+                *provenance.get("additional_identifiers", ()),
+            )
         }
     )
     for identifier in identifiers:

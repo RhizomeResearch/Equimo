@@ -1498,6 +1498,8 @@
       }
     },
     "sam31_image_reference.npz": {
+      "identifier": "sam31_multiplex",
+      "additional_identifiers": ["sam31_text"],
       "generator": "python models/sam31_reference.py image --checkpoint /path/to/sam3.1_multiplex.pt --image /path/to/image --concept \"coin\" --output-dir /path/to/output",
       "upstream": {
         "checkpoint": "0567debeec80ba4ac6369540c6c248025283cb3ff2b92827509e57e2b3541cb6",
@@ -1507,7 +1509,7 @@
       "seed": 0,
       "input_shape": [3, 1008, 1008],
       "environment": {"numpy": "1.26.4", "python": "3.12.14", "timm": "1.0.26", "torch": "2.11.0+cu130", "torchvision": "0.26.0+cu130"},
-      "sha256": "4d1c0da05802dd28344ac3ccae0ddc018ea36292c744514ab0ecc9c20a4d4a33",
+      "sha256": "7e4507eb7672596f3da980d13f46faf2f13b1e62f713391444e57df33ba660be",
       "tolerance": 0.0005,
       "comparison": {"atol": 0.0005, "metric": "mean_absolute_error"},
       "measured": {
@@ -1518,6 +1520,13 @@
         "emitted.000.masks": {"dtype": "bool", "shape": [24, 303, 384]},
         "emitted.000.object_ids": {"dtype": "int64", "shape": [24]},
         "emitted.000.scores": {"dtype": "float32", "shape": [24]},
+        "emitted.exemplar.000.boxes": {"dtype": "float32", "shape": [7, 4]},
+        "emitted.exemplar.000.masks": {"dtype": "bool", "shape": [7, 303, 384]},
+        "emitted.exemplar.000.object_ids": {"dtype": "int64", "shape": [7]},
+        "emitted.exemplar.000.scores": {"dtype": "float32", "shape": [7]},
+        "inputs.exemplar.boxes_xywh": {"dtype": "float32", "shape": [1, 4]},
+        "inputs.exemplar.text.padding_mask": {"dtype": "bool", "shape": [1, 32]},
+        "inputs.exemplar.text.token_ids": {"dtype": "int64", "shape": [1, 32]},
         "inputs.image": {"dtype": "uint8", "shape": [1008, 1008, 3]},
         "inputs.interactive.box.labels": {"dtype": "int32", "shape": [2]},
         "inputs.interactive.box.points": {"dtype": "float32", "shape": [2, 2]},

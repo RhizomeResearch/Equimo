@@ -66,3 +66,45 @@ This product includes software derived from Chronos-2 by Amazon.com, Inc. or
 its affiliates, Copyright Amazon.com, Inc. All Rights Reserved, licensed under
 the Apache License 2.0.
 Source: https://github.com/amazon-science/chronos-forecasting
+
+CLIP tokenizer and vocabulary
+-----------------------------
+
+ClipBpeTokenizer in src/equimo/language/tokenizers.py is adapted from
+clip/simple_tokenizer.py in OpenAI's CLIP release, and
+src/equimo/language/data/bpe_simple_vocab_16e6.txt.gz is the vocabulary from
+that release.
+
+Source: https://github.com/openai/CLIP
+
+MIT License
+
+Copyright (c) 2021 OpenAI
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+SAM 3.1 weights
+---------------
+
+Equimo's sam31_multiplex and sam31_text archives are converted from Meta's
+SAM 3.1 checkpoint and remain under the SAM License; see
+LICENSES/pretrained/sam-License.md. No SAM Materials are included in this
+distribution: the archives are downloaded separately. Equimo's SAM 3.1 code is
+under Equimo's license; docs/licensing/sam3-provenance.md records how it was
+written.
