@@ -46,15 +46,18 @@ from equimo.vision.models.sam3.decoding import greedy_iom_nms, single_frame_nms
 from equimo.vision.models.sam3.detector import joint_logit
 from equimo.vision.models.sam3.encoder import ViTDetBlock
 from equimo.vision.models.sam3.interactive import _select_mask
+from equimo.vision.ops import resize_bilinear_antialias
+from equimo.vision.models.sam3.video import Sam3VideoTracker
 from equimo.vision.models.sam3.tracker import (
     SLOT_ACTIVE,
     SLOT_EMPTY,
     SLOT_REMOVED,
-    _keep_per_group,
     _memory_key_rotary,
+    _non_overlapping_per_state,
     _selected_memory_frames,
-    _shrunk_slots,
+    _suppress_area_shrinkage,
     associate,
+    associate_tracks,
 )
 
 GPU = pytest.mark.skipif(
@@ -710,7 +713,16 @@ def _add_slots(state: TrackerState, frame, *slots: tuple[int, int]) -> CommitPla
     for bucket, slot in slots:
         add = add.at[bucket, slot].set(True)
         new_masks = new_masks.at[bucket, slot].set(_new_mask())
-    return _plan(state, frame, add=add, new_masks=new_masks)
+    received = jnp.any(add, axis=-1)
+    return _plan(
+        state,
+        frame,
+        add=add,
+        new_masks=new_masks,
+        conditioning=add,
+        reencode=received,
+        new_state=received & ~state.bucket_valid,
+    )
 
 
 def _step(model, state, features, frame, plan):
@@ -802,14 +814,8 @@ def test_conditioning_buffer_keeps_the_four_latest_frames(model, frame_features,
         jnp.asarray(0, jnp.int32),
         _add_slots(state, 0, (0, 0)),
     )
-    recondition = jnp.zeros((1, 2), bool).at[0, 0].set(True)
     for frame in range(1, 7):
-        plan = _plan(
-            state,
-            frame,
-            recondition=recondition,
-            recondition_masks=jnp.zeros((1, 2, MASK_SIZE, MASK_SIZE)),
-        )
+        plan = _plan(state, frame, new_state=jnp.asarray([True]))
         state, _ = step(
             model, state, frame_features, jnp.asarray(frame, jnp.int32), plan
         )
@@ -922,7 +928,7 @@ def test_slot_status_never_returns_from_removed(model, frame_features, step):
         _plan(state, 1, remove=remove),
     )
     assert state.slot_status[0].tolist() == [SLOT_REMOVED, SLOT_EMPTY]
-    assert jnp.all(state.last_masks[0, 0] == -1024.0)
+    assert not jnp.all(state.last_masks[0, 0] == -1024.0)
 
     state, _ = step(
         model,
@@ -954,6 +960,13 @@ def test_released_bucket_is_cleared_and_reused(model, frame_features, step):
     )
     cleared = jax.tree.map(lambda leaf: leaf[1], state)
     empty = jax.tree.map(lambda leaf: leaf[0], model.tracker.empty_state(1))
+    # The removed object's mask stays until the driver has shown this frame.
+    assert not jnp.all(cleared.last_masks == -1024.0)
+    cleared = eqx.tree_at(
+        lambda s: (s.last_masks, s.last_scores),
+        cleared,
+        (empty.last_masks, empty.last_scores),
+    )
     for got, expected in zip(jax.tree.leaves(cleared), jax.tree.leaves(empty)):
         assert jnp.array_equal(got, expected)
     assert state.recent_frame[0].tolist() == [0, 1, -1, -1, -1, -1]
@@ -1110,17 +1123,25 @@ def test_commit_reconditions_and_suppresses_the_output_masks(
         _add_slots(state, 0, (0, 0), (0, 1)),
     )
     replacement = jr.normal(jr.PRNGKey(13), (1, 2, MASK_SIZE, MASK_SIZE))
+    frame = jnp.asarray(1, jnp.int32)
+    tracks = model.propagate(state, frame_features, frame)
     plan = _plan(
         state,
         1,
         recondition=jnp.asarray([[True, False]]),
         recondition_masks=replacement,
         suppress=jnp.asarray([[False, True]]),
+        conditioning=jnp.asarray([[True, False]]),
     )
-    state, _ = step(model, state, frame_features, jnp.asarray(1, jnp.int32), plan)
-    assert jnp.array_equal(state.last_masks[0, 0], replacement[0, 0])
-    assert jnp.all(state.last_masks[0, 1] == -1024.0)
-    assert state.cond_frame[0].tolist() == [0, 1, -1, -1]
+    committed = model.commit(state, frame_features, tracks, plan)
+    old = tracks.mask_logits[0, 0]
+    assert jnp.array_equal(committed.last_masks[0, 0] > 0, replacement[0, 0] > 0)
+    # Pixels where both agree keep the tracker's value.
+    agree = (replacement[0, 0] > 0) == (old > 0)
+    assert jnp.array_equal(committed.last_masks[0, 0][agree], old[agree])
+    assert jnp.all(committed.last_masks[0, 1] == -10.0)
+    assert committed.cond_frame[0].tolist() == [0, -1, -1, -1]
+    assert jnp.abs(committed.last_scores[0, 0]) == 10.0
 
 
 def test_a_frame_committed_twice_is_read_once(model, frame_features, step):
@@ -1142,31 +1163,25 @@ def test_a_frame_committed_twice_is_read_once(model, frame_features, step):
     assert spatial == GRID * GRID
 
 
-def test_commit_keeps_an_already_decoded_object(model, frame_features):
-    frame = jnp.asarray(0, jnp.int32)
+def test_point_object_stores_its_own_score_and_pointer(model, frame_features):
     state = model.tracker.empty_state(1)
     prompt = _interactive_prompt()
-    mask, pointer, score = model.tracker.decode_object(
+    _, pointer, score = model.tracker.decode_object(
         model.interactive, frame_features, prompt
     )
-    add = jnp.zeros((1, 2), bool).at[0, 0].set(True)
-    plan = _plan(
+    committed = model.tracker.commit_point_object(
+        model.interactive,
         state,
-        0,
-        add=add,
-        decoded=add,
-        new_masks=jnp.zeros_like(state.last_masks).at[0, 0].set(mask),
-        decoded_pointers=jnp.zeros_like(state.pointers[:, 0]).at[0, 0].set(pointer),
-        decoded_scores=jnp.zeros_like(state.last_scores)
-        .at[0, 0]
-        .set(score.astype(jnp.float32)),
+        frame_features,
+        prompt,
+        jnp.asarray(2, jnp.int32),
+        SOURCE_SIZE,
     )
-    tracks = model.propagate(state, frame_features, frame)
-    state = model.commit(state, frame_features, tracks, plan)
-    assert jnp.array_equal(state.last_masks[0, 0], mask)
-    assert jnp.array_equal(state.pointers[0, 0, 0], pointer)
-    assert state.last_scores[0, 0] == score.astype(jnp.float32)
-    assert state.slot_status[0].tolist() == [SLOT_ACTIVE, SLOT_EMPTY]
+    assert committed.slot_status[0].tolist() == [SLOT_ACTIVE, SLOT_EMPTY]
+    assert committed.cond_frame[0].tolist() == [2, -1, -1, -1]
+    assert jnp.array_equal(committed.pointers[0, 2, 0], pointer)
+    assert committed.last_scores[0, 0] == score.astype(jnp.float32)
+    assert jnp.all(committed.pointers[0, 2, 1] == 0)
 
 
 def test_reencoding_changes_only_the_flagged_buckets(model, frame_features, step):
@@ -1191,20 +1206,37 @@ def test_reencoding_changes_only_the_flagged_buckets(model, frame_features, step
     assert not jnp.array_equal(reencoded.recent_memory[1], plain.recent_memory[1])
 
 
-def test_masks_keep_pixels_within_their_group_only():
-    masks = jnp.asarray([[[True, True]], [[True, False]], [[False, True]]], dtype=bool)
-    kept = _keep_per_group(masks, jnp.asarray([1, 0, 2]), jnp.asarray([0, 0, 1]), 2)
-    assert kept[:, 0].tolist() == [[False, True], [True, False], [False, True]]
+def test_non_overlap_applies_within_each_state_only():
+    logits = jnp.asarray([[[3.0, 3.0]], [[5.0, 2.0]], [[1.0, 9.0]]], jnp.float32)
+    kept = _non_overlapping_per_state(logits, jnp.asarray([0, 0, 1]), 2)
+    assert kept[0].tolist() == [[-10.0, 3.0]]
+    assert kept[1].tolist() == [[5.0, -10.0]]
+    assert kept[2].tolist() == [[1.0, 9.0]]
 
 
-def test_area_shrinkage_marks_tracks_losing_most_of_their_area():
-    order = jnp.asarray([1, 0])
-    # The second track outranks the first, which keeps 1 of its 8 pixels here.
-    mostly_lost = jnp.where(_row_masks((0, 8), (0, 7)), 1.0, -1.0)
-    assert _shrunk_slots(mostly_lost, order).tolist() == [True, False]
-    # Here it keeps 4 of 8, above the 30% limit.
-    half_lost = jnp.where(_row_masks((0, 8), (0, 4)), 1.0, -1.0)
-    assert _shrunk_slots(half_lost, order).tolist() == [False, False]
+def test_area_shrinkage_clamps_masks_losing_most_of_their_area():
+    ids = jnp.asarray([[1, 0]])
+    present = jnp.ones((1, 2), bool)
+    # The lower ID wins the tie, so the first mask keeps 1 of its 8 pixels.
+    mostly_lost = jnp.where(_row_masks((0, 8), (0, 7)), 1.0, -1.0)[None]
+    kept = _suppress_area_shrinkage(mostly_lost, present, ids)
+    assert jnp.all(kept[0, 0] <= -1.0)
+    assert jnp.array_equal(kept[0, 1], mostly_lost[0, 1])
+
+    half_lost = jnp.where(_row_masks((0, 8), (0, 4)), 1.0, -1.0)[None]
+    kept = _suppress_area_shrinkage(half_lost, present, ids)
+    assert jnp.array_equal(kept, half_lost)
+
+    single = _suppress_area_shrinkage(mostly_lost, jnp.asarray([[True, False]]), ids)
+    assert jnp.array_equal(single, mostly_lost)
+
+
+def test_area_shrinkage_clamps_empty_masks_when_others_exist():
+    empty = jnp.where(_row_masks((0, 0), (0, 4)), 1.0, -5.0)[None]
+    kept = _suppress_area_shrinkage(
+        empty, jnp.ones((1, 2), bool), jnp.asarray([[0, 1]])
+    )
+    assert jnp.all(kept[0, 0] == -10.0)
 
 
 def _associate(model, *, logits, boxes, detection_masks, track_masks, active):
@@ -1246,22 +1278,34 @@ def test_association_runs_the_boundary_filter_after_nms(model):
     assert out.keep.tolist() == [False, False]
 
 
-def test_new_detections_ignore_the_keep_mask_only_when_nothing_is_tracked(model):
-    detection_masks = _row_masks((0, 4), (0, 4))
+def test_new_detections_ignore_the_boundary_only_when_nothing_is_tracked(model):
+    detection_masks = _row_masks((0, 4), (8, 12))
     kwargs = {
-        "logits": [3.0, 2.0],
-        "boxes": [CENTERED, CENTERED],
+        "logits": [3.0, 3.0],
+        "boxes": [[0.01, 0.5, 0.1, 0.1], CENTERED],
         "detection_masks": detection_masks,
-        "track_masks": _row_masks((4, 8), (6, 8))[None],
+        "track_masks": _row_masks((4, 6), (6, 8))[None],
     }
     untracked = _associate(model, active=[[False, False]], **kwargs)
     tracked = _associate(model, active=[[True, False]], **kwargs)
-    assert untracked.keep.tolist() == [True, False]
+    assert untracked.keep.tolist() == [False, True]
     assert untracked.new_detection.tolist() == [True, True]
-    assert tracked.new_detection.tolist() == [True, False]
+    assert tracked.new_detection.tolist() == [False, True]
 
 
-def test_association_flags_matches_and_ambiguous_tracks(model):
+def test_detections_suppressed_by_nms_are_never_new(model):
+    out = _associate(
+        model,
+        logits=[3.0, 2.0],
+        boxes=[CENTERED, CENTERED],
+        detection_masks=_row_masks((0, 4), (0, 4)),
+        track_masks=_row_masks((4, 8), (6, 8))[None],
+        active=[[False, False]],
+    )
+    assert out.new_detection.tolist() == [True, False]
+
+
+def test_association_zeroes_ambiguous_rows_and_columns(model):
     out = _associate(
         model,
         logits=[3.0, 3.0],
@@ -1273,13 +1317,29 @@ def test_association_flags_matches_and_ambiguous_tracks(model):
     assert out.keep.tolist() == [True, True]
     assert out.iom.shape == (2, 2)
     assert out.iom[0].tolist() == [1.0, 1.0]
-    assert out.matches[0].tolist() == [True, True]
     assert out.high_iom[0].tolist() == [True, True]
-    # The detection overlaps two tracks, so both pairs are ambiguous.
-    assert out.ambiguous[0].tolist() == [True, True]
+    # The detection reaches two tracks at 0.5, so it matches neither.
+    assert out.matches[0].tolist() == [False, False]
+    assert out.unique_high_iom[0].tolist() == [False, False]
     assert out.new_detection.tolist() == [False, True]
     assert out.confident_track.tolist() == [True, True]
     assert jnp.allclose(out.track_iou[0, 1], 0.5)
+
+
+def test_association_reports_tracks_after_reconditioning(model):
+    out = _associate(
+        model,
+        logits=[3.0, 3.0],
+        boxes=[CENTERED, CENTERED],
+        detection_masks=_row_masks((0, 3), (5, 8)),
+        track_masks=_row_masks((0, 2), (5, 8))[None],
+        active=[[True, True]],
+    )
+    assert out.reconditioned_nonempty.tolist() == [True, True]
+    assert out.unique_high_iom[0, 0]
+    assert out.confident_detection.tolist() == [True, True]
+    # The first track would become the three-row detection.
+    assert jnp.allclose(out.reconditioned_iou[0, 0], 1.0)
 
 
 def test_association_skips_inactive_slots(model):
@@ -1708,3 +1768,418 @@ def test_mask_nms_keeps_what_the_reference_keeps(tiny_reference):
         .set(candidates[order] & single_frame_nms(masks[order]))
     )
     np.testing.assert_array_equal(single, tiny_reference["outputs.nms.keep"])
+
+
+def test_antialiased_resize_matches_torch(tiny_reference):
+    names = sorted(
+        name.removeprefix("inputs.antialias.")
+        for name in tiny_reference.files
+        if name.startswith("inputs.antialias.")
+    )
+    assert names
+    for name in names:
+        output = tiny_reference[f"outputs.antialias.{name}"]
+        _assert_close(
+            resize_bilinear_antialias(
+                jnp.asarray(tiny_reference[f"inputs.antialias.{name}"]),
+                output.shape[-2:],
+            ),
+            output,
+        )
+
+
+def _tiny_decisions() -> list[dict]:
+    path = REFERENCE_DATA / "sam3_tiny_reference.json"
+    return json.loads(path.read_text())["decisions"]
+
+
+def _reference_frame(tiny_reference, frame: int) -> jax.Array:
+    pixels = jnp.asarray(tiny_reference["inputs.frames"][frame], jnp.float32)
+    return pixels / 127.5 - 1.0
+
+
+def _pass_prefix(decisions: list[dict], frame: int) -> str:
+    index = sum(record["frame"] == frame for record in decisions) - 1
+    return f"frames.{frame:03d}.pass{index}"
+
+
+def _slot_objects(details: dict) -> dict[int, tuple[int, int]]:
+    """Map the objects of a recorded state to their bucket and slot."""
+    slots = {}
+    for bucket, entries in enumerate(details["assignments"]):
+        for slot, entry in enumerate(entries):
+            if entry >= 0:
+                slots[details["obj_ids"][entry]] = (bucket, slot)
+    return slots
+
+
+def _recorded_detections(tiny_reference, prefix: str) -> DetectorOutput:
+    scores = jnp.asarray(tiny_reference[f"{prefix}.det_scores"])
+    logits = jnp.log(scores / (1.0 - scores))
+    x_min, y_min, x_max, y_max = jnp.moveaxis(
+        jnp.asarray(tiny_reference[f"{prefix}.det_boxes"]), -1, 0
+    )
+    return DetectorOutput(
+        logits=logits,
+        presence_logit=jnp.asarray(3.0),
+        boxes=jnp.stack(
+            ((x_min + x_max) / 2, (y_min + y_max) / 2, x_max - x_min, y_max - y_min),
+            axis=-1,
+        ),
+        mask_logits=jnp.asarray(tiny_reference[f"{prefix}.det_masks"]),
+        layer_boxes=jnp.zeros((1, logits.shape[0], 4)),
+        layer_logits=logits[None],
+    )
+
+
+def _scripted_track_masks(tiny_reference, prefix: str, slots, track_ids, masks):
+    """Replace the masks of the tracked objects with the fixture's script."""
+    recorded = jnp.asarray(tiny_reference[f"{prefix}.track_masks"])
+    for row, object_id in enumerate(track_ids):
+        bucket, slot = slots[object_id]
+        masks = masks.at[bucket, slot].set(recorded[row])
+    return masks
+
+
+def _assert_recorded_state(state, tiny_reference, prefix, frame, details) -> None:
+    storage = details["storage"]
+    buckets = tiny_reference[f"{prefix}.state0.maskmem_features"].shape[0]
+    for name, stored in (
+        ("maskmem_features", state.recent_memory[:buckets, frame % 6]),
+        ("obj_ptr", state.pointers[:buckets, frame % 15]),
+    ):
+        _assert_close(stored, tiny_reference[f"{prefix}.state0.{name}"])
+    if storage == "cond_frame_outputs":
+        index = int(jnp.argmax(state.cond_frame[0] == frame))
+        _assert_close(
+            state.cond_memory[:buckets, index],
+            tiny_reference[f"{prefix}.state0.maskmem_features"],
+        )
+        _assert_close(
+            state.cond_pointers[:buckets, index],
+            tiny_reference[f"{prefix}.state0.obj_ptr"],
+        )
+    else:
+        assert not bool(jnp.any(state.cond_frame == frame))
+
+
+def _injected_state(model, encoded, tiny_reference, decisions, frame, num_buckets):
+    """Fill a tracker state with the reference's stored memory up to ``frame``."""
+    state = model.tracker.empty_state(num_buckets)
+    arrays = {
+        name: np.asarray(getattr(state, name)).copy()
+        for name in (
+            "slot_status",
+            "cond_memory",
+            "cond_features",
+            "cond_pointers",
+            "cond_frame",
+            "recent_memory",
+            "recent_features",
+            "recent_frame",
+            "recent_is_cond",
+            "pointers",
+            "pointer_frame",
+        )
+    }
+    for past in range(frame):
+        prefix = _pass_prefix(decisions, past)
+        record = [item for item in decisions if item["frame"] == past][-1]
+        details = record["state_details"][0]
+        memory = tiny_reference[f"{prefix}.state0.maskmem_features"]
+        pointers = tiny_reference[f"{prefix}.state0.obj_ptr"]
+        features = np.asarray(encoded(past).propagation[2])
+        is_cond = details["storage"] == "cond_frame_outputs"
+        for bucket in range(min(num_buckets, memory.shape[0])):
+            if is_cond:
+                arrays["cond_memory"][bucket, 0] = memory[bucket]
+                arrays["cond_features"][bucket, 0] = features
+                arrays["cond_pointers"][bucket, 0] = pointers[bucket]
+                arrays["cond_frame"][bucket, 0] = past
+            if frame - past <= 6:
+                slot = past % 6
+                arrays["recent_memory"][bucket, slot] = memory[bucket]
+                arrays["recent_features"][bucket, slot] = features
+                arrays["recent_frame"][bucket, slot] = past
+                arrays["recent_is_cond"][bucket, slot] = is_cond
+            if frame - past <= 15:
+                slot = past % 15
+                arrays["pointers"][bucket, slot] = pointers[bucket]
+                arrays["pointer_frame"][bucket, slot] = past
+    previous = [item for item in decisions if item["frame"] == frame - 1][-1]
+    details = previous["state_details"][0]
+    for bucket, entries in enumerate(details["assignments"][:num_buckets]):
+        for slot, entry in enumerate(entries):
+            if entry == -1:
+                continue
+            arrays["slot_status"][bucket, slot] = (
+                SLOT_ACTIVE if entry >= 0 else SLOT_REMOVED
+            )
+    return eqx.tree_at(
+        lambda s: (s.bucket_valid, *[getattr(s, name) for name in arrays]),
+        state,
+        (
+            jnp.asarray([True] * num_buckets),
+            *[jnp.asarray(value) for value in arrays.values()],
+        ),
+    )
+
+
+@pytest.mark.parametrize("frame, num_buckets", [(3, 2), (18, 1)])
+def test_injected_memory_tracks_and_stores_like_the_reference(
+    reference_model, tiny_reference, frame, num_buckets
+):
+    decisions = _tiny_decisions()
+    config = _reference_config()
+    encoded_frames = {}
+
+    def encoded(index: int) -> ImageFeatures:
+        if index not in encoded_frames:
+            encoded_frames[index] = reference_model.encode_image(
+                _reference_frame(tiny_reference, index)
+            )
+        return encoded_frames[index]
+
+    state = _injected_state(
+        reference_model, encoded, tiny_reference, decisions, frame, num_buckets
+    )
+    index = jnp.asarray(frame, jnp.int32)
+    tracks = reference_model.propagate(
+        state, encoded(frame), index, num_frames=config["num_frames"]
+    )
+
+    previous = [item for item in decisions if item["frame"] == frame - 1][-1]
+    slots = _slot_objects(previous["state_details"][0])
+    record = next(item for item in decisions if item["frame"] == frame)
+    prefix = f"frames.{frame:03d}.pass0"
+    raw_masks = tiny_reference[f"{prefix}.raw_track_masks"]
+    raw_scores = tiny_reference[f"{prefix}.raw_track_score_logits"]
+    for row, object_id in enumerate(record["track_ids"]):
+        bucket, slot = slots[object_id]
+        _assert_close(tracks.mask_logits[bucket, slot], raw_masks[row])
+        _assert_close(tracks.object_score_logits[bucket, slot], raw_scores[row])
+    _assert_close(tracks.pointers, tiny_reference[f"{prefix}.state0.raw_obj_ptr"])
+
+    scripted = eqx.tree_at(
+        lambda t: t.mask_logits,
+        tracks,
+        _scripted_track_masks(
+            tiny_reference, prefix, slots, record["track_ids"], tracks.mask_logits
+        ),
+    )
+    object_ids = jnp.zeros_like(state.slot_status, dtype=jnp.int32)
+    for object_id, (bucket, slot) in slots.items():
+        object_ids = object_ids.at[bucket, slot].set(object_id)
+    plan = eqx.tree_at(
+        lambda p: p.object_ids,
+        CommitPlan.empty(state, index, tuple(config["source_size"])),
+        object_ids,
+    )
+    committed = reference_model.commit(state, encoded(frame), scripted, plan)
+    _assert_recorded_state(
+        committed, tiny_reference, prefix, frame, record["state_details"][0]
+    )
+
+
+def _confirmed_transitions(decisions: list[dict]) -> list[list[int]]:
+    """Return the objects newly confirmed on each pass of the recorded trace."""
+    confirmed: set[int] = set()
+    transitions = []
+    for record in decisions:
+        survivors = sorted(
+            (set(record["track_ids"]) | {object_id for object_id, _ in record["added"]})
+            - set(record["removed_unmatched"])
+            - set(record["removed_duplicate"])
+        )
+        status = record["confirmation"]["status"]
+        newly = [obj for obj, value in zip(survivors, status) if value == 2]
+        transitions.append(sorted(set(newly) - confirmed))
+        confirmed.update(newly)
+    return transitions
+
+
+def test_tracker_replays_the_reference_clip(reference_model, tiny_reference):
+    config = _reference_config()
+    decisions = _tiny_decisions()
+    driver = Sam3VideoTracker(
+        reference_model,
+        num_frames=config["num_frames"],
+        source_size=tuple(config["source_size"]),
+        max_objects=config["max_objects"],
+    )
+    driver.set_prompt(
+        ConceptPrompt.create(
+            text_features=jnp.zeros((5, config["dim"])),
+            dim=config["dim"],
+            max_text_tokens=8,
+            max_boxes=2,
+            max_points=2,
+        )
+    )
+    steps = driver._steps
+    real_propagate = steps.propagate
+    real_commit = steps.commit
+    position = 0
+
+    def record():
+        return decisions[position]
+
+    def prefix():
+        current = record()
+        index = sum(item["frame"] == current["frame"] for item in decisions[:position])
+        return f"frames.{current['frame']:03d}.pass{index}"
+
+    def current_slots():
+        return {
+            obj: (driver.policy.objects[obj].bucket, driver.policy.objects[obj].slot)
+            for obj in record()["track_ids"]
+        }
+
+    def encode_and_detect(model, frame, prompt):
+        name = f"frames.{driver._next_frame:03d}.pass0"
+        return steps.encode_image(model, frame), _recorded_detections(
+            tiny_reference, name
+        )
+
+    def propagate(model, state, features, index, num_frames):
+        tracks = real_propagate(model, state, features, index, num_frames)
+        slots = current_slots()
+        raw_masks = tiny_reference[f"{prefix()}.raw_track_masks"]
+        raw_scores = tiny_reference[f"{prefix()}.raw_track_score_logits"]
+        for row, object_id in enumerate(record()["track_ids"]):
+            bucket, slot = slots[object_id]
+            _assert_close(tracks.mask_logits[bucket, slot], raw_masks[row])
+            _assert_close(tracks.object_score_logits[bucket, slot], raw_scores[row])
+        raw_pointers = tiny_reference[f"{prefix()}.state0.raw_obj_ptr"]
+        _assert_close(tracks.pointers[: raw_pointers.shape[0]], raw_pointers)
+        return tracks
+
+    def script(tracks):
+        if not record()["track_ids"]:
+            return tracks
+        return eqx.tree_at(
+            lambda t: t.mask_logits,
+            tracks,
+            _scripted_track_masks(
+                tiny_reference,
+                prefix(),
+                current_slots(),
+                record()["track_ids"],
+                tracks.mask_logits,
+            ),
+        )
+
+    def associate(model, detections, tracks, state):
+        keep = jnp.asarray(tiny_reference[f"{prefix()}.det_keep"])
+        return (
+            associate_tracks(detections, keep, keep, script(tracks), state),
+            jax.nn.sigmoid(detections.logits),
+        )
+
+    def commit(model, state, features, tracks, plan):
+        nonlocal position
+        committed = real_commit(model, state, features, script(tracks), plan)
+        current = record()
+        details = current["state_details"][0]
+        _assert_recorded_state(
+            committed, tiny_reference, prefix(), current["frame"], details
+        )
+        policy_slots = {
+            obj.object_id: (obj.bucket, obj.slot)
+            for obj in driver.policy.live_objects()
+        }
+        assert policy_slots == _slot_objects(details)
+        position += 1
+        return committed
+
+    steps.encode_and_detect = encode_and_detect
+    steps.propagate = propagate
+    steps.associate = associate
+    steps.commit = commit
+
+    predictions = []
+    for frame in range(config["num_frames"]):
+        predictions += driver.push_frame(_reference_frame(tiny_reference, frame))
+    predictions += driver.finish()
+
+    assert len(driver.decisions) == len(decisions)
+    transitions = _confirmed_transitions(decisions)
+    for decision, expected, confirmed in zip(driver.decisions, decisions, transitions):
+        assert decision.frame_index == expected["frame"]
+        assert [[new.object_id, new.query] for new in decision.added] == expected[
+            "added"
+        ]
+        assert list(decision.removed_unmatched) == expected["removed_unmatched"]
+        assert list(decision.removed_duplicate) == expected["removed_duplicate"]
+        assert [[item.object_id, item.query] for item in decision.reconditioned] == (
+            expected["reconditioned_pairs"]
+        )
+        assert list(decision.suppressed) == expected["suppressed"]
+        assert len(decision.dropped_queries) == expected["dropped"]
+        assert list(decision.confirmed) == confirmed
+
+    height, width = config["source_size"]
+    assert [item.frame_index for item in predictions] == list(
+        range(config["num_frames"])
+    )
+    for prediction in predictions:
+        name = f"emitted.{prediction.frame_index:03d}"
+        np.testing.assert_array_equal(
+            prediction.object_ids, tiny_reference[f"{name}.object_ids"]
+        )
+        np.testing.assert_array_equal(prediction.masks, tiny_reference[f"{name}.masks"])
+        _assert_close(prediction.scores, tiny_reference[f"{name}.scores"])
+        boxes = np.asarray(prediction.boxes, np.float32)
+        converted = np.stack(
+            (
+                boxes[:, 0] / width,
+                boxes[:, 1] / height,
+                (boxes[:, 2] - boxes[:, 0]) / width,
+                (boxes[:, 3] - boxes[:, 1]) / height,
+            ),
+            axis=-1,
+        )
+        _assert_close(converted, tiny_reference[f"{name}.boxes"])
+
+
+def test_point_track_matches_the_reference(reference_model, tiny_reference):
+    config = _reference_config()
+    frame = int(tiny_reference["inputs.points.frame"])
+    size = config["img_size"]
+    points = tiny_reference["inputs.points.coordinates"] * size
+    driver = Sam3VideoTracker(
+        reference_model,
+        num_frames=config["num_frames"],
+        source_size=tuple(config["source_size"]),
+        max_objects=config["max_objects"],
+    )
+    track = driver.add_object(
+        frame,
+        _reference_frame(tiny_reference, frame),
+        points,
+        tiny_reference["inputs.points.labels"],
+        object_id=int(tiny_reference["inputs.points.object_id"]),
+    )
+
+    def assert_frame(index: int) -> None:
+        name = f"points.{index:03d}"
+        state = track._state
+        _assert_close(state.last_masks[0, :1], tiny_reference[f"{name}.pred_masks"][0])
+        _assert_close(
+            state.last_scores[0, 0],
+            tiny_reference[f"{name}.object_score_logits"][0, 0],
+        )
+        _assert_close(
+            state.pointers[0, index % 15], tiny_reference[f"{name}.obj_ptr"][0]
+        )
+        _assert_close(
+            state.recent_memory[0, index % 6],
+            tiny_reference[f"{name}.maskmem_features"][0],
+        )
+        is_cond = bool(tiny_reference[f"{name}.is_cond"])
+        assert bool(state.recent_is_cond[0, index % 6]) == is_cond
+
+    assert_frame(frame)
+    for index in range(frame + 1, config["num_frames"]):
+        track.push(_reference_frame(tiny_reference, index))
+        assert_frame(index)

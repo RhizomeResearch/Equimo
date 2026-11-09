@@ -13,7 +13,6 @@ import pytest
 from equimo.vision.models.sam3 import (
     ConceptPrompt,
     DetectorOutput,
-    InteractivePrompt,
     Sam3,
 )
 from equimo.vision.models.sam3.tracker import (
@@ -49,14 +48,18 @@ PROMPT = ConceptPrompt.create(
 def _observation(policy: AssociationPolicy, frame: int, **fields) -> FrameObservation:
     tracks = policy.num_buckets * policy.num_slots
     defaults = {
+        "keep": np.ones(NUM_QUERIES, bool),
+        "matches": np.zeros((NUM_QUERIES, tracks), bool),
         "high_iom": np.zeros((NUM_QUERIES, tracks), bool),
-        "ambiguous": np.zeros((NUM_QUERIES, tracks), bool),
+        "unique_high_iom": np.zeros((NUM_QUERIES, tracks), bool),
         "new_detection": np.zeros(NUM_QUERIES, bool),
         "confident_detection": np.zeros(NUM_QUERIES, bool),
         "confident_track": np.zeros(tracks, bool),
+        "track_nonempty": np.ones(tracks, bool),
         "track_iou": np.zeros((tracks, tracks), np.float32),
+        "reconditioned_iou": np.zeros((tracks, tracks), np.float32),
+        "reconditioned_nonempty": np.ones(tracks, bool),
         "detection_probabilities": np.zeros(NUM_QUERIES, np.float32),
-        "object_score_logits": np.ones(tracks, np.float32),
     }
     return FrameObservation(frame_index=frame, **{**defaults, **fields})
 
@@ -68,7 +71,9 @@ def _policy(max_objects: int = 8, num_slots: int = NUM_SLOTS) -> AssociationPoli
 def _start_objects(policy: AssociationPolicy, *queries: int) -> None:
     keep = np.zeros(NUM_QUERIES, bool)
     keep[list(queries)] = True
-    policy.plan_prompt_frame(keep, np.full(NUM_QUERIES, 0.9, np.float32))
+    policy.plan_prompt_frame(
+        keep, np.ones(NUM_QUERIES, bool), np.full(NUM_QUERIES, 0.9, np.float32)
+    )
 
 
 def _matched(policy: AssociationPolicy, *tracks: int) -> np.ndarray:
@@ -80,16 +85,49 @@ def _matched(policy: AssociationPolicy, *tracks: int) -> np.ndarray:
     return high_iom
 
 
-def test_prompt_frame_keeps_the_highest_scores_and_shows_them_at_once():
+def test_prompt_frame_keeps_the_highest_scores_over_the_object_limit():
     policy = _policy(max_objects=2)
     probabilities = np.asarray([0.7, 0.9, 0.8, 0.3], np.float32)
-    decision = policy.plan_prompt_frame(np.ones(NUM_QUERIES, bool), probabilities)
+    decision = policy.plan_prompt_frame(
+        np.ones(NUM_QUERIES, bool), np.ones(NUM_QUERIES, bool), probabilities
+    )
 
     assert [new.query for new in decision.added] == [1, 2]
     assert decision.dropped_queries == (0, 3)
-    assert decision.confirmed == (0, 1)
+    assert decision.confirmed == ()
     assert policy.objects[0].birth_score == pytest.approx(0.9)
-    assert policy.objects[1].confirmed
+    assert not policy.objects[1].confirmed
+
+
+def test_new_objects_keep_kept_detections_first_when_under_the_limit():
+    policy = _policy()
+    candidates = np.asarray([True, True, True, False])
+    keep = np.asarray([False, True, False, True])
+    decision = policy.plan_prompt_frame(
+        candidates, keep, np.asarray([0.7, 0.9, 0.8, 0.3], np.float32)
+    )
+    assert [new.query for new in decision.added] == [1, 0, 2]
+
+
+def test_object_limit_counts_objects_removed_on_the_same_frame():
+    policy = _policy(max_objects=2)
+    _start_objects(policy, 0, 1)
+    for frame in range(7):
+        policy.plan(_observation(policy, frame, high_iom=_matched(policy, 0)))
+    new = np.zeros(NUM_QUERIES, bool)
+    new[2] = True
+    decision = policy.plan(
+        _observation(
+            policy,
+            7,
+            high_iom=_matched(policy, 0),
+            new_detection=new,
+            detection_probabilities=np.full(NUM_QUERIES, 0.9, np.float32),
+        )
+    )
+    assert decision.removed_unmatched == (1,)
+    assert decision.added == ()
+    assert decision.dropped_queries == (2,)
 
 
 def test_object_is_confirmed_after_three_consecutive_matched_frames():
@@ -108,11 +146,9 @@ def test_object_is_confirmed_after_three_consecutive_matched_frames():
     # A miss restarts the count that the birth frame began.
     assert policy.plan(_observation(policy, 2)).confirmed == ()
     for frame in (3, 4):
-        decision = policy.plan(
-            _observation(policy, frame, high_iom=_matched(policy, 0))
-        )
+        decision = policy.plan(_observation(policy, frame, matches=_matched(policy, 0)))
         assert decision.confirmed == ()
-    decision = policy.plan(_observation(policy, 5, high_iom=_matched(policy, 0)))
+    decision = policy.plan(_observation(policy, 5, matches=_matched(policy, 0)))
     assert decision.confirmed == (object_id,)
 
 
@@ -132,6 +168,27 @@ def test_hot_start_removes_unmatched_objects_only_inside_the_window():
         assert late.plan(_observation(late, frame)).removed_unmatched == ()
 
 
+def test_hot_start_counts_only_tracks_with_pixels_as_unmatched():
+    policy = _policy()
+    _start_objects(policy, 0)
+    for frame in range(10):
+        decision = policy.plan(
+            _observation(policy, frame, track_nonempty=np.zeros(2, bool))
+        )
+        assert decision.removed_unmatched == ()
+
+
+def _sharing_observation(policy: AssociationPolicy, frame: int, detections: int = 1):
+    matches = np.zeros((NUM_QUERIES, policy.num_slots), bool)
+    matches[:detections, :2] = True
+    return _observation(
+        policy,
+        frame,
+        matches=matches,
+        high_iom=np.ones((NUM_QUERIES, policy.num_slots), bool),
+    )
+
+
 def test_hot_start_removes_the_younger_of_two_objects_sharing_a_detection():
     policy = _policy()
     _start_objects(policy, 0)
@@ -143,19 +200,39 @@ def test_hot_start_removes_the_younger_of_two_objects_sharing_a_detection():
             policy, 1, new_detection=new, detection_probabilities=probabilities
         )
     ).added[0]
-    high_iom = np.zeros((NUM_QUERIES, 2), bool)
-    high_iom[0, :2] = True
 
     for frame in range(2, 9):
-        assert (
-            policy.plan(
-                _observation(policy, frame, high_iom=high_iom)
-            ).removed_duplicate
-            == ()
-        )
-    decision = policy.plan(_observation(policy, 9, high_iom=high_iom))
+        assert policy.plan(_sharing_observation(policy, frame)).removed_duplicate == ()
+    decision = policy.plan(_sharing_observation(policy, 9))
     assert decision.removed_duplicate == (younger.object_id,)
     assert decision.removed_unmatched == ()
+
+
+def test_hot_start_counts_each_shared_detection():
+    policy = _policy()
+    _start_objects(policy, 0)
+    new = np.zeros(NUM_QUERIES, bool)
+    new[1] = True
+    policy.plan(
+        _observation(
+            policy,
+            1,
+            new_detection=new,
+            detection_probabilities=np.full(NUM_QUERIES, 0.9, np.float32),
+        )
+    )
+    for frame in range(2, 5):
+        assert (
+            policy.plan(_sharing_observation(policy, frame, 2)).removed_duplicate == ()
+        )
+    assert policy.plan(_sharing_observation(policy, 5, 2)).removed_duplicate == (1,)
+
+
+def test_objects_of_the_same_frame_are_never_duplicates():
+    policy = _policy()
+    _start_objects(policy, 0, 1)
+    for frame in range(12):
+        assert policy.plan(_sharing_observation(policy, frame)).removed_duplicate == ()
 
 
 def _recondition_fields(policy: AssociationPolicy) -> dict[str, np.ndarray]:
@@ -163,6 +240,7 @@ def _recondition_fields(policy: AssociationPolicy) -> dict[str, np.ndarray]:
     confident_detection[0] = True
     return {
         "high_iom": _matched(policy, 0),
+        "unique_high_iom": _matched(policy, 0),
         "confident_detection": confident_detection,
         "confident_track": np.ones(policy.num_slots, bool),
     }
@@ -191,16 +269,14 @@ def test_reconditioning_skips_ambiguous_matches():
     policy = _policy()
     _start_objects(policy, 0)
     fields = _recondition_fields(policy)
-    ambiguous = np.zeros_like(fields["high_iom"])
-    ambiguous[0, 0] = True
-    decision = policy.plan(_observation(policy, 16, ambiguous=ambiguous, **fields))
-    assert decision.reconditioned == ()
+    fields["unique_high_iom"] = np.zeros_like(fields["unique_high_iom"])
+    assert policy.plan(_observation(policy, 16, **fields)).reconditioned == ()
 
 
 def _occlude(policy: AssociationPolicy, frame: int, *tracks: int) -> None:
-    scores = np.ones(policy.num_buckets * policy.num_slots, np.float32)
-    scores[list(tracks)] = -1.0
-    policy.plan(_observation(policy, frame, object_score_logits=scores))
+    nonempty = np.ones(policy.num_buckets * policy.num_slots, bool)
+    nonempty[list(tracks)] = False
+    policy.plan(_observation(policy, frame, track_nonempty=nonempty))
 
 
 def test_occlusion_suppresses_the_more_recently_occluded_object():
@@ -210,12 +286,66 @@ def test_occlusion_suppresses_the_more_recently_occluded_object():
 
     assert policy.plan(_observation(policy, 1, track_iou=track_iou)).suppressed == ()
     _occlude(policy, 2, 0)
+    # The other object was never occluded, so it cannot suppress anything.
     assert policy.plan(_observation(policy, 3, track_iou=track_iou)).suppressed == ()
     _occlude(policy, 4, 1)
     assert policy.plan(_observation(policy, 5, track_iou=track_iou)).suppressed == (1,)
 
     below = np.asarray([[1.0, 0.65], [0.65, 1.0]], np.float32)
     assert policy.plan(_observation(policy, 6, track_iou=below)).suppressed == ()
+
+
+def test_occlusion_ties_suppress_nobody():
+    policy = _policy()
+    _start_objects(policy, 0, 1)
+    _occlude(policy, 1, 0, 1)
+    track_iou = np.asarray([[1.0, 0.8], [0.8, 1.0]], np.float32)
+    assert policy.plan(_observation(policy, 2, track_iou=track_iou)).suppressed == ()
+
+
+def test_occlusion_reads_the_masks_after_reconditioning():
+    policy = _policy()
+    _start_objects(policy, 0, 1)
+    _occlude(policy, 1, 0)
+    _occlude(policy, 2, 1)
+    fields = _recondition_fields(policy)
+    fields["confident_track"] = np.ones(2, bool)
+    overlapping = np.asarray([[1.0, 0.8], [0.8, 1.0]], np.float32)
+    decision = policy.plan(
+        _observation(policy, 16, reconditioned_iou=overlapping, **fields)
+    )
+    assert decision.reconditioned == (Reconditioning(0, 0),)
+    assert decision.suppressed == (1,)
+
+
+def test_objects_removed_this_frame_are_suppressed_first_when_they_overlap():
+    policy = _policy()
+    _start_objects(policy, 0)
+    new = np.zeros(NUM_QUERIES, bool)
+    new[1] = True
+    policy.plan(
+        _observation(
+            policy,
+            1,
+            new_detection=new,
+            detection_probabilities=np.full(NUM_QUERIES, 0.9, np.float32),
+        )
+    )
+    _occlude(policy, 2, 0)
+    track_iou = np.asarray([[1.0, 0.8], [0.8, 1.0]], np.float32)
+    for frame in range(3, 10):
+        policy.plan(_sharing_observation(policy, frame))
+    observation = _sharing_observation(policy, 10)
+    observation = FrameObservation(
+        **{
+            **observation.__dict__,
+            "track_iou": track_iou,
+            "track_nonempty": np.ones(2, bool),
+        }
+    )
+    decision = policy.plan(observation)
+    assert decision.removed_duplicate == (1,)
+    assert decision.suppressed == (1,)
 
 
 def test_new_objects_join_the_tightest_live_bucket_that_holds_the_batch():
@@ -266,6 +396,7 @@ def test_removed_slots_are_not_reused_and_a_large_batch_starts_a_new_state():
     assert policy.state_group[1] == policy.state_group[2]
     assert policy.state_group[1] != policy.state_group[0]
     assert decision.reencode_buckets == (1, 2)
+    assert decision.new_state_buckets == (1, 2)
 
 
 def test_released_buckets_are_reused_and_get_a_fresh_state_group():
@@ -292,6 +423,47 @@ def test_released_buckets_are_reused_and_get_a_fresh_state_group():
     assert decision.num_buckets == 2
     assert decision.added[0].bucket == 0
     assert policy.slot_status[0, 0] == SLOT_ACTIVE
+
+
+def test_new_objects_join_the_fullest_state_that_holds_them():
+    policy = _policy(max_objects=16, num_slots=4)
+    new = np.zeros(NUM_QUERIES, bool)
+    new[0] = True
+    probabilities = np.full(NUM_QUERIES, 0.9, np.float32)
+    keep = np.ones(NUM_QUERIES, bool)
+
+    policy.plan_prompt_frame(new, keep, probabilities)
+    both = np.ones(NUM_QUERIES, bool)
+    decision = policy.plan(
+        _observation(
+            policy,
+            1,
+            new_detection=both,
+            detection_probabilities=probabilities,
+            high_iom=np.ones((NUM_QUERIES, policy.num_slots), bool),
+        )
+    )
+    assert [(new.bucket, new.slot) for new in decision.added] == [
+        (1, 0),
+        (1, 1),
+        (1, 2),
+        (1, 3),
+    ]
+    assert decision.reencode_buckets == (1,)
+
+    decision = policy.plan(
+        _observation(
+            policy,
+            2,
+            new_detection=new,
+            detection_probabilities=probabilities,
+            high_iom=np.ones(
+                (NUM_QUERIES, policy.num_buckets * policy.num_slots), bool
+            ),
+        )
+    )
+    assert [(item.bucket, item.slot) for item in decision.added] == [(0, 1)]
+    assert decision.new_state_buckets == ()
 
 
 def test_objects_over_the_cap_are_dropped_and_reported():
@@ -341,7 +513,7 @@ def test_point_objects_get_unused_ids_and_existing_ones_are_refused():
     assert decision.added[0].object_id == 8
 
 
-def test_rendering_gives_pixels_to_the_higher_probability_then_the_lower_id():
+def test_rendering_gives_pixels_to_the_higher_priority_then_the_lower_id():
     logits = np.full((3, MASK_SIZE, MASK_SIZE), -1.0, np.float32)
     logits[0, :8] = 1.0
     logits[1, :] = 1.0
@@ -349,7 +521,7 @@ def test_rendering_gives_pixels_to_the_higher_probability_then_the_lower_id():
         4,
         np.asarray([3, 5, 9], np.int32),
         logits,
-        np.asarray([1.0, 1.0, 2.0], np.float32),
+        np.asarray([0.7, 0.7, 0.9], np.float32),
         np.asarray([0.6, 0.7, 0.8], np.float32),
         (MASK_SIZE, MASK_SIZE),
     )
@@ -359,6 +531,22 @@ def test_rendering_gives_pixels_to_the_higher_probability_then_the_lower_id():
     assert prediction.masks[0, :8].all() and not prediction.masks[1, :8].any()
     assert prediction.masks[1, 8:].all()
     assert prediction.boxes[1].tolist() == [0.0, 0.0, 15.0, 15.0]
+
+
+def test_rendering_keeps_an_object_that_lost_all_its_pixels():
+    logits = np.full((2, MASK_SIZE, MASK_SIZE), -1.0, np.float32)
+    logits[:, :8] = 1.0
+    prediction = _render_prediction(
+        0,
+        np.asarray([1, 2], np.int32),
+        logits,
+        np.asarray([0.9, 0.2], np.float32),
+        np.asarray([0.9, 0.2], np.float32),
+        (MASK_SIZE, MASK_SIZE),
+    )
+    assert prediction.object_ids.tolist() == [1, 2]
+    assert not prediction.masks[1].any()
+    assert prediction.boxes[1].tolist() == prediction.boxes[0].tolist()
 
 
 def test_importing_equimo_does_not_import_the_video_module():
@@ -434,7 +622,7 @@ def _script_new_detections(driver: Sam3VideoTracker, new: dict[int, list[int]]) 
 
     def scripted(model, detections, tracks, state):
         tracks_total = state.slot_status.size
-        _, probabilities, scores = real(model, detections, tracks, state)
+        _, probabilities = real(model, detections, tracks, state)
         flags = np.zeros(NUM_QUERIES, bool)
         flags[new.get(driver._next_frame, [])] = True
         no_pairs = jnp.zeros((NUM_QUERIES, tracks_total), bool)
@@ -444,14 +632,16 @@ def _script_new_detections(driver: Sam3VideoTracker, new: dict[int, list[int]]) 
                 iom=jnp.zeros((NUM_QUERIES, tracks_total)),
                 matches=no_pairs,
                 high_iom=no_pairs,
-                ambiguous=no_pairs,
+                unique_high_iom=no_pairs,
                 new_detection=jnp.asarray(flags),
                 confident_detection=jnp.zeros(NUM_QUERIES, bool),
                 confident_track=jnp.zeros(tracks_total, bool),
+                track_nonempty=jnp.ones(tracks_total, bool),
                 track_iou=jnp.zeros((tracks_total, tracks_total)),
+                reconditioned_iou=jnp.zeros((tracks_total, tracks_total)),
+                reconditioned_nonempty=jnp.ones(tracks_total, bool),
             ),
             probabilities,
-            jnp.ones_like(scores),
         )
 
     driver._steps.associate = scripted
@@ -461,7 +651,7 @@ def _capture_shown_objects(monkeypatch) -> list[tuple[int, list[int]]]:
     """Record which objects each emitted frame shows, whatever their masks hold."""
     shown: list[tuple[int, list[int]]] = []
 
-    def capture(frame_index, object_ids, mask_logits, score_logits, scores, size):
+    def capture(frame_index, object_ids, mask_logits, priorities, scores, size):
         shown.append((frame_index, object_ids.tolist()))
         return FramePrediction(
             frame_index, object_ids, mask_logits, np.zeros(0), scores
@@ -544,22 +734,22 @@ def test_new_objects_are_hidden_until_confirmed_two_frames_later(model, monkeypa
     real = driver._steps.associate
 
     def matched_after_birth(model, detections, tracks, state):
-        association, probabilities, scores = real(model, detections, tracks, state)
+        association, probabilities = real(model, detections, tracks, state)
         new = driver._next_frame == 1
-        pairs = np.zeros(association.high_iom.shape, bool)
+        pairs = np.zeros(association.matches.shape, bool)
         if driver._next_frame in (2, 3):
             pairs[0, 0] = True
         return (
             eqx.tree_at(
-                lambda a: (a.new_detection, a.high_iom),
+                lambda a: (a.new_detection, a.matches, a.high_iom),
                 association,
                 (
                     jnp.zeros(NUM_QUERIES, bool).at[0].set(new),
                     jnp.asarray(pairs),
+                    jnp.asarray(pairs),
                 ),
             ),
             probabilities,
-            scores,
         )
 
     driver._steps.associate = matched_after_birth
@@ -578,7 +768,7 @@ def test_finish_clamps_the_look_ahead_to_the_last_frame(model, monkeypatch):
     assert driver.push_frame(FRAME) == []
     assert driver.push_frame(FRAME) == []
     assert len(driver.finish()) == 2
-    assert shown == [(0, [0]), (1, [0])]
+    assert shown == [(0, []), (1, [])]
 
 
 def test_driver_runs_real_detection_and_association_on_random_weights(model):
@@ -668,21 +858,14 @@ def test_new_object_by_points_is_tracked_alone(model):
         driver.add_object(1, OTHER_FRAME, points, [1, 0], object_id=0)
 
 
-def test_point_object_keeps_the_interactive_head_result(model):
+def test_point_object_starts_as_a_conditioning_frame(model):
     driver = Sam3VideoTracker(model, num_frames=3, source_size=SOURCE_SIZE)
-    features = model.encode_image(FRAME)
     points = np.asarray([[10.0, 20.0], [40.0, 30.0]])
-    prompt = InteractivePrompt.create(
-        points=jnp.asarray(points, jnp.float32),
-        point_labels=jnp.asarray([1, 0]),
-        mask_size=MASK_SIZE,
-    )
-    mask, _, _ = model.tracker.decode_object(model.interactive, features, prompt)
 
     track = driver.add_object(0, FRAME, points, [1, 0])
-    # The driver's jitted result differs from this eager one by rounding on a GPU.
-    assert jnp.allclose(track._state.last_masks[0, 0], mask, rtol=1e-3, atol=1e-3)
     assert track._state.recent_is_cond[0, 0]
+    assert track._state.cond_frame[0].tolist() == [0, -1, -1, -1]
+    assert track._state.slot_status[0].tolist() == [SLOT_ACTIVE, SLOT_EMPTY]
 
 
 def test_driver_requires_a_prompt_and_rejects_frames_past_the_end(model):

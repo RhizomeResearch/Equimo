@@ -89,4 +89,8 @@ The checks read the hosted archives through `pretrained=True`, from the cache fi
 
 The tiny clip's decision trace is in `sam3_tiny_reference.json`. Its detection and track masks are a fixed script,
 because random weights produce nothing the association policy would act on; the real detector and tracker still run and
-are recorded under `inputs.*` and `outputs.*`.
+are recorded under `inputs.*` and `outputs.*`. `frames.*` holds, per pass, the scripted detections and tracks, what the
+tracker computed before the script replaced its masks (`raw_track_*`), and what each state stored once the frame was
+executed (`maskmem_features`, `obj_ptr`, `pred_masks`, `object_score_logits`). `points.*` holds the singleton state of
+the object added with points. No scripted occlusion is possible on random weights; the clip's trace has no suppressed
+objects, so the unit tests cover that rule.

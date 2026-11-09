@@ -4,36 +4,53 @@ The module holds the association policy, which only uses NumPy so that it can be
 replayed on CPU from recorded device outputs, and the driver that runs the
 device steps around it. It is imported explicitly and never by ``import equimo``.
 
-For each frame the policy applies, in this order, the rules below. Values come
-from the 3.1 builder and class defaults of ``facebookresearch/sam3`` at
-``f1647e8``, in ``sam3/model/sam3_video_base.py`` and
-``sam3/model/sam3_multiplex_base.py``:
+Each rule below is the behavior of ``facebookresearch/sam3`` at ``f1647e8``, with
+its location; paths are relative to ``sam3/model/``. For each frame the policy
+applies them in this order:
 
-- Hot-start: while an object is younger than 15 frames, it is removed once it has
-  gone unmatched for 8 frames, or once it has shared a detection with an older
-  object for 8 frames. A track is matched by an IoM of at least 0.5.
-- Reconditioning: on frames where ``t % 16 == 0``, a track whose probability is
-  above 0.8 takes the mask of a detection of probability at least 0.8 that it
-  overlaps with an IoM of at least 0.5, unless that match is ambiguous.
-- Occlusion: of two tracks with an IoU of at least 0.7 that were both occluded
-  before, the more recently occluded one is suppressed for this frame. An object
-  is occluded on a frame where its object score is not positive.
-- New objects: the highest-scoring new detections are kept up to ``max_objects``.
-- Buckets: a batch of new objects joins the live bucket with the fewest empty
-  slots that can hold it all. Otherwise it starts a new state on free buckets,
-  growing the bucket count in powers of two. Removed slots are never reused
-  within a live bucket, and a bucket without live objects is released.
-- Confirmation: an object is shown after 3 consecutive matched frames, counting
-  the frame it was detected on. Objects of the prompt frame are shown at once.
+- Hot-start (``sam3_multiplex_base.py:_process_hotstart_gpu``): a non-empty track
+  with no IoM of at least 0.5 counts as unmatched. An object at most 15 frames
+  old is removed after 8 such frames in total. Overlaps of at least 0.1 on the
+  same detection count for both objects, once per detection, and an object
+  younger than another that strictly predates it is removed at 8.
+- Reconditioning (``sam3_multiplex_base.py:_recondition_masklets``): on frames
+  where ``t % 16 == 0``, a track whose probability is above 0.8 takes the mask of
+  a kept detection of probability at least 0.8 that it matches uniquely with an
+  IoM of at least 0.5. Objects removed on this frame also take part, the frame
+  stays non-conditioning, and detections that are new are not eligible.
+- Occlusion (``sam3_multiplex_base.py:_suppress_overlapping_based_on_recent_occlusion``
+  and ``_get_objects_to_suppress_based_on_most_recently_occluded``): after
+  reconditioning, of two tracks with an IoU of at least 0.7, the one with the
+  strictly later occlusion frame is suppressed if the other was occluded before.
+  An object removed on this frame counts as occluded at frame 100000.
+  A mask without pixels and a suppressed object both record this frame as occluded.
+- New objects (``sam3_video_base.py:get_new_det_gpu_ids`` and
+  ``_drop_new_det_with_obj_limit``): a detection without a raw IoM of at least 0.1
+  is new. They keep detection order, kept detections first, unless the object
+  count before this frame's removals is over ``max_objects``, when the highest
+  scores are kept.
+- States (``sam3_multiplex_base.py:_tracker_add_new_objects`` and
+  ``multiplex_utils.py:MultiplexState``): new objects of one frame join the state
+  with the fewest empty slots that can hold them all, the first created on ties,
+  filling its buckets in order. Otherwise they start a new state on free buckets,
+  growing the bucket count in powers of two. Removed slots are never reused in a
+  live bucket, and a bucket without live objects is released after the frame's
+  memory is written.
+- Confirmation (``sam3_multiplex_base.py:update_masklet_confirmation_status``): an
+  object is confirmed after 3 consecutive passes matched by a kept detection or
+  created, counting both passes of the prompt frame.
 
-Hot-start removals do not hide earlier frames. The emitted score is the
-detection probability at birth, and each pixel goes to the object with the higher
-tracker probability, ties to the lower ID.
+Emission (``sam3_multiplex_tracking.py:propagate_in_video`` and
+``_postprocess_output_batched``): an object is hidden when it is unconfirmed and
+still live two frames later, so removed objects stay visible up to the frame they
+are removed on. Removed objects are emitted on that frame with a score of -1e4.
+Objects without pixels are dropped before per-pixel overlaps are resolved by
+decreasing tracker probability (the detection probability on a birth frame), ties
+to the lower ID, so an object can end up shown with an empty mask.
 """
 
 from __future__ import annotations
 
-import itertools
 from collections import deque
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -47,7 +64,6 @@ from loguru import logger
 
 from equimo.vision.models.sam3.decoding import (
     boxes_from_masks,
-    remove_overlaps,
     single_frame_nms,
 )
 from equimo.vision.models.sam3.detector import ConceptPrompt, DetectorOutput
@@ -65,7 +81,7 @@ from equimo.vision.models.sam3.tracker import (
     CommitPlan,
     TrackerState,
     TrackOutput,
-    _priority_order,
+    detection_keep,
     pad_tracker_buckets,
 )
 
@@ -79,6 +95,8 @@ _CONFIRMATION_FRAMES = 3
 # hides objects that are still unconfirmed by then.
 _EMISSION_LAG = _CONFIRMATION_FRAMES - 1
 _NO_OBJECT = -1
+_ALWAYS_OCCLUDED = 100000
+_REMOVED_SCORE = -1e4
 
 
 def _next_power_of_two(value: int) -> int:
@@ -90,7 +108,8 @@ class FramePrediction:
     """Objects shown on one frame, at the clip's source size.
 
     ``boxes`` are ``(x_min, y_min, x_max, y_max)`` pixels of each mask before
-    per-pixel overlaps are resolved.
+    per-pixel overlaps are resolved. ``scores`` are detection probabilities at
+    birth, or -1e4 for an object removed on this frame.
     """
 
     frame_index: int
@@ -102,17 +121,25 @@ class FramePrediction:
 
 @dataclass(frozen=True)
 class FrameObservation:
-    """Device outputs the policy decides from, over ``tracks = buckets * slots``."""
+    """Device outputs the policy decides from, over ``tracks = buckets * slots``.
+
+    ``matches`` and ``unique_high_iom`` exclude ambiguous rows and columns;
+    ``high_iom`` does not. See :class:`Association` for the other fields.
+    """
 
     frame_index: int
+    keep: np.ndarray
+    matches: np.ndarray
     high_iom: np.ndarray
-    ambiguous: np.ndarray
+    unique_high_iom: np.ndarray
     new_detection: np.ndarray
     confident_detection: np.ndarray
     confident_track: np.ndarray
+    track_nonempty: np.ndarray
     track_iou: np.ndarray
+    reconditioned_iou: np.ndarray
+    reconditioned_nonempty: np.ndarray
     detection_probabilities: np.ndarray
-    object_score_logits: np.ndarray
 
     @classmethod
     def from_device(
@@ -120,19 +147,22 @@ class FrameObservation:
         frame_index: int,
         association: Association,
         detection_probabilities: jax.Array,
-        object_score_logits: jax.Array,
     ) -> FrameObservation:
         """Copy one frame's device outputs to the host."""
         return cls(
             frame_index=frame_index,
+            keep=np.asarray(association.keep),
+            matches=np.asarray(association.matches),
             high_iom=np.asarray(association.high_iom),
-            ambiguous=np.asarray(association.ambiguous),
+            unique_high_iom=np.asarray(association.unique_high_iom),
             new_detection=np.asarray(association.new_detection),
             confident_detection=np.asarray(association.confident_detection),
             confident_track=np.asarray(association.confident_track),
+            track_nonempty=np.asarray(association.track_nonempty),
             track_iou=np.asarray(association.track_iou),
+            reconditioned_iou=np.asarray(association.reconditioned_iou),
+            reconditioned_nonempty=np.asarray(association.reconditioned_nonempty),
             detection_probabilities=np.asarray(detection_probabilities),
-            object_score_logits=np.asarray(object_score_logits).ravel(),
         )
 
 
@@ -184,19 +214,8 @@ class FrameDecision:
     dropped_queries: tuple[int, ...] = ()
     released_buckets: tuple[int, ...] = ()
     reencode_buckets: tuple[int, ...] = ()
+    new_state_buckets: tuple[int, ...] = ()
     num_buckets: int = 1
-
-    @property
-    def changes_objects(self) -> bool:
-        """Tell whether ``commit`` has anything to apply for this decision."""
-        return bool(
-            self.added
-            or self.removed_unmatched
-            or self.removed_duplicate
-            or self.reconditioned
-            or self.suppressed
-            or self.released_buckets
-        )
 
 
 class AssociationPolicy:
@@ -216,6 +235,7 @@ class AssociationPolicy:
         self._duplicate_frames: dict[tuple[int, int], int] = {}
         self._point_object_ids: set[int] = set()
         self._next_object_id = 0
+        self._state_order: list[int] = []
 
     @property
     def num_buckets(self) -> int:
@@ -238,25 +258,24 @@ class AssociationPolicy:
         return obj.bucket * self.num_slots + obj.slot
 
     def live_objects(self) -> list[TrackedObject]:
-        """Return the objects in active slots, by increasing track index."""
+        """Return the objects in active slots, by increasing object ID."""
         active = np.argwhere(self.slot_status == SLOT_ACTIVE)
-        return [self.objects[int(self.slot_object[b, s])] for b, s in active]
+        objects = [self.objects[int(self.slot_object[b, s])] for b, s in active]
+        return sorted(objects, key=lambda obj: obj.object_id)
 
     def plan_prompt_frame(
-        self, keep: np.ndarray, probabilities: np.ndarray
+        self, candidates: np.ndarray, keep: np.ndarray, probabilities: np.ndarray
     ) -> FrameDecision:
-        """Create the objects of the prompt frame's first pass, all shown at once."""
-        added, dropped, reencode = self._add_objects(keep, probabilities, 0)
-        confirmed = []
-        for new_object in added:
-            self.objects[new_object.object_id].confirmed = True
-            confirmed.append(new_object.object_id)
+        """Create the objects of the prompt frame's first pass."""
+        added, dropped, reencode, new_state = self._add_objects(
+            candidates, keep, probabilities, frame=0, objects_before=0
+        )
         return FrameDecision(
             frame_index=0,
             added=added,
-            confirmed=tuple(confirmed),
             dropped_queries=dropped,
             reencode_buckets=reencode,
+            new_state_buckets=new_state,
             num_buckets=self.num_buckets,
         )
 
@@ -264,31 +283,30 @@ class AssociationPolicy:
         """Apply the policy to one propagated frame and update its metadata."""
         frame = observation.frame_index
         live = self.live_objects()
-        matched = {
-            obj.object_id: bool(observation.high_iom[:, self._track_index(obj)].any())
-            for obj in live
-        }
-
-        unmatched = self._hot_start_unmatched(live, matched, frame)
+        unmatched = self._hot_start_unmatched(live, observation)
         duplicate = self._hot_start_duplicates(live, observation) - unmatched
-        for object_id in unmatched | duplicate:
+        removed = unmatched | duplicate
+
+        reconditioned = self._reconditioning(live, observation)
+        suppressed = self._occlusion_suppression(
+            live, removed, reconditioned, observation
+        )
+
+        for object_id in removed:
             obj = self.objects[object_id]
             self.slot_status[obj.bucket, obj.slot] = SLOT_REMOVED
-        remaining = [
-            obj for obj in live if obj.object_id not in (unmatched | duplicate)
-        ]
 
-        reconditioned = self._reconditioning(remaining, observation)
-        suppressed = self._occlusion_suppression(remaining, observation)
-        for obj in remaining:
-            if observation.object_score_logits[self._track_index(obj)] <= 0:
-                obj.last_occluded_frame = frame
-
-        added, dropped, reencode = self._add_objects(
-            observation.new_detection, observation.detection_probabilities, frame
+        added, dropped, reencode, new_state = self._add_objects(
+            observation.new_detection,
+            observation.keep,
+            observation.detection_probabilities,
+            frame=frame,
+            objects_before=len(live),
         )
         released = self._release_buckets()
-        confirmed = self._confirm(remaining, matched)
+        confirmed = self._confirm(
+            [obj for obj in live if obj.object_id not in removed], observation
+        )
         return FrameDecision(
             frame_index=frame,
             added=added,
@@ -300,93 +318,143 @@ class AssociationPolicy:
             dropped_queries=dropped,
             released_buckets=released,
             reencode_buckets=reencode,
+            new_state_buckets=new_state,
             num_buckets=self.num_buckets,
         )
 
+    def _in_hot_start(self, obj: TrackedObject, frame: int) -> bool:
+        return frame - obj.birth_frame < _HOT_START_FRAMES
+
     def _hot_start_unmatched(
-        self, live: list[TrackedObject], matched: dict[int, bool], frame: int
+        self, live: list[TrackedObject], observation: FrameObservation
     ) -> set[int]:
         removed = set()
         for obj in live:
-            if frame - obj.birth_frame >= _HOT_START_FRAMES:
-                continue
-            if not matched[obj.object_id]:
+            track = self._track_index(obj)
+            if (
+                observation.track_nonempty[track]
+                and not observation.high_iom[:, track].any()
+            ):
                 obj.unmatched_frames += 1
-            if obj.unmatched_frames >= _HOT_START_UNMATCHED_FRAMES:
+            if (
+                self._in_hot_start(obj, observation.frame_index)
+                and obj.unmatched_frames >= _HOT_START_UNMATCHED_FRAMES
+            ):
                 removed.add(obj.object_id)
         return removed
 
     def _hot_start_duplicates(
         self, live: list[TrackedObject], observation: FrameObservation
     ) -> set[int]:
-        """Count the pairs sharing a detection and return the objects to remove."""
-        by_track = {self._track_index(obj): obj for obj in live}
+        """Count overlaps on one detection per pair, and return the objects to remove."""
         frame = observation.frame_index
-        pairs: set[tuple[int, int]] = set()
-        for detection in np.flatnonzero(observation.high_iom.sum(axis=1) >= 2):
+        for detection in range(observation.matches.shape[0]):
             sharing = [
-                by_track[int(track)]
-                for track in np.flatnonzero(observation.high_iom[detection])
+                obj
+                for obj in live
+                if observation.matches[detection, self._track_index(obj)]
             ]
-            for a, b in itertools.combinations(sharing, 2):
-                older, younger = sorted(
-                    (a, b), key=lambda obj: (obj.birth_frame, obj.object_id)
-                )
-                if frame - younger.birth_frame < _HOT_START_FRAMES:
-                    pairs.add((older.object_id, younger.object_id))
-
-        removed = set()
-        for pair in sorted(pairs):
-            self._duplicate_frames[pair] = self._duplicate_frames.get(pair, 0) + 1
-            if self._duplicate_frames[pair] >= _HOT_START_DUPLICATE_FRAMES:
-                removed.add(pair[1])
-        return removed
+            if len(sharing) < 2:
+                continue
+            for index, older in enumerate(sharing):
+                for younger in sharing[index + 1 :]:
+                    if older.birth_frame < younger.birth_frame:
+                        pair = (older.object_id, younger.object_id)
+                        self._duplicate_frames[pair] = (
+                            self._duplicate_frames.get(pair, 0) + 1
+                        )
+        return {
+            younger
+            for (_, younger), count in self._duplicate_frames.items()
+            if count >= _HOT_START_DUPLICATE_FRAMES
+            and younger in {obj.object_id for obj in live}
+            and self._in_hot_start(self.objects[younger], frame)
+        }
 
     def _reconditioning(
-        self, remaining: list[TrackedObject], observation: FrameObservation
+        self, live: list[TrackedObject], observation: FrameObservation
     ) -> tuple[Reconditioning, ...]:
         if observation.frame_index % _RECONDITION_PERIOD != 0:
             return ()
         eligible = (
-            observation.high_iom
-            & ~observation.ambiguous
-            & observation.confident_detection[:, None]
+            observation.unique_high_iom & observation.confident_detection[:, None]
         )
         chosen = []
-        for obj in remaining:
+        for obj in live:
             track = self._track_index(obj)
             queries = np.flatnonzero(eligible[:, track])
             if observation.confident_track[track] and queries.size > 0:
-                chosen.append(Reconditioning(obj.object_id, int(queries[0])))
+                chosen.append(Reconditioning(obj.object_id, int(queries[-1])))
         return tuple(chosen)
 
     def _occlusion_suppression(
-        self, remaining: list[TrackedObject], observation: FrameObservation
+        self,
+        live: list[TrackedObject],
+        removed: set[int],
+        reconditioned: tuple[Reconditioning, ...],
+        observation: FrameObservation,
     ) -> tuple[int, ...]:
-        suppressed = set()
-        for a, b in itertools.combinations(remaining, 2):
-            if a.last_occluded_frame < 0 or b.last_occluded_frame < 0:
-                continue
-            iou = observation.track_iou[self._track_index(a), self._track_index(b)]
-            if iou < _OCCLUSION_IOU:
-                continue
-            latest = max(
-                (a, b), key=lambda obj: (obj.last_occluded_frame, obj.object_id)
+        if reconditioned:
+            track_iou = observation.reconditioned_iou
+            nonempty = observation.reconditioned_nonempty
+        else:
+            track_iou = observation.track_iou
+            nonempty = observation.track_nonempty
+
+        def last_occluded(obj: TrackedObject) -> int:
+            return (
+                _ALWAYS_OCCLUDED
+                if obj.object_id in removed
+                else obj.last_occluded_frame
             )
-            suppressed.add(latest.object_id)
+
+        suppressed = set()
+        for index, first in enumerate(live):
+            for second in live[index + 1 :]:
+                iou = track_iou[self._track_index(first), self._track_index(second)]
+                if iou < _OCCLUSION_IOU:
+                    continue
+                first_time, second_time = last_occluded(first), last_occluded(second)
+                if first_time > second_time and second_time > -1:
+                    suppressed.add(first.object_id)
+                elif second_time > first_time and first_time > -1:
+                    suppressed.add(second.object_id)
+
+        frame = observation.frame_index
+        for obj in live:
+            if obj.object_id in suppressed or not nonempty[self._track_index(obj)]:
+                obj.last_occluded_frame = frame
         return tuple(sorted(suppressed))
 
     def _add_objects(
-        self, candidates: np.ndarray, probabilities: np.ndarray, frame: int
-    ) -> tuple[tuple[NewObject, ...], tuple[int, ...], tuple[int, ...]]:
-        """Place the highest-scoring candidates and return them, the rest and re-encodes."""
-        order = np.argsort(-probabilities, kind="stable")
-        ranked = [int(query) for query in order if candidates[query]]
-        capacity = max(self.max_objects - len(self.live_objects()), 0)
-        placements = self._place(min(len(ranked), capacity))
+        self,
+        candidates: np.ndarray,
+        keep: np.ndarray,
+        probabilities: np.ndarray,
+        *,
+        frame: int,
+        objects_before: int,
+    ) -> tuple[
+        tuple[NewObject, ...], tuple[int, ...], tuple[int, ...], tuple[int, ...]
+    ]:
+        """Place new detections and return them, the rest, and the affected buckets."""
+        queries = np.flatnonzero(candidates)
+        ordered = [
+            *(int(query) for query in queries if keep[query]),
+            *(int(query) for query in queries if not keep[query]),
+        ]
+        capacity = max(self.max_objects - objects_before, 0)
+        if len(ordered) > capacity:
+            scores = probabilities[ordered]
+            by_score = np.argsort(scores)[::-1][:capacity]
+            chosen = [ordered[index] for index in by_score]
+        else:
+            chosen = ordered
+        placements, new_state = self._place(len(chosen))
+        chosen = chosen[: len(placements)]
 
         added = []
-        for query, (bucket, slot) in zip(ranked, placements):
+        for query, (bucket, slot) in zip(chosen, placements):
             object_id = self._next_object_id
             self._next_object_id += 1
             score = float(probabilities[query])
@@ -402,7 +470,8 @@ class AssociationPolicy:
             self.slot_object[bucket, slot] = object_id
             added.append(NewObject(object_id, query, bucket, slot, score))
 
-        dropped = tuple(ranked[len(added) :])
+        kept_queries = {new.query for new in added}
+        dropped = tuple(query for query in ordered if query not in kept_queries)
         if dropped:
             logger.warning(
                 f"Frame {frame}: dropped {len(dropped)} new objects: "
@@ -415,22 +484,44 @@ class AssociationPolicy:
             for bucket in np.flatnonzero(self.bucket_valid)
             if int(self.state_group[bucket]) in groups
         )
-        return tuple(added), dropped, reencode
+        return tuple(added), dropped, reencode, new_state
 
-    def _place(self, count: int) -> list[tuple[int, int]]:
-        """Choose ``count`` slots, joining a live bucket or starting a new state."""
+    def _place(self, count: int) -> tuple[list[tuple[int, int]], tuple[int, ...]]:
+        """Choose ``count`` slots, joining a state or starting a new one.
+
+        Also returns the buckets of a state started here.
+        """
         if count == 0:
-            return []
-        empty = (self.slot_status == SLOT_EMPTY).sum(axis=1)
-        live = (self.slot_status == SLOT_ACTIVE).any(axis=1)
-        fitting = [int(b) for b in np.flatnonzero(live & (empty >= count))]
-        if fitting:
-            bucket = min(fitting, key=lambda b: (int(empty[b]), b))
-            slots = np.flatnonzero(self.slot_status[bucket] == SLOT_EMPTY)[:count]
-            return [(bucket, int(slot)) for slot in slots]
-        return self._start_state(count)
+            return [], ()
+        best_group = None
+        best_available = None
+        for group in self._state_order:
+            available = sum(
+                int((self.slot_status[bucket] == SLOT_EMPTY).sum())
+                for bucket in self._group_buckets(group)
+            )
+            if available >= count and (
+                best_available is None or available < best_available
+            ):
+                best_group, best_available = group, available
+        if best_group is None:
+            return self._start_state(count)
+        slots = [
+            (bucket, int(slot))
+            for bucket in self._group_buckets(best_group)
+            for slot in np.flatnonzero(self.slot_status[bucket] == SLOT_EMPTY)
+        ]
+        return slots[:count], ()
 
-    def _start_state(self, count: int) -> list[tuple[int, int]]:
+    def _group_buckets(self, group: int) -> list[int]:
+        return [
+            int(bucket)
+            for bucket in np.flatnonzero(
+                self.bucket_valid & (self.state_group == group)
+            )
+        ]
+
+    def _start_state(self, count: int) -> tuple[list[tuple[int, int]], tuple[int, ...]]:
         """Open free buckets for one batch of objects, as one state."""
         needed = -(-count // self.num_slots)
         free = np.flatnonzero(~self.bucket_valid)
@@ -441,13 +532,14 @@ class AssociationPolicy:
 
         buckets = [int(bucket) for bucket in free[:needed]]
         if not buckets:
-            return []
+            return [], ()
         taken = set(self.state_group[self.bucket_valid].tolist())
         group = next(g for g in range(self.num_buckets) if g not in taken)
         self.bucket_valid[buckets] = True
         self.state_group[buckets] = group
+        self._state_order.append(group)
         slots = [(b, s) for b in buckets for s in range(self.num_slots)]
-        return slots[:count]
+        return slots[:count], tuple(buckets)
 
     def _grow(self, num_buckets: int) -> None:
         extra = num_buckets - self.num_buckets
@@ -467,15 +559,17 @@ class AssociationPolicy:
         released = np.flatnonzero(self.bucket_valid & ~live)
         self.bucket_valid[released] = False
         self.slot_status[released] = SLOT_EMPTY
-        self.slot_object[released] = _NO_OBJECT
+        live_groups = set(self.state_group[self.bucket_valid].tolist())
+        self._state_order = [g for g in self._state_order if g in live_groups]
         return tuple(int(bucket) for bucket in released)
 
     def _confirm(
-        self, remaining: list[TrackedObject], matched: dict[int, bool]
+        self, remaining: list[TrackedObject], observation: FrameObservation
     ) -> tuple[int, ...]:
         confirmed = []
         for obj in remaining:
-            obj.matched_streak = obj.matched_streak + 1 if matched[obj.object_id] else 0
+            matched = bool(observation.matches[:, self._track_index(obj)].any())
+            obj.matched_streak = obj.matched_streak + 1 if matched else 0
             if not obj.confirmed and obj.matched_streak >= _CONFIRMATION_FRAMES:
                 obj.confirmed = True
                 confirmed.append(obj.object_id)
@@ -495,14 +589,19 @@ def _encode_and_detect(
 
 def _prompt_frame_objects(
     detections: DetectorOutput,
-) -> tuple[Bool[Array, " queries"], Float[Array, " queries"]]:
-    """Select the prompt frame's new objects with the single-frame NMS."""
+) -> tuple[Bool[Array, " queries"], Bool[Array, " queries"], Float[Array, " queries"]]:
+    """Select the prompt frame's new objects with the single-frame NMS.
+
+    Also returns which detections pass NMS and the boundary filter, which the
+    order of the new objects follows.
+    """
     probabilities = jax.nn.sigmoid(detections.logits.astype(jnp.float32))
     order = jnp.argsort(-probabilities, stable=True)
     ranked = (probabilities[order] >= _NEW_OBJECT_PROBABILITY) & single_frame_nms(
         detections.mask_logits[order] > 0
     )
-    return jnp.zeros_like(ranked).at[order].set(ranked), probabilities
+    _, keep = detection_keep(detections)
+    return jnp.zeros_like(ranked).at[order].set(ranked), keep, probabilities
 
 
 def _propagate(
@@ -520,11 +619,10 @@ def _associate(
     detections: DetectorOutput,
     tracks: TrackOutput,
     state: TrackerState,
-) -> tuple[Association, jax.Array, jax.Array]:
+) -> tuple[Association, jax.Array]:
     return (
         model.associate(detections, tracks, state),
         jax.nn.sigmoid(detections.logits.astype(jnp.float32)),
-        tracks.object_score_logits.astype(jnp.float32),
     )
 
 
@@ -538,10 +636,27 @@ def _commit(
     return model.commit(state, features, tracks, plan)
 
 
-def _decode_object(
-    model: Sam3, features: ImageFeatures, prompt: InteractivePrompt
-) -> tuple[jax.Array, jax.Array, jax.Array]:
-    return model.tracker.decode_object(model.interactive, features, prompt)
+def _commit_point_object(
+    model: Sam3,
+    state: TrackerState,
+    features: ImageFeatures,
+    prompt: InteractivePrompt,
+    frame_index: jax.Array,
+    source_size: tuple[int, int],
+) -> TrackerState:
+    return model.tracker.commit_point_object(
+        model.interactive, state, features, prompt, frame_index, source_size
+    )
+
+
+def _commit_point_step(
+    model: Sam3,
+    state: TrackerState,
+    features: ImageFeatures,
+    tracks: TrackOutput,
+    frame_index: jax.Array,
+) -> TrackerState:
+    return model.tracker.commit_point_step(state, features, tracks, frame_index)
 
 
 def _stored_tracks(state: TrackerState) -> TrackOutput:
@@ -566,39 +681,46 @@ def _render_prediction(
     frame_index: int,
     object_ids: np.ndarray,
     mask_logits: np.ndarray,
-    score_logits: np.ndarray,
+    priorities: np.ndarray,
     scores: np.ndarray,
     source_size: tuple[int, int],
 ) -> FramePrediction:
     """Upsample masks to the source size and give each pixel to one object.
 
-    Objects left without any pixel, such as occluded ones, are omitted.
+    Objects without any pixel are omitted before overlaps are resolved, so an
+    object can lose all its pixels and still be returned, with an empty mask.
+    Overlaps go to the highest ``priorities`` value, ties to the lower ID.
     """
-    count = object_ids.shape[0]
-    if count == 0:
-        return FramePrediction(
-            frame_index=frame_index,
-            object_ids=np.zeros(0, np.int32),
-            masks=np.zeros((0, *source_size), bool),
-            boxes=np.zeros((0, 4), np.float32),
-            scores=np.zeros(0, np.float32),
-        )
-    resized = resize_bilinear(jnp.asarray(mask_logits, jnp.float32), source_size)
-    masks = resized > 0
-    boxes = np.asarray(boxes_from_masks(masks))
-    order = _priority_order(
-        jnp.asarray(score_logits, jnp.float32), jnp.asarray(object_ids, jnp.int32)
+    empty = FramePrediction(
+        frame_index=frame_index,
+        object_ids=np.zeros(0, np.int32),
+        masks=np.zeros((0, *source_size), bool),
+        boxes=np.zeros((0, 4), np.float32),
+        scores=np.zeros(0, np.float32),
     )
-    resolved = np.asarray(
-        jnp.zeros_like(masks).at[order].set(remove_overlaps(masks[order]))
-    )
-    shown = resolved.any(axis=(-2, -1))
+    if object_ids.shape[0] == 0:
+        return empty
+    order = np.argsort(object_ids, kind="stable")
+    object_ids = object_ids[order]
+    resized = resize_bilinear(jnp.asarray(mask_logits[order], jnp.float32), source_size)
+    masks = np.asarray(resized > 0)
+    has_area = masks.any(axis=(-2, -1))
+    if not has_area.any():
+        return empty
+    masks = masks[has_area]
+    boxes = np.asarray(boxes_from_masks(jnp.asarray(masks)))
+    kept_priorities = priorities[order][has_area].astype(np.float32)
+    if masks.shape[0] > 1:
+        foreground = np.where(masks, kept_priorities[:, None, None], 0.0)
+        winner = np.argmax(foreground, axis=0)
+        rows = np.arange(masks.shape[0])[:, None, None]
+        masks = masks & (winner == rows) & (foreground > 0)
     return FramePrediction(
         frame_index=frame_index,
-        object_ids=object_ids[shown],
-        masks=resolved[shown],
-        boxes=boxes[shown],
-        scores=scores[shown],
+        object_ids=object_ids[has_area],
+        masks=masks,
+        boxes=boxes,
+        scores=scores[order][has_area],
     )
 
 
@@ -609,7 +731,8 @@ class _FrameRecord:
     frame_index: int
     object_ids: np.ndarray
     mask_logits: np.ndarray
-    score_logits: np.ndarray
+    priorities: np.ndarray
+    scores: np.ndarray
 
 
 class _DeviceSteps:
@@ -622,7 +745,8 @@ class _DeviceSteps:
         self.propagate = eqx.filter_jit(_propagate)
         self.associate = eqx.filter_jit(_associate)
         self.commit = eqx.filter_jit(_commit)
-        self.decode_object = eqx.filter_jit(_decode_object)
+        self.commit_point_object = eqx.filter_jit(_commit_point_object)
+        self.commit_point_step = eqx.filter_jit(_commit_point_step)
 
 
 class PointTrack:
@@ -641,54 +765,26 @@ class PointTrack:
     ):
         self.object_id = object_id
         self._tracker = tracker
-        self._state = tracker.model.tracker.empty_state(1)
-        steps = tracker._steps
-        mask, pointer, score_logit = steps.decode_object(
-            tracker.model, features, prompt
+        self._state = tracker._steps.commit_point_object(
+            tracker.model,
+            tracker.model.tracker.empty_state(1),
+            features,
+            prompt,
+            jnp.asarray(frame_index, jnp.int32),
+            tracker.source_size,
         )
-        self._score = np.asarray(
-            jax.nn.sigmoid(jnp.asarray(score_logit, jnp.float32)).reshape(1)
-        )
-        plan = self._plan(frame_index)
-        slot = (0, 0)
-        plan = eqx.tree_at(
-            lambda p: (
-                p.add,
-                p.decoded,
-                p.new_masks,
-                p.decoded_pointers,
-                p.decoded_scores,
-            ),
-            plan,
-            (
-                plan.add.at[slot].set(True),
-                plan.decoded.at[slot].set(True),
-                plan.new_masks.at[slot].set(mask),
-                plan.decoded_pointers.at[slot].set(pointer),
-                plan.decoded_scores.at[slot].set(jnp.asarray(score_logit, jnp.float32)),
-            ),
-        )
-        self._state = steps.commit(
-            tracker.model, self._state, features, _stored_tracks(self._state), plan
-        )
+        self._score = float(jax.nn.sigmoid(self._state.last_scores[0, 0]))
         self._next_frame = frame_index + 1
         self.first_prediction = self._predict(frame_index)
 
-    def _plan(self, frame_index: int) -> CommitPlan:
-        plan = CommitPlan.empty(
-            self._state, jnp.asarray(frame_index, jnp.int32), self._tracker.source_size
-        )
-        return eqx.tree_at(
-            lambda p: p.object_ids, plan, plan.object_ids.at[0, 0].set(self.object_id)
-        )
-
     def _predict(self, frame_index: int) -> FramePrediction:
+        score = self._state.last_scores[0, :1].astype(jnp.float32)
         return _render_prediction(
             frame_index,
             np.asarray([self.object_id], np.int32),
             np.asarray(self._state.last_masks[0, :1]),
-            np.asarray(self._state.last_scores[0, :1]),
-            self._score,
+            np.asarray(jax.nn.sigmoid(score)),
+            np.asarray([self._score], np.float32),
             self._tracker.source_size,
         )
 
@@ -702,8 +798,8 @@ class PointTrack:
         tracks = steps.propagate(
             tracker.model, self._state, features, index, tracker.num_frames
         )
-        self._state = steps.commit(
-            tracker.model, self._state, features, tracks, self._plan(frame_index)
+        self._state = steps.commit_point_step(
+            tracker.model, self._state, features, tracks, index
         )
         self._next_frame = frame_index + 1
         return self._predict(frame_index)
@@ -778,21 +874,15 @@ class Sam3VideoTracker:
                 self.model, self._state, features, index, self.num_frames
             )
 
-        association, probabilities, score_logits = steps.associate(
+        association, probabilities = steps.associate(
             self.model, detections, tracks, self._state
         )
         decision = self.policy.plan(
-            FrameObservation.from_device(
-                frame_index, association, probabilities, score_logits
-            )
+            FrameObservation.from_device(frame_index, association, probabilities)
         )
-        # The prompt frame already holds its memory, unless a later pass changes it.
-        if frame_index > 0 or decision.changes_objects:
-            self._apply(decision, features, detections, tracks)
-        else:
-            self.decisions.append(decision)
+        self._apply(decision, features, detections, tracks)
 
-        self._record(frame_index)
+        self._record(decision, detections)
         self._next_frame = frame_index + 1
         return self._emit_final_frames(frame_index)
 
@@ -831,9 +921,9 @@ class Sam3VideoTracker:
     def _first_pass_of_prompt_frame(
         self, features: ImageFeatures, detections: DetectorOutput
     ) -> None:
-        keep, probabilities = self._steps.prompt_frame_objects(detections)
+        candidates, keep, probabilities = self._steps.prompt_frame_objects(detections)
         decision = self.policy.plan_prompt_frame(
-            np.asarray(keep), np.asarray(probabilities)
+            np.asarray(candidates), np.asarray(keep), np.asarray(probabilities)
         )
         if decision.added:
             self._apply(decision, features, detections, _stored_tracks(self._state))
@@ -867,6 +957,7 @@ class Sam3VideoTracker:
         recondition = np.zeros(shape, bool)
         suppress = np.zeros(shape, bool)
         remove = np.zeros(shape, bool)
+        conditioning = np.zeros(shape, bool)
 
         for object_id in (*decision.removed_unmatched, *decision.removed_duplicate):
             obj = policy.objects[object_id]
@@ -894,14 +985,18 @@ class Sam3VideoTracker:
             obj = policy.objects[item.object_id]
             recondition[obj.bucket, obj.slot] = True
             recondition_targets.append((obj.bucket, obj.slot))
+        for obj in policy.live_objects():
+            if obj.birth_frame == decision.frame_index:
+                conditioning[obj.bucket, obj.slot] = True
+        conditioning = conditioning | add | recondition
 
         release = np.zeros(shape[0], bool)
         release[list(decision.released_buckets)] = True
         reencode = np.zeros(shape[0], bool)
         reencode[list(decision.reencode_buckets)] = True
-        object_ids = np.where(
-            policy.slot_status == SLOT_ACTIVE, policy.slot_object, 0
-        ).astype(np.int32)
+        new_state = np.zeros(shape[0], bool)
+        new_state[list(decision.new_state_buckets)] = True
+        object_ids = np.maximum(policy.slot_object, 0).astype(np.int32)
 
         empty = CommitPlan.empty(
             state, jnp.asarray(decision.frame_index, jnp.int32), self.source_size
@@ -916,6 +1011,8 @@ class Sam3VideoTracker:
                 p.remove,
                 p.release,
                 p.reencode,
+                p.new_state,
+                p.conditioning,
                 p.state_group,
                 p.object_ids,
             ),
@@ -931,21 +1028,43 @@ class Sam3VideoTracker:
                 jnp.asarray(remove),
                 jnp.asarray(release),
                 jnp.asarray(reencode),
+                jnp.asarray(new_state),
+                jnp.asarray(conditioning),
                 jnp.asarray(policy.state_group),
                 jnp.asarray(object_ids),
             ),
         )
 
-    def _record(self, frame_index: int) -> None:
-        live = self.policy.live_objects()
-        buckets = jnp.asarray([obj.bucket for obj in live], jnp.int32)
-        slots = jnp.asarray([obj.slot for obj in live], jnp.int32)
+    def _record(self, decision: FrameDecision, detections: DetectorOutput) -> None:
+        policy = self.policy
+        removed = {*decision.removed_unmatched, *decision.removed_duplicate}
+        birth_queries = {new.object_id: new.query for new in decision.added}
+        objects = sorted(
+            [*policy.live_objects(), *(policy.objects[i] for i in removed)],
+            key=lambda obj: obj.object_id,
+        )
+        buckets = jnp.asarray([obj.bucket for obj in objects], jnp.int32)
+        slots = jnp.asarray([obj.slot for obj in objects], jnp.int32)
+        mask_logits = np.array(self._state.last_masks[buckets, slots])
+        priorities = np.asarray(
+            jax.nn.sigmoid(self._state.last_scores[buckets, slots].astype(jnp.float32))
+        ).copy()
+        scores = np.zeros(len(objects), np.float32)
+        for index, obj in enumerate(objects):
+            scores[index] = obj.birth_score
+            query = birth_queries.get(obj.object_id)
+            if query is not None:
+                mask_logits[index] = np.asarray(detections.mask_logits[query])
+                priorities[index] = obj.birth_score
+            if obj.object_id in removed:
+                scores[index] = _REMOVED_SCORE
         self._pending.append(
             _FrameRecord(
-                frame_index=frame_index,
-                object_ids=np.asarray([obj.object_id for obj in live], np.int32),
-                mask_logits=np.asarray(self._state.last_masks[buckets, slots]),
-                score_logits=np.asarray(self._state.last_scores[buckets, slots]),
+                frame_index=decision.frame_index,
+                object_ids=np.asarray([obj.object_id for obj in objects], np.int32),
+                mask_logits=mask_logits,
+                priorities=priorities,
+                scores=scores,
             )
         )
 
@@ -959,17 +1078,21 @@ class Sam3VideoTracker:
         return predictions
 
     def _render(self, record: _FrameRecord) -> FramePrediction:
+        live = {obj.object_id for obj in self.policy.live_objects()}
         objects = self.policy.objects
-        shown = np.asarray([objects[int(i)].confirmed for i in record.object_ids], bool)
-        scores = np.asarray(
-            [objects[int(i)].birth_score for i in record.object_ids[shown]], np.float32
+        shown = np.asarray(
+            [
+                objects[int(i)].confirmed or int(i) not in live
+                for i in record.object_ids
+            ],
+            bool,
         )
         return _render_prediction(
             record.frame_index,
             record.object_ids[shown],
             record.mask_logits[shown],
-            record.score_logits[shown],
-            scores,
+            record.priorities[shown],
+            record.scores[shown],
             self.source_size,
         )
 

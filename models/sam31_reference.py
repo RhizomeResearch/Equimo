@@ -843,26 +843,36 @@ def scripted_detections(
 ) -> list[tuple[np.ndarray, float]]:
     """Detections of the tiny clip as (mask, probability), highest first.
 
-    Objects 0 and 1 start on frame 0 and object 2 on frame 5. Object 0 keeps
-    matching, so it is confirmed and reconditioned on frame 16. Object 1 is never
-    detected again, so it is removed as unmatched. Object 2 keeps matching but
-    weakly shares a detection with object 0, so it is removed as a duplicate.
+    Objects 0, 1 and 2 start on frame 0 in one state of two buckets, and object 3
+    joins the second bucket on frame 5. Object 0 keeps matching, so it is
+    confirmed and reconditioned on frame 16. Object 1 is never detected again and
+    is removed as unmatched on frame 8. Object 2 stops being detected after
+    frame 5 and is removed as unmatched on frame 13. Object 3 keeps matching but
+    weakly shares a detection with object 0, so it is removed as a duplicate on
+    frame 13, which releases the second bucket. A fifth new detection on frame 6
+    goes over the object limit and is dropped.
     """
     if frame == 0:
-        return [(object_mask(size, 0), 0.91), (object_mask(size, 1), 0.86)]
-    detections: list[tuple[np.ndarray, float]] = []
-    if 0 in track_ids:
-        detections.append((object_mask(size, 0), 0.93))
-    if 2 in track_ids:
+        return [
+            (object_mask(size, 0), 0.91),
+            (object_mask(size, 1), 0.86),
+            (object_mask(size, 2), 0.84),
+        ]
+    detections = [(object_mask(size, 0), 0.93)]
+    if 2 in track_ids and frame <= 5:
         detections.append((object_mask(size, 2), 0.92))
+    if 3 in track_ids:
+        detections.append((object_mask(size, 3), 0.90))
         detections.append((weakly_shared_mask(size), 0.71))
     if frame == 5:
-        detections.append((object_mask(size, 2), 0.77))
-    return detections
+        detections.append((object_mask(size, 3), 0.77))
+    if frame == 6:
+        detections.append((dropped_detection_mask(size), 0.75))
+    return sorted(detections, key=lambda item: -item[1])
 
 
 def weakly_shared_mask(size: int) -> np.ndarray:
-    """A detection touching objects 0 and 2 with an overlap of 3/16 each.
+    """A detection touching objects 0 and 3 with an overlap of 3/16 each.
 
     A strong match to two tracks marks the detection as ambiguous and hides it
     from the duplicate count, so only an overlap between 0.1 and 0.5 counts.
@@ -871,8 +881,16 @@ def weakly_shared_mask(size: int) -> np.ndarray:
     top = side // 2
     mask = np.zeros((size, size), bool)
     mask[top, :3] = True
-    mask[top, 2 * side : 2 * side + 3] = True
+    mask[top, 3 * side : 3 * side + 3] = True
     mask[top + side + 1, :] = True
+    return mask
+
+
+def dropped_detection_mask(size: int) -> np.ndarray:
+    """A block disjoint from every object, for the detection over the limit."""
+    side = size // 4
+    mask = np.zeros((size, size), bool)
+    mask[2 * side : 3 * side, side : 2 * side] = True
     return mask
 
 
@@ -913,6 +931,20 @@ def pad_detections(
     return det_out, torch.from_numpy(keep).to(device)
 
 
+STATE_OUTPUTS = ("maskmem_features", "obj_ptr", "pred_masks", "object_score_logits")
+
+
+def frame_output(state: dict[str, Any], frame: int) -> tuple[str, dict[str, Any]]:
+    """Return where a state stores this frame, and the stored output."""
+    outputs = state["output_dict"]
+    storage = (
+        "cond_frame_outputs"
+        if frame in outputs["cond_frame_outputs"]
+        else "non_cond_frame_outputs"
+    )
+    return storage, outputs[storage][frame]
+
+
 class DecisionTrace:
     """Record the policy's inputs and decisions for every planned frame."""
 
@@ -923,12 +955,19 @@ class DecisionTrace:
         self.frames: list[dict[str, Any]] = []
         self.arrays: dict[str, np.ndarray] = {}
         self.removal_reasons: dict[int, str] = {}
+        self._prefix = ""
+        self._suppressed: list[int] = []
+        self._reconditioned_pairs: list[list[int]] = []
         self._planning = model.run_tracker_update_planning_phase
         self._hotstart = model._process_hotstart_gpu
         self._execution = model.run_tracker_update_execution_phase
+        self._recondition = model._recondition_masklets
+        self._suppress = model._get_objects_to_suppress_based_on_most_recently_occluded
         model.run_tracker_update_planning_phase = self.plan
         model._process_hotstart_gpu = self.hotstart
         model.run_tracker_update_execution_phase = self.execute
+        model._recondition_masklets = self.recondition
+        model._get_objects_to_suppress_based_on_most_recently_occluded = self.suppress
 
     def hotstart(self, **kwargs: Any) -> Any:
         to_remove, to_suppress, metadata = self._hotstart(**kwargs)
@@ -943,6 +982,41 @@ class DecisionTrace:
                 )
                 self.removal_reasons[int(ids[index])] = reason
         return to_remove, to_suppress, metadata
+
+    def recondition(
+        self,
+        frame_idx: int,
+        det_out: dict,
+        matches: dict[int, int],
+        states: list[Any],
+        metadata: dict,
+        scores: Any,
+        masks: Any,
+    ) -> Any:
+        ids = metadata["obj_ids_all_gpu"].tolist()
+        probabilities = scores.float().sigmoid().cpu().numpy()
+        self._reconditioned_pairs = sorted(
+            [int(obj), int(query)]
+            for obj, query in matches.items()
+            if probabilities[ids.index(obj)] > TRACK_PROBABILITY_THRESHOLD
+        )
+        return self._recondition(
+            frame_idx, det_out, matches, states, metadata, scores, masks
+        )
+
+    def suppress(
+        self,
+        masks: Any,
+        last_occluded: Any,
+        obj_ids: np.ndarray,
+        frame_idx: int | None = None,
+        reverse: bool = False,
+    ) -> Any:
+        to_suppress = self._suppress(masks, last_occluded, obj_ids, frame_idx, reverse)
+        self._suppressed = sorted(
+            int(obj_ids[index]) for index in np.nonzero(to_suppress.cpu().numpy())[0]
+        )
+        return to_suppress
 
     def check_margins(
         self, scores: np.ndarray, overlap: np.ndarray, boxes: np.ndarray
@@ -968,11 +1042,16 @@ class DecisionTrace:
         tracks = kwargs["tracker_low_res_masks_global"]
         track_scores = kwargs["tracker_obj_scores_global"]
         track_ids = [int(obj) for obj in prior["obj_ids_all_gpu"]]
+        self._prefix = f"frames.{frame:03d}.pass{self._pass(frame)}"
+        self._suppressed = []
+        self._reconditioned_pairs = []
         if self.scripted:
+            self.record_raw_tracks(frame, tracks, track_scores, kwargs)
             # The outputs and memory encoder read this same tensor afterwards.
             tracks[:] = torch.from_numpy(
                 scripted_tracks(track_ids, tracks.shape[-1])
             ).to(tracks.device)
+            self.script_stored_masks(frame, tracks, track_ids, kwargs)
             detections = scripted_detections(frame, track_ids, tracks.shape[-1])
             scripted, keep = pad_detections(
                 detections,
@@ -1011,7 +1090,7 @@ class DecisionTrace:
                     float(probability), TRACK_PROBABILITY_THRESHOLD, "track probability"
                 )
 
-        prefix = f"frames.{frame:03d}.pass{self._pass(frame)}"
+        prefix = self._prefix
         self.arrays[f"{prefix}.det_scores"] = scores.astype(np.float32)
         self.arrays[f"{prefix}.det_keep"] = kept
         self.arrays[f"{prefix}.det_boxes"] = det_out["bbox"].cpu().numpy()
@@ -1027,6 +1106,32 @@ class DecisionTrace:
 
     def _pass(self, frame: int) -> int:
         return sum(record["frame"] == frame for record in self.frames)
+
+    def record_raw_tracks(
+        self, frame: int, tracks: Any, track_scores: Any, kwargs: dict[str, Any]
+    ) -> None:
+        """Store what the tracker computed, before the script replaces its masks."""
+        prefix = self._prefix
+        self.arrays[f"{prefix}.raw_track_masks"] = tracks.float().cpu().numpy()
+        self.arrays[f"{prefix}.raw_track_score_logits"] = (
+            track_scores.float().cpu().numpy()
+        )
+        for index, state in enumerate(kwargs["tracker_states_local"]):
+            _, output = frame_output(state, frame)
+            self.arrays[f"{prefix}.state{index}.raw_obj_ptr"] = (
+                output["obj_ptr"].float().cpu().numpy()
+            )
+
+    def script_stored_masks(
+        self, frame: int, tracks: Any, track_ids: list[int], kwargs: dict[str, Any]
+    ) -> None:
+        """Replace each state's stored masks, which the re-encoding path reads."""
+        for state in kwargs["tracker_states_local"]:
+            _, output = frame_output(state, frame)
+            rows = [track_ids.index(int(obj)) for obj in state["obj_ids"]]
+            output["pred_masks"][:] = tracks[rows][:, None].to(
+                output["pred_masks"].device
+            )
 
     def summarize(
         self, frame: int, track_ids: list[int], plan: dict, metadata: dict
@@ -1049,6 +1154,8 @@ class DecisionTrace:
                 o for o, r in zip(removed, reasons) if r == "removed_duplicate"
             ],
             "reconditioned": sorted(int(o) for o in plan["reconditioned_obj_ids"]),
+            "reconditioned_pairs": self._reconditioned_pairs,
+            "suppressed": self._suppressed,
             "dropped": int(plan["num_obj_dropped_due_to_limit"]),
             "confirmation": {
                 key: value.tolist() if hasattr(value, "tolist") else value
@@ -1058,10 +1165,35 @@ class DecisionTrace:
 
     def execute(self, **kwargs: Any) -> Any:
         states = self._execution(**kwargs)
-        self.frames[-1]["states"] = [
-            [int(obj) for obj in state["obj_ids"]] for state in states
-        ]
+        record = self.frames[-1]
+        record["states"] = [[int(obj) for obj in state["obj_ids"]] for state in states]
+        if self.scripted:
+            record["state_details"] = [
+                self.record_state(index, state, record["frame"])
+                for index, state in enumerate(states)
+            ]
         return states
+
+    def record_state(
+        self, index: int, state: dict[str, Any], frame: int
+    ) -> dict[str, Any]:
+        """Store the memory and outputs a state holds for this frame."""
+        storage, output = frame_output(state, frame)
+        for name in STATE_OUTPUTS:
+            self.arrays[f"{self._prefix}.state{index}.{name}"] = (
+                output[name].float().cpu().numpy()
+            )
+        return {
+            "storage": storage,
+            "obj_ids": [int(obj) for obj in state["obj_ids"]],
+            "conditioning_objects": sorted(
+                int(obj) for obj in output["conditioning_objects"]
+            ),
+            "assignments": [
+                [int(entry) for entry in bucket]
+                for bucket in state["multiplex_state"].assignments
+            ],
+        }
 
 
 def render_outputs(
@@ -1195,6 +1327,30 @@ def add_mask_nms_case(recorder: Recorder, device: str) -> None:
     recorder.arrays["outputs.nms.keep_batched"] = batched_keep[0].cpu().numpy()
 
 
+def add_antialias_resize_cases(recorder: Recorder, device: str) -> None:
+    """Run torch's antialiased bilinear resize at the sizes the tracker uses."""
+    import torch
+
+    random = np.random.default_rng(43)
+    cases = {
+        "input_to_source": ((64, 64), (40, 60)),
+        "source_to_mask": ((40, 60), (16, 16)),
+        "upsample": ((16, 16), (40, 60)),
+        "mixed": ((16, 64), (40, 40)),
+    }
+    for name, (source, target) in cases.items():
+        values = random.normal(size=(2, *source)).astype(np.float32)
+        resized = torch.nn.functional.interpolate(
+            torch.from_numpy(values[:, None]).to(device),
+            size=target,
+            mode="bilinear",
+            align_corners=False,
+            antialias=True,
+        )[:, 0]
+        recorder.arrays[f"inputs.antialias.{name}"] = values
+        recorder.arrays[f"outputs.antialias.{name}"] = resized.cpu().numpy()
+
+
 def run_tiny_clip(model: Any, images: Any, device: str) -> dict[str, np.ndarray]:
     """Track a concept through the clip, then add one object with points."""
     import torch
@@ -1229,6 +1385,24 @@ def run_tiny_clip(model: Any, images: Any, device: str) -> dict[str, np.ndarray]
             model.propagate_in_video(state, start_frame_idx=point_frame, reverse=False),
             "emitted_points",
         )
+        arrays |= point_track_arrays(state, object_id)
+    return arrays
+
+
+def point_track_arrays(state: dict[str, Any], object_id: int) -> dict[str, np.ndarray]:
+    """Store the singleton state a new object added with points is tracked in."""
+    point_state = next(
+        inner
+        for inner in state["sam2_inference_states"]
+        if inner["obj_ids"] == [object_id]
+    )
+    arrays: dict[str, np.ndarray] = {}
+    for storage in ("cond_frame_outputs", "non_cond_frame_outputs"):
+        for frame, output in point_state["output_dict"][storage].items():
+            prefix = f"points.{frame:03d}"
+            arrays[f"{prefix}.is_cond"] = np.asarray(storage == "cond_frame_outputs")
+            for name in STATE_OUTPUTS:
+                arrays[f"{prefix}.{name}"] = output[name].float().cpu().numpy()
     return arrays
 
 
@@ -1432,6 +1606,7 @@ def generate_tiny(reference_dir: Path, output_dir: Path, device: str) -> dict:
         add_box_prompt_cases(model, recorder, device)
         add_geometry_prompt_cases(model, recorder, device)
         add_mask_nms_case(recorder, device)
+        add_antialias_resize_cases(recorder, device)
         recorder.close()
     if missing := recorder.missing(iter(modules)):
         raise RuntimeError(f"Components never ran: {missing}")

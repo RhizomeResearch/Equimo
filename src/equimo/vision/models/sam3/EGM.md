@@ -59,15 +59,17 @@ Equimo's license.
 - `PointTrack`: `object_id`, `first_prediction` (the frame it was added on) and `push(frame) -> FramePrediction`.
   `[video.py:PointTrack]`
 - `FramePrediction`: `frame_index`, `object_ids (K)`, `masks (K, H, W)` (bool, source size), `boxes (K, 4)` (pixels,
-  xyxy, before overlaps are resolved), `scores (K)` (detection probability at birth). `[video.py:FramePrediction]`
-- `AssociationPolicy(*, num_slots, max_objects)`: NumPy-only decisions, with `plan_prompt_frame(keep, probabilities)`
-  and `plan(FrameObservation) -> FrameDecision`, replayable from recorded device outputs. `objects` maps each ID to a
-  `TrackedObject` (`object_id`, `bucket`, `slot`, `birth_frame`, `birth_score`, `unmatched_frames`, `matched_streak`,
-  `last_occluded_frame`, `confirmed`). `[video.py:AssociationPolicy]`, `[video.py:TrackedObject]`
+  xyxy, before overlaps are resolved), `scores (K)` (detection probability at birth, or -1e4 on the frame an object is
+  removed). `[video.py:FramePrediction]`
+- `AssociationPolicy(*, num_slots, max_objects)`: NumPy-only decisions, with
+  `plan_prompt_frame(candidates, keep, probabilities)` and `plan(FrameObservation) -> FrameDecision`, replayable from
+  recorded device outputs. `objects` maps each ID to a `TrackedObject` (`object_id`, `bucket`, `slot`, `birth_frame`,
+  `birth_score`, `unmatched_frames`, `matched_streak`, `last_occluded_frame`, `confirmed`).
+  `[video.py:AssociationPolicy]`, `[video.py:TrackedObject]`
 - `FrameDecision`, the decision trace of one planned pass: `frame_index`, `added` (`NewObject`: `object_id`, `query`,
   `bucket`, `slot`, `score`), `removed_unmatched`, `removed_duplicate`, `reconditioned` (`Reconditioning`: `object_id`,
-  `query`), `suppressed`, `confirmed`, `dropped_queries`, `released_buckets`, `reencode_buckets` and `num_buckets`.
-  `[video.py:FrameDecision]`, `[video.py:NewObject]`, `[video.py:Reconditioning]`
+  `query`), `suppressed`, `confirmed`, `dropped_queries`, `released_buckets`, `reencode_buckets`, `new_state_buckets`
+  and `num_buckets`. `[video.py:FrameDecision]`, `[video.py:NewObject]`, `[video.py:Reconditioning]`
 
 Experimental pytrees, for `B` buckets of `S` slots, `T = B * S` tracks, grid `G`, `Q` queries and width `dim`; sizes are
 for the published configuration in bfloat16 (`G = 72`, `S = 16`, `dim = 256`, about 59 MB per bucket):
@@ -85,14 +87,16 @@ for the published configuration in bfloat16 (`G = 72`, `S = 16`, `dim = 256`, ab
 
 - `TrackOutput`: `mask_logits (B, S, 4G, 4G)` (float32), `object_score_logits (B, S)`, `iou (B, S)` and
   `pointers (B, S, dim)`, for each slot's mask with the highest predicted IoU. `[tracker.py:TrackOutput]`
-- `Association`: `keep (Q)`, `iom`, `matches`, `high_iom` and `ambiguous` `(Q, T)`, `new_detection` and
-  `confident_detection` `(Q)`, `confident_track (T)`, `track_iou (T, T)`. Track axes are flattened over buckets, and the
-  detection axis has no bucket axis. `[tracker.py:Association]`
-- `CommitPlan`: `frame_index` (scalar), `add`, `decoded`, `recondition`, `suppress`, `remove` and `object_ids` `(B, S)`,
-  `new_masks` and `recondition_masks` `(B, S, 4G, 4G)`, `decoded_pointers (B, S, dim)`, `decoded_scores (B, S)`,
-  `release`, `reencode` and `state_group` `(B)`, and the static `source_size`. An added slot marked `decoded` takes its
-  mask, pointer and score as given; other added slots are decoded from `new_masks` as a mask prompt.
-  `[tracker.py:CommitPlan]`
+- `Association`: `keep (Q)`, `iom`, `matches`, `high_iom` and `unique_high_iom` `(Q, T)`, `new_detection` and
+  `confident_detection` `(Q)`, `confident_track` and `track_nonempty` `(T)`, `track_iou` and `reconditioned_iou`
+  `(T, T)`, and `reconditioned_nonempty (T)`. Track axes are flattened over buckets, and the detection axis has no
+  bucket axis. `[tracker.py:Association]`
+- `CommitPlan`: `frame_index` (scalar), `add`, `recondition`, `suppress`, `remove`, `conditioning` and `object_ids`
+  `(B, S)`, `new_masks` and `recondition_masks` `(B, S, 4G, 4G)`, `release`, `reencode`, `new_state` and `state_group`
+  `(B)`, and the static `source_size`. `[tracker.py:CommitPlan]`
+- `detection_keep(detections) -> (after_nms, keep)` and
+  `associate_tracks(detections, after_nms, keep, tracks, state) -> Association` expose the filter and the association
+  given a recorded keep mask. `[tracker.py:detection_keep]`, `[tracker.py:associate_tracks]`
 
 ## Invariants
 
@@ -130,16 +134,16 @@ for the published configuration in bfloat16 (`G = 72`, `S = 16`, `dim = 256`, ab
   `[tracker.py:_memory_key_rotary]`, `[tracker.py:_chunked_attention]`
 - `MemoryEncoder` resizes masks to 16 times the feature grid in float32 before downsampling.
   `[tracker.py:MemoryEncoder]`
-- `Sam3Tracker` holds the checkpoint's `no_object_pointer`, `no_object_memory`, `interactive_pointer_proj` and
-  `interactive_mask_downsample`; the tracking steps do not read them yet. `[tracker.py:Sam3Tracker]`
 - A slot goes from empty to active and from active to removed. Objects are only added to empty slots, so a removed slot
   stays removed until its bucket is released. `[tracker.py:Sam3Tracker.commit]`
-- A released bucket is cleared before the rest of the plan applies, so it equals a bucket from `empty_state` and can
-  take new objects in the same `commit`. `[tracker.py:Sam3Tracker.commit]`, `[tracker.py:_empty_buckets]`
+- A released bucket is cleared after this frame's write, so objects removed on it stay in its memory and masks on that
+  frame, and the next frame sees a bucket from `empty_state`. Its `last_masks` and `last_scores` stay until the next
+  commit, for the driver to show the frame. `[tracker.py:Sam3Tracker.commit]`, `[tracker.py:_empty_buckets]`
 - `recent_*` and `pointers` are written at `frame % length` for every valid bucket, so with consecutive frames they hold
   the last 6 and the last 15 frames. The conditioning buffer keeps the 4 latest conditioning frames; a frame committed
-  twice replaces its own entry and stays marked as conditioning in the ring buffer. A frame is read once: a conditioning
-  frame still in the buffer is skipped in the ring buffers, and one that left the buffer counts as a recent frame.
+  twice replaces its own entry and stays marked as conditioning in the ring buffer. Only a state created on a frame gets
+  a conditioning entry, so a bucket normally has one. A frame is read once: a conditioning frame still in the buffer is
+  skipped in the ring buffers, and one that left the buffer counts as a recent frame.
   `[tracker.py:_selected_memory_frames]`
 - Spatial keys are the stored features of a memory frame plus position and temporal embeddings; values are the stored
   memory. Pointer tokens are both, with a temporal encoding added to the keys. `[tracker.py:Sam3Tracker._memory_bank]`
@@ -147,30 +151,34 @@ for the published configuration in bfloat16 (`G = 72`, `S = 16`, `dim = 256`, ab
   `commit` compile once per bucket count, and `commit` once per `source_size`. `[tracker.py:CommitPlan]`
 - `num_frames` only sets the divisor of the pointer temporal encoding, `min(num_frames, 16) - 1` and at least 1. `None`
   means at least 16 frames. `[tracker.py:Sam3Tracker.propagate]`
-- `commit` applies reconditioning and suppression, marks tracks left with under 30% of their area by per-pixel overlap
-  (higher probability first, ties to the lower object ID) and clamps those masks to -10 for memory only, then encodes
-  memory. A bucket with new objects, or listed in `reencode`, is encoded again from masks made non-overlapping per
-  `state_group` at `source_size`. `[tracker.py:Sam3Tracker.commit]`, `[tracker.py:_shrunk_slots]`,
-  `[tracker.py:_keep_per_group]`
+- `commit` applies reconditioning and suppression, including to objects removed on this frame, clamps masks that lose
+  over 70% of their area to a per-pixel overlap over all objects (or that start empty) to -10 for memory only, and
+  encodes memory with `2 * sigmoid - 1`, 0 for absent slots, and `no_object_memory` for every slot that does not appear.
+  A bucket listed in `reencode` is encoded again from the consolidated output: new masks pass through `source_size`
+  (`resize_bilinear_antialias`), existing rows keep their low-resolution masks, and overlaps are resolved per
+  `state_group` at the image size. `[tracker.py:Sam3Tracker.commit]`, `[tracker.py:_suppress_area_shrinkage]`,
+  `[tracker.py:_non_overlapping_per_state]`, `[tracker.py:_masks_through_source_size]`
 - `associate` drops detections at probability 0.4 or below, runs greedy IoM NMS at 0.1, then the 0.025 boundary filter,
-  in that order. `new_detection` needs probability 0.65 and no match, and ignores `keep` only when no slot is active.
-  `[tracker.py:associate]`
-- The policy's thresholds and order of decisions are in the `video.py` module docstring. New objects go to the live
-  bucket with the fewest empty slots that holds the whole batch, or else to free buckets as a new state. The bucket
-  count grows in powers of two up to `next_pow2(max_objects)`. `[video.py:AssociationPolicy]`
+  in that order. `new_detection` needs probability 0.65, no raw overlap of at least 0.1, and `keep`, except that the
+  boundary filter is ignored when no slot is active. `[tracker.py:associate]`, `[tracker.py:associate_tracks]`
+- The policy's thresholds, order of decisions and reference locations are in the `video.py` module docstring. The object
+  cap counts objects before this frame's removals. New objects go to the state with the fewest empty slots that holds
+  the whole batch, or else to free buckets as a new state. The bucket count grows in powers of two up to
+  `next_pow2(max_objects)`. `[video.py:AssociationPolicy]`
 - `video.py` is never imported by `import equimo`. The policy uses only NumPy, so it replays on CPU from recorded device
   outputs. `[video.py:FrameObservation]`
 - The prompt frame is always frame 0, so `set_prompt` raises once a frame has been pushed. It runs twice: alone
-  (single-frame NMS, `max_objects`, 0.65, nothing hidden), then as a tracked frame that reuses the stored output and
-  commits only if the policy changes something. Frame 0 counts as a reconditioning frame.
-  `[video.py:Sam3VideoTracker.set_prompt]`, `[video.py:Sam3VideoTracker.push_frame]`
+  (single-frame NMS, `max_objects`, 0.65), then as a tracked frame that reuses the stored output and runs the policy and
+  `commit` as any other frame. Frame 0 counts as a reconditioning frame. `[video.py:Sam3VideoTracker.set_prompt]`,
+  `[video.py:Sam3VideoTracker.push_frame]`
 - Once frame `t` is planned, frame `t - 2` is final; `finish` emits the rest with the look-ahead clamped to the last
-  frame. An object is shown from the first frame it was confirmed by two frames later, and later removals do not hide
-  frames already shown. Objects with no pixel on a frame are omitted from it. `[video.py:Sam3VideoTracker._render]`
-- A `PointTrack` runs on its own single-bucket state, never touches the main tracker's device state, and takes the
-  interactive head's point result as its conditioning frame. Its ID comes from the policy's counter, which prevents ID
-  collisions, so objects detected later take the IDs after it. `[video.py:PointTrack]`,
-  `[video.py:AssociationPolicy.reserve_object_id]`
+  frame. An object is hidden while unconfirmed and live by then, and later removals do not hide frames already shown.
+  Objects with no pixel on a frame are omitted before overlaps are resolved, so an object can be shown with an empty
+  mask. `[video.py:Sam3VideoTracker._render]`, `[video.py:_render_prediction]`
+- A `PointTrack` runs on its own single-bucket state and never touches the main tracker's device state. The interactive
+  head's point result, through the source frame size, is its conditioning frame; later frames store memory from their
+  own masks and object scores. Its ID comes from the policy's counter, which prevents ID collisions, so objects detected
+  later take the IDs after it. `[video.py:PointTrack]`, `[video.py:AssociationPolicy.reserve_object_id]`
 
 ## Side Effects
 

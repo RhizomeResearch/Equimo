@@ -177,9 +177,11 @@ Risks with a known fallback (memory on a 16 GB GPU, the reference GELU, the test
 - **Bucket:** 16 slots that the multiplex tracker processes in one forward pass; memory attention runs once per bucket.
 - **State:** the reference's group of buckets created together from one batch of new objects. It matters for memory
   re-encoding, which the reference runs per state.
-- **Conditioning frame:** a frame whose memory is built from a given mask rather than a tracked one. It is created when
-  an object is added (by the detector or by points) and when reconditioning replaces a track's mask.
-- **Hidden:** an object present in the state but omitted from the output until it is confirmed.
+- **Conditioning frame:** a frame a state stores as a prompt. It is created when a state is created, by the detector or
+  by points. Objects added to an existing state, and reconditioned objects, only set flags in the memory of an ordinary
+  frame.
+- **Hidden:** an object present in the state that is left out of a frame's output, because it is unconfirmed and still
+  live two frames later.
 - **IoM (intersection over minimum):** mask intersection divided by the smaller mask's area. The video policy uses it
   where SAM 2 used IoU.
 - **Hot-start:** an object's first 15 frames, during which the policy may remove it as unmatched or as a duplicate.
@@ -409,10 +411,12 @@ are traced integers, so a new frame never recompiles.
 
 Selection reproduces the reference: the latest 4 conditioning frames (in forward-only tracking, the reference's
 "closest" rule selects exactly those); conditioning frames that are not selected but fall in t-1 to t-6 act as recent
-frames; pointers come from the selected conditioning frames plus t-1 to t-15. The spatial temporal embedding is indexed
-as the reference does, including its opposite direction for conditioning and recent frames. The pointer temporal
-encoding divides the frame distance by `min(num_frames, 16) - 1`. `num_frames=None` (streaming, length unknown) is
-treated as at least 16 frames; a one-frame clip uses a divisor of 1.
+frames; pointers come from the selected conditioning frames plus t-1 to t-15. A state only has a conditioning frame when
+it is created, so a bucket normally holds one. The spatial temporal embedding is indexed as the reference does: a
+conditioning frame at distance d uses `6 - d` while `0 < d < 7` and the last entry otherwise, a recent frame uses
+`d - 1`. The pointer temporal encoding divides the frame distance by `min(num_frames, 16) - 1`, with sines first and
+cosines second and no 2 pi scale. `num_frames=None` (streaming, length unknown) is treated as at least 16 frames; a
+one-frame clip uses a divisor of 1.
 
 ### Video: per-frame flow
 
@@ -425,29 +429,38 @@ For frame t the driver runs:
    stored frame features and position encodings, each through its own projection, and the inputs add `0.1` times their
    sine position), then the multiplex mask decoder (16 slots x 3 masks, without sparse or dense prompts, with per-slot
    valid and invalid embeddings on the mask tokens), giving per slot 288 x 288 mask logits, the object score, IoU
-   predictions and the pointer. Empty slots are decoded and ignored, and their zero pointers stay among the keys, as in
-   the reference.
+   predictions and the pointer. An object scored as absent uses `no_object_pointer` applied to its projected pointer.
+   Empty slots are decoded and ignored, and their zero pointers stay among the keys, as in the reference.
 1. **Associate** (`Sam3.associate`, on device): the detection keep mask after the batched NMS and the boundary filter,
-   the IoM matrix between kept detections and tracks, the match, new-detection, ambiguity, high-confidence and high-IoM
-   flags, and the pairwise track IoU used for occlusion, all with fixed shapes.
+   the IoM matrix between kept detections and tracks, with ambiguous rows and columns zeroed for the match and
+   high-confidence flags but not for the track-matched flag, the new-detection flag, and the pairwise track IoU used for
+   occlusion on the tracks and on the masks as reconditioning would leave them, all with fixed shapes.
 1. **Plan** (host, NumPy): hot-start counters and removals, reconditioning choices, occlusion suppression, the
    new-object cap and IDs, best-fit bucket assignment, bucket release, and confirmation, with the reference thresholds
    (appendix). The result is a fixed-shape `CommitPlan` of per-slot arrays.
-1. **Commit** (`Sam3.commit`): applies reconditioning and suppression to the mask logits, runs area-shrinkage
-   suppression across all objects, encodes memory (32-channel input: 16 mask slots plus 16 conditioning flags), writes
-   new objects into their slots as conditioning masks through the interactive head, re-encodes every bucket of each
-   state that received objects with per-pixel non-overlap at the source frame size, marks removed slots, and advances
-   the ring buffers. The source frame size is static, so `commit` compiles once per clip size and bucket count.
+1. **Commit** (`Sam3.commit`): applies reconditioning and suppression to the mask logits, including objects removed on
+   this frame, resizes them to 16 times the grid, runs per-pixel area-shrinkage suppression across all objects in ID
+   order, and encodes memory (32-channel input: 16 mask slots of `2 * sigmoid - 1` and 16 conditioning flags, 0 for
+   absent slots, plus `no_object_memory` for every slot that does not appear). Added objects and reconditioned ones go
+   through the interactive head for their pointers and a +/-10 object score, from the binary mask at 16 times the grid,
+   downsampled by `interactive_mask_downsample`. Every bucket of a state that received objects is re-encoded from the
+   consolidated output: new masks pass through the source frame size, existing rows keep the propagated low-resolution
+   masks, everything is resized to the image size, overlaps are resolved per state by highest logit (ties to the earlier
+   object), and flags mark the new objects. It then marks removed slots and advances the ring buffers. A bucket left
+   without live objects is cleared after the write. The source frame size is static, so `commit` compiles once per clip
+   size and bucket count.
 1. **Emit**: once frame t is planned, frame t-2 is final, because a frame hides only objects that are still unconfirmed
-   two frames later, and hot-start removals never hide earlier frames. The reference's 15-frame hot-start buffer and its
-   groups of 16 change only latency, not content, so the driver does not reproduce them. At the end of the clip, the
-   remaining frames are emitted with the look-ahead clamped to the last frame. Objects with no pixel on a frame are
-   omitted from it.
+   and live two frames later, and hot-start removals never hide earlier frames. The reference's 15-frame hot-start
+   buffer and its groups of 16 change only latency, not content, so the driver does not reproduce them. At the end of
+   the clip, the remaining frames are emitted with the look-ahead clamped to the last frame. An object on its birth
+   frame renders from its detector mask. Objects with no pixel are omitted before per-pixel overlaps are resolved, by
+   the highest tracker probability (the detection probability on a birth frame), so an object can remain with an empty
+   mask. An object removed on frame t is shown on t with a score of -1e4.
 
 The prompt frame is always frame 0, so `set_prompt` raises once a frame has been pushed. It is processed twice, as in
 the reference: once on its own (the single-frame NMS, the `max_objects` cap, the 0.65 new-object threshold, nothing
-hidden) and once as the first propagated frame, where the stored conditioning output is reused and `commit` runs only if
-the policy changes something.
+hidden) and once as the first propagated frame, where the stored conditioning output is reused and the policy and
+`commit` run as on any frame.
 
 `tracker.py` provides a function that pads a state's bucket axis to a larger power of two; `video.py` decides when to
 call it.
@@ -457,19 +470,20 @@ call it.
 The policy runs on the host in NumPy so that it can be replayed on CPU from recorded device outputs. Its thresholds, tie
 rules and the behaviors reproduced on purpose are listed in the appendix, each with its reference location. The decision
 rules are written in prose in the policy module's docstrings with the same citations. Where the reference sorts unstably
-(keep order, NMS order, cap selection), Equimo sorts stably, and the fixture clips are chosen so that no ties occur and
-no score lies within 1e-3 of a threshold it is compared with.
+(keep order, NMS order), Equimo sorts stably, the cap selection is the same NumPy reversal of an ascending sort, and the
+fixture clips are chosen so that no ties occur and no score lies within 1e-3 of a threshold it is compared with.
 
 ### Video: points on a new object
 
 `Sam3VideoTracker.add_object` covers the case the reference supports without defects: a new object added with points on
-frame f. The interactive head runs on frame f, the result becomes the conditioning frame of a new single-bucket state,
-and the returned `PointTrack` runs `propagate` and `commit` for that bucket only over the frames the caller supplies
-from f+1, without detection or association. This matches the reference's partial propagation after a point prompt, and
-the reference is the oracle for its tests. The main tracker's device state and masks are not changed. The object's ID
-comes from the main tracker's counter, which prevents ID collisions, so objects the detector adds later take the IDs
-after it. Merging the point track back into the main tracker is part of the deferred refinement work. Points that name
-an existing object, through `object_id`, raise an error that says refinement on video is not supported.
+frame f. The interactive head runs on frame f, its mask passes through the source frame size and becomes the
+conditioning frame of a new single-bucket state with the object's real object score, and the returned `PointTrack` runs
+`propagate` and stores each frame's memory from the propagated masks for that bucket only, over the frames the caller
+supplies from f+1, without detection or association. This matches the reference's partial propagation after a point
+prompt, and the reference is the oracle for its tests. The main tracker's device state and masks are not changed. The
+object's ID comes from the main tracker's counter, which prevents ID collisions, so objects the detector adds later take
+the IDs after it. Merging the point track back into the main tracker is part of the deferred refinement work. Points
+that name an existing object, through `object_id`, raise an error that says refinement on video is not supported.
 
 ### Attention and numerics
 
@@ -883,23 +897,26 @@ interactive mask decoder is `sam3/sam/mask_decoder.py`.
 
 ### Association thresholds
 
-| Setting                      | Value                                                                                                              | Gates                                                                       |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------- |
-| detection probability        | greater than 0.4                                                                                                   | detection kept                                                              |
-| NMS overlap (video path)     | IoM greater than 0.1                                                                                               | lower-scored detection suppressed                                           |
-| boundary margin              | 0.025                                                                                                              | box center must be strictly inside 0.025 to 0.975                           |
-| association                  | IoM at least 0.1                                                                                                   | detection matches a track; detection is not new                             |
-| track matched                | IoM at least 0.5                                                                                                   | track counted as matched                                                    |
-| new object                   | probability at least 0.65 (0.5 on a single image)                                                                  | detection becomes an object (ignores the keep mask when nothing is tracked) |
-| ambiguity                    | IoM at least 0.5                                                                                                   | rows and columns with two or more matches are zeroed                        |
-| reconditioning               | frames where t % 16 == 0; detection probability at least 0.8, IoM at least 0.5, track probability greater than 0.8 | detection mask replaces the track mask                                      |
-| hot-start window             | 15 frames                                                                                                          | removal checks apply while the object is younger                            |
-| hot-start unmatched          | 8 frames or more                                                                                                   | object removed                                                              |
-| hot-start duplicate          | 8 frames or more                                                                                                   | younger of two objects sharing a detection removed                          |
-| occlusion suppression        | IoU at least 0.7                                                                                                   | more recently occluded object suppressed, if both were occluded before      |
-| area shrinkage (memory only) | less than 30% kept                                                                                                 | mask clamped to -10 before memory encoding                                  |
-| confirmation                 | 3 consecutive matched frames                                                                                       | object shown                                                                |
-| object cap                   | `max_objects`, default 16                                                                                          | highest-scoring new objects kept                                            |
+Locations are relative to `sam3/model/`.
+
+| Setting                      | Value                                                                                                              | Gates                                                                                                  | Reference                                                                                 |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------- |
+| detection probability        | greater than 0.4                                                                                                   | detection kept                                                                                         | `sam3_multiplex_base.py:run_backbone_and_detection`                                       |
+| NMS overlap (video path)     | IoM greater than 0.1                                                                                               | lower-scored detection suppressed                                                                      | `model_builder.py:det_nms_thresh`                                                         |
+| boundary margin              | 0.025                                                                                                              | box center must be strictly inside 0.025 to 0.975                                                      | `sam3_video_base.py:_suppress_detections_close_to_boundary`                               |
+| association                  | IoM at least 0.1, after ambiguous rows and columns are zeroed                                                      | detection matches a track, counts duplicates and confirmation                                          | `sam3_video_base.py:_associate_det_trk_compilable`                                        |
+| new detection                | raw IoM below 0.1 with every track                                                                                 | detection can become an object                                                                         | `sam3_video_base.py:_associate_det_trk_compilable`                                        |
+| track matched                | raw IoM at least 0.5                                                                                               | a non-empty track that has it is matched                                                               | `sam3_video_base.py:_associate_det_trk_compilable`                                        |
+| new object                   | probability at least 0.65 (0.5 on a single image)                                                                  | a kept new detection becomes an object; only the boundary filter is ignored when nothing is tracked    | `sam3_multiplex_base.py:_associate_det_trk`                                               |
+| ambiguity                    | IoM at least 0.5                                                                                                   | rows and columns with two or more of these are zeroed                                                  | `sam3_video_base.py:_associate_det_trk_compilable`                                        |
+| reconditioning               | frames where t % 16 == 0; detection probability at least 0.8, unique IoM at least 0.5, track probability above 0.8 | detection mask replaces the track mask; frame stays non-conditioning                                   | `sam3_multiplex_base.py:_recondition_masklets`, `sam3_video_base.py:_create_cpu_metadata` |
+| hot-start window             | 15 frames                                                                                                          | removals apply while an object is at most 14 frames old                                                | `sam3_multiplex_base.py:_process_hotstart_gpu`                                            |
+| hot-start unmatched          | 8 frames or more                                                                                                   | object removed                                                                                         | `sam3_multiplex_base.py:_process_hotstart_gpu`                                            |
+| hot-start duplicate          | 8 or more, counting one per shared detection                                                                       | younger of two objects sharing a detection removed, if the older strictly predates it                  | `sam3_multiplex_base.py:_process_hotstart_gpu`                                            |
+| occlusion suppression        | IoU at least 0.7, after reconditioning                                                                             | strictly more recently occluded object suppressed, if the other was occluded before                    | `sam3_multiplex_base.py:_get_objects_to_suppress_based_on_most_recently_occluded`         |
+| area shrinkage (memory only) | keeps less than 30% of its area, or has none                                                                       | mask clamped to -10 before memory encoding, over all objects in ID order; nothing changes for a single | `video_tracking_multiplex_demo.py:_suppress_object_pw_area_shrinkage`                     |
+| confirmation                 | 3 consecutive passes matched or created                                                                            | object shown                                                                                           | `sam3_multiplex_base.py:update_masklet_confirmation_status`                               |
+| object cap                   | `max_objects`, default 16, against the count before this frame's removals                                          | highest-scoring new objects kept when over the cap, otherwise all                                      | `sam3_video_base.py:get_new_det_gpu_ids`, `_drop_new_det_with_obj_limit`                  |
 
 ### Other reference rules
 
@@ -911,10 +928,19 @@ interactive mask decoder is `sam3/sam/mask_decoder.py`.
 - **Interactive prompts:** points are shifted by 0.5 pixel; labels are 1 (positive), 0 (negative), -1 (padding), 2 and 3
   (box corners); a padding point is always appended, because 3.1 sends boxes as corner points with the box argument
   unset.
-- **Stability score:** `count(logit > 0.05) / count(logit > -0.05)` on the single-mask output, threshold 0.98.
+- **Stability score:** `count(logit > 0.05) / count(logit > -0.05)` on the single-mask output, threshold 0.98. The
+  pointer comes from the selected token for multimask prompts and from the first token otherwise
+  (`sam/mask_decoder.py:MaskDecoder.forward`).
+- **New object order:** kept detections first, in detection order, unless over the cap
+  (`sam3_video_base.py: _drop_new_det_with_obj_limit`).
+- **State placement:** the state with the fewest empty slots that holds all new objects, the first created on ties;
+  buckets fill in order (`sam3_multiplex_base.py:_tracker_add_new_objects`, `multiplex_utils.py:MultiplexState`).
+- **Emission:** hidden if unconfirmed and live two frames later; objects removed on the frame are shown with a score of
+  -1e4; overlaps go to the highest tracker probability, or detection probability on a birth frame, ties to the lower ID,
+  and objects without pixels are dropped first (`sam3_multiplex_tracking.py:propagate_in_video`,
+  `_postprocess_output_batched`, `video_tracking_multiplex_demo.py:_apply_object_wise_non_overlapping_constraints`).
 - **Reproduced on purpose:** hot-start removals are not hidden retroactively; the boundary filter runs after NMS; the
-  emitted score is the detection probability at birth; per-pixel overlap goes to the object with the higher tracker
-  probability, ties to the lower ID.
+  emitted score is the detection probability at birth.
 
 ## Detailed Implementation Plan
 

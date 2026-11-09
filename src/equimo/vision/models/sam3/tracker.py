@@ -19,7 +19,6 @@ from equimo.vision.models.sam3.common import (
     exchanged_rope_factors,
     flatten_map,
     layer_norm,
-    sine_coordinates,
     sine_position_encoding,
     unflatten_map,
 )
@@ -27,11 +26,10 @@ from equimo.vision.models.sam3.decoding import (
     greedy_iom_nms,
     iom_matrix,
     iou_matrix,
-    remove_overlaps,
 )
 from equimo.vision.models.sam3.detector import DetectorOutput
 from equimo.vision.models.sam3.encoder import ImageFeatures
-from equimo.vision.ops import resize_bilinear
+from equimo.vision.ops import resize_bilinear, resize_bilinear_antialias
 from equimo.vision.models.sam3.interactive import (
     _NO_OBJECT_LOGIT,
     ImagePositionEncoding,
@@ -57,17 +55,28 @@ _NUM_POINTER_FRAMES = 15
 _NUM_TIME_EMBEDDINGS = _NUM_RECENT_FRAMES + 1
 _POINTER_DISTANCE_FRAMES = 16
 
+# Thresholds of ``facebookresearch/sam3`` at ``f1647e8``, under ``sam3/model/``:
+# ``sam3_multiplex_base.py:run_backbone_and_detection`` keeps detections and
+# ``sam3_video_base.py:_suppress_detections_close_to_boundary`` filters boxes.
 _DETECTION_KEEP_PROBABILITY = 0.4
 _NMS_IOM = 0.1
 _BOUNDARY_MARGIN = 0.025
+# ``sam3_video_base.py:_associate_det_trk_compilable``.
 _MATCH_IOM = 0.1
 _HIGH_IOM = 0.5
 _NEW_OBJECT_PROBABILITY = 0.65
 _CONFIDENT_DETECTION_PROBABILITY = 0.8
+# ``sam3_multiplex_base.py:_recondition_masklets``.
 _CONFIDENT_TRACK_PROBABILITY = 0.8
 
+# ``video_tracking_multiplex_demo.py:_suppress_object_pw_area_shrinkage`` and
+# ``video_tracking_multiplex.py:_apply_non_overlapping_constraints``.
 _OVERLAP_LOSER_LOGIT = -10.0
 _MIN_KEPT_AREA_FRACTION = 0.3
+# ``video_tracking_multiplex.py:_use_mask_as_output`` and
+# ``video_tracking_multiplex_demo.py:add_new_masks``.
+_MASK_INPUT_SCORE_LOGIT = 10.0
+_VIDEO_MASK_LOGIT = 1024.0
 
 
 def _chunked_attention(
@@ -371,43 +380,49 @@ class Association(eqx.Module):
     """Detections matched against every slot, with ``tracks = buckets * slots``.
 
     Track axes are flattened over buckets. Only kept detections and active
-    slots have overlaps; every other pair is 0.
+    slots have overlaps; every other pair is 0. Rows and columns with two or
+    more overlaps of at least 0.5 are zeroed for ``matches`` and
+    ``unique_high_iom``, but not for ``iom`` and ``high_iom``.
+    ``reconditioned_iou`` and ``reconditioned_nonempty`` hold what the track
+    masks would give after reconditioning, which only applies to some frames.
     """
 
     keep: Bool[Array, " queries"]
     iom: Float[Array, "queries tracks"]
     matches: Bool[Array, "queries tracks"]
     high_iom: Bool[Array, "queries tracks"]
-    ambiguous: Bool[Array, "queries tracks"]
+    unique_high_iom: Bool[Array, "queries tracks"]
     new_detection: Bool[Array, " queries"]
     confident_detection: Bool[Array, " queries"]
     confident_track: Bool[Array, " tracks"]
+    track_nonempty: Bool[Array, " tracks"]
     track_iou: Float[Array, "tracks tracks"]
+    reconditioned_iou: Float[Array, "tracks tracks"]
+    reconditioned_nonempty: Bool[Array, " tracks"]
 
 
 class CommitPlan(eqx.Module):
     """What the host decided for one frame.
 
     ``state_group`` assigns each bucket to the state it was created with.
-    ``reencode`` must list every bucket of a state that received objects.
-    ``source_size`` is the clip's frame size, static so that it compiles once.
-    ``decoded`` marks added slots whose ``new_masks`` entry is already the
-    object's mask logits, with its pointer and score in ``decoded_pointers`` and
-    ``decoded_scores``; other added slots are decoded from a mask prompt.
+    ``reencode`` must list every bucket of a state that received objects, and
+    ``new_state`` the buckets of a state created on this frame, which store it
+    as their conditioning frame. ``conditioning`` flags the slots born on this
+    frame, added to or reconditioned on it. ``source_size`` is the clip's frame
+    size, static so that it compiles once.
     """
 
     frame_index: Int[Array, ""]
     add: Bool[Array, "buckets slots"]
     new_masks: Float[Array, "buckets slots height width"]
-    decoded: Bool[Array, "buckets slots"]
-    decoded_pointers: Float[Array, "buckets slots dim"]
-    decoded_scores: Float[Array, "buckets slots"]
     recondition: Bool[Array, "buckets slots"]
     recondition_masks: Float[Array, "buckets slots height width"]
     suppress: Bool[Array, "buckets slots"]
     remove: Bool[Array, "buckets slots"]
     release: Bool[Array, " buckets"]
     reencode: Bool[Array, " buckets"]
+    new_state: Bool[Array, " buckets"]
+    conditioning: Bool[Array, "buckets slots"]
     state_group: Int[Array, " buckets"]
     object_ids: Int[Array, "buckets slots"]
     source_size: tuple[int, int] = eqx.field(static=True)
@@ -427,15 +442,14 @@ class CommitPlan(eqx.Module):
             frame_index=jnp.asarray(frame_index, jnp.int32),
             add=no_slots,
             new_masks=no_masks,
-            decoded=no_slots,
-            decoded_pointers=jnp.zeros_like(state.pointers[:, 0]),
-            decoded_scores=jnp.zeros_like(state.last_scores),
             recondition=no_slots,
             recondition_masks=no_masks,
             suppress=no_slots,
             remove=no_slots,
             release=no_buckets,
             reencode=no_buckets,
+            new_state=no_buckets,
+            conditioning=no_slots,
             state_group=jnp.arange(state.slot_status.shape[0], dtype=jnp.int32),
             object_ids=jnp.zeros_like(state.slot_status, dtype=jnp.int32),
             source_size=source_size,
@@ -480,6 +494,17 @@ def _where_bucket(flags: jax.Array, a: TrackerState, b: TrackerState) -> Tracker
     return jax.tree.map(select, a, b)
 
 
+def _pointer_time_encoding(
+    distances: Float[Array, "..."], dim: int
+) -> Float[Array, "... dim"]:
+    """Encode frame distances, sines first and cosines second, without a 2 pi scale."""
+    half = dim // 2
+    index = jnp.arange(half, dtype=jnp.float32)
+    denominators = 10000.0 ** (2.0 * jnp.floor(index / 2.0) / half)
+    scaled = distances.astype(jnp.float32)[..., None] / denominators
+    return jnp.concatenate((jnp.sin(scaled), jnp.cos(scaled)), axis=-1)
+
+
 def _selected_memory_frames(
     bucket: TrackerState,
 ) -> tuple[Bool[Array, " cond"], Bool[Array, " recent"], Bool[Array, " pointer"]]:
@@ -501,54 +526,135 @@ def _selected_memory_frames(
     return cond, recent, pointer
 
 
-def _shrunk_slots(
-    logits: Float[Array, "tracks height width"], order: Int[Array, " tracks"]
-) -> Bool[Array, " tracks"]:
-    """Mark the tracks left with under 30% of their area after per-pixel overlap."""
-    ranked = logits[order] > 0
-    kept = remove_overlaps(ranked)
-    before = ranked.reshape(ranked.shape[0], -1).sum(axis=-1)
-    after = kept.reshape(kept.shape[0], -1).sum(axis=-1)
-    shrunk = (before > 0) & (after < _MIN_KEPT_AREA_FRACTION * before)
-    return jnp.zeros(order.shape[0], bool).at[order].set(shrunk)
+def _suppress_area_shrinkage(
+    logits: Float[Array, "buckets slots height width"],
+    present: Bool[Array, "buckets slots"],
+    object_ids: Int[Array, "buckets slots"],
+) -> Float[Array, "buckets slots height width"]:
+    """Clamp the masks that lose most of their area to a per-pixel overlap.
+
+    Overlap is resolved over every object at once, by highest logit with ties
+    to the lower ID. An object keeping under 30% of its area, or starting
+    empty, is clamped everywhere. Nothing changes for a single object.
+    """
+    flat = logits.reshape(-1, *logits.shape[-2:])
+    rows = present.ravel()
+    order = jnp.lexsort((object_ids.ravel(), ~rows))
+    ranked = flat[order]
+    winner = jnp.argmax(ranked, axis=0)
+    wins = winner == jnp.arange(order.shape[0])[:, None, None]
+    after_overlap = jnp.where(wins, ranked, jnp.minimum(ranked, _OVERLAP_LOSER_LOGIT))
+    before = jnp.sum(ranked > 0, axis=(-2, -1))
+    after = jnp.sum(after_overlap > 0, axis=(-2, -1))
+    kept = after / jnp.maximum(before, 1) >= _MIN_KEPT_AREA_FRACTION
+    kept = kept | (jnp.sum(rows) <= 1)
+    clamped = jnp.where(
+        kept[:, None, None], ranked, jnp.minimum(ranked, _OVERLAP_LOSER_LOGIT)
+    )
+    restored = jnp.zeros_like(clamped).at[order].set(clamped)
+    return restored.reshape(logits.shape)
 
 
-def _keep_per_group(
-    masks: Bool[Array, "tracks height width"],
-    order: Int[Array, " tracks"],
+def _non_overlapping_per_state(
+    logits: Float[Array, "tracks height width"],
     groups: Int[Array, " tracks"],
     num_groups: int,
-) -> Bool[Array, "tracks height width"]:
-    """Give each pixel to the highest-priority mask of each group."""
-    ranked = masks[order]
-    ranked_groups = groups[order]
+) -> Float[Array, "tracks height width"]:
+    """Clamp, in each state, every mask that is not the highest at a pixel.
 
-    def visit(kept: jax.Array, group: jax.Array) -> tuple[jax.Array, None]:
-        in_group = (ranked_groups == group)[:, None, None]
-        return kept | remove_overlaps(ranked & in_group), None
+    Ties go to the lower track index, which is the earlier object.
+    """
+    rows = jnp.arange(logits.shape[0])[:, None, None]
 
-    kept, _ = jax.lax.scan(
-        visit, jnp.zeros_like(ranked), jnp.arange(num_groups, dtype=groups.dtype)
+    def visit(keep: jax.Array, group: jax.Array) -> tuple[jax.Array, None]:
+        in_group = (groups == group)[:, None, None]
+        winner = jnp.argmax(jnp.where(in_group, logits, -jnp.inf), axis=0)
+        return keep | ((winner == rows) & in_group), None
+
+    keep, _ = jax.lax.scan(
+        visit, jnp.zeros_like(logits, bool), jnp.arange(num_groups, dtype=groups.dtype)
     )
-    return jnp.zeros_like(kept).at[order].set(kept)
+    return jnp.where(keep, logits, jnp.minimum(logits, _OVERLAP_LOSER_LOGIT))
 
 
-def _priority_order(
-    object_score_logits: Float[Array, "..."], object_ids: Int[Array, "..."]
-) -> Int[Array, " tracks"]:
-    """Rank objects by decreasing tracker probability, ties to the lower ID."""
-    probabilities = jax.nn.sigmoid(object_score_logits.astype(jnp.float32)).ravel()
-    return jnp.lexsort((object_ids.ravel(), -probabilities))
+def _masks_through_source_size(
+    masks: Bool[Array, "buckets slots height width"],
+    selected: Bool[Array, "buckets slots"],
+    state_group: Int[Array, " buckets"],
+    source_size: tuple[int, int],
+    mask_size: int,
+) -> Float[Array, "buckets slots mask_size mask_size"]:
+    """Turn input masks into low-resolution logits through the clip's frame size.
+
+    Masks given to a state together are made disjoint at the source size: a
+    pixel claimed by another mask of the same state is empty for every mask.
+    """
+    buckets, slots = selected.shape
+    rows = masks.reshape(-1, *masks.shape[-2:])
+    groups = jnp.repeat(state_group, slots)
+    source = resize_bilinear_antialias(rows.astype(jnp.float32), source_size) > 0.5
+    source = source & selected.ravel()[:, None, None]
+    per_state = jax.ops.segment_sum(
+        source.astype(jnp.int32), groups, num_segments=buckets
+    )
+    others = per_state[groups] > source.astype(jnp.int32)
+    logits = jnp.where(source & ~others, _VIDEO_MASK_LOGIT, -_VIDEO_MASK_LOGIT)
+    low = resize_bilinear_antialias(logits, (mask_size, mask_size))
+    return low.reshape(buckets, slots, mask_size, mask_size)
 
 
-def associate(
-    detections: DetectorOutput, tracks: TrackOutput, state: TrackerState
-) -> Association:
-    """Compute the fixed-shape overlaps and flags the host policy decides from."""
+def _store_frame(
+    bucket: TrackerState,
+    frame: Int[Array, ""],
+    low: Float[Array, "dim grid grid"],
+    memory: jax.Array,
+    pointers: jax.Array,
+    is_new_state: Bool[Array, ""],
+    valid: Bool[Array, ""],
+    status: jax.Array,
+    logits: jax.Array,
+    scores: jax.Array,
+) -> TrackerState:
+    """Write one frame's memory, pointers and masks into a bucket."""
+    recent_slot = frame % _NUM_RECENT_FRAMES
+    pointer_slot = frame % _NUM_POINTER_FRAMES
+    # A frame committed twice replaces its own conditioning entry.
+    same_frame = bucket.cond_frame == frame
+    cond_slot = jnp.where(
+        jnp.any(same_frame), jnp.argmax(same_frame), jnp.argmin(bucket.cond_frame)
+    )
+    is_cond = is_new_state | jnp.any(same_frame)
+    store_cond = valid & is_cond
+
+    def stored(buffer: jax.Array, slot: jax.Array, value, write_it) -> jax.Array:
+        return buffer.at[slot].set(jnp.where(write_it, value, buffer[slot]))
+
+    return TrackerState(
+        bucket_valid=valid,
+        slot_status=status,
+        cond_memory=stored(bucket.cond_memory, cond_slot, memory, store_cond),
+        cond_features=stored(bucket.cond_features, cond_slot, low, store_cond),
+        cond_pointers=stored(bucket.cond_pointers, cond_slot, pointers, store_cond),
+        cond_frame=stored(bucket.cond_frame, cond_slot, frame, store_cond),
+        recent_memory=stored(bucket.recent_memory, recent_slot, memory, valid),
+        recent_features=stored(bucket.recent_features, recent_slot, low, valid),
+        recent_frame=stored(bucket.recent_frame, recent_slot, frame, valid),
+        # A frame committed twice stays conditioning, or it would be read twice.
+        recent_is_cond=stored(bucket.recent_is_cond, recent_slot, is_cond, valid),
+        pointers=stored(bucket.pointers, pointer_slot, pointers, valid),
+        pointer_frame=stored(bucket.pointer_frame, pointer_slot, frame, valid),
+        last_masks=logits,
+        last_scores=scores,
+    )
+
+
+def detection_keep(
+    detections: DetectorOutput,
+) -> tuple[Bool[Array, " queries"], Bool[Array, " queries"]]:
+    """Return which detections pass NMS, and which also pass the boundary filter."""
     probabilities = jax.nn.sigmoid(detections.logits.astype(jnp.float32))
-    detection_masks = detections.mask_logits > 0
     after_nms = greedy_iom_nms(
-        detection_masks,
+        detections.mask_logits > 0,
         probabilities,
         probabilities > _DETECTION_KEEP_PROBABILITY,
         _NMS_IOM,
@@ -557,8 +663,19 @@ def associate(
     inside = jnp.all(
         (centers > _BOUNDARY_MARGIN) & (centers < 1.0 - _BOUNDARY_MARGIN), axis=-1
     )
-    keep = after_nms & inside
+    return after_nms, after_nms & inside
 
+
+def associate_tracks(
+    detections: DetectorOutput,
+    after_nms: Bool[Array, " queries"],
+    keep: Bool[Array, " queries"],
+    tracks: TrackOutput,
+    state: TrackerState,
+) -> Association:
+    """Compute the overlaps and flags for detections already filtered by ``keep``."""
+    probabilities = jax.nn.sigmoid(detections.logits.astype(jnp.float32))
+    detection_masks = detections.mask_logits > 0
     active = (state.slot_status == SLOT_ACTIVE).ravel()
     height, width = tracks.mask_logits.shape[-2:]
     track_masks = (tracks.mask_logits.reshape(-1, height, width) > 0) & active[
@@ -569,29 +686,52 @@ def associate(
         iom_matrix(detection_masks, track_masks),
         0.0,
     )
-    matches = iom >= _MATCH_IOM
     high_iom = iom >= _HIGH_IOM
-    per_detection = jnp.sum(high_iom, axis=1)[:, None]
-    per_track = jnp.sum(high_iom, axis=0)[None, :]
+    ambiguous_detection = jnp.sum(high_iom, axis=1) > 1
+    ambiguous_track = jnp.sum(high_iom, axis=0) > 1
+    unique_iom = jnp.where(
+        ambiguous_detection[:, None] | ambiguous_track[None, :], 0.0, iom
+    )
+    unique_high_iom = unique_iom >= _HIGH_IOM
     new_detection = (
         (probabilities >= _NEW_OBJECT_PROBABILITY)
-        & ~jnp.any(matches, axis=1)
-        & (keep | ~jnp.any(active))
+        & ~jnp.any(iom >= _MATCH_IOM, axis=1)
+        & (keep | (after_nms & ~jnp.any(active)))
+    )
+    confident_detection = (
+        (probabilities >= _CONFIDENT_DETECTION_PROBABILITY) & keep & ~new_detection
     )
     track_probabilities = jax.nn.sigmoid(
         tracks.object_score_logits.astype(jnp.float32)
     ).ravel()
+    confident_track = track_probabilities > _CONFIDENT_TRACK_PROBABILITY
+
+    eligible = unique_high_iom & confident_detection[:, None]
+    reconditioned = jnp.any(eligible, axis=0) & confident_track
+    chosen = detection_masks[jnp.argmax(eligible, axis=0)]
+    reconditioned_masks = jnp.where(reconditioned[:, None, None], chosen, track_masks)
     return Association(
         keep=keep,
         iom=iom,
-        matches=matches,
+        matches=unique_iom >= _MATCH_IOM,
         high_iom=high_iom,
-        ambiguous=high_iom & ((per_detection > 1) | (per_track > 1)),
+        unique_high_iom=unique_high_iom,
         new_detection=new_detection,
-        confident_detection=probabilities >= _CONFIDENT_DETECTION_PROBABILITY,
-        confident_track=track_probabilities > _CONFIDENT_TRACK_PROBABILITY,
+        confident_detection=confident_detection,
+        confident_track=confident_track,
+        track_nonempty=jnp.any(track_masks, axis=(-2, -1)),
         track_iou=iou_matrix(track_masks, track_masks),
+        reconditioned_iou=iou_matrix(reconditioned_masks, reconditioned_masks),
+        reconditioned_nonempty=jnp.any(reconditioned_masks, axis=(-2, -1)),
     )
+
+
+def associate(
+    detections: DetectorOutput, tracks: TrackOutput, state: TrackerState
+) -> Association:
+    """Compute the fixed-shape overlaps and flags the host policy decides from."""
+    after_nms, keep = detection_keep(detections)
+    return associate_tracks(detections, after_nms, keep, tracks, state)
 
 
 class Sam3Tracker(eqx.Module):
@@ -604,8 +744,6 @@ class Sam3Tracker(eqx.Module):
     pointer_proj: MLP
     pointer_time_proj: eqx.nn.Linear
     memory_time_embed: Float[Array, "times dim"]
-    # Weights the checkpoint holds for object-absent pointers and memory and for
-    # interactive pointers; the tracking steps do not read them yet.
     interactive_pointer_proj: MLP
     no_object_pointer: eqx.nn.Linear
     no_object_memory: Float[Array, "slots dim"]
@@ -708,12 +846,16 @@ class Sam3Tracker(eqx.Module):
         dim, grid = bucket.cond_memory.shape[-3], bucket.cond_memory.shape[-1]
         cond, recent, pointer = _selected_memory_frames(bucket)
 
-        # Closer conditioning frames take lower indices, closer recent frames higher.
-        cond_time = jnp.clip(frame_index - bucket.cond_frame, 0, _NUM_RECENT_FRAMES)
-        recent_time = jnp.clip(
-            _NUM_RECENT_FRAMES - (frame_index - bucket.recent_frame),
-            0,
+        # Conditioning frames within reach count down from the last entry, and
+        # further ones share it. Recent frames count up with their distance.
+        cond_distance = frame_index - bucket.cond_frame
+        cond_time = jnp.where(
+            (cond_distance > 0) & (cond_distance < _NUM_TIME_EMBEDDINGS),
+            _NUM_RECENT_FRAMES - cond_distance,
             _NUM_RECENT_FRAMES,
+        )
+        recent_time = jnp.clip(
+            frame_index - bucket.recent_frame - 1, 0, _NUM_RECENT_FRAMES
         )
         time_embed = self.memory_time_embed[jnp.concatenate((cond_time, recent_time))]
         position = sine_position_encoding(grid, grid, dim // 2).astype(dtype)
@@ -724,7 +866,9 @@ class Sam3Tracker(eqx.Module):
         distance = (
             frame_index - jnp.concatenate((bucket.cond_frame, bucket.pointer_frame))
         ).astype(jnp.float32)
-        time_encoding = sine_coordinates(distance / pointer_divisor, dim).astype(dtype)
+        time_encoding = _pointer_time_encoding(distance / pointer_divisor, dim).astype(
+            dtype
+        )
         pointer_time = jax.vmap(self.pointer_time_proj)(time_encoding)
         object_pointers = jnp.concatenate((bucket.cond_pointers, bucket.pointers))
         pointer_position = jnp.broadcast_to(
@@ -804,6 +948,11 @@ class Sam3Tracker(eqx.Module):
                 :, 0
             ]
             pointers = self.pointer_proj(tokens_best)
+            pointers = jnp.where(
+                (out.object_score_logits > 0)[:, None],
+                pointers,
+                jax.vmap(self.no_object_pointer)(pointers),
+            )
             return TrackOutput(
                 mask_logits=jnp.take_along_axis(
                     out.mask_logits, best[..., None, None], axis=1
@@ -819,13 +968,19 @@ class Sam3Tracker(eqx.Module):
         self,
         low: Float[Array, "dim grid grid"],
         mask_logits: Float[Array, "slots height width"],
+        present: Bool[Array, " slots"],
         conditioning: Bool[Array, " slots"],
+        appearing: Bool[Array, " slots"],
     ) -> Float[Array, "dim grid grid"]:
-        signal = jax.nn.sigmoid(mask_logits.astype(jnp.float32))
+        """Encode one bucket. Absent slots get a zero mask channel and flag."""
+        signal = 2.0 * jax.nn.sigmoid(mask_logits.astype(jnp.float32)) - 1.0
+        signal = jnp.where(present[:, None, None], signal, 0.0)
         flags = jnp.broadcast_to(conditioning[:, None, None], signal.shape)
-        return self.memory_encoder(
+        memory = self.memory_encoder(
             low, jnp.concatenate((signal, flags.astype(jnp.float32)), axis=0)
         )
+        absent = jnp.sum(~appearing[:, None] * self.no_object_memory, axis=0)
+        return memory + absent[:, None, None].astype(memory.dtype)
 
     def decode_object(
         self,
@@ -835,52 +990,48 @@ class Sam3Tracker(eqx.Module):
     ) -> tuple[Float[Array, "height width"], Float[Array, " dim"], Float[Array, ""]]:
         """Return the prompted object's mask logits, pointer and object score."""
         output, tokens = interactive.predict_with_tokens(features, prompt)
+        score = output.object_score_logit
+        appearing = score > 0
+        # Multimask prompts point from the selected token; every other prompt
+        # keeps the single-mask token, even if stability selected another mask.
+        num_labels = jnp.sum(prompt.point_labels != -1) + 2 * prompt.has_box
+        multimask = (num_labels <= 1) & ~prompt.has_mask
+        token = tokens[jnp.where(multimask, output.selected, 0)]
+        pointer = self.interactive_pointer_proj(token)
         return (
-            output.mask_logits[output.selected],
-            self.pointer_proj(tokens[output.selected]),
-            output.object_score_logit,
+            jnp.where(appearing, output.mask_logits[output.selected], _NO_OBJECT_LOGIT),
+            jnp.where(appearing, pointer, self.no_object_pointer(pointer)),
+            score,
         )
 
-    def _new_objects(
+    def _input_mask_outputs(
         self,
         interactive: InteractiveHead,
         features: ImageFeatures,
-        masks: Float[Array, "buckets slots height width"],
-    ) -> tuple[jax.Array, jax.Array, jax.Array]:
-        """Turn detector masks into conditioning masks, pointers and object scores."""
+        masks: Bool[Array, "buckets slots height width"],
+        dtype: jnp.dtype,
+    ) -> tuple[Float[Array, "buckets slots dim"], Float[Array, "buckets slots"]]:
+        """Return the pointer and object score of each input mask.
 
-        def one_object(mask: jax.Array) -> tuple[jax.Array, jax.Array, jax.Array]:
-            prompt = InteractivePrompt.create(mask_input=mask, mask_size=mask.shape[-1])
-            return self.decode_object(interactive, features, prompt)
+        The score only says whether the mask has any pixel.
+        """
 
-        return jax.vmap(jax.vmap(one_object))(masks)
+        def one_mask(mask: jax.Array) -> tuple[jax.Array, jax.Array]:
+            prompt_mask = self.interactive_mask_downsample(mask[None].astype(dtype))[0]
+            prompt = InteractivePrompt.create(
+                mask_input=prompt_mask, mask_size=prompt_mask.shape[-1]
+            )
+            _, pointer, _ = self.decode_object(interactive, features, prompt)
+            appearing = jnp.any(mask)
+            score = jnp.where(
+                appearing, _MASK_INPUT_SCORE_LOGIT, -_MASK_INPUT_SCORE_LOGIT
+            )
+            return (
+                jnp.where(appearing, pointer, self.no_object_pointer(pointer)),
+                score.astype(jnp.float32),
+            )
 
-    def _reencode_buckets(
-        self,
-        low: Float[Array, "dim grid grid"],
-        logits: Float[Array, "buckets slots height width"],
-        scores: Float[Array, "buckets slots"],
-        object_ids: Int[Array, "buckets slots"],
-        conditioning: Bool[Array, "buckets slots"],
-        plan: CommitPlan,
-    ) -> Float[Array, "buckets dim grid grid"]:
-        """Encode memory from masks made non-overlapping at the source frame size."""
-        buckets, slots = logits.shape[:2]
-        resized = resize_bilinear(
-            logits.reshape(-1, *logits.shape[2:]), plan.source_size
-        )
-        kept = _keep_per_group(
-            resized > 0,
-            _priority_order(scores, object_ids),
-            jnp.repeat(plan.state_group, slots),
-            buckets,
-        )
-        clamped = jnp.where(
-            kept, resized, jnp.minimum(resized, _OVERLAP_LOSER_LOGIT)
-        ).reshape(buckets, slots, *plan.source_size)
-        return jax.vmap(self._encode_memory, in_axes=(None, 0, 0))(
-            low, clamped, conditioning
-        )
+        return jax.vmap(jax.vmap(one_mask))(masks)
 
     def commit(
         self,
@@ -892,168 +1043,217 @@ class Sam3Tracker(eqx.Module):
     ) -> TrackerState:
         """Apply the host's plan to one frame and store its memory.
 
-        Released buckets are cleared first, so their slots can take new objects
-        in the same step. Objects are only added to empty slots, so a removed
-        slot stays removed until its bucket is released.
+        Objects removed on this frame stay in the frame's memory and masks, and
+        released buckets are cleared afterwards. Only empty slots take new
+        objects, so a removed slot stays removed until its bucket is released.
         """
         low = features.propagation[2]
-        num_buckets = state.slot_status.shape[0]
+        grid = low.shape[-1]
+        mask_size = _MASK_SCALE * grid
+        memory_size = _MEMORY_STRIDE * grid
         image_size = self.image_position.image_size
-        state = _where_bucket(plan.release, _empty_buckets(state, num_buckets), state)
         occupied = state.slot_status == SLOT_ACTIVE
         add = plan.add & (state.slot_status == SLOT_EMPTY)
         recondition = plan.recondition & occupied
         remove = plan.remove & occupied
-        tracked = occupied & ~remove
+        present = occupied | add
         no_object = jnp.asarray(_NO_OBJECT_LOGIT, jnp.float32)
 
-        logits = jnp.where(
-            recondition[..., None, None], plan.recondition_masks, tracks.mask_logits
+        keep_tracked = (plan.recondition_masks > 0) == (tracks.mask_logits > 0)
+        reconditioned_logits = jnp.where(
+            keep_tracked, tracks.mask_logits, plan.recondition_masks
         )
         logits = jnp.where(
-            (plan.suppress & occupied)[..., None, None], no_object, logits
+            recondition[..., None, None], reconditioned_logits, tracks.mask_logits
         )
-        logits = jnp.where(tracked[..., None, None], logits, no_object)
+        logits = jnp.where(
+            (plan.suppress & occupied)[..., None, None], _OVERLAP_LOSER_LOGIT, logits
+        )
+        logits = jnp.where(occupied[..., None, None], logits, no_object)
 
-        height, width = logits.shape[-2:]
-        shrunk = _shrunk_slots(
-            logits.reshape(-1, height, width),
-            _priority_order(tracks.object_score_logits, plan.object_ids),
-        ).reshape(tracked.shape)
-        memory_logits = jnp.where(
-            shrunk[..., None, None],
-            jnp.minimum(logits, _OVERLAP_LOSER_LOGIT),
-            logits,
+        memory_logits = _suppress_area_shrinkage(
+            resize_bilinear(logits, (memory_size, memory_size)),
+            occupied,
+            plan.object_ids,
         )
-        upsampled = resize_bilinear(memory_logits, (image_size, image_size))
-        memory = jax.vmap(self._encode_memory, in_axes=(None, 0, 0))(
-            low, upsampled, recondition
+        appearing = occupied & jnp.any(memory_logits > 0, axis=(-2, -1))
+        memory = jax.vmap(self._encode_memory, in_axes=(None, 0, 0, 0, 0))(
+            low, memory_logits, occupied, plan.conditioning, appearing
         )
 
-        def no_new_objects() -> tuple[jax.Array, jax.Array, jax.Array]:
-            return (
-                jnp.zeros_like(logits),
-                jnp.zeros_like(tracks.pointers),
-                jnp.zeros_like(tracks.object_score_logits),
+        new_binary = resize_bilinear(plan.new_masks, (memory_size, memory_size)) > 0
+        recondition_binary = (
+            resize_bilinear(plan.recondition_masks, (memory_size, memory_size)) > 0
+        )
+        selected = add | recondition
+
+        def selected_outputs() -> tuple[jax.Array, jax.Array]:
+            return self._input_mask_outputs(
+                interactive,
+                features,
+                jnp.where(add[..., None, None], new_binary, recondition_binary),
+                low.dtype,
             )
 
-        new_logits, new_pointers, new_scores = jax.lax.cond(
-            jnp.any(add & ~plan.decoded),
-            lambda: self._new_objects(interactive, features, plan.new_masks),
-            no_new_objects,
+        def no_selected_outputs() -> tuple[jax.Array, jax.Array]:
+            return (
+                jnp.zeros_like(tracks.pointers),
+                jnp.zeros_like(tracks.object_score_logits, dtype=jnp.float32),
+            )
+
+        new_pointers, new_scores = jax.lax.cond(
+            jnp.any(selected), selected_outputs, no_selected_outputs
         )
-        new_logits = jnp.where(
-            plan.decoded[..., None, None], plan.new_masks, new_logits
+
+        def reencoded() -> tuple[jax.Array, jax.Array]:
+            new_low = _masks_through_source_size(
+                new_binary, add, plan.state_group, plan.source_size, mask_size
+            )
+            recondition_low = _masks_through_source_size(
+                recondition_binary,
+                recondition,
+                plan.state_group,
+                plan.source_size,
+                mask_size,
+            )
+            stored = jnp.where(occupied[..., None, None], tracks.mask_logits, no_object)
+            stored = jnp.where(recondition[..., None, None], recondition_low, stored)
+            stored = jnp.where(add[..., None, None], new_low, stored)
+
+            buckets, slots = stored.shape[:2]
+            high = _non_overlapping_per_state(
+                resize_bilinear(stored, (image_size, image_size)).reshape(
+                    buckets * slots, image_size, image_size
+                ),
+                jnp.repeat(plan.state_group, slots),
+                buckets,
+            ).reshape(buckets, slots, image_size, image_size)
+            scores = jnp.where(selected, new_scores, tracks.object_score_logits)
+            encoded = jax.vmap(self._encode_memory, in_axes=(None, 0, 0, 0, 0))(
+                low, high, present, plan.conditioning, present & (scores > 0)
+            )
+            return encoded, new_low
+
+        def no_reencoding() -> tuple[jax.Array, jax.Array]:
+            return memory, jnp.zeros_like(logits)
+
+        reencoded_memory, new_low = jax.lax.cond(
+            jnp.any(plan.reencode), reencoded, no_reencoding
         )
-        new_pointers = jnp.where(
-            plan.decoded[..., None], plan.decoded_pointers, new_pointers
-        )
-        new_scores = jnp.where(plan.decoded, plan.decoded_scores, new_scores)
-        final_logits = jnp.where(add[..., None, None], new_logits, logits)
-        final_scores = jnp.where(add, new_scores, tracks.object_score_logits)
-        final_active = tracked | add
-        final_pointers = jnp.where(add[..., None], new_pointers, tracks.pointers)
-        final_pointers = jnp.where(final_active[..., None], final_pointers, 0).astype(
+        memory = jnp.where(plan.reencode.reshape(-1, 1, 1, 1), reencoded_memory, memory)
+
+        final_logits = jnp.where(add[..., None, None], new_low, logits)
+        final_scores = jnp.where(
+            present,
+            jnp.where(selected, new_scores, tracks.object_score_logits),
+            0.0,
+        ).astype(jnp.float32)
+        final_pointers = jnp.where(selected[..., None], new_pointers, tracks.pointers)
+        final_pointers = jnp.where(present[..., None], final_pointers, 0).astype(
             tracks.pointers.dtype
         )
-        conditioning = add | recondition
-
-        reencode = plan.reencode | jnp.any(add, axis=-1)
-        memory = jax.lax.cond(
-            jnp.any(reencode),
-            lambda: jnp.where(
-                reencode.reshape(-1, 1, 1, 1),
-                self._reencode_buckets(
-                    low,
-                    final_logits,
-                    final_scores,
-                    plan.object_ids,
-                    conditioning,
-                    plan,
-                ),
-                memory,
-            ),
-            lambda: memory,
-        )
-
         status = jnp.where(add, SLOT_ACTIVE, state.slot_status)
         status = jnp.where(remove, SLOT_REMOVED, status).astype(jnp.int8)
-        valid = state.bucket_valid | jnp.any(add, axis=-1)
-        frame = plan.frame_index
 
-        def write(
-            bucket: TrackerState,
-            bucket_memory: jax.Array,
-            pointers: jax.Array,
-            is_cond: Bool[Array, ""],
-            bucket_valid: Bool[Array, ""],
-            bucket_status: jax.Array,
-            bucket_logits: jax.Array,
-            bucket_scores: jax.Array,
-        ) -> TrackerState:
-            recent_slot = frame % _NUM_RECENT_FRAMES
-            pointer_slot = frame % _NUM_POINTER_FRAMES
-            # A frame committed twice replaces its own conditioning entry.
-            same_frame = bucket.cond_frame == frame
-            cond_slot = jnp.where(
-                jnp.any(same_frame),
-                jnp.argmax(same_frame),
-                jnp.argmin(bucket.cond_frame),
-            )
-            store_cond = bucket_valid & is_cond
-
-            def stored(
-                buffer: jax.Array, slot: jax.Array, value, write_it
-            ) -> jax.Array:
-                return buffer.at[slot].set(jnp.where(write_it, value, buffer[slot]))
-
-            shown = bucket_status == SLOT_ACTIVE
-            return TrackerState(
-                bucket_valid=bucket_valid,
-                slot_status=bucket_status,
-                cond_memory=stored(
-                    bucket.cond_memory, cond_slot, bucket_memory, store_cond
-                ),
-                cond_features=stored(bucket.cond_features, cond_slot, low, store_cond),
-                cond_pointers=stored(
-                    bucket.cond_pointers, cond_slot, pointers, store_cond
-                ),
-                cond_frame=stored(bucket.cond_frame, cond_slot, frame, store_cond),
-                recent_memory=stored(
-                    bucket.recent_memory, recent_slot, bucket_memory, bucket_valid
-                ),
-                recent_features=stored(
-                    bucket.recent_features, recent_slot, low, bucket_valid
-                ),
-                recent_frame=stored(
-                    bucket.recent_frame, recent_slot, frame, bucket_valid
-                ),
-                # A frame committed twice stays conditioning, or it would be read twice.
-                recent_is_cond=stored(
-                    bucket.recent_is_cond,
-                    recent_slot,
-                    is_cond | jnp.any(same_frame),
-                    bucket_valid,
-                ),
-                pointers=stored(bucket.pointers, pointer_slot, pointers, bucket_valid),
-                pointer_frame=stored(
-                    bucket.pointer_frame, pointer_slot, frame, bucket_valid
-                ),
-                last_masks=jnp.where(
-                    shown[:, None, None], bucket_logits, _NO_OBJECT_LOGIT
-                ),
-                last_scores=jnp.where(shown, bucket_scores, 0.0),
-            )
-
-        return jax.vmap(write)(
+        written = jax.vmap(_store_frame, in_axes=(0, None, None, 0, 0, 0, 0, 0, 0, 0))(
             state,
+            plan.frame_index,
+            low,
             memory,
             final_pointers,
-            jnp.any(conditioning, axis=-1),
-            valid,
+            plan.new_state,
+            state.bucket_valid | jnp.any(add, axis=-1),
             status,
             final_logits,
             final_scores,
+        )
+        cleared = _where_bucket(
+            plan.release, _empty_buckets(written, status.shape[0]), written
+        )
+        # The driver still shows the objects of a released bucket on this frame.
+        return eqx.tree_at(
+            lambda s: (s.last_masks, s.last_scores),
+            cleared,
+            (written.last_masks, written.last_scores),
+        )
+
+    def commit_point_object(
+        self,
+        interactive: InteractiveHead,
+        state: TrackerState,
+        features: ImageFeatures,
+        prompt: InteractivePrompt,
+        frame_index: Int[Array, ""],
+        source_size: tuple[int, int],
+    ) -> TrackerState:
+        """Start an object from a point prompt, in slot 0 of bucket 0.
+
+        Its mask passes through the clip's frame size, and the frame becomes a
+        conditioning frame with the object's real object score.
+        """
+        low = features.propagation[2]
+        mask_size = _MASK_SCALE * low.shape[-1]
+        image_size = self.image_position.image_size
+        mask, pointer, score = self.decode_object(interactive, features, prompt)
+        low_mask = resize_bilinear_antialias(
+            resize_bilinear(mask, source_size), (mask_size, mask_size)
+        )
+        active = jnp.zeros_like(state.slot_status[0], dtype=bool).at[0].set(True)
+        logits = (
+            jnp.full_like(state.last_masks[0], _NO_OBJECT_LOGIT).at[0].set(low_mask)
+        )
+        high = resize_bilinear(logits, (image_size, image_size))
+        memory = self._encode_memory(low, high, active, active, active & (score > 0))
+        scores = jnp.zeros_like(state.last_scores[0]).at[0].set(score)
+        pointers = jnp.zeros_like(state.pointers[0, 0]).at[0].set(pointer)
+        status = jnp.full_like(state.slot_status[0], SLOT_EMPTY).at[0].set(SLOT_ACTIVE)
+        return jax.tree.map(
+            lambda leaf, first: leaf.at[0].set(first),
+            state,
+            _store_frame(
+                jax.tree.map(lambda leaf: leaf[0], state),
+                frame_index,
+                low,
+                memory,
+                pointers,
+                jnp.asarray(True),
+                jnp.asarray(True),
+                status,
+                logits,
+                scores,
+            ),
+        )
+
+    def commit_point_step(
+        self,
+        state: TrackerState,
+        features: ImageFeatures,
+        tracks: TrackOutput,
+        frame_index: Int[Array, ""],
+    ) -> TrackerState:
+        """Store a propagated frame of a point track, from its own masks and scores."""
+        low = features.propagation[2]
+        image_size = self.image_position.image_size
+        occupied = state.slot_status == SLOT_ACTIVE
+        high = resize_bilinear(tracks.mask_logits, (image_size, image_size))
+        memory = jax.vmap(self._encode_memory, in_axes=(None, 0, 0, 0, 0))(
+            low,
+            high,
+            occupied,
+            jnp.zeros_like(occupied),
+            occupied & (tracks.object_score_logits > 0),
+        )
+        return jax.vmap(_store_frame, in_axes=(0, None, None, 0, 0, 0, 0, 0, 0, 0))(
+            state,
+            frame_index,
+            low,
+            memory,
+            tracks.pointers,
+            jnp.zeros_like(state.bucket_valid),
+            state.bucket_valid,
+            state.slot_status,
+            jnp.where(occupied[..., None, None], tracks.mask_logits, _NO_OBJECT_LOGIT),
+            jnp.where(occupied, tracks.object_score_logits, 0.0).astype(jnp.float32),
         )
 
 
@@ -1063,5 +1263,7 @@ __all__ = [
     "TrackOutput",
     "TrackerState",
     "associate",
+    "associate_tracks",
+    "detection_keep",
     "pad_tracker_buckets",
 ]

@@ -8,6 +8,7 @@ import math
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 from jaxtyping import Array, Float
 
 
@@ -152,6 +153,40 @@ def resize_bilinear(
     height, width = size
     x = x.astype(jnp.float32)
     return _resize_axis(_resize_axis(x, width, axis=-1), height, axis=-2)
+
+
+def _antialias_weights(length: int, size: int) -> np.ndarray:
+    """Triangle-filter weights of each output sample over the input axis.
+
+    They only depend on the two static sizes, so they are computed once while
+    tracing, the way torch computes its antialiased kernels.
+    """
+    scale = length / size
+    support = max(scale, 1.0)
+    weights = np.zeros((size, length), np.float32)
+    for index in range(size):
+        center = (index + 0.5) * scale
+        first = max(int(center - support + 0.5), 0)
+        last = min(int(center + support + 0.5), length)
+        distance = (np.arange(first, last) + 0.5 - center) / support
+        values = np.maximum(1.0 - np.abs(distance), 0.0)
+        weights[index, first:last] = values / values.sum()
+    return weights
+
+
+def resize_bilinear_antialias(
+    x: Float[Array, "... height width"], size: tuple[int, int]
+) -> Float[Array, "... out_height out_width"]:
+    """Resize the last two axes with an antialiased bilinear filter, in float32.
+
+    Matches ``torch.nn.functional.interpolate(mode="bilinear", align_corners=False,
+    antialias=True)``: each axis uses a triangle filter widened by its downscale
+    factor, and upscaling is plain bilinear.
+    """
+    height, width = size
+    rows = jnp.asarray(_antialias_weights(x.shape[-2], height))
+    columns = jnp.asarray(_antialias_weights(x.shape[-1], width))
+    return rows @ x.astype(jnp.float32) @ columns.T
 
 
 def grid_sample(
