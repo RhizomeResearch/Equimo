@@ -25,14 +25,17 @@ _NO_OBJECT_LOGIT = -1024.0
 _INTERACTIVE_MASK_TOKENS = 4
 _MASKS_PER_SLOT = 3
 _MAX_INTERACTIVE_POINTS = 16
+_SOURCE_PIXELS_IMAGE_SIZE = 1008
 _MASK_IN_CHANNELS = 16
 
 
 class InteractivePrompt(eqx.Module):
     """Point, box and mask prompt with fixed shapes.
 
-    Points and boxes are in input pixels. Point labels are 1 (positive), 0
-    (negative) or -1 (padding). The box is ``(x1, y1, x2, y2)``.
+    Points and boxes are in input pixels, or in the source image's pixels when
+    ``source_size`` is given to :meth:`create`. Point labels are 1 (positive), 0
+    (negative) or -1 (padding), and default to positive. The box is
+    ``(x1, y1, x2, y2)``.
     """
 
     points: Float[Array, "points 2"]
@@ -52,12 +55,32 @@ class InteractivePrompt(eqx.Module):
         mask_input: jax.Array | None = None,
         mask_size: int = 288,
         max_points: int = _MAX_INTERACTIVE_POINTS,
+        source_size: tuple[int, int] | None = None,
+        image_size: int = _SOURCE_PIXELS_IMAGE_SIZE,
     ) -> InteractivePrompt:
-        """Pad points to ``max_points``; absent prompts are marked as such."""
+        """Pad points to ``max_points``; absent prompts are marked as such.
+
+        With ``source_size`` ``(height, width)``, points and the box are scaled
+        from those pixels to the model's ``image_size``.
+        """
         if points is None:
             points = jnp.zeros((0, 2), jnp.float32)
             point_labels = jnp.zeros((0,), jnp.int32)
-        assert point_labels is not None
+        elif point_labels is None:
+            point_labels = jnp.ones(points.shape[0], jnp.int32)
+        point_labels = jnp.asarray(point_labels, jnp.int32)
+        point_labels = eqx.error_if(
+            point_labels,
+            jnp.any((point_labels < -1) | (point_labels > 1)),
+            "Point labels must be 1 (positive), 0 (negative) or -1 (padding); "
+            "pass a box through `box`.",
+        )
+        if source_size is not None:
+            height, width = source_size
+            scale = jnp.asarray([image_size / width, image_size / height], jnp.float32)
+            points = jnp.asarray(points, jnp.float32) * scale
+            if box is not None:
+                box = jnp.asarray(box, jnp.float32) * jnp.tile(scale, 2)
         missing = max_points - points.shape[0]
         if missing < 0:
             raise ValueError(

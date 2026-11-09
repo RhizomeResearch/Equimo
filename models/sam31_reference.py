@@ -112,6 +112,7 @@ IMAGE_RECORDED_OUTPUTS = (
 )
 IMAGE_MEAN_ABSOLUTE_ERROR = 5e-4
 MEMORY_ATTENTION_QUERY_BLOCK = 1024
+EXEMPLAR_CLIP_FRAMES = 4
 # Several boxes of the fixture's image land a query within the threshold margin.
 # This one clears every margin and keeps several detections.
 EXEMPLAR_OBJECT = 19
@@ -2000,6 +2001,67 @@ def image_provenance(path: Path, concept: str) -> dict:
     return entry
 
 
+def generate_video_exemplar(
+    checkpoint: Path, frames_dir: Path, box_xywh: list[float], output_dir: Path
+) -> dict:
+    """Record the detector on the first frames of a clip prompted with one box.
+
+    The prompt frame reads the box and later frames read an empty geometric prompt,
+    which only shows in what the detector returns.
+    """
+    import torch
+
+    device = "cuda"
+    use_deterministic_kernels()
+    paths = sorted(frames_dir.glob("*.jpg"))[:EXEMPLAR_CLIP_FRAMES]
+    with reference_precision(
+        "float32", partial(build_full_model, checkpoint, device)
+    ) as model:
+        trace = DecisionTrace(model, script=None, assert_margins=False)
+        loaded = [resized_video_frame(path, 1008) for path in paths]
+        images = torch.stack([normalized_frame(pixels, device) for pixels, _ in loaded])
+        state = initial_state(model, images, device, loaded[0][1])
+        boxes = np.asarray([box_xywh], np.float32)
+        with torch.inference_mode():
+            model.add_prompt(
+                state,
+                frame_idx=0,
+                boxes_xywh=boxes,
+                box_labels=np.ones(1, np.int64),
+            )
+            for _ in model.propagate_in_video(state, start_frame_idx=0, reverse=False):
+                pass
+        tokens = concept_tokens(model, "<text placeholder>")
+    arrays = {
+        "inputs.exemplar.boxes_xywh": boxes,
+        "inputs.exemplar.text.token_ids": tokens["inputs.text.token_ids"],
+        "inputs.exemplar.text.padding_mask": tokens["inputs.text.padding_mask"],
+    }
+    for frame in range(EXEMPLAR_CLIP_FRAMES):
+        prefix = f"frames.{frame:03d}.pass0"
+        for name in ("det_masks", "det_boxes"):
+            subset = seeded_subset(trace.arrays[f"{prefix}.{name}"], 4096, frame)
+            for part, values in subset.items():
+                arrays[f"{prefix}.{name}.{part}"] = values
+    path = output_dir / "sam31_video_exemplar_reference.npz"
+    save_fixture(path, arrays)
+    entry = provenance(
+        path,
+        "python models/sam31_reference.py video-exemplar --checkpoint "
+        "/path/to/sam3.1_multiplex.pt --frames-dir /path/to/frames "
+        "--box X Y W H --output-dir /path/to/output",
+        0,
+        [3, 1008, 1008],
+    )
+    entry["comparison"] = {
+        "atol": IMAGE_MEAN_ABSOLUTE_ERROR,
+        "metric": "mean_absolute_error",
+    }
+    entry["tolerance"] = IMAGE_MEAN_ABSOLUTE_ERROR
+    entry["upstream"]["checkpoint"] = CHECKPOINT_SHA256
+    return {path.name: entry}
+
+
 def generate_video(
     checkpoint: Path, frames_dir: Path, concept: str, output_dir: Path
 ) -> None:
@@ -2068,6 +2130,11 @@ def parse_args() -> argparse.Namespace:
         command.add_argument("--output-dir", required=True, type=Path)
         if name != "operators":
             command.add_argument("--reference-dir", required=True, type=Path)
+    exemplar = commands.add_parser("video-exemplar")
+    exemplar.add_argument("--checkpoint", required=True, type=Path)
+    exemplar.add_argument("--frames-dir", required=True, type=Path)
+    exemplar.add_argument("--box", required=True, type=float, nargs=4)
+    exemplar.add_argument("--output-dir", required=True, type=Path)
     for name in ("image", "video"):
         command = commands.add_parser(name)
         command.add_argument("--checkpoint", required=True, type=Path)
@@ -2093,6 +2160,10 @@ def main() -> None:
         entries = generate_operators(args.output_dir, device)
     elif args.command == "tiny":
         entries = generate_tiny(args.reference_dir, args.output_dir, device)
+    elif args.command == "video-exemplar":
+        entries = generate_video_exemplar(
+            args.checkpoint, args.frames_dir, args.box, args.output_dir
+        )
     elif args.command == "image":
         entries = generate_image(
             args.checkpoint, args.image, args.concept, args.output_dir, args.precision

@@ -30,6 +30,7 @@ from equimo.vision.models.sam3.video import (
     _render_prediction,
 )
 from equimo.vision.models.sam3.video import _commit as video_commit
+from equimo.vision.models.sam3.video import _propagate as video_propagate
 
 NUM_SLOTS = 2
 NUM_QUERIES = 4
@@ -803,6 +804,153 @@ def test_driver_runs_in_bfloat16(model):
     assert driver._state.last_masks.dtype == jnp.float32
     assert driver._state.last_scores.dtype == jnp.float32
     assert driver._state.cond_memory.dtype == jnp.bfloat16
+
+
+def test_clips_of_at_least_sixteen_frames_share_one_propagate_compilation(
+    model, monkeypatch
+):
+    traced = []
+
+    def counted_propagate(*args):
+        traced.append(args[4])
+        return video_propagate(*args)
+
+    monkeypatch.setattr("equimo.vision.models.sam3.video._propagate", counted_propagate)
+    for num_frames in (16, 40, None):
+        driver = Sam3VideoTracker(model, num_frames=num_frames, source_size=SOURCE_SIZE)
+        driver.set_prompt(PROMPT)
+        _script_detector(driver, {0: [0.9, 0.2, 0.2, 0.2]})
+        _script_new_detections(driver, {})
+        for _ in range(2):
+            driver.push_frame(FRAME)
+    assert traced == [16]
+
+
+def test_exemplars_reach_only_the_prompt_frame(model):
+    driver = Sam3VideoTracker(model, num_frames=3, source_size=SOURCE_SIZE)
+    driver.set_prompt(
+        ConceptPrompt.create(
+            text_features=TEXT,
+            boxes=jnp.asarray([[0.5, 0.5, 0.2, 0.2]]),
+            points=jnp.asarray([[0.5, 0.5]]),
+            max_boxes=2,
+            max_points=2,
+        )
+    )
+    real = driver._steps.encode_and_detect
+    box_prompted = []
+    point_prompted = []
+    text_lengths = []
+
+    def recording(model, frame, prompt):
+        box_prompted.append(not bool(prompt.box_padding_mask.all()))
+        point_prompted.append(not bool(prompt.point_padding_mask.all()))
+        text_lengths.append(int((~prompt.text_padding_mask).sum()))
+        return real(model, frame, prompt)
+
+    driver._steps.encode_and_detect = recording
+    for _ in range(3):
+        driver.push_frame(FRAME)
+    assert box_prompted == [True, False, False]
+    assert point_prompted == [True, False, False]
+    assert text_lengths == [TEXT.shape[0]] * 3
+
+
+def _driver_with_three_objects(model) -> Sam3VideoTracker:
+    """Three objects on frame 0, all confirmed on frame 2, and a new one on frame 3."""
+    driver = Sam3VideoTracker(
+        model, num_frames=6, source_size=SOURCE_SIZE, max_objects=3
+    )
+    driver.set_prompt(PROMPT)
+    _script_detector(driver, {0: [0.9, 0.8, 0.7, 0.1], 3: [0.9, 0.2, 0.2, 0.2]})
+    real = driver._steps.associate
+
+    def matched(model, detections, tracks, state):
+        association, probabilities = real(model, detections, tracks, state)
+        pairs = np.zeros(association.matches.shape, bool)
+        np.fill_diagonal(pairs, True)
+        return (
+            eqx.tree_at(
+                lambda a: (a.new_detection, a.matches, a.high_iom),
+                association,
+                (
+                    jnp.zeros(NUM_QUERIES, bool).at[0].set(driver._next_frame == 3),
+                    jnp.asarray(pairs),
+                    jnp.asarray(pairs),
+                ),
+            ),
+            probabilities,
+        )
+
+    driver._steps.associate = matched
+    return driver
+
+
+def test_removed_object_leaves_the_pending_frames_and_its_bucket(model, monkeypatch):
+    traced_buckets = []
+
+    def counted_commit(*args):
+        traced_buckets.append(args[1].slot_status.shape[0])
+        return video_commit(*args)
+
+    monkeypatch.setattr("equimo.vision.models.sam3.video._commit", counted_commit)
+    shown = _capture_shown_objects(monkeypatch)
+    driver = _driver_with_three_objects(model)
+    assert driver.push_frame(FRAME) == []
+    assert driver.decisions[0].added[2].object_id == 2
+    assert driver.decisions[0].added[2].bucket == 1
+
+    driver.remove_object(2)
+
+    assert driver.policy.bucket_valid.tolist() == [True, False]
+    assert driver._state.bucket_valid.tolist() == [True, False]
+    assert driver._state.slot_status[1].tolist() == [SLOT_EMPTY] * NUM_SLOTS
+    for _ in range(5):
+        driver.push_frame(OTHER_FRAME)
+    driver.finish()
+
+    assert all(2 not in objects for _, objects in shown)
+    assert [objects for frame, objects in shown if frame == 0] == [[0, 1]]
+    assert traced_buckets == [2]
+
+
+def test_removed_object_stays_on_frames_already_returned(model, monkeypatch):
+    shown = _capture_shown_objects(monkeypatch)
+    driver = _driver_with_three_objects(model)
+    returned = []
+    for _ in range(3):
+        returned += driver.push_frame(FRAME)
+    assert [item.frame_index for item in returned] == [0]
+    assert shown == [(0, [0, 1, 2])]
+
+    driver.remove_object(1)
+    for _ in range(3):
+        driver.push_frame(OTHER_FRAME)
+    driver.finish()
+
+    assert all(1 not in objects for frame, objects in shown if frame > 0)
+
+
+def test_redetecting_a_removed_object_starts_a_new_identity(model):
+    driver = _driver_with_three_objects(model)
+    driver.push_frame(FRAME)
+    driver.remove_object(0)
+    driver.push_frame(OTHER_FRAME)
+    driver.push_frame(FRAME)
+    driver.push_frame(OTHER_FRAME)
+
+    redetected = next(item for item in driver.decisions if item.frame_index == 3)
+    assert [new.object_id for new in redetected.added] == [3]
+
+
+def test_removing_an_object_that_is_not_tracked_raises(model):
+    driver = _driver_with_three_objects(model)
+    driver.push_frame(FRAME)
+    with pytest.raises(ValueError, match="Object 7 is not being tracked"):
+        driver.remove_object(7)
+    driver.remove_object(0)
+    with pytest.raises(ValueError, match="Object 0 is not being tracked"):
+        driver.remove_object(0)
 
 
 def test_compiles_once_per_bucket_count_while_objects_change(model, monkeypatch):

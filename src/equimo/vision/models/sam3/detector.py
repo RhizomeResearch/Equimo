@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import equinox as eqx
 import jax
 import jax.numpy as jnp
@@ -23,6 +25,7 @@ from equimo.vision.models.sam3.common import (
 from equimo.vision.models.sam3.encoder import ImageFeatures
 from equimo.vision.ops import grid_sample, roi_align
 
+_EXEMPLAR_TEXT = "<text placeholder>"
 _EXEMPLAR_POOL_SIZE = 7
 _SCORE_CLAMP = 12.0
 _BOX_BIAS_SCALE = 8.0
@@ -42,7 +45,8 @@ class ConceptPrompt(eqx.Module):
 
     Boxes are normalized cxcywh and points normalized xy; labels are 1 for positive
     and 0 for negative. The reference has no text-free path: for exemplars alone
-    it encodes the string ``"<text placeholder>"``, so pass its features to match.
+    it encodes the string ``"<text placeholder>"``, which :func:`encode_concept`
+    does for you.
     """
 
     text_features: Float[Array, "text dim"]
@@ -68,8 +72,15 @@ class ConceptPrompt(eqx.Module):
         max_text_tokens: int = 32,
         max_boxes: int = 16,
         max_points: int = 16,
+        source_size: tuple[int, int] | None = None,
     ) -> ConceptPrompt:
-        """Pad the given prompts to the maxima; absent prompts are fully padded."""
+        """Pad the given prompts to the maxima; absent prompts are fully padded.
+
+        With ``source_size`` ``(height, width)``, ``boxes`` are ``(x1, y1, x2, y2)``
+        and ``points`` ``(x, y)`` in those pixels instead of normalized.
+        """
+        if source_size is not None:
+            boxes, points = _exemplars_from_source_pixels(boxes, points, source_size)
         if text_features is None:
             text_features = jnp.zeros((0, dim), jnp.float32)
             text_padding_mask = jnp.zeros((0,), bool)
@@ -103,6 +114,82 @@ class ConceptPrompt(eqx.Module):
                 jnp.zeros(points.shape[0], bool), max_points, True
             ),
         )
+
+    def without_exemplars(self) -> ConceptPrompt:
+        """Return the prompt with its boxes and points padded out."""
+        return eqx.tree_at(
+            lambda p: (
+                p.boxes,
+                p.box_labels,
+                p.box_padding_mask,
+                p.points,
+                p.point_labels,
+                p.point_padding_mask,
+            ),
+            self,
+            (
+                jnp.zeros_like(self.boxes),
+                jnp.zeros_like(self.box_labels),
+                jnp.ones_like(self.box_padding_mask),
+                jnp.zeros_like(self.points),
+                jnp.zeros_like(self.point_labels),
+                jnp.ones_like(self.point_padding_mask),
+            ),
+        )
+
+
+def _exemplars_from_source_pixels(
+    boxes: jax.Array | None,
+    points: jax.Array | None,
+    source_size: tuple[int, int],
+) -> tuple[jax.Array | None, jax.Array | None]:
+    """Convert corner boxes and points in source pixels to normalized exemplars."""
+    height, width = source_size
+    scale = jnp.asarray([width, height], jnp.float32)
+    if boxes is not None:
+        boxes = jnp.asarray(boxes, jnp.float32)
+        low, high = boxes[..., :2], boxes[..., 2:]
+        boxes = jnp.concatenate(((low + high) / 2, high - low), axis=-1) / jnp.tile(
+            scale, 2
+        )
+    if points is not None:
+        points = jnp.asarray(points, jnp.float32) / scale
+    return boxes, points
+
+
+def encode_concept(
+    text_model: Any,
+    tokenizer: Any,
+    concept: str | None = None,
+    *,
+    boxes: jax.Array | None = None,
+    box_labels: jax.Array | None = None,
+    points: jax.Array | None = None,
+    point_labels: jax.Array | None = None,
+    source_size: tuple[int, int] | None = None,
+) -> ConceptPrompt:
+    """Build a :class:`ConceptPrompt` from a concept, exemplars or both.
+
+    ``text_model`` and ``tokenizer`` are the ``sam31_text`` model and a
+    ``ClipBpeTokenizer``. With exemplars and no concept, the reference's
+    placeholder text is encoded, as the reference does.
+    """
+    if concept is None and boxes is None and points is None:
+        raise ValueError("Give a concept, exemplars or both.")
+    token_ids, padding_mask = tokenizer.encode(
+        [_EXEMPLAR_TEXT if concept is None else concept]
+    )
+    token_ids = jnp.asarray(token_ids[0], jnp.int32)
+    padding_mask = jnp.asarray(padding_mask[0])
+    return ConceptPrompt.create(
+        text_features=text_model.features(token_ids, padding_mask),
+        text_padding_mask=padding_mask,
+        boxes=boxes,
+        box_labels=box_labels,
+        points=points,
+        point_labels=point_labels,
+        source_size=source_size,
+    )
 
 
 class DetectorOutput(eqx.Module):

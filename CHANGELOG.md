@@ -9,6 +9,9 @@ All notable changes to Equimo are documented here. Equimo follows Semantic Versi
 - SAM 3.1 in `equimo.vision.models.sam3` (`Sam3`, `sam31_multiplex`, `decode_concepts`, the prompt and output types and
   an experimental video tracker), `sam31_text` and `ClipBpeTokenizer` in `equimo.language` with a `clip` extra, and
   converted weights under the SAM License. See `docs/sam3.md`.
+- SAM 3.1 prompting helpers: `encode_concept`, `source_size` for prompts given in original pixels, default positive
+  interactive labels with validation, and `decode_concepts` keeping every query by default.
+- `Sam3VideoTracker.remove_object`.
 - `equimo.core.parameters` describes how optimizers should treat each leaf, for every training workflow:
   `trainable_mask` (an Equinox filter excluding buffers), `weight_decay_mask` (also usable as an Optax `mask`),
   `DEFAULT_NO_DECAY_TAGS`, `buffer_mask`, `module_tags`, and the field markers `buffer()` and `tagged(...)`. The path

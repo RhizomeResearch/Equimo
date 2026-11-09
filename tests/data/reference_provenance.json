@@ -2193,6 +2193,35 @@
         "outputs.trunk.0.values": {"dtype": "float32", "shape": [4096]}
       }
     },
+    "sam31_video_exemplar_reference.npz": {
+      "identifier": "sam31_multiplex",
+      "additional_identifiers": ["sam31_text"],
+      "generator": "python models/sam31_reference.py video-exemplar --checkpoint /path/to/sam3.1_multiplex.pt --frames-dir /path/to/frames --box X Y W H --output-dir /path/to/output",
+      "upstream": {"checkpoint": "0567debeec80ba4ac6369540c6c248025283cb3ff2b92827509e57e2b3541cb6", "repository": "https://github.com/facebookresearch/sam3", "revision": "f1647e8d0c1d280991f4d1b7d974c2704537fe66"},
+      "seed": 0,
+      "input_shape": [3, 1008, 1008],
+      "environment": {"numpy": "1.26.4", "python": "3.12.14", "timm": "1.0.26", "torch": "2.11.0+cu130", "torchvision": "0.26.0+cu130"},
+      "sha256": "9cda024837a5f6d501f96c146df281ab9fcb20e4cbb25ee3758be10ef9705897",
+      "tolerance": 0.0005,
+      "comparison": {"atol": 0.0005, "metric": "mean_absolute_error"},
+      "arrays": {
+        "frames.000.pass0.det_boxes.values": {"dtype": "float32", "shape": [200, 4]},
+        "frames.000.pass0.det_masks.indices": {"dtype": "int64", "shape": [4096]},
+        "frames.000.pass0.det_masks.values": {"dtype": "float32", "shape": [4096]},
+        "frames.001.pass0.det_boxes.values": {"dtype": "float32", "shape": [200, 4]},
+        "frames.001.pass0.det_masks.indices": {"dtype": "int64", "shape": [4096]},
+        "frames.001.pass0.det_masks.values": {"dtype": "float32", "shape": [4096]},
+        "frames.002.pass0.det_boxes.values": {"dtype": "float32", "shape": [200, 4]},
+        "frames.002.pass0.det_masks.indices": {"dtype": "int64", "shape": [4096]},
+        "frames.002.pass0.det_masks.values": {"dtype": "float32", "shape": [4096]},
+        "frames.003.pass0.det_boxes.values": {"dtype": "float32", "shape": [200, 4]},
+        "frames.003.pass0.det_masks.indices": {"dtype": "int64", "shape": [4096]},
+        "frames.003.pass0.det_masks.values": {"dtype": "float32", "shape": [4096]},
+        "inputs.exemplar.boxes_xywh": {"dtype": "float32", "shape": [1, 4]},
+        "inputs.exemplar.text.padding_mask": {"dtype": "bool", "shape": [1, 32]},
+        "inputs.exemplar.text.token_ids": {"dtype": "int64", "shape": [1, 32]}
+      }
+    },
     "vision_ops_reference.npz": {
       "generator": "python models/sam31_reference.py operators --output-dir /path/to/output",
       "upstream": {

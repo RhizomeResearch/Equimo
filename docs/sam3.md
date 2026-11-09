@@ -5,8 +5,7 @@ interactive segmentation from points, boxes or masks, and forward-only video tra
 and takes the usual `key=None, inference=True`; batch images with `jax.vmap`.
 
 The image endpoints, the text model and the tokenizer are stable. The video path (`Sam3VideoTracker`, `TrackerState`,
-`CommitPlan`, `propagate`, `associate`, `commit`) is experimental and may change in a minor release; it has not yet been
-compared with the reference on real footage.
+`CommitPlan`, `propagate`, `associate`, `commit`) is experimental and may change in a minor release.
 
 ## Weights and license
 
@@ -48,7 +47,7 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 from equimo.language import ClipBpeTokenizer, sam31_text
-from equimo.vision.models.sam3 import ConceptPrompt, decode_concepts, sam31_multiplex
+from equimo.vision.models.sam3 import decode_concepts, encode_concept, sam31_multiplex
 
 def to_bfloat16(tree):
     return jax.tree.map(
@@ -62,25 +61,10 @@ text = to_bfloat16(sam31_text(pretrained=True))
 image = image.astype(jnp.bfloat16)
 tokenizer = ClipBpeTokenizer()
 
-token_ids, padding_mask = tokenizer.encode(["yellow school bus"])
-token_ids = jnp.asarray(token_ids[0], jnp.int32)
-padding_mask = jnp.asarray(padding_mask[0])
-
-
-@eqx.filter_jit
-def detect(vision, text, image, token_ids, padding_mask):
-    features = vision.encode_image(image)
-    prompt = ConceptPrompt.create(
-        text_features=text.features(token_ids, padding_mask),
-        text_padding_mask=padding_mask,
-    )
-    return vision.detect(features, prompt)
-
-
-output = detect(vision, text, image, token_ids, padding_mask)
-detections = decode_concepts(
-    output, output_size=output_size, max_detections=64, threshold=0.5
-)
+prompt = encode_concept(text, tokenizer, "yellow school bus")
+features = eqx.filter_jit(vision.encode_image)(image)
+output = eqx.filter_jit(vision.detect)(features, prompt)
+detections = decode_concepts(output, output_size=output_size, threshold=0.5)
 
 for index in range(int(detections.keep.sum())):
     mask = detections.masks[index]  # boolean, at output_size
@@ -90,37 +74,38 @@ for index in range(int(detections.keep.sum())):
 
 `detections` has a fixed shape, with entries ordered by decreasing score. `keep` marks the entries that hold a
 detection, and `presence` is the probability that the concept appears at all; each score already includes it.
-`decode_concepts` compiles once per `output_size`, and its memory scales with `max_detections`.
+`decode_concepts` compiles once per `output_size` and keeps all 200 queries by default. Its memory scales with
+`max_detections`, so pass a cap such as `max_detections=64` for large output sizes; lower-scoring detections beyond the
+cap are dropped.
 
 Text is limited to 32 tokens, including the start and end tokens. Longer text is truncated with the end token kept.
 
 ### Box exemplars
 
-`ConceptPrompt.create` also takes box exemplars in normalized `cx, cy, w, h`, with label 1 for a positive box and 0 for
-a negative one, and exemplar points in normalized `x, y`.
+`encode_concept` also takes box exemplars, with label 1 for a positive box and 0 for a negative one, and exemplar
+points. Without `source_size`, boxes are normalized `cx, cy, w, h` and points normalized `x, y`. With `source_size`,
+boxes are `x1 y1 x2 y2` and points `x y` in those original pixels. Labels default to positive.
 
-Without text, the reference encodes a fixed placeholder string as the text prompt, and the two results differ
-substantially, so pass its features when using exemplars alone:
+With exemplars and no concept, `encode_concept` encodes the placeholder text the reference uses, because an empty text
+gives substantially different detections:
 
 ```python
-ids, padding = tokenizer.encode(["<text placeholder>"])
-ids, padding = jnp.asarray(ids[0], jnp.int32), jnp.asarray(padding[0])
-
-exemplar = jnp.array([[0.5, 0.5, 0.2, 0.3]], jnp.float32)
-features = eqx.filter_jit(vision.encode_image)(image)
-prompt = ConceptPrompt.create(
-    text_features=text.features(ids, padding),
-    text_padding_mask=padding,
-    boxes=exemplar,
-    box_labels=jnp.ones(1, jnp.int32),
+prompt = encode_concept(
+    text,
+    tokenizer,
+    boxes=jnp.array([[120.0, 80.0, 320.0, 260.0]], jnp.float32),
+    source_size=output_size,
 )
 output = eqx.filter_jit(vision.detect)(features, prompt)
 ```
 
+`ConceptPrompt.create` takes the same exemplars and the text features directly, for code that encodes text elsewhere.
+
 ## Clicking on an object
 
 The interactive head works from the features `encode_image` returned. Points and boxes are in input pixels, that is on
-the 1008 x 1008 image; point labels are 1 for positive and 0 for negative.
+the 1008 x 1008 image, or in original pixels with `source_size`. Point labels are 1 for positive, 0 for negative and -1
+for padding, default to positive, and any other value raises.
 
 ```python
 from equimo.vision.models.sam3 import InteractivePrompt
@@ -128,8 +113,8 @@ from equimo.vision.ops import resize_bilinear
 
 features = eqx.filter_jit(vision.encode_image)(image)
 prompt = InteractivePrompt.create(
-    points=jnp.array([[504.0, 504.0]], jnp.float32),
-    point_labels=jnp.array([1], jnp.int32),
+    points=jnp.array([[320.0, 180.0]], jnp.float32),
+    source_size=output_size,
 )
 output = eqx.filter_jit(vision.predict_interactive)(features, prompt)
 
@@ -137,10 +122,10 @@ logits = output.mask_logits[output.selected]  # 288 x 288
 mask = resize_bilinear(logits, output_size) > 0.0
 ```
 
-`InteractivePrompt.create` also takes `box` (input pixels, `x1 y1 x2 y2`) and `mask_input`, the `288 x 288` logits of a
-previous prediction. `mask_logits` holds the single-mask output first and the three multimask outputs after it. With at
-most one label (counting a box's two corners) and no mask input, `selected` is the best multimask output by predicted
-IoU; otherwise it is the single-mask output unless its stability score is below 0.98.
+`InteractivePrompt.create` also takes `box` (`x1 y1 x2 y2`) and `mask_input`, the `288 x 288` logits of a previous
+prediction. `mask_logits` holds the single-mask output first and the three multimask outputs after it. With at most one
+label (counting a box's two corners) and no mask input, `selected` is the best multimask output by predicted IoU;
+otherwise it is the single-mask output unless its stability score is below 0.98.
 
 ## Low precision and memory
 
@@ -156,23 +141,23 @@ under "SAM 3.1 image inference and fine-tuning".
 ## Video
 
 `Sam3VideoTracker` runs detection, tracking and the association policy on frames you decoded and preprocessed. It is
-experimental: the policy thresholds come from the reference, but the driver has not yet been compared with it on real
-footage.
+experimental. Its decisions, object IDs and masks are checked against the reference on a hosted real clip.
+
+On a GPU, use cuDNN attention: it runs a frame about 2.5 times faster than XLA attention, and XLA runs out of memory on
+a 16 GB GPU at four buckets in bfloat16 (see [the performance notes](performance.md)).
 
 ```python
+from equimo.core.layers.attention import with_attention_implementation
 from equimo.vision.models.sam3.video import Sam3VideoTracker
+
+vision = with_attention_implementation(vision, "cudnn")
 
 # `frames` are [3, 1008, 1008] arrays, preprocessed as above.
 num_frames = len(frames)
 tracker = Sam3VideoTracker(
     vision, num_frames=num_frames, source_size=output_size, max_objects=16
 )
-tracker.set_prompt(
-    ConceptPrompt.create(
-        text_features=text.features(token_ids, padding_mask),
-        text_padding_mask=padding_mask,
-    )
-)
+tracker.set_prompt(encode_concept(text, tokenizer, "yellow school bus"))
 
 predictions = []
 for frame in frames:
@@ -185,11 +170,23 @@ for prediction in predictions:
 
 `push_frame` returns the frames that became final. Decisions need two frames of look-ahead, so from the third frame on
 each call returns the frame two steps earlier, and `finish` returns the rest. `set_prompt` must be called before the
-first frame and raises afterwards.
+first frame and raises afterwards. The text applies to every frame and box or point exemplars to the first frame only,
+as in the reference.
 
-Objects occupy 16-slot buckets, and `max_objects` (default 16) caps how many are tracked. The device code compiles once
-per bucket count, which grows in powers of two: when objects no longer fit in the current buckets, the next `push_frame`
-recompiles. Set `max_objects` above 16 to allow that growth.
+Objects occupy 16-slot buckets, and `max_objects` (default 16) caps how many are tracked. A batch of new objects that
+fits no existing group of buckets opens new ones, and a removed object's slot stays unused until its whole bucket is
+released, so the bucket count can grow even with 16 objects or fewer, up to the next power of two of `max_objects`. The
+device code compiles once per bucket count, and a `push_frame` that grows the count recompiles, which takes about a
+minute on an RTX 4080.
+
+To stop tracking an object, call `remove_object`. It disappears from every frame not yet returned, and frames already
+returned keep it:
+
+```python
+tracker.remove_object(object_id=3)
+```
+
+A later detection of the same object starts a new object with a new ID, and an ID that is not being tracked raises.
 
 To add an object the detector missed, call `add_object` with a frame, its index and positive and negative points:
 
@@ -205,5 +202,5 @@ next_prediction = track.push(frames[41])  # the object on the next frame
 ```
 
 The new object runs on its own state, so it is not added to the output of `push_frame`; frames already returned do not
-change. Refining an existing object with points, reverse propagation and a new prompt after the first frame are not
-supported.
+change, and `remove_object` does not apply to it. Refining an existing object with points, reverse propagation and a new
+prompt after the first frame are not supported.

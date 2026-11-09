@@ -28,14 +28,22 @@ Equimo's license.
   - `predict_interactive(features, InteractivePrompt) -> InteractiveOutput`: `mask_logits (4, 4G, 4G)` (float32),
     `iou (4)`, `object_score_logit`, `selected`. `[model.py:Sam3.predict_interactive]`,
     `[interactive.py:InteractiveOutput]`
-- `ConceptPrompt.create(*, text_features, text_padding_mask, boxes, box_labels, points, point_labels, dim=256, max_text_tokens=32, max_boxes=16, max_points=16)`
-  pads shorter prompts; absent prompts are fully padded. Padding masks use `True` for padding. To match the reference on
-  exemplars alone, pass the features of the text `"<text placeholder>"` rather than none. `[detector.py:ConceptPrompt]`
-- `InteractivePrompt.create(*, points, point_labels, box, mask_input, mask_size=288, max_points=16)` pads points with
-  label -1; points and boxes are in input pixels. `[interactive.py:InteractivePrompt]`
-- `decode_concepts(out, *, output_size, max_detections, threshold=0.5) -> ConceptDetections`: `keep`, `masks`, `boxes`
-  (pixels, xyxy), `scores`, `query_index`, `presence`. `[decoding.py:decode_concepts]`,
-  `[decoding.py:ConceptDetections]`
+- `ConceptPrompt.create(*, text_features, text_padding_mask, boxes, box_labels, points, point_labels, dim=256, max_text_tokens=32, max_boxes=16, max_points=16, source_size=None)`
+  pads shorter prompts; absent prompts are fully padded. Padding masks use `True` for padding. With `source_size`
+  `(height, width)`, boxes are xyxy and points xy in those pixels instead of normalized. `without_exemplars()` pads the
+  boxes and points out. To match the reference on exemplars alone, pass the features of the text `"<text placeholder>"`
+  rather than none. `[detector.py:ConceptPrompt]`
+- `encode_concept(text_model, tokenizer, concept=None, *, boxes, box_labels, points, point_labels, source_size) -> ConceptPrompt`
+  tokenizes and encodes the concept, or that placeholder text for exemplars alone, and raises `ValueError` with neither.
+  `text_model` and `tokenizer` are arguments so that `equimo.vision` does not import `equimo.language`.
+  `[detector.py:encode_concept]`
+- `InteractivePrompt.create(*, points, point_labels, box, mask_input, mask_size=288, max_points=16, source_size=None, image_size=1008)`
+  pads points with label -1. Points and boxes are in input pixels, or in the pixels of `source_size` `(height, width)`,
+  which scale to `image_size`. Point labels default to positive; values other than 1, 0 and -1 raise, also under `jit`.
+  `[interactive.py:InteractivePrompt]`
+- `decode_concepts(out, *, output_size, max_detections=None, threshold=0.5) -> ConceptDetections`: `keep`, `masks`,
+  `boxes` (pixels, xyxy), `scores`, `query_index`, `presence`. `max_detections=None` keeps every query.
+  `[decoding.py:decode_concepts]`, `[decoding.py:ConceptDetections]`
 - Tracker modules on `Sam3.tracker`: `image_position(dtype)` (the Fourier position map),
   `memory_encoder(features, masks (2 * num_slots, H, W))`,
   `memory_attention(x, x_pos, memory_image, memory, memory_image_pos, *, num_spatial_keys, key_lengths)`, and
@@ -48,14 +56,17 @@ Equimo's license.
   `Sam3.tracker.empty_state(num_buckets=1)` builds a state and `pad_tracker_buckets(state, num_buckets)` grows it to a
   larger power of two. `CommitPlan.empty(state, frame_index, source_size)` builds a plan that changes nothing.
   `Sam3.tracker.decode_object(interactive, features, prompt)` returns a prompted object's mask logits, pointer and
-  object score. `[model.py:Sam3]`, `[tracker.py:Sam3Tracker]`, `[tracker.py:pad_tracker_buckets]`
+  object score. `remove_tracker_slot(state, bucket, slot, released_buckets)` marks a slot removed and clears the buckets
+  it releases. `[model.py:Sam3]`, `[tracker.py:Sam3Tracker]`, `[tracker.py:pad_tracker_buckets]`,
+  `[tracker.py:remove_tracker_slot]`
 - Experimental host driver in `equimo.vision.models.sam3.video`, imported explicitly:
   `Sam3VideoTracker(model, *, num_frames, source_size, max_objects=16)` with `set_prompt(prompt)` (only before the first
   frame; later calls raise `ValueError`), `push_frame(frame) -> list[FramePrediction]`,
-  `finish() -> list[FramePrediction]` and
+  `finish() -> list[FramePrediction]`, `remove_object(object_id)` and
   `add_object(frame_index, frame, points, labels, *, object_id=None) -> PointTrack`. Frames are at the model's input
   size and `source_size` is the clip's `(height, width)`. `decisions` holds one `FrameDecision` per planned pass.
-  `[video.py:Sam3VideoTracker]`
+  `remove_object` raises `ValueError` for an object that is not being tracked, and hides the object from frames not yet
+  returned. `[video.py:Sam3VideoTracker]`
 - `PointTrack`: `object_id`, `first_prediction` (the frame it was added on) and `push(frame) -> FramePrediction`.
   `[video.py:PointTrack]`
 - `FramePrediction`: `frame_index`, `object_ids (K)`, `masks (K, H, W)` (bool, source size), `boxes (K, 4)` (pixels,
@@ -150,7 +161,8 @@ for the published configuration in bfloat16 (`G = 72`, `S = 16`, `dim = 256`, ab
 - Frame indices are traced, and every step keeps its shapes while objects change, so `propagate`, `associate` and
   `commit` compile once per bucket count, and `commit` once per `source_size`. `[tracker.py:CommitPlan]`
 - `num_frames` only sets the divisor of the pointer temporal encoding, `min(num_frames, 16) - 1` and at least 1. `None`
-  means at least 16 frames. `[tracker.py:Sam3Tracker.propagate]`
+  means at least 16 frames, and the driver passes this capped value, so clips of 16 frames or more share one compiled
+  `propagate`. `[tracker.py:Sam3Tracker.propagate]`, `[video.py:Sam3VideoTracker]`
 - `commit` applies reconditioning and suppression, including to objects removed on this frame, clamps masks that lose
   over 70% of their area to a per-pixel overlap over all objects (or that start empty) to -10 for memory only, and
   encodes memory with `2 * sigmoid - 1`, 0 for absent slots, and `no_object_memory` for every slot that does not appear.

@@ -23,6 +23,7 @@ BFLOAT16_MASK_IOU = 0.97
 BFLOAT16_SCORE_DIFFERENCE = 0.02
 BFLOAT16_DETECTION_THRESHOLD = 0.5
 VIDEO_MASK_IOU = 0.99
+VIDEO_EXEMPLAR_MEAN_ABSOLUTE_ERROR = 5e-4
 # Bfloat16 alone moves single small masks past 0.97, in the reference as well.
 VIDEO_BFLOAT16_FRAME_MEDIAN_MASK_IOU = 0.97
 
@@ -242,6 +243,52 @@ def _track(reference, models, dtype=jnp.float32):
 @pytest.fixture(scope="module")
 def float32_track(video_reference, models):
     return _track(video_reference, models)
+
+
+def test_exemplars_reach_only_the_prompt_frame_as_in_the_reference(
+    video_reference, models
+):
+    fixture = np.load(DATA_DIR / "sam31_video_exemplar_reference.npz")
+    vision, text = models
+    x, y, width, height = fixture["inputs.exemplar.boxes_xywh"][0]
+    token_ids = jnp.asarray(fixture["inputs.exemplar.text.token_ids"][0], jnp.int32)
+    padding_mask = jnp.asarray(fixture["inputs.exemplar.text.padding_mask"][0])
+    frames = _frames(video_reference)[:4]
+    tracker = Sam3VideoTracker(
+        vision,
+        num_frames=frames.shape[0],
+        source_size=tuple(int(side) for side in video_reference["inputs.source_size"]),
+    )
+    tracker.set_prompt(
+        ConceptPrompt.create(
+            text_features=text.features(token_ids, padding_mask),
+            text_padding_mask=padding_mask,
+            boxes=jnp.array([[x + width / 2, y + height / 2, width, height]]),
+        )
+    )
+    real_encode_and_detect = tracker._steps.encode_and_detect
+    outputs = []
+
+    def encode_and_detect(model, frame, prompt):
+        features, output = real_encode_and_detect(model, frame, prompt)
+        outputs.append(output)
+        return features, output
+
+    tracker._steps.encode_and_detect = encode_and_detect
+    for frame in frames:
+        tracker.push_frame(frame)
+
+    for frame, output in enumerate(outputs):
+        prefix = f"frames.{frame:03d}.pass0"
+        masks = np.asarray(output.mask_logits).ravel()
+        centers, sizes = np.split(np.asarray(output.boxes), 2, axis=-1)
+        boxes = np.concatenate((centers - sizes / 2, centers + sizes / 2), axis=-1)
+        for actual, name in ((masks, "det_masks"), (boxes.ravel(), "det_boxes")):
+            key = f"{prefix}.{name}"
+            if f"{key}.indices" in fixture.files:
+                actual = actual[fixture[f"{key}.indices"]]
+            error = np.abs(actual - fixture[f"{key}.values"].ravel()).mean()
+            assert error <= VIDEO_EXEMPLAR_MEAN_ABSOLUTE_ERROR, f"{key}: {error}"
 
 
 def _confirmed_transitions(decisions: list[dict]) -> list[list[int]]:

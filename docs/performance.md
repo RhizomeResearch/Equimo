@@ -178,6 +178,19 @@ GB for memory attention, so bfloat16 tracking past two buckets needs cuDNN atten
 `benchmarks/sam3_video.py --archive-dir DIR --fixture FILE --implementation {xla,cudnn} --buckets N` from the devenv
 shell with the CUDA wheels.
 
+Two latency ideas from the reference were measured with a throwaway script on the same GPU, in bfloat16 with cuDNN
+attention on 32 frames of the fixture, and left out because neither reaches the 20% frame-time gain that would justify
+the added complexity. A frame took 145 ms, of which image encoding and detection took 88 ms and final mask rendering 5.5
+ms. Rendering on the device can therefore save under 4% of a frame. Encoding and detecting frames in chunks through
+`jax.vmap`, as the reference's 16-frame chunks do, gives no gain, because each frame already keeps the GPU busy:
+
+| Chunk size | Encode + detect per frame | Projected frame time | Change |
+| ---------: | ------------------------: | -------------------: | -----: |
+|          2 |                     88 ms |               145 ms |     0% |
+|          4 |                     88 ms |               146 ms |  -0.2% |
+|          8 |                     98 ms |               156 ms |  -7.2% |
+|         16 |                     97 ms |               154 ms |  -6.2% |
+
 ## Softmax precision
 
 These GPU measurements choose where Equimo uses the corrected derivative of `equimo.core.ops.softmax`. Environment:

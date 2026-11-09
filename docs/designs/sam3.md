@@ -65,10 +65,10 @@ Image milestone:
 Video milestone:
 
 - **Video tracking.** Given frames the caller already decoded, a host-side driver runs detection, tracking and the
-  association policy and returns per-frame masks with stable object IDs. Prompts are text or box exemplars for
-  detection, and points on a frame to add a new object. Tracking is forward-only and causal. The number of tracked
-  objects is capped by a configurable `max_objects` (default 16, as in the reference 3.1 builder) and can be raised
-  above 16.
+  association policy and returns per-frame masks with stable object IDs. Prompts are text for every frame, box exemplars
+  for the prompt frame only, as in the reference, and points on a frame to add a new object. Tracking is forward-only
+  and causal. The number of tracked objects is capped by a configurable `max_objects` (default 16, as in the reference
+  3.1 builder) and can be raised above 16.
 
 Both milestones:
 
@@ -263,8 +263,11 @@ Sam3 fields: trunk, neck, detector, interactive, tracker
   associate(detections: DetectorOutput, tracks: TrackOutput, state: TrackerState) -> Association   # experimental
   commit(state, features, tracks, plan: CommitPlan) -> TrackerState                                # experimental
 
-decode_concepts(out: DetectorOutput, *, output_size: tuple[int, int], max_detections: int,
+decode_concepts(out: DetectorOutput, *, output_size: tuple[int, int], max_detections: int | None = None,
                 threshold: float = 0.5) -> ConceptDetections
+
+encode_concept(text_model, tokenizer, concept: str | None = None, *, boxes=None, box_labels=None, points=None,
+               point_labels=None, source_size: tuple[int, int] | None = None) -> ConceptPrompt
 
 sam31_text(pretrained: bool = False, inference_mode: bool = True, **kwargs) -> CausalTextTransformer   # registered "causal_text_transformer"
   __call__(token_ids[32] int32, padding_mask[32] bool) -> [32, 256]      # per-token features
@@ -275,6 +278,7 @@ ClipBpeTokenizer(context_length: int = 32)
 
 Sam3VideoTracker(model: Sam3, *, num_frames: int | None, source_size: tuple[int, int], max_objects: int = 16)   # experimental, host
   set_prompt(prompt: ConceptPrompt) -> None             # before the first frame; raises afterwards
+  remove_object(object_id: int) -> None                 # also hides the object from frames not yet returned
   push_frame(frame[3, H, W]) -> list[FramePrediction]  # the frames that became final
   finish() -> list[FramePrediction]                     # remaining frames at the end of the clip
   add_object(frame_index: int, frame[3, H, W], points, labels, *, object_id: int | None = None) -> PointTrack
@@ -289,13 +293,14 @@ Typed inputs and outputs are Equinox modules with fixed shapes; every padding ma
 - `ConceptPrompt` (static maxima: 32 text tokens, 16 exemplar boxes, 16 exemplar points): `text_features [32, 256]`,
   `text_padding_mask [32]`, `boxes [16, 4]` (normalized cxcywh), `box_labels [16]` (1 positive, 0 negative),
   `box_padding_mask [16]`, `points [16, 2]` (normalized), `point_labels [16]`, `point_padding_mask [16]`. A `create`
-  class method pads shorter inputs to the maxima.
+  class method pads shorter inputs to the maxima, and with `source_size` reads boxes and points in those pixels.
 - `DetectorOutput`: `logits [200]` (joint logit), `presence_logit []`, `boxes [200, 4]` (normalized cxcywh),
   `mask_logits [200, 288, 288]` (float32), and per-decoder-layer `layer_boxes [6, 200, 4]` and `layer_logits [6, 200]`.
 - `ConceptDetections`: `keep [max_detections]`, `masks [max_detections, H, W]`, `boxes [max_detections, 4]` (pixels,
   xyxy), `scores [max_detections]`, `query_index [max_detections]`, `presence []`.
 - `InteractivePrompt` (static maximum: 16 points): `points [16, 2]` in input pixels, `point_labels [16]` (1 positive, 0
-  negative, -1 padding), `box [4]` (pixels, xyxy) with `has_box []`, `mask_input [288, 288]` with `has_mask []`.
+  negative, -1 padding; `create` defaults them to positive and rejects other values), `box [4]` (pixels, xyxy) with
+  `has_box []`, `mask_input [288, 288]` with `has_mask []`. `create` scales coordinates from `source_size`, when given.
 - `InteractiveOutput`: `mask_logits [4, 288, 288]`, `iou [4]`, `object_score_logit []`, `selected []`.
 - `FramePrediction` (NumPy): `frame_index`, `object_ids [K]`, `masks [K, H, W]` (bool), `boxes [K, 4]`, `scores [K]`.
 - `TrackerState` and `TrackOutput` are pytrees with a leading bucket axis, and so are the per-slot and per-bucket fields
@@ -351,7 +356,7 @@ transformer blocks sit in lists named `blocks`. The two random Fourier matrices 
   point features with bilinear `grid_sample`, adds sine encodings and label embeddings, and runs 3 pre-norm layers with
   cross-attention to the image. The reference has no text-free path: its 3.1 predictor encodes the text
   `<text placeholder>` for exemplars alone (with a score of 0.52 on one box where an empty text gives 22 detections on
-  the same image), so callers pass those text features to match it.
+  the same image), so `encode_concept` encodes that text when it receives only exemplars.
 - **Fusion encoder.** 6 pre-norm layers over the 72 x 72 detector features: self-attention with position on queries and
   keys, cross-attention to the prompt (text and geometry tokens) with a key mask, ReLU feed-forward.
 - **Decoder.** 6 post-norm DETR layers with 200 learned queries plus the presence token, iterative box refinement from
@@ -365,10 +370,10 @@ transformer blocks sit in lists named `blocks`. The two random Fourier matrices 
   per-query mask embeddings, giving 288 x 288 mask logits and a one-channel semantic map.
 - **Image decoding.** `decode_concepts` reproduces the reference predictor on a single image: probabilities from the
   joint logit, the single-frame mask NMS, new objects at probability 0.5 or more, boxes from mask extents, and per-pixel
-  non-overlap by score. It takes a static output size and a static `max_detections`; it gathers the kept entries at 288
-  x 288 before upsampling them bilinearly to the output size and thresholding at 0, so memory scales with
-  `max_detections`, not 200. It compiles once per output size. It does not multiply by the presence probability a second
-  time.
+  non-overlap by score. It takes a static output size and a static `max_detections`, by default every query; it gathers
+  the kept entries at 288 x 288 before upsampling them bilinearly to the output size and thresholding at 0, so memory
+  scales with `max_detections`, not 200. It compiles once per output size. It does not multiply by the presence
+  probability a second time.
 
 ### Interactive head (images and new objects on video)
 
@@ -844,9 +849,9 @@ Decisions were made by the author during design; each entry gives the trade-off 
   two sets of rounding errors add up.
 - **Reason for Rejection**: Rejected, measured: the clip's decisions are identical in bfloat16 and float32, so the
   criterion now requires the identical trace on every frame and bounds each frame's median object at 0.97 (lowest frame
-  median measured: 0.986). The tradeoff is that one object per frame can drift further than 0.97 unnoticed as long as
-  the decisions and the other objects hold, and the bound was changed after seeing the error, unlike the tolerances
-  above. The float32 criterion is unchanged.
+  median measured: 0.986 to 0.992 across GPU runs, which vary slightly). The tradeoff is that one object per frame can
+  drift further than 0.97 unnoticed as long as the decisions and the other objects hold, and the bound was changed after
+  seeing the error, unlike the tolerances above. The float32 criterion is unchanged.
 
 #### Generate fixtures on CPU with a shim
 

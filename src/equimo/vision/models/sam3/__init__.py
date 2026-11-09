@@ -1,7 +1,11 @@
 """SAM 3.1 image and tracker modules."""
 
 from equimo.vision.models.sam3.decoding import ConceptDetections, decode_concepts
-from equimo.vision.models.sam3.detector import ConceptPrompt, DetectorOutput
+from equimo.vision.models.sam3.detector import (
+    ConceptPrompt,
+    DetectorOutput,
+    encode_concept,
+)
 from equimo.vision.models.sam3.encoder import ImageFeatures
 from equimo.vision.models.sam3.interactive import InteractiveOutput, InteractivePrompt
 from equimo.vision.models.sam3.model import Sam3, sam31_multiplex
@@ -26,6 +30,7 @@ __all__ = [
     "TrackOutput",
     "TrackerState",
     "decode_concepts",
+    "encode_concept",
     "pad_tracker_buckets",
     "sam31_multiplex",
 ]

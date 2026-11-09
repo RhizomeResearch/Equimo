@@ -34,6 +34,7 @@ from equimo.vision.models.sam3 import (
     TrackerState,
     TrackOutput,
     decode_concepts,
+    encode_concept,
     pad_tracker_buckets,
 )
 from equimo.vision.models.sam3 import tracker as tracker_module
@@ -335,6 +336,106 @@ def test_padded_points_and_absent_box_do_not_change_interactive_output(model):
     assert jnp.array_equal(result.iou, reference.iou)
 
 
+def test_interactive_point_labels_default_to_positive():
+    prompt = _interactive_prompt(
+        points=jnp.asarray([[10.0, 20.0], [30.0, 40.0]]), point_labels=None
+    )
+    assert prompt.point_labels.tolist() == [1, 1]
+
+
+@pytest.mark.parametrize("label", [2, 3, -2])
+def test_interactive_point_labels_outside_the_contract_are_rejected(label):
+    with pytest.raises(RuntimeError, match="Point labels must be"):
+        _interactive_prompt(
+            points=jnp.asarray([[10.0, 20.0]]), point_labels=jnp.asarray([label])
+        )
+
+
+def test_interactive_prompt_scales_source_pixels_to_the_model_input():
+    prompt = InteractivePrompt.create(
+        points=jnp.asarray([[50.0, 25.0]]),
+        point_labels=jnp.asarray([1]),
+        box=jnp.asarray([0.0, 25.0, 100.0, 50.0]),
+        source_size=(50, 100),
+        image_size=200,
+        mask_size=MASK_SIZE,
+        max_points=1,
+    )
+    np.testing.assert_allclose(prompt.points, [[100.0, 100.0]])
+    np.testing.assert_allclose(prompt.box, [0.0, 100.0, 200.0, 200.0])
+
+
+def test_concept_prompt_converts_source_pixels_to_normalized_exemplars():
+    source = ConceptPrompt.create(
+        boxes=jnp.asarray([[0.0, 10.0, 50.0, 50.0]]),
+        points=jnp.asarray([[25.0, 10.0]]),
+        source_size=(50, 100),
+        dim=DIM,
+        max_boxes=1,
+        max_points=1,
+    )
+    np.testing.assert_allclose(source.boxes, [[0.25, 0.6, 0.5, 0.8]])
+    np.testing.assert_allclose(source.points, [[0.25, 0.2]])
+
+
+def test_prompt_without_exemplars_keeps_only_the_text():
+    text = jnp.ones((3, DIM))
+    prompt = ConceptPrompt.create(
+        text_features=text,
+        boxes=jnp.asarray([[0.5, 0.5, 0.2, 0.2]]),
+        points=jnp.asarray([[0.5, 0.5]]),
+        max_boxes=2,
+        max_points=2,
+    ).without_exemplars()
+    assert prompt.box_padding_mask.all() and prompt.point_padding_mask.all()
+    np.testing.assert_array_equal(prompt.text_features[:3], text)
+    assert int((~prompt.text_padding_mask).sum()) == 3
+
+
+class _RecordingTextModel:
+    def features(self, token_ids, padding_mask):
+        return jnp.broadcast_to(
+            token_ids[:, None].astype(jnp.float32), (token_ids.shape[0], DIM)
+        )
+
+
+class _RecordingTokenizer:
+    def __init__(self):
+        self.texts = []
+
+    def encode(self, texts):
+        self.texts.extend(texts)
+        return np.array([[1, 2, 3]], np.int32), np.array([[False, False, True]])
+
+
+def test_encode_concept_tokenizes_and_encodes_the_concept():
+    tokenizer = _RecordingTokenizer()
+    prompt = encode_concept(_RecordingTextModel(), tokenizer, "yellow school bus")
+    assert tokenizer.texts == ["yellow school bus"]
+    np.testing.assert_array_equal(prompt.text_features[:3, 0], [1.0, 2.0, 3.0])
+    assert prompt.text_padding_mask[:3].tolist() == [False, False, True]
+    assert prompt.text_padding_mask[3:].all()
+    assert prompt.box_padding_mask.all()
+
+
+def test_encode_concept_uses_the_placeholder_for_exemplars_alone():
+    tokenizer = _RecordingTokenizer()
+    prompt = encode_concept(
+        _RecordingTextModel(),
+        tokenizer,
+        boxes=jnp.asarray([[0.0, 10.0, 50.0, 50.0]]),
+        source_size=(50, 100),
+    )
+    assert tokenizer.texts == ["<text placeholder>"]
+    np.testing.assert_allclose(prompt.boxes[0], [0.25, 0.6, 0.5, 0.8])
+    assert not prompt.box_padding_mask[0]
+
+
+def test_encode_concept_requires_a_concept_or_exemplars():
+    with pytest.raises(ValueError, match="concept, exemplars or both"):
+        encode_concept(_RecordingTextModel(), _RecordingTokenizer())
+
+
 def test_interactive_prompt_kinds_change_the_output(model):
     features = model.encode_image(IMAGE)
     points = model.predict_interactive(features, _interactive_prompt())
@@ -462,6 +563,19 @@ def test_decode_concepts_keeps_only_the_highest_scores_at_the_cap():
     decoded = decode_concepts(out, output_size=(2, 6), max_detections=2)
     assert decoded.keep.tolist() == [True, True]
     assert decoded.query_index.tolist() == [1, 2]
+
+
+def test_decode_concepts_keeps_every_query_by_default():
+    masks = np.full((3, 2, 6), -1.0)
+    for index in range(3):
+        masks[index, :, index * 2 : index * 2 + 2] = 1.0
+    out = _output_with_masks(
+        jnp.asarray(masks, jnp.float32), jnp.asarray([1.0, 3.0, 2.0], jnp.float32)
+    )
+    decoded = decode_concepts(out, output_size=(2, 6))
+    assert decoded.keep.tolist() == [True, True, True]
+    assert decoded.query_index.tolist() == [1, 2, 0]
+    assert decoded.masks.shape == (3, 2, 6)
 
 
 def test_decode_concepts_runs_under_jit_and_vmap():

@@ -473,6 +473,23 @@ def _empty_buckets(template: TrackerState, num_buckets: int) -> TrackerState:
     )
 
 
+def remove_tracker_slot(
+    state: TrackerState,
+    bucket: int,
+    slot: int,
+    released_buckets: tuple[int, ...],
+) -> TrackerState:
+    """Mark one slot as removed and clear the buckets left without objects."""
+    status = state.slot_status.at[bucket, slot].set(SLOT_REMOVED)
+    removed = eqx.tree_at(lambda s: s.slot_status, state, status)
+    if not released_buckets:
+        return removed
+    release = (
+        jnp.zeros(status.shape[0], bool).at[jnp.asarray(released_buckets)].set(True)
+    )
+    return _where_bucket(release, _empty_buckets(removed, status.shape[0]), removed)
+
+
 def pad_tracker_buckets(state: TrackerState, num_buckets: int) -> TrackerState:
     """Grow the bucket axis to the power of two ``num_buckets``, with cleared buckets."""
     current = state.slot_status.shape[0]
@@ -1081,17 +1098,20 @@ class Sam3Tracker(eqx.Module):
             low, memory_logits, occupied, plan.conditioning, appearing
         )
 
-        new_binary = resize_bilinear(plan.new_masks, (memory_size, memory_size)) > 0
-        recondition_binary = (
-            resize_bilinear(plan.recondition_masks, (memory_size, memory_size)) > 0
-        )
+        def binary_at_memory_size(masks: jax.Array) -> jax.Array:
+            return resize_bilinear(masks, (memory_size, memory_size)) > 0
+
         selected = add | recondition
 
         def selected_outputs() -> tuple[jax.Array, jax.Array]:
             return self._input_mask_outputs(
                 interactive,
                 features,
-                jnp.where(add[..., None, None], new_binary, recondition_binary),
+                jnp.where(
+                    add[..., None, None],
+                    binary_at_memory_size(plan.new_masks),
+                    binary_at_memory_size(plan.recondition_masks),
+                ),
                 low.dtype,
             )
 
@@ -1107,10 +1127,14 @@ class Sam3Tracker(eqx.Module):
 
         def reencoded() -> tuple[jax.Array, jax.Array]:
             new_low = _masks_through_source_size(
-                new_binary, add, plan.state_group, plan.source_size, mask_size
+                binary_at_memory_size(plan.new_masks),
+                add,
+                plan.state_group,
+                plan.source_size,
+                mask_size,
             )
             recondition_low = _masks_through_source_size(
-                recondition_binary,
+                binary_at_memory_size(plan.recondition_masks),
                 recondition,
                 plan.state_group,
                 plan.source_size,
@@ -1266,4 +1290,5 @@ __all__ = [
     "associate_tracks",
     "detection_keep",
     "pad_tracker_buckets",
+    "remove_tracker_slot",
 ]

@@ -127,7 +127,7 @@ def decode_concepts(
     out: DetectorOutput,
     *,
     output_size: tuple[int, int],
-    max_detections: int,
+    max_detections: int | None = None,
     threshold: float = 0.5,
 ) -> ConceptDetections:
     """Turn detector outputs into the detections of one image.
@@ -135,8 +135,10 @@ def decode_concepts(
     Probabilities come from the joint logit, which already includes presence,
     so presence is not applied a second time. The kept entries are gathered at
     the detector's resolution before upsampling, so memory scales with
-    ``max_detections``.
+    ``max_detections``, which defaults to every query.
     """
+    if max_detections is None:
+        max_detections = out.logits.shape[0]
     probabilities = jax.nn.sigmoid(out.logits.astype(jnp.float32))
     order = jnp.argsort(-probabilities, stable=True)
     ranked_probabilities = probabilities[order]

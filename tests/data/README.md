@@ -112,6 +112,13 @@ ffmpeg -ss 13 -i Pigeon_feeding.webm -vf "select='not(mod(n\,2))',setpts=N/TB,sc
 uv run python tests/cases/sam31_video_fixture.py /path/to/output/sam31_video_reference.npz /path/to/output/sam31_video_reference.tar.lz4
 ```
 
+`sam31_video_exemplar_reference.npz` holds seeded subsets of the reference's detector masks and boxes on the first four
+frames of that clip, for one box exemplar on frame 0. The box is on a pigeon the text-prompted run detected on frame 0:
+
+```bash
+/path/to/environment/bin/python models/sam31_reference.py video-exemplar --checkpoint /path/to/sam3.1_multiplex.pt --frames-dir frames --box 0.1906 0.2472 0.1219 0.2611 --output-dir /path/to/output
+```
+
 The harness fails when a kept detection, overlap or box center lies within 1e-3 of its threshold, and when the clip does
 not trigger an addition, an unmatched removal, a reconditioning and a confirmation; suppression is covered by the tiny
 occlusion fixture. To run the checks on a GPU, set `JAX_DEFAULT_MATMUL_PRECISION=highest` as for the image fixture.

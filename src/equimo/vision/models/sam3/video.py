@@ -74,6 +74,7 @@ from equimo.vision.ops import resize_bilinear
 from equimo.vision.models.sam3.tracker import (
     _MASK_SCALE,
     _NEW_OBJECT_PROBABILITY,
+    _POINTER_DISTANCE_FRAMES,
     SLOT_ACTIVE,
     SLOT_EMPTY,
     SLOT_REMOVED,
@@ -83,6 +84,7 @@ from equimo.vision.models.sam3.tracker import (
     TrackOutput,
     detection_keep,
     pad_tracker_buckets,
+    remove_tracker_slot,
 )
 
 _HOT_START_FRAMES = 15
@@ -234,6 +236,7 @@ class AssociationPolicy:
         self.objects: dict[int, TrackedObject] = {}
         self._duplicate_frames: dict[tuple[int, int], int] = {}
         self._point_object_ids: set[int] = set()
+        self.caller_removed: set[int] = set()
         self._next_object_id = 0
         self._state_order: list[int] = []
 
@@ -253,6 +256,15 @@ class AssociationPolicy:
         self._point_object_ids.add(object_id)
         self._next_object_id = max(self._next_object_id, object_id + 1)
         return object_id
+
+    def remove_object(self, object_id: int) -> tuple[int, ...]:
+        """Stop tracking a live object and return the buckets this releases."""
+        obj = self.objects.get(object_id)
+        if obj is None or self.slot_status[obj.bucket, obj.slot] != SLOT_ACTIVE:
+            raise ValueError(f"Object {object_id} is not being tracked.")
+        self.slot_status[obj.bucket, obj.slot] = SLOT_REMOVED
+        self.caller_removed.add(object_id)
+        return self._release_buckets()
 
     def _track_index(self, obj: TrackedObject) -> int:
         return obj.bucket * self.num_slots + obj.slot
@@ -796,7 +808,7 @@ class PointTrack:
         features = steps.encode_image(tracker.model, frame)
         index = jnp.asarray(frame_index, jnp.int32)
         tracks = steps.propagate(
-            tracker.model, self._state, features, index, tracker.num_frames
+            tracker.model, self._state, features, index, tracker._pointer_frames
         )
         self._state = steps.commit_point_step(
             tracker.model, self._state, features, tracks, index
@@ -829,6 +841,12 @@ class Sam3VideoTracker:
     ):
         self.model = model
         self.num_frames = num_frames
+        # Longer clips share a pointer divisor, so they share a compiled step too.
+        self._pointer_frames = (
+            _POINTER_DISTANCE_FRAMES
+            if num_frames is None
+            else min(num_frames, _POINTER_DISTANCE_FRAMES)
+        )
         self.source_size = source_size
         self.policy = AssociationPolicy(
             num_slots=model.tracker.mask_decoder.num_slots, max_objects=max_objects
@@ -838,18 +856,34 @@ class Sam3VideoTracker:
         self._mask_size = _MASK_SCALE * model.tracker.image_position.grid
         self._state = model.tracker.empty_state(1)
         self._prompt: ConceptPrompt | None = None
+        self._later_frames_prompt: ConceptPrompt | None = None
         self._next_frame = 0
         self._pending: deque[_FrameRecord] = deque()
         self._finished = False
 
     def set_prompt(self, prompt: ConceptPrompt) -> None:
-        """Set the concept to detect, before the first frame is pushed."""
+        """Set the concept to detect, before the first frame is pushed.
+
+        Exemplars apply to the prompt frame only, and the text to every frame,
+        as in the reference (``sam3_multiplex_tracking.py:_run_single_frame_inference``).
+        """
         if self._next_frame > 0:
             raise ValueError(
                 "The prompt can only be set before the first frame; create a new "
                 "tracker to change it."
             )
         self._prompt = prompt
+        self._later_frames_prompt = prompt.without_exemplars()
+
+    def remove_object(self, object_id: int) -> None:
+        """Stop tracking a live object and hide it from frames not yet returned.
+
+        Frames already returned keep it. A later detection of the same object
+        becomes a new object with a new ID, as in the reference.
+        """
+        released = self.policy.remove_object(object_id)
+        obj = self.policy.objects[object_id]
+        self._state = remove_tracker_slot(self._state, obj.bucket, obj.slot, released)
 
     def push_frame(
         self, frame: Float[Array, "channels height width"]
@@ -864,14 +898,15 @@ class Sam3VideoTracker:
 
         steps = self._steps
         frame_index = self._next_frame
-        features, detections = steps.encode_and_detect(self.model, frame, self._prompt)
+        prompt = self._prompt if frame_index == 0 else self._later_frames_prompt
+        features, detections = steps.encode_and_detect(self.model, frame, prompt)
         index = jnp.asarray(frame_index, jnp.int32)
         if frame_index == 0:
             self._first_pass_of_prompt_frame(features, detections)
             tracks = _stored_tracks(self._state)
         else:
             tracks = steps.propagate(
-                self.model, self._state, features, index, self.num_frames
+                self.model, self._state, features, index, self._pointer_frames
             )
 
         association, probabilities = steps.associate(
@@ -1082,7 +1117,8 @@ class Sam3VideoTracker:
         objects = self.policy.objects
         shown = np.asarray(
             [
-                objects[int(i)].confirmed or int(i) not in live
+                (objects[int(i)].confirmed or int(i) not in live)
+                and int(i) not in self.policy.caller_removed
                 for i in record.object_ids
             ],
             bool,
