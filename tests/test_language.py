@@ -1,3 +1,8 @@
+import importlib.util
+import json
+import sys
+from pathlib import Path
+
 import equinox as eqx
 import jax
 import jax.numpy as jnp
@@ -299,3 +304,57 @@ def test_sam31_text_factory_builds_the_documented_configuration():
     assert model.token_embedding.weight.shape == (49408, 1024)
     assert len(model.transformer.blocks) == 24
     assert 350_000_000 < parameters < 358_000_000
+
+
+def _tiny_reference():
+    data = Path(__file__).parent / "data"
+    config = json.loads((data / "sam3_tiny_reference.json").read_text())["config"]
+    return config, np.load(data / "sam3_tiny_reference.npz")
+
+
+def _tiny_reference_text_model(config, fixture):
+    spec = importlib.util.spec_from_file_location(
+        "sam31_converter",
+        Path(__file__).resolve().parents[1] / "models" / "sam31.py",
+    )
+    converter = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = converter
+    spec.loader.exec_module(converter)
+    state = {
+        name.removeprefix("state."): fixture[name]
+        for name in fixture.files
+        if name.startswith("state.")
+    }
+    template = CausalTextTransformer(
+        dim=config["text_width"],
+        mlp_ratio=4.0,
+        depth=config["text_depth"],
+        num_heads=config["text_heads"],
+        vocab_size=config["num_merges"] + 514,
+        context_length=config["context_length"],
+        out_dim=config["dim"],
+        act_layer="exactgelu",
+        key=jr.PRNGKey(0),
+    )
+    return converter.apply_state(template, state, "text")
+
+
+def test_causal_text_transformer_matches_the_reference_on_the_tiny_fixture():
+    config, fixture = _tiny_reference()
+    model = _tiny_reference_text_model(config, fixture)
+    padding_mask = jnp.asarray(fixture["outputs.text.0"])
+    token_embeddings = fixture["outputs.text.2"]
+    embedding = np.asarray(model.token_embedding.weight)
+    token_ids = np.argmin(
+        np.sum(np.abs(embedding[None, None] - token_embeddings[..., None, :]), axis=-1),
+        axis=-1,
+    ).transpose(1, 0)
+
+    outputs = jax.vmap(model)(jnp.asarray(token_ids), padding_mask)
+
+    np.testing.assert_allclose(
+        np.swapaxes(np.asarray(outputs), 0, 1),
+        fixture["outputs.text.1"],
+        rtol=1e-5,
+        atol=1e-5,
+    )

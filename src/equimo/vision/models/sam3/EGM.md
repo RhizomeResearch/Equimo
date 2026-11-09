@@ -11,7 +11,7 @@ Equimo's license.
 
 ## Interface
 
-- `Sam3(*, key, in_channels, img_size, patch_size, embed_dim, depth, num_heads, mlp_features, window_size, global_blocks, dim, head_num_heads, ffn_features, geometry_depth, fusion_depth, decoder_depth, num_queries, two_way_depth, memory_depth, memory_heads, num_slots)`,
+- `Sam3(*, key, in_channels, img_size, patch_size, embed_dim, depth, num_heads, mlp_features, window_size, global_blocks, dim, head_num_heads, ffn_features, geometry_depth, fusion_depth, decoder_depth, num_queries, two_way_depth, memory_depth, memory_heads, num_slots, memory_start_channels, memory_fuser_depth)`,
   registered as `"sam3"` for `modality="vision"`, with fields `trunk`, `neck`, `detector`, `interactive`, `tracker`.
   `[model.py:Sam3]`
 - `sam31_multiplex(pretrained=False, inference_mode=True, **kwargs)`: the published configuration from `_SAM3_REGISTRY`.
@@ -35,10 +35,12 @@ Equimo's license.
 - `decode_concepts(out, *, output_size, max_detections, threshold=0.5) -> ConceptDetections`: `keep`, `masks`, `boxes`
   (pixels, xyxy), `scores`, `query_index`, `presence`. `[decoding.py:decode_concepts]`,
   `[decoding.py:ConceptDetections]`
-- Tracker modules on `Sam3.tracker`: `prompt_encoder`, `memory_encoder(features, masks (2 * num_slots, H, W))`,
-  `memory_attention(x, keys, values, *, num_spatial_keys, key_lengths)` and
-  `mask_decoder(image, image_pos, sparse, dense, high_res, slot_valid) -> MultiplexOutput`. `[tracker.py:Sam3Tracker]`,
-  `[tracker.py:MemoryEncoder]`, `[tracker.py:MemoryAttention]`, `[interactive.py:MultiplexMaskDecoder]`
+- Tracker modules on `Sam3.tracker`: `image_position(dtype)` (the Fourier position map),
+  `memory_encoder(features, masks (2 * num_slots, H, W))`,
+  `memory_attention(x, x_pos, memory_image, memory, memory_image_pos, *, num_spatial_keys, key_lengths)`, and
+  `mask_decoder(image, image_pos, high_res, slot_valid) -> MultiplexOutput`, where `high_res` already went through
+  `mask_decoder.upsampler.project`. `[tracker.py:Sam3Tracker]`, `[tracker.py:MemoryEncoder]`,
+  `[tracker.py:MemoryAttention]`, `[interactive.py:ImagePositionEncoding]`, `[interactive.py:MultiplexMaskDecoder]`
 - Experimental tracking steps on `Sam3`:
   `propagate(state, features, frame_index, key=None, inference=True, *, num_frames=None) -> TrackOutput`,
   `associate(detections, tracks, state) -> Association` and `commit(state, features, tracks, plan) -> TrackerState`.
@@ -105,18 +107,19 @@ for the published configuration in bfloat16 (`G = 72`, `S = 16`, `dim = 256`, ab
   `[common.py:exchanged_rope_factors]`
 - The two random Fourier matrices are `buffer()` fields read through `stop_gradient`. `[interactive.py:PromptEncoder]`
 - Prompt tokens out of use are masked from attention, so their contents have no effect on the output: padded exemplars,
-  padded points, the box corners when there is no box, and the appended padding point when there is one.
-  `[interactive.py:PromptEncoder]`, `[detector.py:GeometryEncoder]`
+  padded points and the box corners when there is no box. The appended padding point takes part, and an empty prompt
+  also encodes one padding point in the first slot. `[interactive.py:PromptEncoder]`, `[detector.py:GeometryEncoder]`
 - Attention softmax, RoPE rotation, layer norms, the DETR feed-forward, and mask logits run in float32; outputs return
   in the model dtype, except mask logits, which stay float32. `[common.py:PositionedAttention]`,
   `[common.py:layer_norm]`, `[detector.py:DecoderBlock]`
-- The joint logit is `logit(sigmoid(class) * sigmoid(presence))`, computed so that it stays finite for large logits.
-  `decode_concepts` does not apply presence again. `[detector.py:joint_logit]`, `[decoding.py:decode_concepts]`
-- Mask selection counts point labels including the two box corners: with at most one, the best of the three multimask
-  outputs by predicted IoU; with more, the single-mask output unless its stability score is below 0.98.
+- The joint logit is `inverse_sigmoid(sigmoid(class) * sigmoid(presence))`; `inverse_sigmoid` clamps to 1e-3, so it
+  stays within about +/-6.9. `decode_concepts` does not apply presence again. `[detector.py:joint_logit]`,
+  `[decoding.py:decode_concepts]`
+- Mask selection counts point labels including the two box corners: with at most one and no mask prompt, the best of the
+  three multimask outputs by predicted IoU; otherwise the single-mask output unless its stability score is below 0.98.
   `[interactive.py:_select_mask]`
-- `single_frame_nms` measures overlap against the higher-ranked mask's area, and a suppressed mask still suppresses
-  later ones; `greedy_iom_nms` uses intersection over minimum, and only kept masks suppress. Ranking uses a stable sort.
+- `single_frame_nms` measures overlap as intersection over minimum, and a suppressed mask still suppresses later ones;
+  `greedy_iom_nms` uses intersection over minimum, and only kept masks suppress. Ranking uses a stable sort.
   `[decoding.py:single_frame_nms]`, `[decoding.py:greedy_iom_nms]`
 - The multiplex decoder sets the mask logits of a slot whose object score is not positive to -1024.
   `[interactive.py:MultiplexMaskDecoder]`

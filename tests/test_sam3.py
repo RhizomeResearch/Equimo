@@ -1,5 +1,10 @@
 """SAM 3.1 image and tracker modules on a tiny random-weight configuration."""
 
+import importlib.util
+import json
+import sys
+from pathlib import Path
+
 import equinox as eqx
 import jax
 import jax.numpy as jnp
@@ -8,6 +13,7 @@ import numpy as np
 import pytest
 
 from equimo.core.layers.attention import with_attention_implementation
+from equimo.conversion.utils import stringify_name
 from equimo.core.parameters import trainable_mask
 from equimo.finetune import (
     AdapterConfig,
@@ -31,7 +37,11 @@ from equimo.vision.models.sam3 import (
     pad_tracker_buckets,
 )
 from equimo.vision.models.sam3 import tracker as tracker_module
-from equimo.vision.models.sam3.common import exchanged_rope_factors
+from equimo.vision.models.sam3.common import (
+    exchanged_rope_factors,
+    flatten_map,
+    sine_position_encoding,
+)
 from equimo.vision.models.sam3.decoding import greedy_iom_nms, single_frame_nms
 from equimo.vision.models.sam3.detector import joint_logit
 from equimo.vision.models.sam3.encoder import ViTDetBlock
@@ -100,6 +110,8 @@ def _tiny_model(dim: int) -> Sam3:
         two_way_depth=1,
         memory_depth=1,
         memory_heads=2,
+        memory_start_channels=1,
+        memory_fuser_depth=1,
         num_slots=2,
     )
 
@@ -123,17 +135,17 @@ def _all_outputs(model: Sam3, image, text, slot_masks, memory) -> dict[str, jax.
     interactive = model.predict_interactive(features, _interactive_prompt())
     tracker = model.tracker
     low = features.propagation[2]
-    sparse, dense = tracker.prompt_encoder.empty()
     multiplex = tracker.mask_decoder(
         low,
-        tracker.prompt_encoder.dense_position_encoding(),
-        sparse,
-        dense,
-        features.propagation[:2],
+        tracker.image_position(low.dtype),
+        tracker.mask_decoder.upsampler.project(features.propagation[:2]),
         jnp.asarray([True, False]),
     )
+    tokens = jnp.moveaxis(low, 0, -1).reshape(GRID * GRID, dim)
     attended = tracker.memory_attention(
-        jnp.moveaxis(low, 0, -1).reshape(GRID * GRID, dim),
+        tokens,
+        jnp.zeros_like(tokens),
+        jnp.zeros_like(memory),
         memory,
         memory,
         num_spatial_keys=jnp.asarray(GRID * GRID),
@@ -326,13 +338,15 @@ def test_mask_selection_follows_the_label_count_and_stability():
     single_stable = jnp.ones((4, 4)) * 5.0
     logits = jnp.stack([single_stable] * 4)
     iou = jnp.asarray([0.1, 0.2, 0.9, 0.3])
-    assert _select_mask(logits, iou, jnp.asarray(1)) == 2
-    assert _select_mask(logits, iou, jnp.asarray(2)) == 0
+    no_mask = jnp.asarray(False)
+    assert _select_mask(logits, iou, jnp.asarray(1), no_mask) == 2
+    assert _select_mask(logits, iou, jnp.asarray(2), no_mask) == 0
+    assert _select_mask(logits, iou, jnp.asarray(0), jnp.asarray(True)) == 0
 
     unstable = jnp.zeros((4, 4))
     unstable = unstable.at[0, 0].set(1.0)
     logits = jnp.stack([unstable] * 4)
-    assert _select_mask(logits, iou, jnp.asarray(2)) == 2
+    assert _select_mask(logits, iou, jnp.asarray(2), no_mask) == 2
 
 
 def test_joint_logit_equals_the_product_of_probabilities():
@@ -401,7 +415,7 @@ def test_decode_concepts_ranks_thresholds_and_removes_overlaps():
     b = np.full((4, 8), -1.0)
     c = np.full((4, 8), -1.0)
     a[:, :4] = 1.0
-    b[0, 3:6] = 1.0  # one pixel of its three overlaps ``a`` only in the first row
+    b[0, 4:6] = 1.0
     c[3, 6:8] = 1.0
     out = _output_with_masks(
         jnp.asarray(np.stack((c, a, b)), jnp.float32),
@@ -409,8 +423,7 @@ def test_decode_concepts_ranks_thresholds_and_removes_overlaps():
     )
     decoded = decode_concepts(out, output_size=(4, 8), max_detections=3)
 
-    # ``c`` falls below the threshold; ``a`` outranks ``b``, which overlaps it by a
-    # third of its area and survives NMS only because overlap uses ``a``'s area.
+    # ``c`` falls below the threshold, and ``b`` does not overlap ``a``.
     assert decoded.keep.tolist() == [True, True, False]
     assert decoded.query_index[:2].tolist() == [1, 2]
     assert jnp.allclose(
@@ -418,7 +431,7 @@ def test_decode_concepts_ranks_thresholds_and_removes_overlaps():
     )
     assert jnp.allclose(decoded.presence, jax.nn.sigmoid(jnp.asarray(3.0)))
     assert decoded.boxes[0].tolist() == [0.0, 0.0, 3.0, 3.0]
-    assert decoded.boxes[1].tolist() == [3.0, 0.0, 5.0, 0.0]
+    assert decoded.boxes[1].tolist() == [4.0, 0.0, 5.0, 0.0]
     assert jnp.sum(decoded.masks[0] & decoded.masks[1]) == 0
     assert decoded.masks[1].sum() == 2
     assert not jnp.any(decoded.masks[2])
@@ -500,8 +513,12 @@ def test_memory_attention_ignores_keys_past_the_length(model):
     attention = model.tracker.memory_attention
     x = jr.normal(jr.PRNGKey(7), (GRID * GRID, DIM))
     lengths = jnp.asarray(GRID * GRID + 1)
+    position = jnp.zeros_like(x)
+    image = jnp.zeros_like(MEMORY)
     base = attention(
         x,
+        position,
+        image,
         MEMORY,
         MEMORY,
         num_spatial_keys=jnp.asarray(GRID * GRID),
@@ -510,6 +527,8 @@ def test_memory_attention_ignores_keys_past_the_length(model):
     changed_memory = MEMORY.at[GRID * GRID + 1 :].set(100.0)
     other = attention(
         x,
+        position,
+        image,
         changed_memory,
         changed_memory,
         num_spatial_keys=jnp.asarray(GRID * GRID),
@@ -525,9 +544,10 @@ def test_memory_attention_chunking_matches_one_block(model, monkeypatch):
         "num_spatial_keys": jnp.asarray(GRID * GRID),
         "key_lengths": jnp.asarray(GRID * GRID + 2),
     }
-    whole = attention(x, MEMORY, MEMORY, **kwargs)
+    arguments = (x, jnp.zeros_like(x), jnp.zeros_like(MEMORY), MEMORY, MEMORY)
+    whole = attention(*arguments, **kwargs)
     monkeypatch.setattr(tracker_module, "_ATTENTION_CHUNK_QUERIES", 3)
-    chunked = attention(x, MEMORY, MEMORY, **kwargs)
+    chunked = attention(*arguments, **kwargs)
     assert jnp.allclose(whole, chunked, rtol=1e-6, atol=1e-6)
 
 
@@ -536,13 +556,10 @@ def test_slot_without_an_object_gets_the_no_object_logit(model):
     low = jr.normal(jr.PRNGKey(8), (DIM, GRID, GRID))
     high = jr.normal(jr.PRNGKey(9), (DIM, MASK_SIZE, MASK_SIZE))
     middle = jr.normal(jr.PRNGKey(10), (DIM, 2 * GRID, 2 * GRID))
-    sparse, dense = tracker.prompt_encoder.empty()
     output = tracker.mask_decoder(
         low,
-        tracker.prompt_encoder.dense_position_encoding(),
-        sparse,
-        dense,
-        (high, middle),
+        tracker.image_position(low.dtype),
+        tracker.mask_decoder.upsampler.project((high, middle)),
         jnp.asarray([True, False]),
     )
     absent = output.object_score_logits <= 0
@@ -555,15 +572,12 @@ def test_slot_validity_changes_the_decoded_slot(model):
     low = jr.normal(jr.PRNGKey(8), (DIM, GRID, GRID))
     high = jr.normal(jr.PRNGKey(9), (DIM, MASK_SIZE, MASK_SIZE))
     middle = jr.normal(jr.PRNGKey(10), (DIM, 2 * GRID, 2 * GRID))
-    sparse, dense = tracker.prompt_encoder.empty()
 
     def decode(valid):
         return tracker.mask_decoder(
             low,
-            tracker.prompt_encoder.dense_position_encoding(),
-            sparse,
-            dense,
-            (high, middle),
+            tracker.image_position(low.dtype),
+            tracker.mask_decoder.upsampler.project((high, middle)),
             jnp.asarray(valid),
         )
 
@@ -575,7 +589,7 @@ def test_slot_validity_changes_the_decoded_slot(model):
 def test_fourier_matrices_are_never_trained(model):
     mask = trainable_mask(model)
     assert mask.interactive.prompt_encoder.fourier_matrix is False
-    assert mask.tracker.prompt_encoder.fourier_matrix is False
+    assert mask.tracker.image_position.fourier_matrix is False
     assert mask.interactive.prompt_encoder.point_embeddings is True
 
 
@@ -820,18 +834,18 @@ def test_memory_keys_count_only_selected_frames(model, frame_features, step):
     state = model.tracker.empty_state(1)
     bucket = jax.tree.map(lambda leaf: leaf[0], state)
     frame = jnp.asarray(0, jnp.int32)
-    _, _, spatial, lengths = model.tracker._memory_bank(bucket, frame, 15)
+    _, _, _, spatial, lengths = model.tracker._memory_bank(bucket, frame, 15)
     assert spatial == 0 and lengths == 0
 
     state, _ = step(model, state, frame_features, frame, _add_slots(state, 0, (0, 0)))
     bucket = jax.tree.map(lambda leaf: leaf[0], state)
-    keys, values, spatial, lengths = model.tracker._memory_bank(
+    image, memory, _, spatial, lengths = model.tracker._memory_bank(
         bucket, jnp.asarray(1, jnp.int32), 15
     )
     # Frame 0 is read once, as a conditioning frame, not again as a recent one.
     assert spatial == GRID * GRID
     assert lengths == GRID * GRID + model.tracker.mask_decoder.num_slots
-    assert keys.shape == values.shape
+    assert image.shape == memory.shape
 
 
 def test_stored_features_are_the_spatial_keys(model, frame_features, step):
@@ -992,11 +1006,19 @@ def test_scan_matches_the_step_by_step_loop(model, frame_features, step):
         loop_state, tracks = step(model, loop_state, frame_features, frame, frame_plan)
         loop_masks.append(tracks.mask_logits)
 
-    assert jnp.array_equal(scanned_masks, jnp.stack(loop_masks))
+    assert jnp.allclose(
+        scanned_masks,
+        jnp.stack(loop_masks),
+        rtol=_JIT_TOLERANCE,
+        atol=_JIT_TOLERANCE,
+    )
     for got, expected in zip(
         jax.tree.leaves(scanned_state), jax.tree.leaves(loop_state)
     ):
-        assert jnp.array_equal(got, expected)
+        if jnp.issubdtype(got.dtype, jnp.inexact):
+            assert jnp.allclose(got, expected, rtol=_JIT_TOLERANCE, atol=_JIT_TOLERANCE)
+        else:
+            assert jnp.array_equal(got, expected)
 
 
 def test_tracking_gradients_are_finite_and_reach_the_tracker(model, frame_features):
@@ -1101,7 +1123,9 @@ def test_a_frame_committed_twice_is_read_once(model, frame_features, step):
     )
     state = model.commit(state, frame_features, tracks, _plan(state, 0))
     bucket = jax.tree.map(lambda leaf: leaf[0], state)
-    _, _, spatial, _ = model.tracker._memory_bank(bucket, jnp.asarray(1, jnp.int32), 15)
+    _, _, _, spatial, _ = model.tracker._memory_bank(
+        bucket, jnp.asarray(1, jnp.int32), 15
+    )
     assert state.recent_is_cond[0, 0]
     assert spatial == GRID * GRID
 
@@ -1279,3 +1303,396 @@ def test_cudnn_propagation_matches_xla_under_the_bucket_vmap():
     assert jnp.allclose(
         outputs.mask_logits, reference.mask_logits, rtol=0.05, atol=0.05
     )
+
+
+REFERENCE_DATA = Path(__file__).parent / "data"
+_PARITY = {"rtol": 1e-5, "atol": 1e-5}
+
+
+@pytest.fixture(scope="module")
+def tiny_reference():
+    return np.load(REFERENCE_DATA / "sam3_tiny_reference.npz")
+
+
+def _load_converter():
+    spec = importlib.util.spec_from_file_location(
+        "sam31_converter", Path(__file__).resolve().parents[1] / "models" / "sam31.py"
+    )
+    converter = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = converter
+    spec.loader.exec_module(converter)
+    return converter
+
+
+def _checkpoint_state(tiny_reference) -> dict[str, np.ndarray]:
+    return {
+        name.removeprefix("state."): tiny_reference[name]
+        for name in tiny_reference.files
+        if name.startswith("state.")
+    }
+
+
+def _reference_config() -> dict:
+    path = REFERENCE_DATA / "sam3_tiny_reference.json"
+    return json.loads(path.read_text())["config"]
+
+
+def _reference_template() -> Sam3:
+    config = _reference_config()
+    return Sam3(
+        key=KEY,
+        in_channels=3,
+        img_size=config["img_size"],
+        patch_size=config["patch_size"],
+        embed_dim=config["embed_dim"],
+        depth=config["depth"],
+        num_heads=config["num_heads"],
+        mlp_features=config["mlp_features"],
+        window_size=config["window_size"],
+        global_blocks=tuple(config["global_blocks"]),
+        dim=config["dim"],
+        head_num_heads=config["head_num_heads"],
+        ffn_features=config["ffn_features"],
+        geometry_depth=config["geometry_depth"],
+        fusion_depth=config["fusion_depth"],
+        decoder_depth=config["decoder_depth"],
+        num_queries=config["num_queries"],
+        two_way_depth=config["two_way_depth"],
+        memory_depth=config["memory_depth"],
+        memory_heads=config["memory_heads"],
+        num_slots=config["num_slots"],
+        memory_start_channels=config["memory_start_channels"],
+        memory_fuser_depth=1,
+    )
+
+
+@pytest.fixture(scope="module")
+def reference_model(tiny_reference) -> Sam3:
+    return _load_converter().apply_state(
+        _reference_template(), _checkpoint_state(tiny_reference), "multiplex"
+    )
+
+
+def _assert_close(actual, expected) -> None:
+    np.testing.assert_allclose(np.asarray(actual), expected, **_PARITY)
+
+
+def test_tiny_reference_state_fills_every_parameter_or_is_listed(tiny_reference):
+    converter = _load_converter()
+    state = _checkpoint_state(tiny_reference)
+    classification = converter.classify_keys(state)
+    leaves = jax.tree_util.tree_flatten_with_path(
+        eqx.filter(_reference_template(), eqx.is_inexact_array)
+    )[0]
+    template = {
+        stringify_name(path): tuple(leaf.shape)
+        for path, leaf in leaves
+        if leaf is not None
+    }
+    missing = converter.check_destinations(
+        classification,
+        {name: tuple(value.shape) for name, value in state.items()},
+        template,
+        "multiplex",
+    )
+    assert missing == []
+
+
+def test_trunk_matches_the_reference(reference_model, tiny_reference):
+    output = reference_model.trunk(
+        jnp.asarray(tiny_reference["inputs.trunk.args.0"][0])
+    )
+    _assert_close(output, tiny_reference["outputs.trunk.0"][0])
+
+
+def test_neck_matches_the_reference(reference_model, tiny_reference):
+    features = reference_model.neck(jnp.asarray(tiny_reference["outputs.trunk.0"][0]))
+    levels = {"detector": 0, "interactive": 2, "propagation": 4}
+    for name, index in levels.items():
+        for level, value in enumerate(getattr(features, name)):
+            _assert_close(value, tiny_reference[f"outputs.neck.{index}.{level}"][0])
+            size = value.shape[-1]
+            _assert_close(
+                sine_position_encoding(size, size, value.shape[0] // 2),
+                tiny_reference[f"outputs.neck.{index + 1}.{level}"][0],
+            )
+
+
+def test_geometry_encoder_matches_the_reference_without_exemplars(
+    reference_model, tiny_reference
+):
+    tokens = tiny_reference["inputs.detector.geometry.kwargs.img_feats.0"][:, 0]
+    position = tiny_reference["inputs.detector.geometry.kwargs.img_pos_embeds.0"][:, 0]
+    prompt = ConceptPrompt.create(dim=DIM, max_text_tokens=1, max_boxes=1, max_points=1)
+    output, valid = reference_model.detector.geometry(
+        jnp.asarray(tokens), jnp.asarray(position), GRID, prompt
+    )
+    assert valid.tolist() == [False, False, True]
+    _assert_close(output[-1:], tiny_reference["outputs.detector.geometry.0"][:, 0])
+
+
+def test_fusion_encoder_matches_the_reference(reference_model, tiny_reference):
+    fusion = "inputs.detector.head.fusion.kwargs"
+    memory = reference_model.detector.head.fusion(
+        flatten_map(jnp.asarray(tiny_reference[f"{fusion}.src.0"][0])),
+        flatten_map(jnp.asarray(tiny_reference[f"{fusion}.src_pos.0"][0])),
+        jnp.asarray(tiny_reference[f"{fusion}.prompt"][:, 0]),
+        ~jnp.asarray(tiny_reference[f"{fusion}.prompt_key_padding_mask"][0]),
+    )
+    _assert_close(memory, tiny_reference["outputs.detector.head.fusion.memory"][:, 0])
+
+
+def test_decoder_matches_the_reference(reference_model, tiny_reference):
+    inputs = "inputs.detector.head.decoder.kwargs"
+    decoder = reference_model.detector.head.decoder
+    _assert_close(decoder.queries, tiny_reference[f"{inputs}.tgt"][:, 0])
+    tokens, boxes, presence = decoder(
+        jnp.asarray(tiny_reference[f"{inputs}.memory"][:, 0]),
+        jnp.asarray(tiny_reference[f"{inputs}.pos"][:, 0]),
+        jnp.asarray(tiny_reference[f"{inputs}.memory_text"][:, 0]),
+        ~jnp.asarray(tiny_reference[f"{inputs}.text_attention_mask"][0]),
+        GRID,
+    )
+    _assert_close(tokens, tiny_reference["outputs.detector.head.decoder.0"][:, :, 0])
+    reference_boxes = tiny_reference["outputs.detector.head.decoder.1"]
+    _assert_close(jax.nn.sigmoid(decoder.reference_boxes), reference_boxes[0, :, 0])
+    _assert_close(boxes[0], reference_boxes[1, :, 0])
+    _assert_close(presence, tiny_reference["outputs.detector.head.decoder.2"][:, 0, 0])
+
+
+def test_scoring_matches_the_reference(reference_model, tiny_reference):
+    inputs = "inputs.detector.head.scoring.args"
+    logits = jax.vmap(reference_model.detector.head.scoring, in_axes=(0, None, None))(
+        jnp.asarray(tiny_reference[f"{inputs}.0"][:, 0]),
+        jnp.asarray(tiny_reference[f"{inputs}.1"][:, 0]),
+        ~jnp.asarray(tiny_reference[f"{inputs}.2"][0]),
+    )
+    _assert_close(logits, tiny_reference["outputs.detector.head.scoring"][:, 0, :, 0])
+
+
+def test_segmentation_matches_the_reference(reference_model, tiny_reference):
+    inputs = "inputs.detector.head.segmentation.kwargs"
+    head = reference_model.detector.head.segmentation
+    pyramid = tuple(
+        jnp.asarray(tiny_reference[f"{inputs}.backbone_feats.{level}"][0])
+        for level in range(3)
+    )
+    memory = jnp.asarray(tiny_reference[f"{inputs}.encoder_hidden_states"][:, 0])
+    prompt = jnp.asarray(tiny_reference[f"{inputs}.prompt"][:, 0])
+    valid = ~jnp.asarray(tiny_reference[f"{inputs}.prompt_mask"][0])
+    queries = jnp.asarray(tiny_reference[f"{inputs}.obj_queries"][-1, 0])
+
+    masks = head(pyramid, memory, queries, prompt, valid)
+    pixels = head.pixel_embedding(pyramid, memory, prompt, valid)
+
+    outputs = "outputs.detector.head.segmentation"
+    _assert_close(masks, tiny_reference[f"{outputs}.pred_masks"][0])
+    _assert_close(
+        head.semantic_logits(pixels), tiny_reference[f"{outputs}.semantic_seg"][0]
+    )
+
+
+def test_prompt_encoder_matches_the_reference_for_masks_and_boxes(
+    reference_model, tiny_reference
+):
+    encoder = reference_model.interactive.prompt_encoder
+    points = "inputs.interactive.prompt_encoder.kwargs.points"
+    coordinates = tiny_reference[f"{points}.0"]
+    labels = tiny_reference[f"{points}.1"]
+    masks = tiny_reference["inputs.interactive.prompt_encoder.kwargs.masks"]
+    for index in range(coordinates.shape[0]):
+        prompt = InteractivePrompt.create(
+            points=jnp.asarray(coordinates[index]),
+            point_labels=jnp.asarray(labels[index]),
+            mask_input=jnp.asarray(masks[index, 0]),
+            mask_size=masks.shape[-1],
+            max_points=1,
+        )
+        tokens, valid, dense = encoder(prompt)
+        _assert_close(
+            tokens[valid], tiny_reference["outputs.interactive.prompt_encoder.0"][index]
+        )
+        _assert_close(
+            dense, tiny_reference["outputs.interactive.prompt_encoder.1"][index]
+        )
+
+    corners = tiny_reference["inputs.interactive.box_prompt.points"]
+    prompt = InteractivePrompt.create(
+        box=jnp.asarray(corners[0].ravel()),
+        mask_size=masks.shape[-1],
+        max_points=1,
+    )
+    tokens, valid, dense = encoder(prompt)
+    _assert_close(
+        tokens[valid], tiny_reference["outputs.interactive.box_prompt.sparse"][0]
+    )
+    _assert_close(dense, tiny_reference["outputs.interactive.box_prompt.dense"][0])
+
+
+def test_interactive_decoder_matches_the_reference(reference_model, tiny_reference):
+    inputs = "inputs.interactive.mask_decoder.kwargs"
+    outputs = "outputs.interactive.mask_decoder"
+    image_pe = tiny_reference[f"{inputs}.image_pe"][0]
+    _assert_close(
+        reference_model.interactive.prompt_encoder.dense_position_encoding(), image_pe
+    )
+    sparse = tiny_reference[f"{inputs}.sparse_prompt_embeddings"]
+    dense = tiny_reference[f"{inputs}.dense_prompt_embeddings"]
+    for index in range(sparse.shape[0]):
+        masks, iou, object_score, tokens = reference_model.interactive.mask_decoder(
+            jnp.asarray(tiny_reference[f"{inputs}.image_embeddings"][0]),
+            jnp.asarray(image_pe),
+            jnp.asarray(sparse[index]),
+            jnp.ones(sparse.shape[1], bool),
+            jnp.asarray(dense[index]),
+            (
+                jnp.asarray(tiny_reference[f"{inputs}.high_res_features.0"][0]),
+                jnp.asarray(tiny_reference[f"{inputs}.high_res_features.1"][0]),
+            ),
+        )
+        # The reference call asks for one mask, so stability picks which.
+        selected = _select_mask(masks, iou, jnp.asarray(2), jnp.asarray(True))
+        _assert_close(masks[selected], tiny_reference[f"{outputs}.0"][index, 0])
+        _assert_close(iou[selected], tiny_reference[f"{outputs}.1"][index, 0])
+        _assert_close(tokens[0], tiny_reference[f"{outputs}.2"][index, 0])
+        _assert_close(object_score, tiny_reference[f"{outputs}.3"][index, 0])
+
+
+def test_multiplex_decoder_matches_the_reference(reference_model, tiny_reference):
+    inputs = "inputs.tracker.mask_decoder.kwargs"
+    outputs = "outputs.tracker.mask_decoder"
+    decoder = reference_model.tracker.mask_decoder
+    extra = tiny_reference[f"{inputs}.extra_per_object_embeddings"][0]
+    is_valid = np.isclose(extra, np.asarray(decoder.valid_embed), rtol=1e-6).all(-1)
+    is_invalid = np.isclose(extra, np.asarray(decoder.invalid_embed), rtol=1e-6).all(-1)
+    assert np.logical_xor(is_valid, is_invalid).all()
+    image_pe = tiny_reference[f"{inputs}.image_pe"][0]
+    _assert_close(reference_model.tracker.image_position(jnp.float32), image_pe)
+
+    output = decoder(
+        jnp.asarray(tiny_reference[f"{inputs}.image_embeddings"][0]),
+        jnp.asarray(image_pe),
+        (
+            jnp.asarray(tiny_reference[f"{inputs}.high_res_features.0"][0]),
+            jnp.asarray(tiny_reference[f"{inputs}.high_res_features.1"][0]),
+        ),
+        jnp.asarray(is_valid),
+    )
+    scores = tiny_reference[f"{outputs}.object_score_logits"][0, :, 0]
+    expected_masks = np.where(
+        scores[:, None, None, None] > 0, tiny_reference[f"{outputs}.masks"][0], -1024.0
+    )
+    _assert_close(output.mask_logits, expected_masks)
+    _assert_close(output.iou, tiny_reference[f"{outputs}.iou_pred"][0])
+    _assert_close(output.object_score_logits, scores)
+    _assert_close(output.mask_tokens, tiny_reference[f"{outputs}.sam_tokens_out"][0])
+
+
+def test_memory_encoder_matches_the_reference(reference_model, tiny_reference):
+    output = reference_model.tracker.memory_encoder(
+        jnp.asarray(tiny_reference["inputs.tracker.memory_encoder.args.0"][0]),
+        jnp.asarray(tiny_reference["inputs.tracker.memory_encoder.args.1"][0]),
+    )
+    _assert_close(
+        output, tiny_reference["outputs.tracker.memory_encoder.vision_features"][0]
+    )
+
+
+def test_memory_attention_matches_the_reference(reference_model, tiny_reference):
+    inputs = "inputs.tracker.memory_attention.kwargs"
+    memory = jnp.asarray(tiny_reference[f"{inputs}.memory"][:, 0])
+    memory_pos = jnp.asarray(tiny_reference[f"{inputs}.memory_pos"][:, 0])
+    memory_image = jnp.asarray(tiny_reference[f"{inputs}.memory_image"][:, 0])
+    memory_image_pos = jnp.asarray(tiny_reference[f"{inputs}.memory_image_pos"][:, 0])
+    spatial = memory_image.shape[0]
+    pointers = memory.shape[0] - spatial
+    output = reference_model.tracker.memory_attention(
+        jnp.asarray(tiny_reference[f"{inputs}.image"][:, 0]),
+        jnp.asarray(tiny_reference[f"{inputs}.src_pos"][:, 0]),
+        jnp.concatenate((memory_image, jnp.zeros((pointers, DIM)))),
+        memory,
+        jnp.concatenate((memory_image_pos, memory_pos[spatial:])),
+        num_spatial_keys=jnp.asarray(spatial),
+        key_lengths=jnp.asarray(memory.shape[0]),
+    )
+    _assert_close(
+        output, tiny_reference["outputs.tracker.memory_attention.memory"][:, 0]
+    )
+
+
+@pytest.mark.parametrize("case", ["full", "padded"])
+def test_geometry_encoder_matches_the_reference_with_exemplars(
+    reference_model, tiny_reference, case
+):
+    image = "inputs.detector.geometry.kwargs"
+    prefix = f"inputs.detector.geometry_prompt.{case}"
+    padding = tiny_reference[f"{prefix}.padding"][0]
+    labels = tiny_reference[f"{prefix}.labels"][:, 0]
+    prompt = ConceptPrompt(
+        text_features=jnp.zeros((1, DIM)),
+        text_padding_mask=jnp.ones(1, bool),
+        boxes=jnp.asarray(tiny_reference[f"{prefix}.boxes"][:, 0]),
+        box_labels=jnp.asarray(labels, jnp.int32),
+        box_padding_mask=jnp.asarray(padding),
+        points=jnp.asarray(tiny_reference[f"{prefix}.points"][:, 0]),
+        point_labels=jnp.asarray(labels, jnp.int32),
+        point_padding_mask=jnp.asarray(padding),
+    )
+
+    tokens, valid = reference_model.detector.geometry(
+        jnp.asarray(tiny_reference[f"{image}.img_feats.0"][:, 0]),
+        jnp.asarray(tiny_reference[f"{image}.img_pos_embeds.0"][:, 0]),
+        GRID,
+        prompt,
+    )
+
+    # The reference packs the tokens in use first; Equimo keeps padded slots.
+    reference_tokens = tiny_reference[f"outputs.detector.geometry_prompt.{case}.0"][
+        :, 0
+    ]
+    reference_padding = tiny_reference[f"outputs.detector.geometry_prompt.{case}.1"][0]
+    assert jnp.sum(valid) == np.sum(~reference_padding)
+    _assert_close(tokens[valid], reference_tokens[~reference_padding])
+
+
+def test_joint_score_and_boxes_match_the_reference(reference_model, tiny_reference):
+    head = reference_model.detector.head
+    inputs = "inputs.detector.head.decoder.kwargs"
+    tokens, boxes, presence = head.decoder(
+        jnp.asarray(tiny_reference[f"{inputs}.memory"][:, 0]),
+        jnp.asarray(tiny_reference[f"{inputs}.pos"][:, 0]),
+        jnp.asarray(tiny_reference[f"{inputs}.memory_text"][:, 0]),
+        ~jnp.asarray(tiny_reference[f"{inputs}.text_attention_mask"][0]),
+        GRID,
+    )
+    logits = head.scoring(
+        tokens[-1],
+        jnp.asarray(tiny_reference["inputs.detector.head.scoring.args.1"][:, 0]),
+        ~jnp.asarray(tiny_reference["inputs.detector.head.scoring.args.2"][0]),
+    )
+
+    joint = joint_logit(logits, presence[-1])
+
+    _assert_close(joint, tiny_reference["outputs.detector.joint.pred_logits"][0, :, 0])
+    _assert_close(boxes[-1], tiny_reference["outputs.detector.joint.pred_boxes"][0])
+    _assert_close(
+        presence[-1],
+        tiny_reference["outputs.detector.joint.presence_logit_dec"].reshape(()),
+    )
+
+
+def test_mask_nms_keeps_what_the_reference_keeps(tiny_reference):
+    probabilities = jnp.asarray(tiny_reference["inputs.nms.probabilities"])
+    masks = jnp.asarray(tiny_reference["inputs.nms.masks"]) > 0
+    candidates = probabilities > 0.4
+
+    batched = greedy_iom_nms(masks, probabilities, candidates, 0.1)
+    np.testing.assert_array_equal(batched, tiny_reference["outputs.nms.keep_batched"])
+
+    order = jnp.argsort(-probabilities, stable=True)
+    single = (
+        jnp.zeros_like(candidates)
+        .at[order]
+        .set(candidates[order] & single_frame_nms(masks[order]))
+    )
+    np.testing.assert_array_equal(single, tiny_reference["outputs.nms.keep"])

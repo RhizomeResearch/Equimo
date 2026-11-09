@@ -353,10 +353,12 @@ transformer blocks sit in lists named `blocks`. The two random Fourier matrices 
 - **Decoder.** 6 post-norm DETR layers with 200 learned queries plus the presence token, iterative box refinement from
   learned reference points, the log-scale box relative-position bias in image cross-attention, and text cross-attention.
   Its feed-forward runs in float32, as the reference forces.
-- **Scoring.** Dot-product scoring against the mean-pooled prompt, scaled and clamped as in the reference, then the
-  joint logit `logit(sigmoid(class) * sigmoid(presence))`. The presence logit is also returned.
-- **Segmentation head.** Prompt cross-attention over the encoder memory, a 3-stage pixel decoder (3 x 3 convolution,
-  group norm, ReLU, nearest upsampling) and per-query mask embeddings, giving 288 x 288 mask logits.
+- **Scoring.** Dot-product scoring against the mean-pooled prompt, scaled by `1 / sqrt(dim)` and clamped to +/-12, then
+  the joint logit: `sigmoid(class) * sigmoid(presence)` through `inverse_sigmoid`, whose 1e-3 clamp keeps it within
+  about +/-6.9. The presence logit is also returned.
+- **Segmentation head.** Prompt cross-attention over the encoder memory, a pixel decoder that runs 2 stages on the
+  encoder memory and the middle and high pyramid levels (nearest upsampling, 3 x 3 convolution, group norm, ReLU) and
+  per-query mask embeddings, giving 288 x 288 mask logits and a one-channel semantic map.
 - **Image decoding.** `decode_concepts` reproduces the reference predictor on a single image: probabilities from the
   joint logit, the single-frame mask NMS, new objects at probability 0.5 or more, boxes from mask extents, and per-pixel
   non-overlap by score. It takes a static output size and a static `max_detections`; it gathers the kept entries at 288
@@ -370,7 +372,8 @@ transformer blocks sit in lists named `blocks`. The two random Fourier matrices 
 pyramid, after adding the learned no-memory embedding:
 
 - Points are in input-pixel coordinates; boxes become two corner points; mask inputs are 288 x 288 logits. The point
-  shift, label codes and padding rules are in the appendix.
+  shift, label codes and padding rules are in the appendix. A padding point is always appended, and an empty prompt also
+  encodes one padding point in the first slot.
 - Outputs are fixed-shape: all 4 mask tokens' masks (288 x 288), predicted IoU, the object score, and the selected
   index. Selection follows CUJ 2. Both branches are computed and selected with `where`, so the shape never depends on
   the prompt.
@@ -416,9 +419,12 @@ For frame t the driver runs:
 1. **Encode and detect** (`encode_image`, `detect`): independent of tracker state, so frames can be batched with `vmap`.
 1. **Propagate** (`Sam3.propagate`): for every bucket, memory attention (4 pre-norm layers, 8 heads of 32,
    self-attention with RoPE over 72 x 72, cross-attention whose keys are the selected memory frames plus pointer tokens,
-   RoPE repeated per memory frame and not applied to pointers), then the multiplex mask decoder (16 slots x 3 masks with
-   per-slot valid and invalid embeddings), giving per slot 288 x 288 mask logits, the object score, IoU predictions and
-   the pointer. Empty slots are decoded and ignored, and their zero pointers stay among the keys, as in the reference.
+   RoPE repeated per memory frame and not applied to pointers; queries add the current frame's features and keys add the
+   stored frame features and position encodings, each through its own projection, and the inputs add `0.1` times their
+   sine position), then the multiplex mask decoder (16 slots x 3 masks, without sparse or dense prompts, with per-slot
+   valid and invalid embeddings on the mask tokens), giving per slot 288 x 288 mask logits, the object score, IoU
+   predictions and the pointer. Empty slots are decoded and ignored, and their zero pointers stay among the keys, as in
+   the reference.
 1. **Associate** (`Sam3.associate`, on device): the detection keep mask after the batched NMS and the boundary filter,
    the IoM matrix between kept detections and tracks, the match, new-detection, ambiguity, high-confidence and high-IoM
    flags, and the pairwise track IoU used for occlusion, all with fixed shapes.
@@ -895,12 +901,14 @@ interactive mask decoder is `sam3/sam/mask_decoder.py`.
 
 ### Other reference rules
 
-- **Single-frame NMS** (image decoding and the prompt frame's first pass): overlap is intersection over the
-  higher-ranked mask's area, threshold 0.1, and a suppressed detection still suppresses later ones.
+- **Single-frame NMS** (image decoding and the prompt frame's first pass): overlap is intersection over minimum, as in
+  the batched video-path NMS, threshold 0.1, and a suppressed detection still suppresses later ones.
 - **Mask logits** of a slot whose object score is not positive are set to -1024.
-- **Scoring clamps:** the dot-product score is scaled by 1/16 and clamped to +/-12 before the joint logit.
+- **Scoring clamps:** the dot-product score is scaled by `1 / sqrt(dim)` (1/16 at the 256-wide model) and clamped to
+  +/-12 before the joint logit.
 - **Interactive prompts:** points are shifted by 0.5 pixel; labels are 1 (positive), 0 (negative), -1 (padding), 2 and 3
-  (box corners); a padding point is appended when no box is given.
+  (box corners); a padding point is always appended, because 3.1 sends boxes as corner points with the box argument
+  unset.
 - **Stability score:** `count(logit > 0.05) / count(logit > -0.05)` on the single-mask output, threshold 0.98.
 - **Reproduced on purpose:** hot-start removals are not hidden retroactively; the boundary filter runs after NMS; the
   emitted score is the detection probability at birth; per-pixel overlap goes to the object with the higher tracker
@@ -930,10 +938,12 @@ they name what the code does.
 - `src/equimo/core/EGM.md` (Modify): the tag rule.
 - `src/equimo/vision/ops.py` (Create):
   `roi_align(features[C, H, W], boxes[N, 4], output_size, spatial_scale=1.0, sampling_ratio=-1, aligned=False)` with
-  boxes as xyxy in feature pixels, matching torchvision exactly (adaptive sampling with a static maximum of samples per
-  bin and masking: at most 11 x 11 on a 72 x 72 map with 7 x 7 bins); `grid_sample(features[C, H, W], points[N, 2])`
-  with points in [-1, 1], bilinear, `align_corners=False` and zero padding, built on
-  `jax.scipy.ndimage.map_coordinates`. Imported explicitly; `src/equimo/vision/__init__.py` is not changed.
+  boxes as xyxy in feature pixels, matching torchvision's CUDA kernel exactly, which reads the border for samples
+  outside the map (adaptive sampling with a static maximum of samples per bin and masking: at most 11 x 11 on a 72 x 72
+  map with 7 x 7 bins); `resize_bilinear(x[..., H, W], size)` for mask logits, at torch's float32 sample positions;
+  `grid_sample(features[C, H, W], points[N, 2])` with points in [-1, 1], bilinear, `align_corners=False` and zero
+  padding, built on `jax.scipy.ndimage.map_coordinates`. Imported explicitly; `src/equimo/vision/__init__.py` is not
+  changed.
 - `tests/test_vision_ops.py` (Create): each operation against small torch and torchvision fixtures, including boxes on
   the map border and sub-pixel boxes, with `allclose` 1e-5; `jax.image.resize` against torch's bilinear and antialiased
   resize at the sizes the model uses (custom resizing code is added only if this fails).

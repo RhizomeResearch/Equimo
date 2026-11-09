@@ -1,9 +1,10 @@
-"""Classify the keys of the SAM 3.1 multiplex checkpoint against Equimo's models.
+"""Map the SAM 3.1 multiplex checkpoint onto Equimo's models.
 
 Every key either converts to named Equimo parameters, is computed by Equimo and
 dropped, is unused and dropped, or has no destination yet. A key outside those
 lists is an error. The original PyTorch format is read only by this maintainer
-script, which runs in the ``reference`` dependency group.
+script, which runs in the ``reference`` dependency group. The tests apply the
+same rules to the reference fixtures through :func:`apply_state`.
 """
 
 from __future__ import annotations
@@ -13,12 +14,14 @@ import hashlib
 import re
 import sys
 from pathlib import Path
-from typing import Callable, Iterable, Mapping, NamedTuple
+from typing import Any, Callable, Iterable, Mapping, NamedTuple
 
 if __name__ == "__main__":
     script_dir = Path(__file__).resolve().parent
     if sys.path and Path(sys.path[0]).resolve() == script_dir:
         sys.path.pop(0)
+
+import numpy as np  # noqa: E402
 
 
 CHECKPOINT_NAME = "sam3.1_multiplex.pt"
@@ -38,45 +41,25 @@ MULTIPLEX_DECODER = f"{TRACKER}.sam_mask_decoder"
 PROMPT_ENCODER = f"{TRACKER}.interactive_sam_prompt_encoder"
 MEMORY = f"{TRACKER}.maskmem_backbone"
 
-UNUSED_KEYS = frozenset({f"{TEXT}.encoder.text_projection"})
+UNUSED_KEYS = frozenset(
+    {
+        f"{TEXT}.encoder.text_projection",
+        f"{SEGMENTATION}.pixel_decoder.conv_layers.2.weight",
+        f"{SEGMENTATION}.pixel_decoder.conv_layers.2.bias",
+        f"{SEGMENTATION}.pixel_decoder.norms.2.weight",
+        f"{SEGMENTATION}.pixel_decoder.norms.2.bias",
+    }
+)
 COMPUTED_KEY = re.compile(re.escape(VISION) + r"\.trunk\.blocks\.\d+\.attn\.freqs_cis")
 
 # Checkpoint modules the drafted model does not have, or has with another structure.
 # They stay listed until the model is corrected, so that no trained weight is dropped
 # silently and no module is filled from a checkpoint entry that means something else.
 UNMAPPED_MODULES = (
-    f"{GEOMETRY}.boxes_direct_project",
-    f"{GEOMETRY}.boxes_pos_enc_project",
-    f"{GEOMETRY}.cls_embed",
-    f"{GEOMETRY}.encode_norm",
-    f"{GEOMETRY}.final_proj",
-    f"{GEOMETRY}.img_pre_norm",
-    f"{GEOMETRY}.norm",
-    f"{GEOMETRY}.points_direct_project",
-    f"{GEOMETRY}.points_pool_project",
-    f"{GEOMETRY}.points_pos_enc_project",
-    f"{SCORING}.prompt_mlp",
-    f"{SEGMENTATION}.instance_seg_head",
-    f"{SEGMENTATION}.semantic_seg_head",
-    f"{DECODER}.boxRPB_embed_x",
-    f"{DECODER}.boxRPB_embed_y",
-    f"{DECODER}.norm",
-    f"{DECODER}.presence_token_out_norm",
-    f"{DECODER}.ref_point_head.layers.0",
     f"{TRACKER}.interactive_mask_downsample",
     f"{TRACKER}.interactive_obj_ptr_proj",
     f"{TRACKER}.no_obj_embed_spatial",
     f"{TRACKER}.no_obj_ptr_linear",
-    f"{TRACKER}.transformer.encoder.layers.{{i}}.image_cross_attn_k_proj",
-    f"{TRACKER}.transformer.encoder.layers.{{i}}.image_cross_attn_q_proj",
-    f"{MEMORY}.mask_downsampler",
-    f"{INTERACTIVE_DECODER}.output_hypernetworks_mlps",
-    f"{INTERACTIVE_DECODER}.transformer.final_attn_token_to_image",
-    f"{MULTIPLEX_DECODER}.output_hypernetworks_mlps",
-    f"{MULTIPLEX_DECODER}.transformer.final_attn_token_to_image",
-    f"{MULTIPLEX_DECODER}.iou_token",
-    f"{MULTIPLEX_DECODER}.mask_tokens",
-    f"{MULTIPLEX_DECODER}.obj_score_token",
 )
 UNMAPPED_PATTERNS = tuple(
     re.compile(re.escape(module).replace(r"\{i\}", r"\d+") + r"(?:\..+)?")
@@ -123,10 +106,12 @@ def _rule(
     layout: str = "copy",
     archive: str = "multiplex",
 ) -> Rule:
-    """Map one checkpoint key, where ``{i}`` stands for a module index."""
+    """Map one checkpoint key, where ``{i}`` and ``{j}`` stand for module indices."""
     if isinstance(destinations, str):
         destinations = (destinations,)
-    pattern = re.compile(re.escape(source).replace(r"\{i\}", r"(\d+)"))
+    pattern = re.compile(
+        re.escape(source).replace(r"\{i\}", r"(\d+)").replace(r"\{j\}", r"(\d+)")
+    )
     return Rule(source, pattern, destinations, layout, archive)
 
 
@@ -257,16 +242,27 @@ def _neck_rules() -> list[Rule]:
 
 
 def _detector_rules() -> list[Rule]:
+    geometry = "detector.geometry"
     geometry_block = f"{GEOMETRY}" + ".encode.{i}"
-    geometry_target = "detector.geometry.blocks.{i}"
+    geometry_target = f"{geometry}.blocks" + ".{i}"
     fusion_target = "detector.head.fusion.blocks.{i}"
     decoder_block = f"{DECODER}" + ".layers.{i}"
     decoder_target = "detector.head.decoder.blocks.{i}"
     decoder = "detector.head.decoder"
     segmentation = "detector.head.segmentation"
     return [
-        _rule(f"{GEOMETRY}.label_embed.weight", "detector.geometry.label_embed"),
-        *_conv(f"{GEOMETRY}.boxes_pool_project", "detector.geometry.box_pool"),
+        _rule(f"{GEOMETRY}.label_embed.weight", f"{geometry}.label_embed"),
+        _rule(f"{GEOMETRY}.cls_embed.weight", f"{geometry}.cls_token", "squeeze"),
+        *_linear(f"{GEOMETRY}.points_direct_project", f"{geometry}.point_direct"),
+        *_linear(f"{GEOMETRY}.points_pool_project", f"{geometry}.point_pool"),
+        *_linear(f"{GEOMETRY}.points_pos_enc_project", f"{geometry}.point_position"),
+        *_linear(f"{GEOMETRY}.boxes_direct_project", f"{geometry}.box_direct"),
+        *_conv(f"{GEOMETRY}.boxes_pool_project", f"{geometry}.box_pool"),
+        *_linear(f"{GEOMETRY}.boxes_pos_enc_project", f"{geometry}.box_position"),
+        *_linear(f"{GEOMETRY}.final_proj", f"{geometry}.final_proj"),
+        *_linear(f"{GEOMETRY}.norm", f"{geometry}.final_norm"),
+        *_linear(f"{GEOMETRY}.img_pre_norm", f"{geometry}.image_norm"),
+        *_linear(f"{GEOMETRY}.encode_norm", f"{geometry}.norm"),
         *_packed_attention(f"{geometry_block}.self_attn", f"{geometry_target}.attn"),
         *_packed_attention(
             f"{geometry_block}.cross_attn_image", f"{geometry_target}.cross_attn"
@@ -285,34 +281,50 @@ def _detector_rules() -> list[Rule]:
             f"{decoder_block}.cross_attn", f"{decoder_target}.cross_attn.1"
         ),
         *_feed_forward(decoder_block, decoder_target),
-        # Shapes cannot tell these norms apart; the assignment follows the block's
-        # order of operations and is confirmed by output comparison.
-        *_linear(f"{decoder_block}.norm1", f"{decoder_target}.norm1"),
+        *_linear(f"{decoder_block}.norm2", f"{decoder_target}.norm1"),
         *_linear(f"{decoder_block}.catext_norm", f"{decoder_target}.norm2"),
-        *_linear(f"{decoder_block}.norm2", f"{decoder_target}.norm3"),
+        *_linear(f"{decoder_block}.norm1", f"{decoder_target}.norm3"),
         *_linear(f"{decoder_block}.norm3", f"{decoder_target}.norm4"),
         _rule(f"{DECODER}.query_embed.weight", f"{decoder}.queries"),
         _rule(f"{DECODER}.reference_points.weight", f"{decoder}.reference_boxes"),
         _rule(
             f"{DECODER}.presence_token.weight", f"{decoder}.presence_token", "squeeze"
         ),
+        *_linear(f"{DECODER}.norm", f"{decoder}.norm"),
+        *_linear(f"{DECODER}.presence_token_out_norm", f"{decoder}.presence_norm"),
         *_linear(
             f"{DECODER}.bbox_embed.layers" + ".{i}",
             f"{decoder}.box_head.layers" + ".{i}",
         ),
         *_linear(
-            f"{DECODER}.ref_point_head.layers.1", f"{decoder}.position_proj.layers.1"
+            f"{DECODER}.ref_point_head.layers" + ".{i}",
+            f"{decoder}.position_proj.layers" + ".{i}",
+        ),
+        *_linear(
+            f"{DECODER}.boxRPB_embed_x.layers" + ".{i}",
+            f"{decoder}.relative_bias.embed_x.layers" + ".{i}",
+        ),
+        *_linear(
+            f"{DECODER}.boxRPB_embed_y.layers" + ".{i}",
+            f"{decoder}.relative_bias.embed_y.layers" + ".{i}",
         ),
         *_linear(
             f"{DECODER}.presence_token_head.layers" + ".{i}",
             f"{decoder}.presence_head.layers" + ".{i}",
         ),
+        *_linear(
+            f"{SCORING}.prompt_mlp.layers" + ".{i}",
+            "detector.head.scoring.prompt_mlp.layers.{i}",
+        ),
+        *_linear(f"{SCORING}.prompt_mlp.out_norm", "detector.head.scoring.prompt_norm"),
         *_linear(f"{SCORING}.hs_proj", "detector.head.scoring.query_proj"),
         *_linear(f"{SCORING}.prompt_proj", "detector.head.scoring.prompt_proj"),
         *_packed_attention(
             f"{SEGMENTATION}.cross_attend_prompt", f"{segmentation}.cross_attn"
         ),
         *_linear(f"{SEGMENTATION}.cross_attn_norm", f"{segmentation}.norm"),
+        *_conv(f"{SEGMENTATION}.instance_seg_head", f"{segmentation}.instance_proj"),
+        *_conv(f"{SEGMENTATION}.semantic_seg_head", f"{segmentation}.semantic_proj"),
         *_linear(
             f"{SEGMENTATION}.mask_predictor.mask_embed.layers" + ".{i}",
             f"{segmentation}.mask_embed.layers" + ".{i}",
@@ -338,9 +350,13 @@ def _mask_decoder_rules(source: str, destination: str) -> list[Rule]:
         *_transposed_conv(
             f"{source}.output_upscaling.0", f"{destination}.upsampler.deconvs.0"
         ),
-        *_linear(f"{source}.output_upscaling.1", f"{destination}.upsampler.norms.0"),
+        *_linear(f"{source}.output_upscaling.1", f"{destination}.upsampler.norm"),
         *_transposed_conv(
             f"{source}.output_upscaling.3", f"{destination}.upsampler.deconvs.1"
+        ),
+        *_linear(
+            f"{source}.output_hypernetworks_mlps" + ".{i}.layers.{j}",
+            f"{destination}.mask_embed" + ".{i}.layers.{j}",
         ),
         *_linear(
             f"{source}.iou_prediction_head.layers" + ".{i}",
@@ -353,6 +369,10 @@ def _mask_decoder_rules(source: str, destination: str) -> list[Rule]:
         *_linear(
             f"{source}.transformer.norm_final_attn",
             f"{destination}.transformer.norm",
+        ),
+        *_separate_attention(
+            f"{source}.transformer.final_attn_token_to_image.",
+            f"{destination}.transformer.final_attn",
         ),
         *_separate_attention(f"{block}.self_attn.", f"{target}.attn"),
         *_separate_attention(
@@ -414,25 +434,42 @@ def _interactive_rules() -> list[Rule]:
     ]
 
 
+def _memory_downsampler_rules() -> list[Rule]:
+    downsampler = f"{MEMORY}.mask_downsampler.encoder"
+    target = "tracker.memory_encoder"
+    rules = _conv(f"{downsampler}.12", f"{target}.mask_proj")
+    for stage in range(4):
+        rules += _conv(f"{downsampler}.{3 * stage}", f"{target}.mask_convs.{stage}")
+        rules += _linear(
+            f"{downsampler}.{3 * stage + 1}", f"{target}.mask_norms.{stage}"
+        )
+    return rules
+
+
 def _tracker_rules() -> list[Rule]:
     fuser = f"{MEMORY}.fuser.layers" + ".{i}"
     fuser_target = "tracker.memory_encoder.fuser.{i}"
     attention = f"{TRACKER}.transformer.encoder"
     block = attention + ".layers.{i}"
     target = "tracker.memory_attention.blocks.{i}"
+    decoder = "tracker.mask_decoder"
     return [
-        _rule(f"{TRACKER}.output_valid_embed", "tracker.mask_decoder.valid_embed"),
-        _rule(f"{TRACKER}.output_invalid_embed", "tracker.mask_decoder.invalid_embed"),
+        _rule(f"{TRACKER}.output_valid_embed", f"{decoder}.valid_embed"),
+        _rule(f"{TRACKER}.output_invalid_embed", f"{decoder}.invalid_embed"),
+        _rule(f"{MULTIPLEX_DECODER}.iou_token.weight", f"{decoder}.iou_token"),
+        _rule(f"{MULTIPLEX_DECODER}.obj_score_token.weight", f"{decoder}.object_token"),
+        _rule(f"{MULTIPLEX_DECODER}.mask_tokens.weight", f"{decoder}.mask_tokens"),
         _rule(f"{TRACKER}.maskmem_tpos_enc", "tracker.memory_time_embed", "squeeze"),
         _rule(
             f"{TRACKER}.image_pe_layer.positional_encoding_gaussian_matrix",
-            "tracker.prompt_encoder.fourier_matrix",
+            "tracker.image_position.fourier_matrix",
         ),
         *_linear(
             f"{TRACKER}.obj_ptr_proj.layers" + ".{i}",
             "tracker.pointer_proj.layers.{i}",
         ),
         *_linear(f"{TRACKER}.obj_ptr_tpos_proj", "tracker.pointer_time_proj"),
+        *_memory_downsampler_rules(),
         *_conv(f"{MEMORY}.pix_feat_proj", "tracker.memory_encoder.feature_proj"),
         _rule(f"{fuser}.gamma", f"{fuser_target}.ls.gamma"),
         *_conv(f"{fuser}.dwconv", f"{fuser_target}.dwconv"),
@@ -442,6 +479,8 @@ def _tracker_rules() -> list[Rule]:
         *_linear(f"{attention}.norm", "tracker.memory_attention.norm"),
         *_separate_attention(f"{block}.self_attn_", f"{target}.attn"),
         *_separate_attention(f"{block}.cross_attn_", f"{target}.cross_attn"),
+        *_linear(f"{block}.image_cross_attn_q_proj", f"{target}.image_q"),
+        *_linear(f"{block}.image_cross_attn_k_proj", f"{target}.image_k"),
         *_feed_forward(block, target),
         *_norms(block, target, ("norm1", "norm2", "norm3")),
         *_mask_decoder_rules(MULTIPLEX_DECODER, "tracker.mask_decoder"),
@@ -458,13 +497,19 @@ RULES = (
 )
 
 
+def _fill_indices(destination: str, indices: tuple[str, ...]) -> str:
+    for placeholder, index in zip(("{i}", "{j}"), indices):
+        destination = destination.replace(placeholder, index)
+    return destination
+
+
 def _conversion_for(key: str) -> Conversion | None:
     for rule in RULES:
         match = rule.pattern.fullmatch(key)
         if match is None:
             continue
         destinations = tuple(
-            destination.replace("{i}", match[1]) if match.groups() else destination
+            _fill_indices(destination, match.groups())
             for destination in rule.destinations
         )
         return Conversion(rule.archive, destinations, rule.layout)
@@ -517,6 +562,80 @@ def check_destinations(
                 )
             covered.add(destination)
     return sorted(set(template_shapes) - covered)
+
+
+CONVERTERS: dict[str, Callable[[np.ndarray], np.ndarray]] = {
+    "copy": lambda array: array,
+    "drop_cls_row": lambda array: array[0, 1:],
+    # Equinox correlates the stored kernel with the dilated input.
+    "transposed_conv": lambda array: np.swapaxes(array, 0, 1)[:, :, ::-1, ::-1].copy(),
+    "conv_bias": lambda array: array.reshape(array.shape[0], 1, 1),
+    "linear_as_conv": lambda array: array.reshape(*array.shape, 1, 1),
+    "squeeze": np.squeeze,
+}
+
+
+def convert_state(
+    state: Mapping[str, np.ndarray], archive: str
+) -> dict[str, np.ndarray]:
+    """Return each Equimo parameter of ``archive`` from a checkpoint's arrays."""
+    converted: dict[str, np.ndarray] = {}
+    stacked: dict[str, list[tuple[int, np.ndarray]]] = {}
+    classification = classify_keys(state)
+    for key, conversion in classification.converted.items():
+        if conversion.archive != archive:
+            continue
+        array = np.asarray(state[key])
+        if conversion.layout == "split_qkv":
+            for destination, part in zip(
+                conversion.destinations, np.split(array, 3, axis=0)
+            ):
+                converted[destination] = part
+        elif conversion.layout == "stack_of_four":
+            index = int(re.search(r"\.(\d+)\.weight$", key)[1])
+            stacked.setdefault(conversion.destinations[0], []).append((index, array))
+        else:
+            value = CONVERTERS[conversion.layout](array)
+            for destination in conversion.destinations:
+                converted[destination] = value
+    for destination, parts in stacked.items():
+        converted[destination] = np.concatenate(
+            [array for _, array in sorted(parts, key=lambda item: item[0])], axis=0
+        )
+    return converted
+
+
+def apply_state(model: Any, state: Mapping[str, np.ndarray], archive: str) -> Any:
+    """Return ``model`` with the parameters ``state`` provides for ``archive``.
+
+    Parameters without a source keep their values; ``check_destinations`` and
+    the conversion test decide which of those are acceptable.
+    """
+    import jax
+    import jax.numpy as jnp
+
+    from equimo.conversion.utils import stringify_name
+
+    converted = convert_state(state, archive)
+
+    def replace(path: Any, leaf: Any) -> Any:
+        array = converted.pop(stringify_name(path), None)
+        if array is None:
+            return leaf
+        if array.shape != leaf.shape:
+            raise ValueError(
+                f"{stringify_name(path)}: converted shape {array.shape}, "
+                f"template shape {leaf.shape}."
+            )
+        return jnp.asarray(array, leaf.dtype)
+
+    model = jax.tree_util.tree_map_with_path(
+        lambda path, leaf: replace(path, leaf) if hasattr(leaf, "shape") else leaf,
+        model,
+    )
+    if converted:
+        raise ValueError(f"Parameters missing from the model: {sorted(converted)}")
+    return model
 
 
 def report_classification(

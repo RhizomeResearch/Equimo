@@ -31,19 +31,21 @@ from equimo.vision.models.sam3.decoding import (
 )
 from equimo.vision.models.sam3.detector import DetectorOutput
 from equimo.vision.models.sam3.encoder import ImageFeatures
+from equimo.vision.ops import resize_bilinear
 from equimo.vision.models.sam3.interactive import (
     _NO_OBJECT_LOGIT,
+    ImagePositionEncoding,
     InteractiveHead,
     InteractivePrompt,
     MultiplexMaskDecoder,
-    PromptEncoder,
 )
 
 # Dense float32 logits against 52,144 keys take about 8.6 GB per layer.
 _ATTENTION_CHUNK_QUERIES = 1024
 _MEMORY_STRIDE = 16
-_FUSER_DEPTH = 2
+_MEMORY_DOWNSAMPLINGS = 4
 _MASK_SCALE = 4
+_MEMORY_INPUT_POSITION_SCALE = 0.1
 
 SLOT_EMPTY = 0
 SLOT_ACTIVE = 1
@@ -106,12 +108,20 @@ def _attend_packed_memory(
 ) -> Float[Array, "query dim"]:
     """Attend to memory whose valid keys are packed first.
 
-    cuDNN takes the key count directly. Without it, queries run in blocks,
-    because float32 logits against every key do not fit in memory.
+    ``queries`` and ``keys`` are already projected. cuDNN takes the key count
+    directly. Without it, queries run in blocks, because float32 logits against
+    every key do not fit in memory.
     """
-    q = apply_rotary(attention._heads(attention.q, queries), rotary)
-    k = apply_rotary(attention._heads(attention.k, keys), key_rotary)
-    v = attention._heads(attention.v, values)
+
+    def split_heads(tokens: jax.Array) -> jax.Array:
+        separated = tokens.reshape(
+            tokens.shape[0], attention.num_heads, attention.head_dim
+        )
+        return jnp.swapaxes(separated, 0, 1)
+
+    q = apply_rotary(split_heads(queries), rotary)
+    k = apply_rotary(split_heads(keys), key_rotary)
+    v = split_heads(jax.vmap(attention.v)(values))
     if attention.implementation == "cudnn":
         out = _fused_attention(q, k, v, key_value_seq_lengths=key_lengths)
     else:
@@ -150,13 +160,24 @@ class MemoryEncoder(eqx.Module):
     feature_proj: eqx.nn.Conv2d
     fuser: tuple[ConvNeXtBlock, ...]
 
-    def __init__(self, dim: int, in_channels: int, *, key: PRNGKeyArray):
+    def __init__(
+        self,
+        dim: int,
+        in_channels: int,
+        start_channels: int,
+        fuser_depth: int,
+        *,
+        key: PRNGKeyArray,
+    ):
         key_masks, key_mask_proj, key_feature_proj, key_fuser = jr.split(key, 4)
-        widths = [min(in_channels * 2**i, dim) for i in range(5)]
+        widths = [
+            in_channels,
+            *[start_channels * 4**i for i in range(1, _MEMORY_DOWNSAMPLINGS + 1)],
+        ]
         self.mask_convs = tuple(
             eqx.nn.Conv2d(width_in, width_out, 3, stride=2, padding=1, key=subkey)
             for width_in, width_out, subkey in zip(
-                widths[:-1], widths[1:], jr.split(key_masks, 4)
+                widths[:-1], widths[1:], jr.split(key_masks, _MEMORY_DOWNSAMPLINGS)
             )
         )
         self.mask_norms = tuple(LayerNorm2d(width) for width in widths[1:])
@@ -164,7 +185,7 @@ class MemoryEncoder(eqx.Module):
         self.feature_proj = eqx.nn.Conv2d(dim, dim, 1, key=key_feature_proj)
         self.fuser = tuple(
             ConvNeXtBlock(dim, act_layer="exactgelu", init_values=1e-6, key=subkey)
-            for subkey in jr.split(key_fuser, _FUSER_DEPTH)
+            for subkey in jr.split(key_fuser, fuser_depth)
         )
 
     def __call__(
@@ -190,45 +211,57 @@ class MemoryEncoder(eqx.Module):
 
 
 class MemoryAttentionBlock(eqx.Module):
-    """Pre-norm block of RoPE self-attention and packed-memory cross-attention."""
+    """Pre-norm block of RoPE self-attention and packed-memory cross-attention.
+
+    The cross-attention's queries add the current image's features, and its keys
+    add the stored image features, each through their own projection.
+    """
 
     norm1: eqx.nn.LayerNorm
     attn: PositionedAttention
     norm2: eqx.nn.LayerNorm
     cross_attn: CrossAttention
+    image_q: eqx.nn.Linear
+    image_k: eqx.nn.Linear
     norm3: eqx.nn.LayerNorm
     mlp: MLP
 
     def __init__(
         self, dim: int, num_heads: int, ffn_features: int, *, key: PRNGKeyArray
     ):
-        key_attn, key_cross, key_mlp = jr.split(key, 3)
+        key_attn, key_cross, key_image_q, key_image_k, key_mlp = jr.split(key, 5)
         self.norm1 = eqx.nn.LayerNorm(dim)
         self.attn = PositionedAttention(dim, num_heads, key=key_attn)
         self.norm2 = eqx.nn.LayerNorm(dim)
         self.cross_attn = CrossAttention(dim, num_heads, key=key_cross)
+        self.image_q = eqx.nn.Linear(dim, dim, key=key_image_q)
+        self.image_k = eqx.nn.Linear(dim, dim, key=key_image_k)
         self.norm3 = eqx.nn.LayerNorm(dim)
-        self.mlp = MLP(dim, ffn_features, dim, 2, key=key_mlp)
+        self.mlp = MLP(dim, ffn_features, dim, 2, act_layer="exactgelu", key=key_mlp)
 
     def __call__(
         self,
         x: Float[Array, "tokens dim"],
-        memory_keys: Float[Array, "keys dim"],
-        memory_values: Float[Array, "keys dim"],
+        image: Float[Array, "tokens dim"],
+        memory_image: Float[Array, "keys dim"],
+        memory: Float[Array, "keys dim"],
+        memory_image_pos: Float[Array, "keys dim"],
         rotary: RotaryFactors,
         key_rotary: RotaryFactors,
         key_lengths: Int[Array, ""],
     ) -> Float[Array, "tokens dim"]:
         normed = layer_norm(self.norm1, x)
         x = x + self.attn(normed, normed, rotary=rotary, key_rotary=rotary)
+        queries = jax.vmap(self.image_q)(image) + jax.vmap(self.cross_attn.q)(
+            layer_norm(self.norm2, x)
+        )
+        keys = (
+            jax.vmap(self.image_k)(memory_image)
+            + jax.vmap(self.cross_attn.k)(memory)
+            + memory_image_pos
+        )
         x = x + _attend_packed_memory(
-            self.cross_attn,
-            layer_norm(self.norm2, x),
-            memory_keys,
-            memory_values,
-            rotary,
-            key_rotary,
-            key_lengths,
+            self.cross_attn, queries, keys, memory, rotary, key_rotary, key_lengths
         )
         return x + self.mlp(layer_norm(self.norm3, x))
 
@@ -267,25 +300,39 @@ class MemoryAttention(eqx.Module):
     def __call__(
         self,
         x: Float[Array, "tokens dim"],
-        keys: Float[Array, "keys dim"],
-        values: Float[Array, "keys dim"],
+        x_pos: Float[Array, "tokens dim"],
+        memory_image: Float[Array, "keys dim"],
+        memory: Float[Array, "keys dim"],
+        memory_image_pos: Float[Array, "keys dim"],
         *,
         num_spatial_keys: Int[Array, ""],
         key_lengths: Int[Array, ""],
     ) -> Float[Array, "tokens dim"]:
         """Attend to memory whose valid keys are packed at the front.
 
-        ``keys`` hold the stored features of each memory frame with their position
-        encodings, and ``values`` the matching memory. The first
-        ``num_spatial_keys`` entries are spatial tokens of the memory frames,
-        followed by object pointers, up to ``key_lengths`` valid entries.
+        ``memory_image`` holds the stored image features of each memory frame,
+        ``memory`` the matching memory and ``memory_image_pos`` their position
+        encodings. The first ``num_spatial_keys`` entries are spatial tokens of
+        the memory frames. The object pointers follow, with zero image features
+        and their temporal encoding as position, up to ``key_lengths`` valid
+        entries.
         """
         grid = int(x.shape[0] ** 0.5)
         rotary = exchanged_rope_factors(self.rope, grid)
-        key_rotary = _memory_key_rotary(rotary, keys.shape[0], num_spatial_keys, grid)
+        key_rotary = _memory_key_rotary(rotary, memory.shape[0], num_spatial_keys, grid)
+        out = x + _MEMORY_INPUT_POSITION_SCALE * x_pos.astype(x.dtype)
         for block in self.blocks:
-            x = block(x, keys, values, rotary, key_rotary, key_lengths)
-        return layer_norm(self.norm, x)
+            out = block(
+                out,
+                x,
+                memory_image,
+                memory,
+                memory_image_pos,
+                rotary,
+                key_rotary,
+                key_lengths,
+            )
+        return layer_norm(self.norm, out)
 
 
 class TrackerState(eqx.Module):
@@ -550,7 +597,7 @@ def associate(
 class Sam3Tracker(eqx.Module):
     """Modules of the memory-based tracker and its device steps."""
 
-    prompt_encoder: PromptEncoder
+    image_position: ImagePositionEncoding
     memory_encoder: MemoryEncoder
     memory_attention: MemoryAttention
     mask_decoder: MultiplexMaskDecoder
@@ -571,9 +618,11 @@ class Sam3Tracker(eqx.Module):
         num_slots: int,
         grid: int,
         image_size: int,
+        memory_start_channels: int,
+        memory_fuser_depth: int,
     ):
         (
-            key_prompt,
+            key_position,
             key_memory_encoder,
             key_attention,
             key_decoder,
@@ -581,8 +630,16 @@ class Sam3Tracker(eqx.Module):
             key_pointer_time,
             key_time_embed,
         ) = jr.split(key, 7)
-        self.prompt_encoder = PromptEncoder(dim, grid, image_size, key=key_prompt)
-        self.memory_encoder = MemoryEncoder(dim, 2 * num_slots, key=key_memory_encoder)
+        self.image_position = ImagePositionEncoding(
+            dim, grid, image_size, key=key_position
+        )
+        self.memory_encoder = MemoryEncoder(
+            dim,
+            2 * num_slots,
+            memory_start_channels,
+            memory_fuser_depth,
+            key=key_memory_encoder,
+        )
         self.memory_attention = MemoryAttention(
             dim, memory_heads, ffn_features, memory_depth, grid, key=key_attention
         )
@@ -595,9 +652,9 @@ class Sam3Tracker(eqx.Module):
 
     def empty_state(self, num_buckets: int = 1) -> TrackerState:
         """Return a state of ``num_buckets`` cleared buckets."""
-        dim = self.prompt_encoder.no_mask_embed.shape[0]
-        dtype = self.prompt_encoder.no_mask_embed.dtype
-        grid = self.prompt_encoder.grid
+        dim = self.pointer_time_proj.out_features
+        dtype = self.memory_time_embed.dtype
+        grid = self.image_position.grid
         slots = self.mask_decoder.num_slots
         mask_size = _MASK_SCALE * grid
         template = TrackerState(
@@ -623,11 +680,11 @@ class Sam3Tracker(eqx.Module):
         bucket: TrackerState,
         frame_index: Int[Array, ""],
         pointer_divisor: int,
-    ) -> tuple[jax.Array, jax.Array, Int[Array, ""], Int[Array, ""]]:
+    ) -> tuple[jax.Array, jax.Array, jax.Array, Int[Array, ""], Int[Array, ""]]:
         """Pack one bucket's memory, valid entries first.
 
-        Returns the keys, the values, the number of valid spatial keys and the
-        number of all valid keys.
+        Returns the stored image features, the memory, their position encodings,
+        the number of valid spatial keys and the number of all valid keys.
         """
         dtype = bucket.cond_memory.dtype
         dim, grid = bucket.cond_memory.shape[-3], bucket.cond_memory.shape[-1]
@@ -644,7 +701,7 @@ class Sam3Tracker(eqx.Module):
         position = sine_position_encoding(grid, grid, dim // 2).astype(dtype)
         features = jnp.concatenate((bucket.cond_features, bucket.recent_features))
         memory = jnp.concatenate((bucket.cond_memory, bucket.recent_memory))
-        spatial_keys = features + position + time_embed[:, :, None, None]
+        spatial_position = position + time_embed[:, :, None, None]
 
         distance = (
             frame_index - jnp.concatenate((bucket.cond_frame, bucket.pointer_frame))
@@ -652,7 +709,9 @@ class Sam3Tracker(eqx.Module):
         time_encoding = sine_coordinates(distance / pointer_divisor, dim).astype(dtype)
         pointer_time = jax.vmap(self.pointer_time_proj)(time_encoding)
         object_pointers = jnp.concatenate((bucket.cond_pointers, bucket.pointers))
-        pointer_keys = object_pointers + pointer_time[:, None, :]
+        pointer_position = jnp.broadcast_to(
+            pointer_time[:, None, :], object_pointers.shape
+        )
 
         frame_valid = jnp.concatenate((cond, recent))
         pointer_valid = jnp.concatenate((cond, pointer))
@@ -670,8 +729,9 @@ class Sam3Tracker(eqx.Module):
             return jnp.concatenate((tokens, pointers.reshape(-1, dim)))[order]
 
         return (
-            pack(spatial_keys, pointer_keys),
+            pack(features, jnp.zeros_like(object_pointers)),
             pack(memory, object_pointers),
+            pack(spatial_position, pointer_position),
             grid * grid * jnp.sum(frame_valid),
             jnp.sum(valid),
         )
@@ -694,28 +754,32 @@ class Sam3Tracker(eqx.Module):
         )
         pointer_divisor = max(known_frames - 1, 1)
         tokens = flatten_map(low)
-        sparse, dense = self.prompt_encoder.empty()
-        image_pos = self.prompt_encoder.dense_position_encoding()
+        token_pos = flatten_map(
+            sine_position_encoding(grid, grid, low.shape[0] // 2)
+        ).astype(low.dtype)
+        image_pos = self.image_position(low.dtype)
+        high_res = self.mask_decoder.upsampler.project((high, middle))
 
         def one_bucket(bucket: TrackerState) -> TrackOutput:
-            keys, values, num_spatial_keys, key_lengths = self._memory_bank(
-                bucket, frame_index, pointer_divisor
-            )
+            (
+                memory_image,
+                memory,
+                memory_image_pos,
+                num_spatial_keys,
+                key_lengths,
+            ) = self._memory_bank(bucket, frame_index, pointer_divisor)
             attended = self.memory_attention(
                 tokens,
-                keys,
-                values,
+                token_pos,
+                memory_image,
+                memory,
+                memory_image_pos,
                 num_spatial_keys=num_spatial_keys,
                 key_lengths=key_lengths,
             )
             active = bucket.slot_status == SLOT_ACTIVE
             out = self.mask_decoder(
-                unflatten_map(attended, grid),
-                image_pos,
-                sparse,
-                dense,
-                (high, middle),
-                active,
+                unflatten_map(attended, grid), image_pos, high_res, active
             )
             best = jnp.argmax(out.iou.astype(jnp.float32), axis=-1)[:, None]
             tokens_best = jnp.take_along_axis(out.mask_tokens, best[..., None], axis=1)[
@@ -784,10 +848,8 @@ class Sam3Tracker(eqx.Module):
     ) -> Float[Array, "buckets dim grid grid"]:
         """Encode memory from masks made non-overlapping at the source frame size."""
         buckets, slots = logits.shape[:2]
-        resized = jax.image.resize(
-            logits.reshape(-1, *logits.shape[2:]).astype(jnp.float32),
-            (buckets * slots, *plan.source_size),
-            method="bilinear",
+        resized = resize_bilinear(
+            logits.reshape(-1, *logits.shape[2:]), plan.source_size
         )
         kept = _keep_per_group(
             resized > 0,
@@ -818,7 +880,7 @@ class Sam3Tracker(eqx.Module):
         """
         low = features.propagation[2]
         num_buckets = state.slot_status.shape[0]
-        image_size = self.prompt_encoder.image_size
+        image_size = self.image_position.image_size
         state = _where_bucket(plan.release, _empty_buckets(state, num_buckets), state)
         occupied = state.slot_status == SLOT_ACTIVE
         add = plan.add & (state.slot_status == SLOT_EMPTY)
@@ -845,11 +907,7 @@ class Sam3Tracker(eqx.Module):
             jnp.minimum(logits, _OVERLAP_LOSER_LOGIT),
             logits,
         )
-        upsampled = jax.image.resize(
-            memory_logits,
-            (*memory_logits.shape[:2], image_size, image_size),
-            method="bilinear",
-        )
+        upsampled = resize_bilinear(memory_logits, (image_size, image_size))
         memory = jax.vmap(self._encode_memory, in_axes=(None, 0, 0))(
             low, upsampled, recondition
         )

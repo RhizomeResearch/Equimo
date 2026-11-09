@@ -404,11 +404,11 @@ def test_sam31_rejects_a_checkpoint_with_the_wrong_digest(tmp_path):
             "computed",
         ),
         ("detector.backbone.language_backbone.encoder.text_projection", "unused"),
-        ("detector.transformer.decoder.norm.weight", "unmapped"),
+        ("detector.transformer.decoder.norm.weight", "converted"),
         ("tracker.model.no_obj_embed_spatial", "unmapped"),
         (
             "tracker.model.transformer.encoder.layers.3.image_cross_attn_q_proj.bias",
-            "unmapped",
+            "converted",
         ),
     ],
 )
@@ -451,7 +451,9 @@ def test_sam31_splits_packed_projections_with_the_module_index():
 def test_sam31_conversion_rules_name_parameters_of_the_models():
     converter = load_sam31_converter()
     templates = {name: converter.template_shapes(name) for name in converter.ARCHIVES}
-    keys = [rule.source.replace("{i}", "0") for rule in converter.RULES]
+    keys = [
+        rule.source.replace("{i}", "0").replace("{j}", "0") for rule in converter.RULES
+    ]
 
     classification = converter.classify_keys(keys)
 
@@ -506,7 +508,7 @@ def test_sam31_destination_check_returns_parameters_without_a_source():
     ("keys", "without_source", "status"),
     [
         (["detector.dot_prod_scoring.hs_proj.weight"], [], 0),
-        (["detector.transformer.decoder.norm.weight"], [], 1),
+        (["tracker.model.no_obj_embed_spatial"], [], 1),
         (["detector.dot_prod_scoring.hs_proj.weight"], ["tracker.parameter"], 1),
     ],
 )

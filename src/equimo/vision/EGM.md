@@ -29,8 +29,11 @@ holds only a docstring; import subpackages explicitly (`equimo.vision.models`, `
 ### Sampling operations (`ops.py`)
 
 - `roi_align(features (C, H, W), boxes (N, 4), output_size, spatial_scale=1.0, sampling_ratio=-1, aligned=False) -> (N, C, out_h, out_w)`:
-  `torchvision.ops.roi_align` for one image, with `(x1, y1, x2, y2)` boxes multiplied by `spatial_scale`.
-  `[ops.py:roi_align]`
+  `torchvision.ops.roi_align`'s CUDA kernel for one image, with `(x1, y1, x2, y2)` boxes multiplied by `spatial_scale`;
+  samples outside the map read the border pixel. `[ops.py:roi_align]`
+- `resize_bilinear(x (..., H, W), size) -> (..., out_h, out_w)`: float32 resize that matches
+  `torch.nn.functional.interpolate(mode="bilinear", align_corners=False)` on CUDA, including its float32 sample
+  positions. `[ops.py:resize_bilinear]`
 - `grid_sample(features (C, H, W), points (N, 2)) -> (N, C)`: `torch.nn.functional.grid_sample` with bilinear
   interpolation, `align_corners=False` and zero padding, for `(x, y)` points in `[-1, 1]`. `[ops.py:grid_sample]`
 

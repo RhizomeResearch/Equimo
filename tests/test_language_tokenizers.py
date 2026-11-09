@@ -1,4 +1,5 @@
 import gzip
+import json
 from pathlib import Path
 
 import numpy as np
@@ -194,3 +195,18 @@ def test_clip_tokenizer_rejects_a_single_string():
 
     with pytest.raises(TypeError, match="sequence of strings"):
         ClipBpeTokenizer().encode("a photo of a cat")
+
+
+def test_clip_tokenizer_matches_the_reference_ids():
+    _require_clip_extra()
+    data = Path(__file__).parent / "data"
+    reference = json.loads((data / "clip_tokenizer_reference.json").read_text())
+
+    tokenizer = ClipBpeTokenizer(
+        context_length=reference["context_length"],
+        path=str(data / "tiny_clip_bpe.txt.gz"),
+    )
+    token_ids, padding_mask = tokenizer.encode(reference["corpus"])
+
+    np.testing.assert_array_equal(token_ids, np.asarray(reference["ids"]))
+    assert not padding_mask[:, 0].any()

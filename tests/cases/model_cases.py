@@ -661,6 +661,8 @@ def _build_sam3(key: jax.Array) -> ModelInvocation:
         two_way_depth=1,
         memory_depth=1,
         memory_heads=2,
+        memory_start_channels=1,
+        memory_fuser_depth=1,
         num_slots=2,
     )
     return _spatial_invocation(

@@ -43,9 +43,10 @@ wrapper that fetches Equimo tokenizer files and a CLIP BPE tokenizer with a pack
   [tokenizers.py:SentencePieceTokenizer.encode, models.py:TextTransformerEncoder.\_prepare_tokens]. Padding is excluded
   from attention, the FFN mask, and the final pool \[models.py:TextTransformerEncoder.features,
   models.py:TextTransformerEncoder.\_\_call\_\_\].
-- `CausalTextTransformer` lets each token attend only to itself and earlier tokens and removes padded positions from the
-  keys, so changing a later token leaves earlier outputs bit-exact [models.py:CausalTextTransformer.\_attention_mask].
-  Its `padding_mask` uses `True` for padding (`0`/`1` integers also work); the padded rows of its output are not zeroed.
+- `CausalTextTransformer` lets each token attend only to itself and earlier tokens, so changing a later token leaves
+  earlier outputs bit-exact [models.py:CausalTextTransformer.\_attention_mask]. Tokens are padded on the right, so the
+  causal mask alone keeps padding from reaching real tokens: `padding_mask` is not consulted, and only tells callers
+  which output rows to ignore. It uses `True` for padding (`0`/`1` integers also work); padded rows are not zeroed.
 - `ClipBpeTokenizer` lower-cases and cleans text with `ftfy` and HTML unescaping, adds the start and end tokens, pads
   with id `0` and truncates with the end token kept [tokenizers.py:ClipBpeTokenizer.encode]. Id `0` is a real CLIP
   token, so only the padding mask identifies padding. `encode` raises `TypeError` for a single `str`.

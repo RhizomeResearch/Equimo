@@ -54,6 +54,7 @@ from equimo.vision.models.sam3.detector import ConceptPrompt, DetectorOutput
 from equimo.vision.models.sam3.encoder import ImageFeatures
 from equimo.vision.models.sam3.interactive import InteractivePrompt
 from equimo.vision.models.sam3.model import Sam3
+from equimo.vision.ops import resize_bilinear
 from equimo.vision.models.sam3.tracker import (
     _MASK_SCALE,
     _NEW_OBJECT_PROBABILITY,
@@ -582,11 +583,7 @@ def _render_prediction(
             boxes=np.zeros((0, 4), np.float32),
             scores=np.zeros(0, np.float32),
         )
-    resized = jax.image.resize(
-        jnp.asarray(mask_logits, jnp.float32),
-        (count, *source_size),
-        method="bilinear",
-    )
+    resized = resize_bilinear(jnp.asarray(mask_logits, jnp.float32), source_size)
     masks = resized > 0
     boxes = np.asarray(boxes_from_masks(masks))
     order = _priority_order(
@@ -742,7 +739,7 @@ class Sam3VideoTracker:
         )
         self.decisions: list[FrameDecision] = []
         self._steps = _DeviceSteps()
-        self._mask_size = _MASK_SCALE * model.tracker.prompt_encoder.grid
+        self._mask_size = _MASK_SCALE * model.tracker.image_position.grid
         self._state = model.tracker.empty_state(1)
         self._prompt: ConceptPrompt | None = None
         self._next_frame = 0

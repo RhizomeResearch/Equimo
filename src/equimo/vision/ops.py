@@ -14,12 +14,12 @@ from jaxtyping import Array, Float
 def _bilinear_weights(
     coords: Float[Array, "..."], size: int
 ) -> Float[Array, "... size"]:
-    """Interpolation weights over one axis, as torchvision's ROI Align samples.
+    """Interpolation weights over one axis, as torchvision's CUDA ROI Align samples.
 
-    A sample further than one pixel outside the map contributes nothing; one
-    within that pixel is clamped to the border.
+    A sample outside the map reads the border pixel. torchvision's CPU kernel
+    zeroes samples more than one pixel outside instead; the reference runs on
+    CUDA, so the CUDA behavior is the one reproduced here.
     """
-    inside = (coords >= -1.0) & (coords <= size)
     coords = jnp.maximum(coords, 0.0)
     low = jnp.floor(coords).astype(jnp.int32)
     at_border = low >= size - 1
@@ -31,7 +31,7 @@ def _bilinear_weights(
         jax.nn.one_hot(low, size, dtype=coords.dtype) * (1 - fraction)
         + jax.nn.one_hot(high, size, dtype=coords.dtype) * fraction
     )
-    return weights * inside[..., None]
+    return weights
 
 
 def _bin_weights(
@@ -125,6 +125,33 @@ def roi_align(
         "npy,cyx,nqx->ncpq", rows, features.astype(jnp.float32), columns
     )
     return (pooled / count[:, None, None, None]).astype(features.dtype)
+
+
+def _resize_axis(x: Float[Array, "..."], size: int, axis: int) -> Float[Array, "..."]:
+    """Bilinearly resize one axis of float32 ``x``, at torch's sample positions."""
+    length = x.shape[axis]
+    scale = jnp.asarray(length / size, jnp.float32)
+    positions = (jnp.arange(size, dtype=jnp.float32) + 0.5) * scale - 0.5
+    low = jnp.clip(jnp.floor(positions), 0, length - 1).astype(jnp.int32)
+    high = jnp.clip(low + 1, 0, length - 1)
+    fraction = jnp.clip(positions - low, 0.0, 1.0).reshape((-1,) + (1,) * (-axis - 1))
+    return (1.0 - fraction) * jnp.take(x, low, axis=axis) + fraction * jnp.take(
+        x, high, axis=axis
+    )
+
+
+def resize_bilinear(
+    x: Float[Array, "... height width"], size: tuple[int, int]
+) -> Float[Array, "... out_height out_width"]:
+    """Resize the last two axes bilinearly, in float32.
+
+    Matches ``torch.nn.functional.interpolate(mode="bilinear", align_corners=False)``
+    on CUDA, including its float32 sample positions. ``jax.image.resize`` computes
+    those positions differently, which moves pixels on a block edge by about 1e-5.
+    """
+    height, width = size
+    x = x.astype(jnp.float32)
+    return _resize_axis(_resize_axis(x, width, axis=-1), height, axis=-2)
 
 
 def grid_sample(

@@ -8,6 +8,7 @@ import jax.numpy as jnp
 from jaxtyping import Array, Bool, Float
 
 from equimo.vision.models.sam3.detector import DetectorOutput
+from equimo.vision.ops import resize_bilinear
 
 _SINGLE_FRAME_NMS_THRESHOLD = 0.1
 
@@ -64,12 +65,10 @@ def single_frame_nms(
 ) -> Bool[Array, " n"]:
     """Keep mask of masks already sorted by decreasing score.
 
-    Overlap is the intersection over the higher-ranked mask's area, and a
+    Overlap is the intersection over the smaller of the two masks, and a
     suppressed mask still suppresses later ones.
     """
-    areas = _areas(masks)
-    overlap = _intersections(masks, masks) / jnp.maximum(areas[:, None], 1.0)
-    return ~jnp.any(jnp.triu(overlap > threshold, k=1), axis=0)
+    return ~jnp.any(jnp.triu(iom_matrix(masks, masks) > threshold, k=1), axis=0)
 
 
 def greedy_iom_nms(
@@ -149,9 +148,7 @@ def decode_concepts(
     query_index = order[gathered]
 
     logits = out.mask_logits[query_index].astype(jnp.float32)
-    logits = jax.image.resize(
-        logits, (logits.shape[0], *output_size), method="bilinear"
-    )
+    logits = resize_bilinear(logits, output_size)
     masks = (logits > 0) & kept[:, None, None]
     boxes = boxes_from_masks(masks)
 

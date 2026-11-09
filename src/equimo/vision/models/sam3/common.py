@@ -173,6 +173,16 @@ def sine_position_encoding(
         return jnp.moveaxis(jnp.concatenate((pos_y, pos_x), axis=-1), -1, 0)
 
 
+def inverse_sigmoid(x: Float[Array, "..."]) -> Float[Array, "..."]:
+    """Return ``logit(x)`` in float32 with the logit range the reference clamps to.
+
+    ``x`` and ``1 - x`` are limited to at least 1e-3, which caps the result at
+    about 6.9 and keeps it finite at 0 and 1.
+    """
+    x = jnp.clip(x.astype(jnp.float32), 0.0, 1.0)
+    return jnp.log(jnp.maximum(x, 1e-3) / jnp.maximum(1.0 - x, 1e-3))
+
+
 def flatten_map(x: Float[Array, "channels height width"]) -> jax.Array:
     """Turn a ``(C, H, W)`` map into row-major ``(H * W, C)`` tokens."""
     channels, height, width = x.shape

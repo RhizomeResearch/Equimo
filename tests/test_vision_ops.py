@@ -1,4 +1,5 @@
 import math
+from pathlib import Path
 
 import jax
 import jax.numpy as jnp
@@ -6,17 +7,15 @@ import jax.random as jr
 import numpy as np
 import pytest
 
-from equimo.vision.ops import grid_sample, roi_align
+from equimo.vision.ops import grid_sample, resize_bilinear, roi_align
 
 
 KEY = jr.PRNGKey(0)
 
 
 def _numpy_bilinear(channel, y, x):
-    """One ROI Align sample, following torchvision's per-sample rules."""
+    """One ROI Align sample, following torchvision's CUDA kernel."""
     height, width = channel.shape
-    if y < -1.0 or y > height or x < -1.0 or x > width:
-        return np.float32(0)
     y, x = max(y, np.float32(0)), max(x, np.float32(0))
     y_low, x_low = int(y), int(x)
     if y_low >= height - 1:
@@ -148,18 +147,18 @@ def test_roi_align_matches_numpy_reference(
     np.testing.assert_allclose(output, expected, rtol=1e-5, atol=1e-5)
 
 
-def test_roi_align_clamps_samples_up_to_one_pixel_outside_the_map():
+def test_roi_align_reads_the_border_for_samples_outside_the_map():
     features = jr.normal(KEY, (3, 10, 12))
-    # Single samples at (y, x) = (10, -1), (-1, 12), and (10.01, 5) just beyond.
+    # Single samples at (y, x) = (10, -1), (-1, 12), and (11, 5) past the border.
     boxes = jnp.array(
-        [[-1.5, 9.5, -0.5, 10.5], [11.5, -1.5, 12.5, -0.5], [4.5, 9.51, 5.5, 10.51]]
+        [[-1.5, 9.5, -0.5, 10.5], [11.5, -1.5, 12.5, -0.5], [4.5, 10.5, 5.5, 11.5]]
     )
 
     output = roi_align(features, boxes, 1, sampling_ratio=1)[:, :, 0, 0]
 
     np.testing.assert_allclose(output[0], features[:, 9, 0], rtol=1e-6)
     np.testing.assert_allclose(output[1], features[:, 0, 11], rtol=1e-6)
-    np.testing.assert_array_equal(output[2], 0)
+    np.testing.assert_allclose(output[2], features[:, 9, 5], rtol=1e-6)
 
 
 def test_roi_align_averages_a_linear_map_to_its_bin_centers():
@@ -240,3 +239,60 @@ def test_grid_sample_traces_batches_and_differentiates():
         output.astype(jnp.float32), jax.vmap(grid_sample)(features, points), atol=0.05
     )
     assert jnp.all(jnp.isfinite(gradient))
+
+
+VISION_OPS_REFERENCE = Path(__file__).parent / "data" / "vision_ops_reference.npz"
+
+
+@pytest.fixture(scope="module")
+def vision_ops_reference():
+    return np.load(VISION_OPS_REFERENCE)
+
+
+def test_roi_align_matches_torchvision(vision_ops_reference):
+    features = jnp.asarray(vision_ops_reference["inputs.features"])
+    boxes = jnp.asarray(vision_ops_reference["inputs.boxes"])
+
+    output = roi_align(features, boxes, 7)
+
+    np.testing.assert_allclose(
+        output, vision_ops_reference["outputs.roi_align"], rtol=1e-5, atol=1e-5
+    )
+
+
+def test_grid_sample_matches_torch(vision_ops_reference):
+    features = jnp.asarray(vision_ops_reference["inputs.features"])
+    points = jnp.asarray(vision_ops_reference["inputs.points"])
+
+    output = grid_sample(features, points)
+
+    np.testing.assert_allclose(
+        output, vision_ops_reference["outputs.grid_sample"], rtol=1e-5, atol=1e-5
+    )
+
+
+@pytest.mark.parametrize(
+    "name, input_name, size, antialias",
+    [
+        ("resize_1008_1152", "inputs.mask_1008", 1152, False),
+        ("resize_1008_1152_antialias", "inputs.mask_1008", 1152, True),
+        ("resize_288_1008", "inputs.mask_288", 1008, False),
+    ],
+)
+def test_bilinear_resize_matches_torch(
+    vision_ops_reference, name, input_name, size, antialias
+):
+    mask = jnp.asarray(vision_ops_reference[input_name])
+
+    if antialias:
+        output = jax.image.resize(
+            mask, (mask.shape[0], size, size), method="bilinear", antialias=True
+        )
+    else:
+        output = resize_bilinear(mask, (size, size))
+
+    indices = vision_ops_reference[f"outputs.{name}.indices"]
+    values = vision_ops_reference[f"outputs.{name}.values"]
+    np.testing.assert_allclose(
+        np.asarray(output).ravel()[indices], values, rtol=1e-5, atol=1e-5
+    )

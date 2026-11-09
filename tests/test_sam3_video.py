@@ -392,6 +392,8 @@ def model() -> Sam3:
         two_way_depth=1,
         memory_depth=1,
         memory_heads=2,
+        memory_start_channels=1,
+        memory_fuser_depth=1,
         num_slots=NUM_SLOTS,
     )
 
@@ -527,7 +529,9 @@ def test_prompt_frame_runs_both_passes_and_keeps_one_conditioning_read(model):
     state = driver._state
     assert state.cond_frame[0].tolist() == [0, -1, -1, -1]
     bucket = jax.tree.map(lambda leaf: leaf[0], state)
-    _, _, spatial, _ = model.tracker._memory_bank(bucket, jnp.asarray(1, jnp.int32), 15)
+    _, _, _, spatial, _ = model.tracker._memory_bank(
+        bucket, jnp.asarray(1, jnp.int32), 15
+    )
     assert spatial == GRID * GRID
 
 

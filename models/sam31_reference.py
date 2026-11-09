@@ -250,9 +250,14 @@ def use_deterministic_kernels() -> None:
 def float32_reference() -> Iterator[None]:
     """Run the reference in float32, undoing its bfloat16 storage and ViT MLP cast."""
     import sam3.model.decoder as reference_decoder
+    import sam3.model.sam3_multiplex_base  # noqa: F401
     import torch
     from sam3.model.vitdet import Mlp
     from torch.nn.attention import SDPBackend, sdpa_kernel
+
+    # Importing the reference turns TF32 on again, for convolutions and matmul alike.
+    torch.backends.cuda.matmul.allow_tf32 = False
+    torch.backends.cudnn.allow_tf32 = False
 
     def plain_mlp(self: Any, x: torch.Tensor) -> torch.Tensor:
         x = self.drop1(self.act(self.fc1(x)))
@@ -1074,6 +1079,105 @@ def add_box_prompt_cases(model: Any, recorder: Recorder, device: str) -> None:
     recorder.arrays |= flatten("outputs.interactive.box_prompt.dense", dense)
 
 
+def watch_joint_scores(model: Any, recorder: Recorder) -> None:
+    """Record the first joint logits and boxes the detector computes."""
+    update = model.detector._update_scores_and_boxes
+    recorded = False
+
+    def recording_update(out: dict, *args: Any, **kwargs: Any) -> Any:
+        nonlocal recorded
+        result = update(out, *args, **kwargs)
+        if not recorded:
+            recorded = True
+            names = ("pred_logits", "pred_boxes", "presence_logit_dec")
+            recorder.arrays |= flatten(
+                "outputs.detector.joint", {name: out[name] for name in names}
+            )
+        return result
+
+    model.detector._update_scores_and_boxes = recording_update
+
+
+def add_geometry_prompt_cases(model: Any, recorder: Recorder, device: str) -> None:
+    """Encode exemplar points and boxes, with and without padded entries."""
+    import torch
+    from sam3.model.geometry_encoders import Prompt
+
+    grid = TINY_CONFIG["img_size"] // TINY_CONFIG["patch_size"]
+    image = "inputs.detector.geometry.kwargs"
+    features = [torch.from_numpy(recorder.arrays[f"{image}.img_feats.0"]).to(device)]
+    positions = [
+        torch.from_numpy(recorder.arrays[f"{image}.img_pos_embeds.0"]).to(device)
+    ]
+    boxes = torch.tensor(
+        [[[0.4, 0.5, 0.3, 0.4]], [[0.2, 0.3, 0.1, 0.1]]], device=device
+    )
+    points = torch.tensor([[[0.3, 0.6]], [[0.7, 0.2]]], device=device)
+    labels = torch.tensor([[1], [0]], device=device, dtype=torch.long)
+    cases = {
+        "full": torch.tensor([[False, False]], device=device),
+        "padded": torch.tensor([[False, True]], device=device),
+    }
+    for name, padding in cases.items():
+        prompt = Prompt(
+            box_embeddings=boxes,
+            box_mask=padding,
+            box_labels=labels,
+            point_embeddings=points,
+            point_mask=padding,
+            point_labels=labels,
+        )
+        with torch.inference_mode():
+            tokens, mask = model.detector.geometry_encoder(
+                geo_prompt=prompt,
+                img_feats=features,
+                img_sizes=[(grid, grid)],
+                img_pos_embeds=positions,
+            )
+        prefix = f"inputs.detector.geometry_prompt.{name}"
+        recorder.arrays |= flatten(f"{prefix}.boxes", boxes)
+        recorder.arrays |= flatten(f"{prefix}.points", points)
+        recorder.arrays |= flatten(f"{prefix}.labels", labels)
+        recorder.arrays |= flatten(f"{prefix}.padding", padding)
+        recorder.arrays |= flatten(
+            f"outputs.detector.geometry_prompt.{name}", (tokens, mask)
+        )
+
+
+def add_mask_nms_case(recorder: Recorder, device: str) -> None:
+    """Run the reference's IoM mask NMS on overlapping random rectangles."""
+    import torch
+    from sam3.model.sam3_multiplex_detector_utils import nms_masks
+
+    random = np.random.default_rng(41)
+    size = 16
+    masks = np.zeros((12, size, size), np.float32) - 1.0
+    for mask in masks:
+        top, left = random.integers(0, size - 4, 2)
+        height, width = random.integers(3, 12, 2)
+        mask[top : top + height, left : left + width] = 1.0
+    probabilities = random.uniform(0.2, 0.95, 12).astype(np.float32)
+    check_no_ties(probabilities, "mask NMS case")
+    keep = nms_masks(
+        torch.from_numpy(probabilities).to(device),
+        torch.from_numpy(masks).to(device),
+        prob_threshold=0.4,
+        iou_threshold=0.1,
+        nms_use_iom=True,
+    )
+    recorder.arrays["inputs.nms.probabilities"] = probabilities
+    recorder.arrays["inputs.nms.masks"] = masks
+    recorder.arrays["outputs.nms.keep"] = keep.cpu().numpy()
+    batched_keep = nms_masks(
+        torch.from_numpy(probabilities).to(device)[None],
+        torch.from_numpy(masks).to(device)[None],
+        prob_threshold=0.4,
+        iou_threshold=0.1,
+        nms_use_iom=True,
+    )
+    recorder.arrays["outputs.nms.keep_batched"] = batched_keep[0].cpu().numpy()
+
+
 def run_tiny_clip(model: Any, images: Any, device: str) -> dict[str, np.ndarray]:
     """Track a concept through the clip, then add one object with points."""
     import torch
@@ -1304,10 +1408,13 @@ def generate_tiny(reference_dir: Path, output_dir: Path, device: str) -> dict:
         modules = component_modules(model)
         for name, module in modules.items():
             recorder.watch(name, module)
+        watch_joint_scores(model, recorder)
         trace = DecisionTrace(model, scripted=True, assert_margins=True)
         images, pixels = tiny_frames(device)
         arrays = run_tiny_clip(model, images, device)
         add_box_prompt_cases(model, recorder, device)
+        add_geometry_prompt_cases(model, recorder, device)
+        add_mask_nms_case(recorder, device)
         recorder.close()
     if missing := recorder.missing(iter(modules)):
         raise RuntimeError(f"Components never ran: {missing}")

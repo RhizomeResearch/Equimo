@@ -84,7 +84,10 @@ revision (observed in practice). Delete them before finishing, or, for files tha
 
 `models/sam31_reference.py` needs a CUDA GPU and the environment in `models/sam31_reference_requirements.txt`, not the
 locked one; `tests/data/README.md` has the commands (read in config). Its `tokenizer` command needs no GPU (run in
-practice).
+practice). On a NixOS host, run it through the devenv shell so the environment's wheels find their libraries, with the
+driver on the path:
+`devenv shell -- bash -c 'export LD_LIBRARY_PATH=/run/opengl-driver/lib:$LD_LIBRARY_PATH; /path/to/environment/bin/python models/sam31_reference.py ...'`
+(run in practice).
 
 jj's snapshot skips new files over `snapshot.max-new-file-size` (1 MiB in this setup), which covers the CLIP vocabulary
 and large test fixtures. Track such a file once with `jj --config snapshot.max-new-file-size=2MiB status` (run in

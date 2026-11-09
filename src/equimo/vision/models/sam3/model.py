@@ -73,6 +73,8 @@ class Sam3(eqx.Module):
         memory_depth: int,
         memory_heads: int,
         num_slots: int,
+        memory_start_channels: int,
+        memory_fuser_depth: int,
     ):
         key_trunk, key_neck, key_detector, key_interactive, key_tracker = jr.split(
             key, 5
@@ -121,6 +123,8 @@ class Sam3(eqx.Module):
             num_slots=num_slots,
             grid=grid,
             image_size=img_size,
+            memory_start_channels=memory_start_channels,
+            memory_fuser_depth=memory_fuser_depth,
         )
 
     def features(
@@ -225,6 +229,8 @@ _SAM31_BASE_CFG: dict = {
     "memory_depth": 4,
     "memory_heads": 8,
     "num_slots": 16,
+    "memory_start_channels": 4,
+    "memory_fuser_depth": 2,
 }
 
 _SAM3_REGISTRY: dict[str, tuple[dict, dict]] = {

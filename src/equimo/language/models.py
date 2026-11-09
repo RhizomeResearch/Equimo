@@ -269,9 +269,10 @@ class CausalTextTransformer(eqx.Module):
     """CLIP-style text transformer that returns per-token features.
 
     Every token attends only to itself and earlier tokens, so its output never
-    depends on what follows it. ``padding_mask`` uses ``True`` for padding and
-    removes padded positions from the attention keys. Token id 0 is a real CLIP
-    token, so padding cannot be inferred from the ids.
+    depends on what follows it. Tokens are padded on the right, so the causal
+    mask alone keeps padding from reaching real tokens. ``padding_mask`` uses
+    ``True`` for padding and only tells callers which outputs to ignore. Token id
+    0 is a real CLIP token, so padding cannot be inferred from the ids.
     """
 
     token_embedding: eqx.nn.Embedding
@@ -315,14 +316,9 @@ class CausalTextTransformer(eqx.Module):
             else eqx.nn.Linear(dim, out_dim, key=key_proj)
         )
 
-    def _attention_mask(
-        self,
-        padding_mask: Bool[Array, "seqlen"],  # noqa: F821
-    ) -> Bool[Array, "seqlen seqlen"]:
-        seq_len = padding_mask.shape[0]
+    def _attention_mask(self, seq_len: int) -> Bool[Array, "seqlen seqlen"]:
         with jax.ensure_compile_time_eval():
-            causal = jnp.tril(jnp.ones((seq_len, seq_len), dtype=bool))
-        return causal & (padding_mask == 0)[None, :]
+            return jnp.tril(jnp.ones((seq_len, seq_len), dtype=bool))
 
     def features(
         self,
@@ -334,7 +330,7 @@ class CausalTextTransformer(eqx.Module):
         x = jax.vmap(self.token_embedding)(token_ids) + self.position_embedding
         x = self.transformer(
             x,
-            attn_mask=self._attention_mask(padding_mask),
+            attn_mask=self._attention_mask(token_ids.shape[0]),
             inference=inference,
             key=key,
         )
