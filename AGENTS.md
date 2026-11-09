@@ -93,10 +93,6 @@ JAX's default matmul precision on GPU is not float32: plain linear projections o
 float32 by about 1e-4 per element. For float32 parity on a GPU, run with `JAX_DEFAULT_MATMUL_PRECISION=highest` (run in
 practice); CPU float32 needs no setting.
 
-`tests/data/sam3_tiny_reference.npz` holds NaN in 23 detector-head arrays because the tiny reference text encoder leaves
-`positional_embedding` and `text_projection` uninitialized, and `assert_allclose` treats NaN as equal, so the tiny
-detector-head comparisons prove nothing (scanned in practice); full-weight image parity covers the detector.
-
 `models/sam31_reference.py` needs a CUDA GPU and the environment in `models/sam31_reference_requirements.txt`, not the
 locked one; `tests/data/README.md` has the commands (read in config). Its `tokenizer` command needs no GPU (run in
 practice). On a NixOS host, run it through the devenv shell so the environment's wheels find their libraries, with the

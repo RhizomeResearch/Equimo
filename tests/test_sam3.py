@@ -1563,6 +1563,21 @@ def _assert_close(actual, expected) -> None:
     np.testing.assert_allclose(np.asarray(actual), expected, **_PARITY)
 
 
+@pytest.mark.parametrize(
+    "fixture_name",
+    ["sam3_tiny_reference.npz", "sam3_tiny_occlusion_reference.npz"],
+)
+def test_tiny_reference_arrays_are_finite(fixture_name):
+    # assert_allclose treats NaN as equal, so a NaN here would hide any mismatch.
+    fixture = np.load(REFERENCE_DATA / fixture_name)
+    non_finite = [
+        name
+        for name in fixture.files
+        if fixture[name].dtype.kind == "f" and not np.isfinite(fixture[name]).all()
+    ]
+    assert non_finite == []
+
+
 def test_tiny_reference_state_fills_every_parameter_or_is_listed(tiny_reference):
     converter = _load_converter()
     state = _checkpoint_state(tiny_reference)

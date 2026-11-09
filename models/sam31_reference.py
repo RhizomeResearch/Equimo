@@ -819,6 +819,13 @@ def build_tiny_model(vocabulary: Path, device: str) -> Any:
         detector=detector,
         **tracking_arguments(config["max_objects"], config["img_size"]),
     )
+    # The text encoder only allocates these two, for a checkpoint to fill. A separate
+    # generator leaves every other tiny weight as it was.
+    generator = torch.Generator().manual_seed(config["seed"])
+    encoder = model.detector.backbone.language_backbone.encoder
+    with torch.no_grad():
+        for parameter in (encoder.positional_embedding, encoder.text_projection):
+            parameter.copy_(0.01 * torch.randn(parameter.shape, generator=generator))
     # A random object head would mark about half of the masks as absent.
     with torch.no_grad():
         for decoder in (

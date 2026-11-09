@@ -64,6 +64,10 @@ The reference's own numerics also needed one correction, in the fixture harness 
 that import, and building the video predictor turns it on again, so `models/sam31_reference.py:reference_precision`
 clears it after the build as well as `float32_reference` does after the import.
 
+The tiny text encoder's `positional_embedding` and `text_projection` are only allocated by the reference, for a
+checkpoint to fill, so the harness initializes them from their own seeded generator. Without that, the tiny detector and
+text outputs were NaN, and comparing NaN with NaN passes.
+
 Generating the full-weight video fixture also needed two changes in the harness, neither of which changes what the
 reference computes. Float32 memory attention runs in blocks of 1,024 queries, because the dense math-kernel logits do
 not fit in 16 GB, and the detector runs one frame at a time instead of in the builder's chunks of 16 frames, for the

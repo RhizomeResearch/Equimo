@@ -919,7 +919,7 @@
       "seed": 31,
       "input_shape": [3, 56, 56],
       "environment": {"numpy": "1.26.4", "python": "3.12.14", "timm": "1.0.26", "torch": "2.11.0+cu130", "torchvision": "0.26.0+cu130"},
-      "sha256": "f1a76f931191a857138a3991c1d2d24b5ae7d51118f87d3dff60a7fa6b25f22d",
+      "sha256": "17b518bec3f8fbe0493951be5a47b6730b80be1d2be8d965ea74504d39b2440a",
       "tolerance": 1e-05,
       "comparison": {"atol": 1e-05, "metric": "allclose", "rtol": 1e-05},
       "arrays": {
