@@ -27,11 +27,12 @@ shared core layers (activation, dropout, FFN, generic, Mamba mixer, norm) so mod
     `[downsample.py:register_downsampler]`; `register_posemb` / `get_posemb` `[posemb.py:register_posemb]`;
     `register_se` / `get_se` `[squeeze_excite.py:register_se]`; `register_wavelet` / `get_wavelet`
     `[wavelet.py:register_wavelet]`
-- `__all__` re-exports the vision classes plus core `get_act`, `DropPath`, `DropPathAdd`, `Mlp`, `SwiGlu`,
-  `SwiGluFused`, `DINOHead`, `WeightNormLinear`, `BlockChunk`, `Residual`, `WindowedSequence`, `Mamba2Mixer`, `DyT`,
-  `LayerNorm2d`, `LayerScale`, `RMSNorm2d`, `RMSNormGated` and their registries. Convolution classes,
-  `MaskedKeyAttention`, `ConvNeXtOverlapStem`, and the Haar functions are not re-exported; import them from their module
-  or resolve registered classes by name. `[__init__.py:__all__]`
+- `__all__` re-exports the vision classes plus core `get_act`, `register_act`, `get_dropout`, `register_dropout`,
+  `get_ffn`, `register_ffn`, `get_mixer`, `register_mixer`, `get_norm`, `register_norm`, `DropPath`, `DropPathAdd`,
+  `Mlp`, `SwiGlu`, `SwiGluFused`, `DINOHead`, `WeightNormLinear`, `BlockChunk`, `Residual`, `WindowedSequence`,
+  `Mamba2Mixer`, `DyT`, `LayerNorm2d`, `LayerScale`, `RMSNorm2d`, `RMSNormGated` and their registries. Convolution
+  classes, `MaskedKeyAttention`, `ConvNeXtOverlapStem`, and the Haar functions are not re-exported; import them from
+  their module or resolve registered classes by name. `[__init__.py:__all__]`
 
 ### Attention (`attention.py`)
 

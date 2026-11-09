@@ -21,6 +21,13 @@ VPT, P-Tuning v2), and BitFit.
   `vera`. `architecture_hash`, `lora_config_to_dict`, `iter_dora_modules`, `strip_prefixes`, and
   `iter_prefix_attentions` are only in their module `__all__`; `base`, `_common`, and `_compat` are not re-exported
   [\_\_init\_\_.py:\_\_all\_\_]
+- Private helpers in `_compat.py`, besides `hash_inexact_pytree`: `bundle_get_path` resolves a delta path with the
+  stable bundle error, `is_head_path` recognizes classifier-head paths, `is_linear_like`, `linear_weight` and
+  `linear_bias` validate linear-like modules, `linear_state` and `linear_from_state` encode and decode the stable
+  Equinox linear-layer state, and `validate_logical_parameter_schema` canonicalizes a logical-ID to feature-width schema
+  [\_compat.py:bundle_get_path] [\_compat.py:is_head_path] [\_compat.py:is_linear_like] [\_compat.py:linear_weight]
+  [\_compat.py:linear_bias] [\_compat.py:linear_state] [\_compat.py:linear_from_state]
+  [\_compat.py:validate_logical_parameter_schema]
 - Wrapper traversal: `get_path`, `iter_wrappers(model, wrapper_types)` returning `(Path, module)` pairs, and
   `map_wrappers(model, wrapper_types, fn)` applying one `eqx.tree_at` [base.py:iter_wrappers] [base.py:map_wrappers]
 

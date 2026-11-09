@@ -142,10 +142,12 @@ calls `serialization.py:load_weights`, which downloads into `~/.cache/equimo/` w
   paths, rotary, FFNs, norms, drop-path, Mamba2), float32-safe softmax/cross-entropy and SSM kernels, PRNG mode helpers,
   the EMA update, `build_model_variant`, Deep Equilibrium layers, and parameter tags, field markers and masks.
 - vision: [./vision/EGM.md](./vision/EGM.md) - registered image architectures (ViT family with DINOv2/v3, SigLIP2, TIPS,
-  EUPE, LingBot and ViT-5 presets, ConvNeXt, EoMT, PMT, and others), vision layers and registries, query-segmentation
-  training losses, image loading, segmentation post-processing, and PMT checkpoints.
-- language: [./language/EGM.md](./language/EGM.md) - `TextTransformerEncoder` and the SentencePiece tokenizer, which
-  downloads its tokenizer files.
+  EUPE, LingBot and ViT-5 presets, ConvNeXt, EoMT, PMT, SAM 3.1, and others), vision layers and registries,
+  query-segmentation training losses, image loading, segmentation post-processing, PMT checkpoints, and the `vision.ops`
+  operations (`roi_align`, `grid_sample`).
+- language: [./language/EGM.md](./language/EGM.md) - `TextTransformerEncoder`, `CausalTextTransformer` with its
+  `sam31_text` factory, the SentencePiece tokenizer, which downloads its tokenizer files, and `ClipBpeTokenizer`, which
+  ships its vocabulary.
 - audio: [./audio/EGM.md](./audio/EGM.md) - the Audio Spectrogram Transformer and its layers, plus host-side,
   checkpoint-pinned waveform-to-fbank preprocessing.
 - tabular: [./tabular/EGM.md](./tabular/EGM.md) - TabPFN v3 in-context classifier and regressor, and their layers.
@@ -185,8 +187,8 @@ calls `serialization.py:load_weights`, which downloads into `~/.cache/equimo/` w
   checkpoints and bundles written by `save_model`, `vision/pmt_checkpoint.py` and `finetune/serialization.py`.
 - Import-time global state: importing modality packages fills the layer registries and the root model registry.
 - Optional dependencies are imported lazily and raise `ImportError` that names the extra: `extras` (Pillow,
-  scikit-learn, matplotlib), `audio` (torch, torchaudio), `language` (tensorflow, tensorflow-text) and `torch` (torch,
-  timm).
+  scikit-learn, matplotlib), `audio` (torch, torchaudio), `language` (tensorflow, tensorflow-text), `clip` (regex, ftfy)
+  and `torch` (torch, timm).
 - Cross-device collectives: `vision/query_training` (`psum`, `pmin`) and PMT's `ReferenceBatchNorm` (`psum`) when an
   `axis_name` is given.
 

@@ -23,11 +23,13 @@ its submodule.
   function. It returns a new module whose trainable leaves are `decay * ema + (1 - decay) * new`.
 - `[tags.py:canonical_tags_for_path]`: `canonical_tags_for_path(path, leaf=None) -> frozenset[str]` infers tags such as
   `norm` and `embedding.position` from a parameter path, `bias` for a last path part named `bias` or ending in `_bias`,
-  and `vector` when *leaf* is an array with at most one axis. `[tags.py:CANONICAL_TAGS]` lists the canonical tags,
-  `Tagger` is the `(path, leaf) -> Iterable[str]` type, `[tags.py:infer_depth]` derives block indices, and
-  `[tags.py:key_path_to_path]` converts a JAX key path to the path form. `equimo.finetune` re-exports
-  `canonical_tags_for_path`, `CANONICAL_TAGS`, and `infer_depth`; `key_path_to_path` is available from
-  `equimo.finetune.paths`.
+  and `vector` when *leaf* is an array with at most one axis. Children of `attn`, `attention`, `self_attn`,
+  `self_attention` and `cross_attn` parents, including entries of a tuple of them, get the `attention` tags.
+  `[tags.py:_add_attention_tags]`. `[tags.py:CANONICAL_TAGS]` lists the canonical tags, `Tagger` is the
+  `(path, leaf) -> Iterable[str]` type, `[tags.py:infer_depth]` derives block indices, `[tags.py:infer_block_depth]` the
+  innermost index under `blocks` or `block`, and `[tags.py:key_path_to_path]` converts a JAX key path to the path form.
+  `equimo.finetune` re-exports `canonical_tags_for_path`, `CANONICAL_TAGS`, and `infer_depth`; `key_path_to_path` is
+  available from `equimo.finetune.paths`.
 - `[parameters.py:tagged]`: `tagged(*tags, when=None, **field_kwargs)` declares an Equinox field whose leaves carry
   `tags`, optionally only when `when(module)` is true, and raises `ValueError` without tags. `[parameters.py:buffer]` is
   `tagged("buffer", ...)`: an array the module stores but never trains.

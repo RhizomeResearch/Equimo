@@ -689,3 +689,12 @@ def test_driver_requires_a_prompt_and_rejects_frames_past_the_end(model):
     driver.push_frame(FRAME)
     with pytest.raises(ValueError, match="only has 1"):
         driver.push_frame(FRAME)
+
+
+def test_driver_accepts_a_prompt_only_before_the_first_frame(model):
+    driver = Sam3VideoTracker(model, num_frames=2, source_size=SOURCE_SIZE)
+    driver.set_prompt(PROMPT)
+    driver.set_prompt(PROMPT)
+    driver.push_frame(FRAME)
+    with pytest.raises(ValueError, match="before the first frame"):
+        driver.set_prompt(PROMPT)

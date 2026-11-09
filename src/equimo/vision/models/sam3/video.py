@@ -750,7 +750,12 @@ class Sam3VideoTracker:
         self._finished = False
 
     def set_prompt(self, prompt: ConceptPrompt) -> None:
-        """Use ``prompt`` for detection from the next pushed frame."""
+        """Set the concept to detect, before the first frame is pushed."""
+        if self._next_frame > 0:
+            raise ValueError(
+                "The prompt can only be set before the first frame; create a new "
+                "tracker to change it."
+            )
         self._prompt = prompt
 
     def push_frame(

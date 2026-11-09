@@ -101,6 +101,7 @@ Both milestones:
 - **The reference session API** (`handle_request`, start, add, propagate, remove, reset and close session).
 - **Refining an existing object with points on video.** Deferred; see Future Improvements.
 - **Reverse propagation and conditioning on later frames.**
+- **Changing the concept prompt after the first frame.** `set_prompt` raises once a frame has been pushed.
 - **Float32 inference on full-resolution video** as a supported use. Float32 is used for parity tests on short clips.
 - **Multi-GPU object placement**, all-gathers, CPU offloading, `torch.compile` warm-up, FlashAttention 3 and the
   `use_rope_real` variant.
@@ -230,7 +231,7 @@ so the vision model takes text features, not token ids.
   registry name `"sam3"`, class `Sam3`; registry name `"causal_text_transformer"`, class `CausalTextTransformer`.
 - `equimo.vision.models.sam3`: a subpackage with the `Sam3` model registered as `"sam3"` with `modality="vision"`, its
   submodules, the device-side tracking steps, image decoding, and a lazily imported `video` module holding the host
-  driver and policy (NumPy only, never imported by `import equimo`).
+  driver and the policy (the policy uses only NumPy; the module is never imported by `import equimo`).
 - `equimo.language`: `CausalTextTransformer`, a CLIP-style text transformer registered as `"causal_text_transformer"`
   with `modality="language"`, and `ClipBpeTokenizer`.
 - `equimo.core.layers.attention`: `CrossAttention`, a multi-head attention with separate query and key-value inputs
@@ -250,32 +251,32 @@ All model endpoints take `key: PRNGKeyArray | None = None` and `inference: bool 
 and are batched with `vmap`. Shapes below are for the 1008 x 1008 input; tiny test configurations scale them.
 
 ```text
-sam31_multiplex(pretrained: bool = False, **kwargs) -> Sam3          # registered "sam3", modality "vision"
+sam31_multiplex(pretrained: bool = False, inference_mode: bool = True, **kwargs) -> Sam3   # registered "sam3", modality "vision"
 Sam3 fields: trunk, neck, detector, interactive, tracker
   features(x[3, H, W]) -> [256, 72, 72]                    # detector-level map; the FeatureSpec endpoint
   encode_image(x[3, H, W]) -> ImageFeatures
   detect(features: ImageFeatures, prompt: ConceptPrompt) -> DetectorOutput
   predict_interactive(features: ImageFeatures, prompt: InteractivePrompt) -> InteractiveOutput
-  propagate(state: TrackerState, features: ImageFeatures, frame_index: int32[]) -> TrackOutput      # experimental
+  propagate(state: TrackerState, features: ImageFeatures, frame_index: int32[], *, num_frames: int | None = None) -> TrackOutput   # experimental
   associate(detections: DetectorOutput, tracks: TrackOutput, state: TrackerState) -> Association   # experimental
   commit(state, features, tracks, plan: CommitPlan) -> TrackerState                                # experimental
 
 decode_concepts(out: DetectorOutput, *, output_size: tuple[int, int], max_detections: int,
                 threshold: float = 0.5) -> ConceptDetections
 
-sam31_text(pretrained: bool = False, **kwargs) -> CausalTextTransformer   # registered "causal_text_transformer"
+sam31_text(pretrained: bool = False, inference_mode: bool = True, **kwargs) -> CausalTextTransformer   # registered "causal_text_transformer"
   __call__(token_ids[32] int32, padding_mask[32] bool) -> [32, 256]      # per-token features
   features(token_ids, padding_mask) -> [32, 256]                         # the FeatureSpec endpoint
 
 ClipBpeTokenizer(context_length: int = 32)
   encode(texts: Sequence[str]) -> (token_ids int32 [N, 32], padding_mask bool [N, 32])
 
-Sam3VideoTracker(model: Sam3, *, num_frames: int | None, max_objects: int = 16)          # experimental, host
-  set_prompt(prompt: ConceptPrompt) -> None             # applies from the next pushed frame
+Sam3VideoTracker(model: Sam3, *, num_frames: int | None, source_size: tuple[int, int], max_objects: int = 16)   # experimental, host
+  set_prompt(prompt: ConceptPrompt) -> None             # before the first frame; raises afterwards
   push_frame(frame[3, H, W]) -> list[FramePrediction]  # the frames that became final
   finish() -> list[FramePrediction]                     # remaining frames at the end of the clip
-  add_object(frame_index: int, frame[3, H, W], points, labels) -> PointTrack
-PointTrack: object_id: int; push(frame) -> FramePrediction  # the new object only
+  add_object(frame_index: int, frame[3, H, W], points, labels, *, object_id: int | None = None) -> PointTrack
+PointTrack: object_id: int; first_prediction: FramePrediction; push(frame) -> FramePrediction  # the new object only
 ```
 
 Typed inputs and outputs are Equinox modules with fixed shapes; every padding mask uses True for padding, as
@@ -295,8 +296,9 @@ Typed inputs and outputs are Equinox modules with fixed shapes; every padding ma
   negative, -1 padding), `box [4]` (pixels, xyxy) with `has_box []`, `mask_input [288, 288]` with `has_mask []`.
 - `InteractiveOutput`: `mask_logits [4, 288, 288]`, `iou [4]`, `object_score_logit []`, `selected []`.
 - `FramePrediction` (NumPy): `frame_index`, `object_ids [K]`, `masks [K, H, W]` (bool), `boxes [K, 4]`, `scores [K]`.
-- `TrackerState`, `TrackOutput`, `Association` and `CommitPlan` are pytrees with a leading bucket axis. Their field
-  lists and per-field sizes live in the sam3 `EGM.md`, because they are experimental.
+- `TrackerState` and `TrackOutput` are pytrees with a leading bucket axis, and so are the per-slot and per-bucket fields
+  of `CommitPlan`, whose `frame_index` is a scalar. `Association` flattens tracks over buckets and has no bucket axis.
+  Their field lists and per-field sizes live in the sam3 `EGM.md`, because they are experimental.
 
 Module naming fixes checkpoint paths and fine-tuning tags: self-attention parents are named `attn` and cross-attention
 parents `cross_attn`, each with `q`, `k`, `v` and `proj` linear children; detector heads sit under a `head` path part;
@@ -393,7 +395,7 @@ window of past frames, so fixed buffers reproduce it:
 | `recent_memory`, `recent_features` | `[6, 256, 72, 72]` each  | model dtype  | ring buffer for frames t-1 to t-6                                    |
 | `recent_frame`, `recent_is_cond`   | `[6]`                    | int32, bool  | frame index (-1 when absent) and whether that frame was conditioning |
 | `pointers`, `pointer_frame`        | `[15, 16, 256]`, `[15]`  | model, int32 | ring buffer of pointers for frames t-1 to t-15                       |
-| `last_masks`, `last_scores`        | `[16, 288, 288]`, `[16]` | float32      | previous output per slot, for association                            |
+| `last_masks`, `last_scores`        | `[16, 288, 288]`, `[16]` | float32      | latest output per slot, for rendering and the prompt frame's reuse   |
 
 In bfloat16 a bucket takes about 59 MB: memory and features 53 MB, pointers 0.2 MB, `last_masks` 5.3 MB. At 16 buckets
 that is 0.94 GB. Host-side metadata (object IDs, slot of each object, the grouping of buckets into states, birth frame
@@ -431,11 +433,13 @@ For frame t the driver runs:
 1. **Emit**: once frame t is planned, frame t-2 is final, because a frame hides only objects that are still unconfirmed
    two frames later, and hot-start removals never hide earlier frames. The reference's 15-frame hot-start buffer and its
    groups of 16 change only latency, not content, so the driver does not reproduce them. At the end of the clip, the
-   remaining frames are emitted with the look-ahead clamped to the last frame.
+   remaining frames are emitted with the look-ahead clamped to the last frame. Objects with no pixel on a frame are
+   omitted from it.
 
-The prompt frame is processed twice, as in the reference: once on its own (the single-frame NMS, the `max_objects` cap,
-the 0.65 new-object threshold, nothing hidden) and once as the first propagated frame, where the stored conditioning
-output is reused.
+The prompt frame is always frame 0, so `set_prompt` raises once a frame has been pushed. It is processed twice, as in
+the reference: once on its own (the single-frame NMS, the `max_objects` cap, the 0.65 new-object threshold, nothing
+hidden) and once as the first propagated frame, where the stored conditioning output is reused and `commit` runs only if
+the policy changes something.
 
 `tracker.py` provides a function that pads a state's bucket axis to a larger power of two; `video.py` decides when to
 call it.
@@ -454,9 +458,10 @@ no score lies within 1e-3 of a threshold it is compared with.
 frame f. The interactive head runs on frame f, the result becomes the conditioning frame of a new single-bucket state,
 and the returned `PointTrack` runs `propagate` and `commit` for that bucket only over the frames the caller supplies
 from f+1, without detection or association. This matches the reference's partial propagation after a point prompt, and
-the reference is the oracle for its tests. The main tracker's state and outputs are not changed; merging the point track
-back into the main tracker is part of the deferred refinement work. Points that name an existing object raise an error
-that says refinement on video is not supported.
+the reference is the oracle for its tests. The main tracker's device state and masks are not changed. The object's ID
+comes from the main tracker's counter, which prevents ID collisions, so objects the detector adds later take the IDs
+after it. Merging the point track back into the main tracker is part of the deferred refinement work. Points that name
+an existing object, through `object_id`, raise an error that says refinement on video is not supported.
 
 ### Attention and numerics
 
@@ -467,13 +472,19 @@ that says refinement on video is not supported.
   `AttentionBlock` layer. `equinox.nn.MultiheadAttention` is not reused because it has no float32 softmax with masks
   through `where`, no zeroing of fully masked rows and no cuDNN path; the tabular `CrossAttention` is not reused because
   it has no bias or mask and uses TabPFN's scaling.
+- **`PositionedAttention`** (`vision/models/sam3/common.py`): a `CrossAttention` subclass used in the trunk, detector,
+  two-way transformer and memory self-attention. Its keys may differ from its values, because DETR-style attention adds
+  position encodings to queries and keys only, and it rotates queries and keys with RoPE after projection. Memory
+  cross-attention is a plain `CrossAttention` whose projections are called from `_attend_packed_memory` in `tracker.py`,
+  for the packed keys below.
 - **Packed keys.** Memory attention has up to 52,144 keys per bucket, and the count changes from frame to frame. A dense
-  mask would take about 2.2 GB per call, so `propagate` and `commit` pack the valid keys first (a gather with static
-  size) and pass per-bucket key lengths. `_fused_attention` gains `key_value_seq_lengths` of shape `[batch]` for the
-  unmasked case, where cuDNN accepts it without a mask, and zeroes the output rows of a batch entry whose length is 0.
-- **Float32.** cuDNN rejects float32, and dense float32 logits for one memory-attention layer take about 8.6 GB, so a
-  query-chunked XLA path (`lax.map` over blocks of 1,024 queries) is used when the dtype is float32. It is private to
-  the tracker.
+  mask would take about 2.2 GB per call, so `propagate` packs the valid keys first (a gather with static size) and
+  passes per-bucket key lengths. `_fused_attention` gains `key_value_seq_lengths`, broadcast to the leading shape
+  `q.shape[:-3]` (a scalar under the tracker's `vmap`), for the unmasked case, where cuDNN accepts it without a mask,
+  and zeroes the output rows of a batch entry whose length is 0.
+- **Float32.** cuDNN rejects float32, and dense float32 logits for one memory-attention layer take about 8.6 GB, so
+  memory attention runs a query-chunked XLA path (`lax.map` over blocks of 1,024 queries) whenever `implementation` is
+  `"xla"`, in every dtype. A float32 model must stay on `"xla"`. The path is private to the tracker.
 - **Precision rules.** Attention softmax in float32 with masks through `where`; the DETR feed-forward in float32; RoPE
   rotation in float32; mask logits in float32 before resizing; layer norms in float32. Outputs return in the model
   dtype.
@@ -814,8 +825,8 @@ Decisions were made by the author during design; each entry gives the trade-off 
 ## Non-Functional Requirements
 
 - **Performance and memory.** Video tracking state is about 59 MB per bucket in bfloat16. Memory attention uses packed
-  keys (no dense mask) and cuDNN in bfloat16. Memory and latency are measured on an RTX 4080 and recorded in
-  `docs/performance.md`.
+  keys (no dense mask). It runs on XLA by default and on cuDNN in bfloat16 when the caller opts in with
+  `with_attention_implementation`. Memory and latency are measured on an RTX 4080 and recorded in `docs/performance.md`.
 - **Compilation.** Device steps compile once per bucket count (1, 2, 4, ...); `commit` also once per source frame size.
   Frame indices and object changes within a bucket count never recompile.
 - **Compatibility.** No existing public signature, checkpoint or identity hash changes: `VisionRoPE` is reused without a
@@ -898,15 +909,19 @@ they name what the code does.
 ### Shared core and vision building blocks
 
 - `src/equimo/core/layers/attention.py` (Modify)
-  - `_fused_attention` accepts optional `key_value_seq_lengths` of shape `[batch]` when no mask is given, so packed keys
-    reach cuDNN without a dense mask, and zeroes the output rows where the length is 0. It also accepts an optional
-    `bias`, so the DETR box bias reaches cuDNN. Padding to multiples of 64 stays as is.
+  - `_fused_attention` accepts optional `key_value_seq_lengths`, broadcast to `q.shape[:-3]`, when no mask is given, so
+    packed keys reach cuDNN without a dense mask, and zeroes the output rows where the length is 0. It also accepts an
+    optional `bias`, so the DETR box bias reaches cuDNN. Padding to multiples of 64 stays as is.
   - `CrossAttention` as specified in "Attention and numerics", with `with_attention_implementation` support.
 - `src/equimo/core/layers/__init__.py` (Modify): export `CrossAttention`.
 - `src/equimo/core/layers/EGM.md` (Modify): document per-batch key lengths and `CrossAttention`.
 - `tests/test_core_attention.py` (Modify): packed keys with lengths equal a dense masked call (XLA, CPU); a zero length
   returns zeros; `CrossAttention` matches a NumPy reference on small inputs, including fully masked rows returning zeros
   and an additive bias; the GPU-only cuDNN tests gain a packed-key case with per-bucket lengths under `vmap`.
+- `src/equimo/core/tags.py` (Modify): `cross_attn` parents and their tuple entries get the attention tags, so the
+  `attention.*` tags select cross-attention layers.
+- `tests/finetune/test_tags.py` (Modify): those tags, including the tuple entries.
+- `src/equimo/core/EGM.md` (Modify): the tag rule.
 - `src/equimo/vision/ops.py` (Create):
   `roi_align(features[C, H, W], boxes[N, 4], output_size, spatial_scale=1.0, sampling_ratio=-1, aligned=False)` with
   boxes as xyxy in feature pixels, matching torchvision exactly (adaptive sampling with a static maximum of samples per
@@ -944,12 +959,13 @@ they name what the code does.
 
 ### SAM 3.1 vision package (`src/equimo/vision/models/sam3/`, Create)
 
-- `__init__.py`: `__all__` with `Sam3`, `sam31_multiplex`, the typed outputs, prompts and `decode_concepts`. It does not
-  import `video`.
-- `common.py`: one `MLP` module with `layers.{i}` linear fields and an activation argument, used by every SAM head.
-- `encoder.py`: `ViTDetBlock` and the ViTDet trunk (flat `blocks` list, run-time tiled position table, transposed
-  `VisionRoPE` factors), the tri-neck with flipped transposed-convolution weights, the sine position encoding (computed
-  while tracing), and `ImageFeatures`.
+- `__init__.py`: `__all__` with `Sam3`, `sam31_multiplex`, the typed outputs, prompts, `decode_concepts` and
+  `pad_tracker_buckets`. It does not import `video`.
+- `common.py`: one `MLP` module with `layers.{i}` linear fields and an activation argument, used by every SAM head;
+  `PositionedAttention`; the sine position encoding and the transposed `VisionRoPE` factors, both computed while
+  tracing.
+- `encoder.py`: `ViTDetBlock` and the ViTDet trunk (flat `blocks` list, run-time tiled position table), the tri-neck
+  with flipped transposed-convolution weights, and `ImageFeatures`.
 - `detector.py`: `ConceptPrompt`, the geometry encoder (using `equimo.vision.ops`), the fusion encoder, the DETR decoder
   with presence token, box refinement and box relative-position bias, dot-product scoring and joint logit, the
   segmentation head, and `DetectorOutput`.
@@ -966,8 +982,9 @@ they name what the code does.
 - `model.py`: the `Sam3` module (fields `trunk`, `neck`, `detector`, `interactive`, `tracker`), registered as `"sam3"`
   with `modality="vision"`, with the endpoints in "Public interface"; `_SAM3_REGISTRY` and the factory
   `sam31_multiplex(pretrained=...)`.
-- `video.py`: `Sam3VideoTracker` and `PointTrack` (NumPy), holding the policy (thresholds as module constants with
-  reference citations in docstrings), object metadata, bucket assignment, bucket release and the decision to grow.
+- `video.py`: `Sam3VideoTracker` and `PointTrack`, which drive the jitted steps from the host, and `AssociationPolicy`
+  (NumPy only), holding the thresholds as module constants with reference citations in docstrings, object metadata,
+  bucket assignment, bucket release and the decision to grow.
 - `EGM.md`: interface, the experimental pytrees' field lists and per-field sizes (`TrackerState`, `TrackOutput`,
   `Association`, `CommitPlan`), the emission timeline, state invariants (slot status transitions, ring-buffer contents,
   traced frame indices, bucket release), license scope of the weights, and the verification command.
@@ -1118,7 +1135,8 @@ Comparison with the reference starts here. Image milestone:
 Video milestone:
 
 1. **Tiny tracker and policy parity.** Single-step parity from an injected state at 1 and 2 buckets, the replay test,
-   new-object-by-points parity; fixes logged. Check: identical decision trace, `allclose` 1e-5.
+   new-object-by-points parity; fixes logged. Each threshold and tie rule gains its reference location in the appendix,
+   the policy docstrings and `tracker.py`. Check: identical decision trace, `allclose` 1e-5.
 1. **Full-weight video.** The hosted clip and the video part of `tests/test_sam3_reference.py`. Check: identical trace
    and IDs, mask IoU at least 0.99, margin and coverage assertions pass, bfloat16 video criterion, peak memory recorded
    against 15 GB at 4 buckets.

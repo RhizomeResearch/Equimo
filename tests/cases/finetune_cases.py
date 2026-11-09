@@ -47,7 +47,12 @@ def _lora_encoder_and_detector(model: Any, key: jax.Array) -> Any:
         eqft.LoRAConfig(
             rank=2,
             target=eqft.TargetSpec(
-                tags_any=("attention.proj",),
+                tags_any=(
+                    "attention.q",
+                    "attention.k",
+                    "attention.v",
+                    "attention.proj",
+                ),
                 exclude=("interactive", "tracker"),
             ),
         ),

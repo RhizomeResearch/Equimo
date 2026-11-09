@@ -80,7 +80,9 @@ optimizer or training loop: plans expose labels and masks for the caller's optim
   [merging.py:task_vector] [merging.py:ties_merge] [merging.py:regmean_merge]
 - Serialization: `save_delta(model, path, *, base_model=None, spec=None, method="lora", ...)`, `load_delta`,
   `save_finetune_bundle`, `load_finetune_bundle`, `save_calibration_artifacts`, `load_calibration_artifacts`
-  [serialization.py:save_delta] [serialization.py:load_delta] [serialization.py:load_finetune_bundle]
+  [serialization.py:save_delta] [serialization.py:load_delta] [serialization.py:load_finetune_bundle]. The private
+  `_serialization_codecs.py` defines the `DeltaCodec` descriptor and the registry builder that `serialization.py` uses
+  for its built-in codecs [\_serialization_codecs.py:DeltaCodec] [\_serialization_codecs.py:build_codec_registry]
 - Package surface: `__init__.py` eagerly re-exports the symbols above and the PEFT exports, except
   `make_trainable_report`, `resolve_trainable_paths`, `make_labeled_param_info_tree`, `key_path_to_path`,
   `is_path_prefix`, `Tagger`, `infer_role`, `make_param_info`, `merge_taggers`, and `PoolName`, which are public only

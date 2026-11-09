@@ -16,7 +16,7 @@ lowformer = import_module("equimo.vision.models.lowformer")
 mobilenet = import_module("equimo.vision.models.mobilenet")
 parcae = import_module("equimo.vision.models.parcae")
 reduceformer = import_module("equimo.vision.models.reduceformer")
-sam3 = import_module("equimo.vision.models.sam3")
+sam3 = import_module("equimo.vision.models.sam3.model")
 vit = import_module("equimo.vision.models.vit")
 
 

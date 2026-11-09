@@ -3,12 +3,12 @@
 ## Overview
 
 Vision model architectures built from [`../layers`](../layers/EGM.md) and `equimo.core.layers`: plain and hierarchical
-Vision Transformers, convolutional and hybrid backbones, a deep-equilibrium model, a recurrent-depth ViT, and two
-query-based segmentation heads (EoMT and PMT). Every architecture class registers itself with
-`equimo.registry.register_model(name, modality="vision")`. Named presets (for example `vit_small_patch16_224`,
-`dinov3_vitb16_pretrain_lvd1689m`, `convnext_tiny`) are thin factories over per-file config registries and delegate
-construction and optional pretrained loading to `equimo.core.factory.build_model_variant`. The package `__init__.py`
-auto-imports every module and merges each module's `__all__` into the package namespace.
+Vision Transformers, convolutional and hybrid backbones, a deep-equilibrium model, a recurrent-depth ViT, two
+query-based segmentation heads (EoMT and PMT), and SAM 3.1 promptable segmentation and tracking. Every architecture
+class registers itself with `equimo.registry.register_model(name, modality="vision")`. Named presets (for example
+`vit_small_patch16_224`, `dinov3_vitb16_pretrain_lvd1689m`, `convnext_tiny`) are thin factories over per-file config
+registries and delegate construction and optional pretrained loading to `equimo.core.factory.build_model_variant`. The
+package `__init__.py` auto-imports every module and merges each module's `__all__` into the package namespace.
 
 ## Interface
 
@@ -120,9 +120,10 @@ auto-imports every module and merges each module's `__all__` into the package na
 
 ## Invariants
 
-- All forward endpoints take one unbatched channel-first `[C, H, W]` image; batch with `jax.vmap`.
+- Image endpoints take one unbatched channel-first `[C, H, W]` image; batch with `jax.vmap`.
   `[vit.py:VisionTransformer.feature_metadata]` raises `ValueError` when `x.ndim != 3`; `[eomt.py:EoMT]` and
-  `[pmt.py:PMT.encode]` enforce the same.
+  `[pmt.py:PMT.encode]` enforce the same. `Sam3.detect`, `predict_interactive`, `propagate`, `associate` and `commit`
+  take encoded features, prompts or tracker state instead. `[sam3/model.py:Sam3]`
 - `key` defaults to `None` and is split with `split_for_mode`, so inference (`inference=True`) runs without a key while
   stochastic forwards without a key raise. `[vit.py:VisionTransformer.features]`, `[_features.py:DenseStageFeatures]`,
   `[deq.py:DEQ.features]`

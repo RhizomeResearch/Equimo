@@ -47,8 +47,9 @@ Equimo's license.
   `Sam3.tracker.decode_object(interactive, features, prompt)` returns a prompted object's mask logits, pointer and
   object score. `[model.py:Sam3]`, `[tracker.py:Sam3Tracker]`, `[tracker.py:pad_tracker_buckets]`
 - Experimental host driver in `equimo.vision.models.sam3.video`, imported explicitly:
-  `Sam3VideoTracker(model, *, num_frames, source_size, max_objects=16)` with `set_prompt(prompt)`,
-  `push_frame(frame) -> list[FramePrediction]`, `finish() -> list[FramePrediction]` and
+  `Sam3VideoTracker(model, *, num_frames, source_size, max_objects=16)` with `set_prompt(prompt)` (only before the first
+  frame; later calls raise `ValueError`), `push_frame(frame) -> list[FramePrediction]`,
+  `finish() -> list[FramePrediction]` and
   `add_object(frame_index, frame, points, labels, *, object_id=None) -> PointTrack`. Frames are at the model's input
   size and `source_size` is the clip's `(height, width)`. `decisions` holds one `FrameDecision` per planned pass.
   `[video.py:Sam3VideoTracker]`
@@ -57,7 +58,13 @@ Equimo's license.
 - `FramePrediction`: `frame_index`, `object_ids (K)`, `masks (K, H, W)` (bool, source size), `boxes (K, 4)` (pixels,
   xyxy, before overlaps are resolved), `scores (K)` (detection probability at birth). `[video.py:FramePrediction]`
 - `AssociationPolicy(*, num_slots, max_objects)`: NumPy-only decisions, with `plan_prompt_frame(keep, probabilities)`
-  and `plan(FrameObservation) -> FrameDecision`, replayable from recorded device outputs. `[video.py:AssociationPolicy]`
+  and `plan(FrameObservation) -> FrameDecision`, replayable from recorded device outputs. `objects` maps each ID to a
+  `TrackedObject` (`object_id`, `bucket`, `slot`, `birth_frame`, `birth_score`, `unmatched_frames`, `matched_streak`,
+  `last_occluded_frame`, `confirmed`). `[video.py:AssociationPolicy]`, `[video.py:TrackedObject]`
+- `FrameDecision`, the decision trace of one planned pass: `frame_index`, `added` (`NewObject`: `object_id`, `query`,
+  `bucket`, `slot`, `score`), `removed_unmatched`, `removed_duplicate`, `reconditioned` (`Reconditioning`: `object_id`,
+  `query`), `suppressed`, `confirmed`, `dropped_queries`, `released_buckets`, `reencode_buckets` and `num_buckets`.
+  `[video.py:FrameDecision]`, `[video.py:NewObject]`, `[video.py:Reconditioning]`
 
 Experimental pytrees, for `B` buckets of `S` slots, `T = B * S` tracks, grid `G`, `Q` queries and width `dim`; sizes are
 for the published configuration in bfloat16 (`G = 72`, `S = 16`, `dim = 256`, about 59 MB per bucket):
@@ -147,14 +154,17 @@ for the published configuration in bfloat16 (`G = 72`, `S = 16`, `dim = 256`, ab
   count grows in powers of two up to `next_pow2(max_objects)`. `[video.py:AssociationPolicy]`
 - `video.py` is never imported by `import equimo`. The policy uses only NumPy, so it replays on CPU from recorded device
   outputs. `[video.py:FrameObservation]`
-- The prompt frame runs twice: alone (single-frame NMS, `max_objects`, 0.65, nothing hidden), then as a tracked frame
-  that reuses the stored output and commits only if the policy changes something. Frame 0 counts as a reconditioning
-  frame. `[video.py:Sam3VideoTracker.push_frame]`
+- The prompt frame is always frame 0, so `set_prompt` raises once a frame has been pushed. It runs twice: alone
+  (single-frame NMS, `max_objects`, 0.65, nothing hidden), then as a tracked frame that reuses the stored output and
+  commits only if the policy changes something. Frame 0 counts as a reconditioning frame.
+  `[video.py:Sam3VideoTracker.set_prompt]`, `[video.py:Sam3VideoTracker.push_frame]`
 - Once frame `t` is planned, frame `t - 2` is final; `finish` emits the rest with the look-ahead clamped to the last
   frame. An object is shown from the first frame it was confirmed by two frames later, and later removals do not hide
   frames already shown. Objects with no pixel on a frame are omitted from it. `[video.py:Sam3VideoTracker._render]`
-- A `PointTrack` runs on its own single-bucket state, never touches the main tracker's state, and takes the interactive
-  head's point result as its conditioning frame. `[video.py:PointTrack]`
+- A `PointTrack` runs on its own single-bucket state, never touches the main tracker's device state, and takes the
+  interactive head's point result as its conditioning frame. Its ID comes from the policy's counter, which prevents ID
+  collisions, so objects detected later take the IDs after it. `[video.py:PointTrack]`,
+  `[video.py:AssociationPolicy.reserve_object_id]`
 
 ## Side Effects
 
