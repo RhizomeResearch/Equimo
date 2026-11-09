@@ -508,12 +508,18 @@ an existing object, through `object_id`, raise an error that says refinement on 
 Fixtures come from the reference, never from Equimo output, generated on the RTX 4080 in a separate pinned environment
 (`models/sam31_reference.py`):
 
-- **Float32 reference:** autocast and TF32 off, `use_fa3=False`, `use_rope_real=False`, the ViT MLP replaced by plain
-  fc1, exact GELU and fc2, and stored memory kept in float32. Forward hooks save each component's outputs under Equimo
-  names, with provenance.
+- **Float32 reference:** autocast and TF32 off, `use_fa3=False`, `use_rope_real=False`, the math attention kernel where
+  memory attention requests FlashAttention 2 (which rejects float32), the ViT MLP replaced by plain fc1, exact GELU and
+  fc2, and stored memory kept in float32. Forward hooks save each component's outputs under Equimo names, with
+  provenance.
 - **Bfloat16 reference:** the shipped pipeline with `use_fa3=False`, for a reported comparison only.
+- **`torch.compile` is off in every run,** because torchvision compiles `roi_align` on GPU whatever the reference's
+  options, and eager kernels are reproducible.
 - **Tiny fixtures:** a small random-weight configuration of the reference covering windowed and global blocks, RoPE
   interpolation, a small multiplex count and a clip longer than the memory windows, committed under `tests/data/`.
+  Random weights give no detection above any threshold and no usable track mask, so the tiny clip feeds the association
+  policy a fixed script of disjoint per-object masks and scores; the real detector and tracker still run and are
+  recorded.
 - **Margins and coverage:** at every threshold comparison the harness asserts that the compared value is at least 1e-3
   from the threshold, and on the full-weight clip it asserts that every decision type occurs (add, hot-start removal,
   reconditioning, occlusion suppression, confirmation). Both are clip-selection criteria; synthetic policy fixtures are

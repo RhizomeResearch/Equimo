@@ -49,3 +49,31 @@ before replacing a fixture. Replacement is a deliberate human action; the valida
 
 When a fixture is accepted, update its generation command, revision, checkpoint checksum (when published), environment
 versions, schema, tolerance, and new fixture SHA-256 in `reference_provenance.json` in the same change.
+
+## SAM 3.1
+
+`models/sam31_reference.py` generates the SAM 3.1 fixtures on a CUDA GPU, because the reference hard-codes CUDA in
+several constructors and forward passes. It runs in its own environment, separate from `uv.lock` because the reference
+requires NumPy below 2. Create it and clone the pinned reference outside any synced path:
+
+```bash
+uv venv --python 3.12 /path/to/environment
+uv pip install --python /path/to/environment/bin/python -r models/sam31_reference_requirements.txt
+git clone https://github.com/facebookresearch/sam3 /path/to/sam3
+git -C /path/to/sam3 checkout f1647e8d0c1d280991f4d1b7d974c2704537fe66
+```
+
+Generate into a staging directory, not `tests/data`:
+
+```bash
+/path/to/environment/bin/python models/sam31_reference.py tokenizer --reference-dir /path/to/sam3 --output-dir /path/to/output
+/path/to/environment/bin/python models/sam31_reference.py operators --output-dir /path/to/output
+/path/to/environment/bin/python models/sam31_reference.py tiny --reference-dir /path/to/sam3 --output-dir /path/to/output
+```
+
+Each fixture must regenerate byte-identically. The `operators` and `tiny` commands also write
+`provenance_fragment.json`, the entries to copy into `reference_provenance.json`. The tokenizer command needs no GPU.
+
+The tiny clip's decision trace is in `sam3_tiny_reference.json`. Its detection and track masks are a fixed script,
+because random weights produce nothing the association policy would act on; the real detector and tracker still run and
+are recorded under `inputs.*` and `outputs.*`.

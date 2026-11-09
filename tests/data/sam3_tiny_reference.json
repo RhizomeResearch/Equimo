@@ -1,0 +1,652 @@
+{
+  "concept": "yellow school bus",
+  "config": {
+    "context_length": 8,
+    "decoder_depth": 2,
+    "depth": 2,
+    "dim": 16,
+    "embed_dim": 16,
+    "ffn_features": 32,
+    "fusion_depth": 1,
+    "geometry_depth": 1,
+    "global_blocks": [
+      1
+    ],
+    "head_num_heads": 2,
+    "img_size": 56,
+    "max_objects": 4,
+    "memory_depth": 1,
+    "memory_heads": 2,
+    "memory_start_channels": 1,
+    "mlp_features": 32,
+    "num_frames": 20,
+    "num_heads": 2,
+    "num_merges": 512,
+    "num_queries": 4,
+    "num_slots": 2,
+    "patch_size": 14,
+    "pretrain_img_size": 28,
+    "seed": 31,
+    "source_size": [
+      40,
+      60
+    ],
+    "text_depth": 1,
+    "text_heads": 2,
+    "text_width": 16,
+    "two_way_depth": 1,
+    "window_size": 2
+  },
+  "decisions": [
+    {
+      "added": [
+        [
+          0,
+          0
+        ],
+        [
+          1,
+          1
+        ]
+      ],
+      "confirmation": {
+        "consecutive_det_num": [
+          1,
+          1
+        ],
+        "status": [
+          1,
+          1
+        ]
+      },
+      "dropped": 0,
+      "frame": 0,
+      "reconditioned": [],
+      "removed_duplicate": [],
+      "removed_unmatched": [],
+      "states": [
+        [
+          0,
+          1
+        ]
+      ],
+      "track_ids": []
+    },
+    {
+      "added": [],
+      "confirmation": {
+        "consecutive_det_num": [
+          2,
+          2
+        ],
+        "status": [
+          1,
+          1
+        ]
+      },
+      "dropped": 0,
+      "frame": 0,
+      "reconditioned": [
+        0,
+        1
+      ],
+      "removed_duplicate": [],
+      "removed_unmatched": [],
+      "states": [
+        [
+          0,
+          1
+        ]
+      ],
+      "track_ids": [
+        0,
+        1
+      ]
+    },
+    {
+      "added": [],
+      "confirmation": {
+        "consecutive_det_num": [
+          3,
+          0
+        ],
+        "status": [
+          2,
+          1
+        ]
+      },
+      "dropped": 0,
+      "frame": 1,
+      "reconditioned": [],
+      "removed_duplicate": [],
+      "removed_unmatched": [],
+      "states": [
+        [
+          0,
+          1
+        ]
+      ],
+      "track_ids": [
+        0,
+        1
+      ]
+    },
+    {
+      "added": [],
+      "confirmation": {
+        "consecutive_det_num": [
+          4,
+          0
+        ],
+        "status": [
+          2,
+          1
+        ]
+      },
+      "dropped": 0,
+      "frame": 2,
+      "reconditioned": [],
+      "removed_duplicate": [],
+      "removed_unmatched": [],
+      "states": [
+        [
+          0,
+          1
+        ]
+      ],
+      "track_ids": [
+        0,
+        1
+      ]
+    },
+    {
+      "added": [],
+      "confirmation": {
+        "consecutive_det_num": [
+          5,
+          0
+        ],
+        "status": [
+          2,
+          1
+        ]
+      },
+      "dropped": 0,
+      "frame": 3,
+      "reconditioned": [],
+      "removed_duplicate": [],
+      "removed_unmatched": [],
+      "states": [
+        [
+          0,
+          1
+        ]
+      ],
+      "track_ids": [
+        0,
+        1
+      ]
+    },
+    {
+      "added": [],
+      "confirmation": {
+        "consecutive_det_num": [
+          6,
+          0
+        ],
+        "status": [
+          2,
+          1
+        ]
+      },
+      "dropped": 0,
+      "frame": 4,
+      "reconditioned": [],
+      "removed_duplicate": [],
+      "removed_unmatched": [],
+      "states": [
+        [
+          0,
+          1
+        ]
+      ],
+      "track_ids": [
+        0,
+        1
+      ]
+    },
+    {
+      "added": [
+        [
+          2,
+          1
+        ]
+      ],
+      "confirmation": {
+        "consecutive_det_num": [
+          7,
+          0,
+          1
+        ],
+        "status": [
+          2,
+          1,
+          1
+        ]
+      },
+      "dropped": 0,
+      "frame": 5,
+      "reconditioned": [],
+      "removed_duplicate": [],
+      "removed_unmatched": [],
+      "states": [
+        [
+          0,
+          1
+        ],
+        [
+          2
+        ]
+      ],
+      "track_ids": [
+        0,
+        1
+      ]
+    },
+    {
+      "added": [],
+      "confirmation": {
+        "consecutive_det_num": [
+          8,
+          0,
+          2
+        ],
+        "status": [
+          2,
+          1,
+          1
+        ]
+      },
+      "dropped": 0,
+      "frame": 6,
+      "reconditioned": [],
+      "removed_duplicate": [],
+      "removed_unmatched": [],
+      "states": [
+        [
+          0,
+          1
+        ],
+        [
+          2
+        ]
+      ],
+      "track_ids": [
+        0,
+        1,
+        2
+      ]
+    },
+    {
+      "added": [],
+      "confirmation": {
+        "consecutive_det_num": [
+          9,
+          0,
+          3
+        ],
+        "status": [
+          2,
+          1,
+          2
+        ]
+      },
+      "dropped": 0,
+      "frame": 7,
+      "reconditioned": [],
+      "removed_duplicate": [],
+      "removed_unmatched": [],
+      "states": [
+        [
+          0,
+          1
+        ],
+        [
+          2
+        ]
+      ],
+      "track_ids": [
+        0,
+        1,
+        2
+      ]
+    },
+    {
+      "added": [],
+      "confirmation": {
+        "consecutive_det_num": [
+          10,
+          4
+        ],
+        "status": [
+          2,
+          2
+        ]
+      },
+      "dropped": 0,
+      "frame": 8,
+      "reconditioned": [],
+      "removed_duplicate": [],
+      "removed_unmatched": [
+        1
+      ],
+      "states": [
+        [
+          0
+        ],
+        [
+          2
+        ]
+      ],
+      "track_ids": [
+        0,
+        1,
+        2
+      ]
+    },
+    {
+      "added": [],
+      "confirmation": {
+        "consecutive_det_num": [
+          11,
+          5
+        ],
+        "status": [
+          2,
+          2
+        ]
+      },
+      "dropped": 0,
+      "frame": 9,
+      "reconditioned": [],
+      "removed_duplicate": [],
+      "removed_unmatched": [],
+      "states": [
+        [
+          0
+        ],
+        [
+          2
+        ]
+      ],
+      "track_ids": [
+        0,
+        2
+      ]
+    },
+    {
+      "added": [],
+      "confirmation": {
+        "consecutive_det_num": [
+          12,
+          6
+        ],
+        "status": [
+          2,
+          2
+        ]
+      },
+      "dropped": 0,
+      "frame": 10,
+      "reconditioned": [],
+      "removed_duplicate": [],
+      "removed_unmatched": [],
+      "states": [
+        [
+          0
+        ],
+        [
+          2
+        ]
+      ],
+      "track_ids": [
+        0,
+        2
+      ]
+    },
+    {
+      "added": [],
+      "confirmation": {
+        "consecutive_det_num": [
+          13,
+          7
+        ],
+        "status": [
+          2,
+          2
+        ]
+      },
+      "dropped": 0,
+      "frame": 11,
+      "reconditioned": [],
+      "removed_duplicate": [],
+      "removed_unmatched": [],
+      "states": [
+        [
+          0
+        ],
+        [
+          2
+        ]
+      ],
+      "track_ids": [
+        0,
+        2
+      ]
+    },
+    {
+      "added": [],
+      "confirmation": {
+        "consecutive_det_num": [
+          14,
+          8
+        ],
+        "status": [
+          2,
+          2
+        ]
+      },
+      "dropped": 0,
+      "frame": 12,
+      "reconditioned": [],
+      "removed_duplicate": [],
+      "removed_unmatched": [],
+      "states": [
+        [
+          0
+        ],
+        [
+          2
+        ]
+      ],
+      "track_ids": [
+        0,
+        2
+      ]
+    },
+    {
+      "added": [],
+      "confirmation": {
+        "consecutive_det_num": [
+          15
+        ],
+        "status": [
+          2
+        ]
+      },
+      "dropped": 0,
+      "frame": 13,
+      "reconditioned": [],
+      "removed_duplicate": [
+        2
+      ],
+      "removed_unmatched": [],
+      "states": [
+        [
+          0
+        ]
+      ],
+      "track_ids": [
+        0,
+        2
+      ]
+    },
+    {
+      "added": [],
+      "confirmation": {
+        "consecutive_det_num": [
+          16
+        ],
+        "status": [
+          2
+        ]
+      },
+      "dropped": 0,
+      "frame": 14,
+      "reconditioned": [],
+      "removed_duplicate": [],
+      "removed_unmatched": [],
+      "states": [
+        [
+          0
+        ]
+      ],
+      "track_ids": [
+        0
+      ]
+    },
+    {
+      "added": [],
+      "confirmation": {
+        "consecutive_det_num": [
+          17
+        ],
+        "status": [
+          2
+        ]
+      },
+      "dropped": 0,
+      "frame": 15,
+      "reconditioned": [],
+      "removed_duplicate": [],
+      "removed_unmatched": [],
+      "states": [
+        [
+          0
+        ]
+      ],
+      "track_ids": [
+        0
+      ]
+    },
+    {
+      "added": [],
+      "confirmation": {
+        "consecutive_det_num": [
+          18
+        ],
+        "status": [
+          2
+        ]
+      },
+      "dropped": 0,
+      "frame": 16,
+      "reconditioned": [
+        0
+      ],
+      "removed_duplicate": [],
+      "removed_unmatched": [],
+      "states": [
+        [
+          0
+        ]
+      ],
+      "track_ids": [
+        0
+      ]
+    },
+    {
+      "added": [],
+      "confirmation": {
+        "consecutive_det_num": [
+          19
+        ],
+        "status": [
+          2
+        ]
+      },
+      "dropped": 0,
+      "frame": 17,
+      "reconditioned": [],
+      "removed_duplicate": [],
+      "removed_unmatched": [],
+      "states": [
+        [
+          0
+        ]
+      ],
+      "track_ids": [
+        0
+      ]
+    },
+    {
+      "added": [],
+      "confirmation": {
+        "consecutive_det_num": [
+          20
+        ],
+        "status": [
+          2
+        ]
+      },
+      "dropped": 0,
+      "frame": 18,
+      "reconditioned": [],
+      "removed_duplicate": [],
+      "removed_unmatched": [],
+      "states": [
+        [
+          0
+        ]
+      ],
+      "track_ids": [
+        0
+      ]
+    },
+    {
+      "added": [],
+      "confirmation": {
+        "consecutive_det_num": [
+          21
+        ],
+        "status": [
+          2
+        ]
+      },
+      "dropped": 0,
+      "frame": 19,
+      "reconditioned": [],
+      "removed_duplicate": [],
+      "removed_unmatched": [],
+      "states": [
+        [
+          0
+        ]
+      ],
+      "track_ids": [
+        0
+      ]
+    }
+  ],
+  "reference_revision": "f1647e8d0c1d280991f4d1b7d974c2704537fe66"
+}

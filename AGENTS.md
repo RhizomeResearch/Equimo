@@ -78,7 +78,13 @@ archives can fail that inventory check; verify fresh build outputs before changi
 with `uv build --no-sources --out-dir <staging-directory>` and the existing distribution assertions.
 
 `artifact-staging/` is Syncthing-ignored but not git-ignored: jj snapshots scratch files there into the working-copy
-revision (observed in practice). Delete them before finishing.
+revision (observed in practice). Delete them before finishing, or, for files that stay, such as a reference clone, put a
+`.gitignore` containing `*` in `artifact-staging/` (run in practice). A bare `pytest` also collects a clone kept there;
+`collect_ignore_glob = ["*"]` in `artifact-staging/conftest.py` stops that (run in practice).
+
+`models/sam31_reference.py` needs a CUDA GPU and the environment in `models/sam31_reference_requirements.txt`, not the
+locked one; `tests/data/README.md` has the commands (read in config). Its `tokenizer` command needs no GPU (run in
+practice).
 
 jj's snapshot skips new files over `snapshot.max-new-file-size` (1 MiB in this setup), which covers the CLIP vocabulary
 and large test fixtures. Track such a file once with `jj --config snapshot.max-new-file-size=2MiB status` (run in
