@@ -162,8 +162,9 @@ class ViTDetTrunk(eqx.Module):
         self.table_size = window_size
 
     def __call__(
-        self, x: Float[Array, "channels height width"]
+        self, x: Float[Array, "channels height width"], *, checkpoint: bool = False
     ) -> Float[Array, "embed_dim grid grid"]:
+        """Run the trunk; ``checkpoint`` rematerializes each block under autodiff."""
         patches = self.patch_embed(x)
         dim, grid, _ = patches.shape
         table = self.pos_embed.astype(patches.dtype).reshape(
@@ -175,7 +176,7 @@ class ViTDetTrunk(eqx.Module):
         tokens = layer_norm(self.ln_pre, tokens)
         out = jnp.moveaxis(tokens.reshape(grid, grid, dim), -1, 0)
         for block in self.blocks:
-            out = block(out)
+            out = eqx.filter_checkpoint(block)(out) if checkpoint else block(out)
         return out
 
 

@@ -1,10 +1,10 @@
-"""Map the SAM 3.1 multiplex checkpoint onto Equimo's models.
+"""Convert the SAM 3.1 multiplex checkpoint to Equimo archives.
 
 Every key either converts to named Equimo parameters, is computed by Equimo and
-dropped, is unused and dropped, or has no destination yet. A key outside those
-lists is an error. The original PyTorch format is read only by this maintainer
-script, which runs in the ``reference`` dependency group. The tests apply the
-same rules to the reference fixtures through :func:`apply_state`.
+dropped, or is unused and dropped. A key outside those lists is an error. The
+original PyTorch format is read only by this maintainer script, which runs in
+the ``reference`` dependency group. The tests apply the same rules to the
+reference fixtures through :func:`apply_state`.
 """
 
 from __future__ import annotations
@@ -13,6 +13,7 @@ import argparse
 import hashlib
 import re
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, NamedTuple
 
@@ -52,20 +53,6 @@ UNUSED_KEYS = frozenset(
 )
 COMPUTED_KEY = re.compile(re.escape(VISION) + r"\.trunk\.blocks\.\d+\.attn\.freqs_cis")
 
-# Checkpoint modules the drafted model does not have, or has with another structure.
-# They stay listed until the model is corrected, so that no trained weight is dropped
-# silently and no module is filled from a checkpoint entry that means something else.
-UNMAPPED_MODULES = (
-    f"{TRACKER}.interactive_mask_downsample",
-    f"{TRACKER}.interactive_obj_ptr_proj",
-    f"{TRACKER}.no_obj_embed_spatial",
-    f"{TRACKER}.no_obj_ptr_linear",
-)
-UNMAPPED_PATTERNS = tuple(
-    re.compile(re.escape(module).replace(r"\{i\}", r"\d+") + r"(?:\..+)?")
-    for module in UNMAPPED_MODULES
-)
-
 Shape = tuple[int, ...]
 LAYOUTS: dict[str, Callable[[Shape], Shape]] = {
     "copy": lambda shape: shape,
@@ -97,7 +84,6 @@ class Classification(NamedTuple):
     converted: dict[str, Conversion]
     computed: list[str]
     unused: list[str]
-    unmapped: list[str]
 
 
 def _rule(
@@ -469,6 +455,16 @@ def _tracker_rules() -> list[Rule]:
             "tracker.pointer_proj.layers.{i}",
         ),
         *_linear(f"{TRACKER}.obj_ptr_tpos_proj", "tracker.pointer_time_proj"),
+        *_linear(
+            f"{TRACKER}.interactive_obj_ptr_proj.layers" + ".{i}",
+            "tracker.interactive_pointer_proj.layers.{i}",
+        ),
+        *_linear(f"{TRACKER}.no_obj_ptr_linear", "tracker.no_object_pointer"),
+        _rule(f"{TRACKER}.no_obj_embed_spatial", "tracker.no_object_memory"),
+        *_conv(
+            f"{TRACKER}.interactive_mask_downsample",
+            "tracker.interactive_mask_downsample",
+        ),
         *_memory_downsampler_rules(),
         *_conv(f"{MEMORY}.pix_feat_proj", "tracker.memory_encoder.feature_proj"),
         _rule(f"{fuser}.gamma", f"{fuser_target}.ls.gamma"),
@@ -521,15 +517,12 @@ def classify_keys(keys: Iterable[str]) -> Classification:
     converted: dict[str, Conversion] = {}
     computed: list[str] = []
     unused: list[str] = []
-    unmapped: list[str] = []
     unknown: list[str] = []
     for key in keys:
         if key in UNUSED_KEYS:
             unused.append(key)
         elif COMPUTED_KEY.fullmatch(key):
             computed.append(key)
-        elif any(pattern.fullmatch(key) for pattern in UNMAPPED_PATTERNS):
-            unmapped.append(key)
         elif (conversion := _conversion_for(key)) is not None:
             converted[key] = conversion
         else:
@@ -537,7 +530,7 @@ def classify_keys(keys: Iterable[str]) -> Classification:
     if unknown:
         listing = "\n".join(unknown)
         raise ValueError(f"Unknown checkpoint keys:\n{listing}")
-    return Classification(converted, computed, unused, unmapped)
+    return Classification(converted, computed, unused)
 
 
 def check_destinations(
@@ -645,17 +638,13 @@ def report_classification(
     print(
         f"converted={len(classification.converted)} "
         f"computed={len(classification.computed)} "
-        f"unused={len(classification.unused)} "
-        f"unmapped={len(classification.unmapped)}"
+        f"unused={len(classification.unused)}"
     )
-    for key in classification.unmapped:
-        print(f"unmapped: {key}")
     for name in parameters_without_source:
         print(f"no source: {name}")
-    if classification.unmapped or parameters_without_source:
+    if parameters_without_source:
         print(
-            "error: the model does not cover the checkpoint yet; "
-            "see the unmapped and no source lines.",
+            "error: the model does not cover the checkpoint; see the no source lines.",
             file=sys.stderr,
         )
         return 1
@@ -670,8 +659,8 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def load_source_shapes(path: Path) -> dict[str, Shape]:
-    """Return every tensor's shape after checking the file's digest."""
+def load_source(path: Path) -> dict[str, Any]:
+    """Return the checkpoint's tensors after checking the file's digest."""
     actual_digest = sha256_file(path)
     if actual_digest != CHECKPOINT_SHA256:
         raise ValueError(
@@ -693,7 +682,7 @@ def load_source_shapes(path: Path) -> dict[str, Shape]:
         for name, value in state.items()
     ):
         raise ValueError("Source checkpoint contains a non-tensor entry.")
-    return {name: tuple(value.shape) for name, value in state.items()}
+    return state
 
 
 def template_shapes(variant: str) -> dict[str, Shape]:
@@ -716,7 +705,7 @@ def template_shapes(variant: str) -> dict[str, Shape]:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Classify the SAM 3.1 checkpoint keys against an Equimo model."
+        description="Convert the SAM 3.1 checkpoint to an Equimo archive."
     )
     parser.add_argument("variant", choices=sorted(ARCHIVES))
     source = parser.add_mutually_exclusive_group(required=True)
@@ -747,6 +736,62 @@ def parse_args() -> argparse.Namespace:
     return args
 
 
+def _variant_model_and_config(variant: str) -> tuple[Any, dict[str, Any]]:
+    """Build the Equimo model of ``variant`` and return it with its configuration."""
+    from equimo.language import sam31_text
+    from equimo.language.models import _CAUSAL_TEXT_REGISTRY
+    from equimo.vision.models.sam3 import sam31_multiplex
+    from equimo.vision.models.sam3.model import _SAM3_REGISTRY
+
+    factory, registry = {
+        "multiplex": (sam31_multiplex, _SAM3_REGISTRY),
+        "text": (sam31_text, _CAUSAL_TEXT_REGISTRY),
+    }[variant]
+    base, variant_config = registry[ARCHIVES[variant]]
+    return factory(), base | variant_config
+
+
+def write_archive(
+    variant: str,
+    state: Mapping[str, Any],
+    classification: Classification,
+    output_dir: Path,
+) -> Path:
+    """Write ``variant``'s archive and check that it reads back identically."""
+    import equinox as eqx
+    import jax
+    import jax.numpy as jnp
+
+    from equimo.serialization import load_weights, save_model
+
+    model, config = _variant_model_and_config(variant)
+    model = apply_state(
+        model, {name: np.asarray(state[name]) for name in state}, variant
+    )
+    identifier = ARCHIVES[variant]
+    record = {
+        "source": "facebook/sam3.1",
+        "checkpoint": CHECKPOINT_NAME,
+        "checkpoint_sha256": CHECKPOINT_SHA256,
+        "converted": len(classification.converted),
+        "computed": len(classification.computed),
+        "unused": len(classification.unused),
+    }
+    with tempfile.TemporaryDirectory(dir=output_dir) as temporary:
+        path = save_model(Path(temporary) / identifier, model, config, record)
+        restored = load_weights(model, path=path)
+        same = jax.tree.map(
+            lambda a, b: bool(jnp.array_equal(a, b)),
+            eqx.filter(restored, eqx.is_array),
+            eqx.filter(model, eqx.is_array),
+        )
+        if not all(jax.tree.leaves(same)):
+            raise ValueError(f"{identifier}: the archive does not read back equal.")
+        destination = output_dir / path.name
+        path.replace(destination)
+    return destination
+
+
 def main() -> int:
     args = parse_args()
     print(f"checkpoint={args.checkpoint}")
@@ -754,12 +799,20 @@ def main() -> int:
     if args.dry_run:
         return 0
 
-    source_shapes = load_source_shapes(args.checkpoint)
+    state = load_source(args.checkpoint)
+    source_shapes = {name: tuple(value.shape) for name, value in state.items()}
     classification = classify_keys(source_shapes)
     missing_sources = check_destinations(
         classification, source_shapes, template_shapes(args.variant), args.variant
     )
-    return report_classification(classification, missing_sources)
+    status = report_classification(classification, missing_sources)
+    if status != 0:
+        return status
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+    print(
+        f"wrote={write_archive(args.variant, state, classification, args.output_dir)}"
+    )
+    return 0
 
 
 if __name__ == "__main__":

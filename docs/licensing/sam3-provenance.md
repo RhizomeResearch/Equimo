@@ -25,7 +25,9 @@ the reference, and it is not legal advice.
 | `roi_align` reads the border for samples outside the map, as torchvision's CUDA kernel does, instead of zeroing samples further than a pixel away.                                   | `tests/test_vision_ops.py::test_roi_align_matches_torchvision`                                   | `tksqkunw` |
 | Bilinear mask resizing uses torch's float32 sample positions, through `resize_bilinear`.                                                                                             | `tests/test_vision_ops.py::test_bilinear_resize_matches_torch`                                   | `tksqkunw` |
 | Single-frame mask NMS measures overlap as intersection over minimum, not against the higher-ranked mask's area.                                                                      | `tests/test_sam3.py::test_mask_nms_keeps_what_the_reference_keeps`                               | `tksqkunw` |
+| The tracker has parameters for the checkpoint's object-absent pointer and memory and its interactive pointer and mask downsample, so no trained weight goes without a destination.   | `tests/test_sam3.py::test_tiny_reference_state_fills_every_parameter_or_is_listed`               | `pytzottv` |
 
 The reference's own numerics also needed one correction, in the fixture harness rather than the port. Importing
 `sam3.model.sam3_multiplex_base` turns TF32 on for convolutions and matmul, so the harness now restores float32 after
-that import. `models/sam31_reference.py:float32_reference` carries the fix.
+that import, and building the video predictor turns it on again, so `models/sam31_reference.py:reference_precision`
+clears it after the build as well as `float32_reference` does after the import.

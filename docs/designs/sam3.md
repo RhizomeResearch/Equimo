@@ -254,7 +254,7 @@ and are batched with `vmap`. Shapes below are for the 1008 x 1008 input; tiny te
 sam31_multiplex(pretrained: bool = False, inference_mode: bool = True, **kwargs) -> Sam3   # registered "sam3", modality "vision"
 Sam3 fields: trunk, neck, detector, interactive, tracker
   features(x[3, H, W]) -> [256, 72, 72]                    # detector-level map; the FeatureSpec endpoint
-  encode_image(x[3, H, W]) -> ImageFeatures
+  encode_image(x[3, H, W], *, checkpoint_trunk: bool = False) -> ImageFeatures
   detect(features: ImageFeatures, prompt: ConceptPrompt) -> DetectorOutput
   predict_interactive(features: ImageFeatures, prompt: InteractivePrompt) -> InteractiveOutput
   propagate(state: TrackerState, features: ImageFeatures, frame_index: int32[], *, num_frames: int | None = None) -> TrackOutput   # experimental
@@ -500,10 +500,9 @@ an existing object, through `object_id`, raise an error that says refinement on 
 ### Weights, conversion and archives
 
 - A maintainer script, `models/sam31.py`, reads `sam3.1_multiplex.pt` on CPU with `torch.load(weights_only=True)` after
-  checking its SHA-256, classifies every key (converted, computed and dropped, unused and dropped, or unmapped), fails
-  on unknown keys, and writes two float32 archives: `sam31_multiplex` (the vision model) and `sam31_text` (the text
-  model). Bfloat16 users cast after loading. An unmapped key is a checkpoint entry the model has no matching parameter
-  for yet; the converter names them, and every model parameter without a source, and fails until both lists are empty.
+  checking its SHA-256, classifies every key (converted, computed and dropped, or unused and dropped), fails on unknown
+  keys and on any model parameter without a source, naming them, and writes two float32 archives: `sam31_multiplex` (the
+  vision model) and `sam31_text` (the text model). Bfloat16 users cast after loading.
 - The archives are always `sam31_multiplex` and `sam31_text`; the SAM 3 paper describes further training of both
   encoders after their Perception Encoder initialization, so neither is a reused standalone model.
 - Digests are pinned in `src/equimo/_pretrained.py` with a new repository revision after upload. Uploading needs the
@@ -547,8 +546,9 @@ LoRA and head-only plans use the existing `equimo.finetune` machinery on the ima
 fusion encoder, decoder, scoring and segmentation head with the trunk, neck and text model frozen. The port has no
 dropout or drop-path, so LoRA and head-only fine-tuning run deterministically; dropout has no parameters and can be
 added later without changing archives. Whether LoRA through the frozen 32-block trunk fits in 16 GB at 1008 x 1008 is
-measured; if it does not, the trunk blocks get opt-in rematerialization. Layer-wise learning-rate decay is not extended
-to the ViTDet trunk.
+measured: with XLA attention it runs out of memory, trying to allocate 15.4 GB on an RTX 4080, and fits with
+`encode_image(x, checkpoint_trunk=True)` (7.3 GB peak); with cuDNN attention the peak is 8.4 GB without
+rematerialization and 2.2 GB with it. Layer-wise learning-rate decay is not extended to the ViTDet trunk.
 
 ### Licensing
 
@@ -826,7 +826,7 @@ Decisions were made by the author during design; each entry gives the trade-off 
 | Risk                                   | Impact                                                     | Status              | Mitigation or fallback                                                                                                                                               |
 | -------------------------------------- | ---------------------------------------------------------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Video does not fit a 16 GB GPU         | bfloat16 tracking at several buckets fails on the RTX 4080 | unmeasured          | peak memory recorded against 15 GB at 4 buckets; fallback: lower `max_objects`, opt-in trunk rematerialization, then a shared recent-frame feature ring              |
-| LoRA does not fit a 16 GB GPU          | the fine-tuning goal fails at 1008 x 1008                  | unmeasured          | 50 steps without running out of memory and with finite loss; fallback: opt-in trunk rematerialization                                                                |
+| LoRA does not fit a 16 GB GPU          | the fine-tuning goal fails at 1008 x 1008                  | measured            | fits in 7.3 GB with trunk rematerialization on XLA attention and 2.2 GB on cuDNN (50 steps, finite loss); XLA attention without rematerialization runs out of memory |
 | Reference GELU differs from the config | the fused ViT MLP may use tanh GELU in the shipped model   | open                | the float32 reference is patched to exact GELU; the bfloat16 comparison shows whether the shipped model differs                                                      |
 | No suitable redistributable test clip  | the full-weight video fixture cannot be hosted             | clip not chosen     | criteria: CC0 or CC-BY, two or more objects of one concept, an occlusion, non-square, every decision type; fallback: synthetic policy fixtures for the missing types |
 | Near-threshold decision flips          | parity fails on numerically legitimate differences         | mitigated by design | the harness asserts a 1e-3 margin at every threshold comparison                                                                                                      |
@@ -1012,11 +1012,11 @@ they name what the code does.
 - `models/sam31.py` (Create): the converter, with a positional variant (`multiplex` or `text`), `--checkpoint`,
   `--source-dir`, `--output-dir` and `--dry-run` (printing `checkpoint=` and `output=` lines), run in the `reference`
   dependency group. It checks the source file's SHA-256, loads it with `torch.load(weights_only=True)` on CPU,
-  classifies every key (converted, computed and dropped, unused and dropped, or unmapped), fails on unknown keys and
-  while any key is unmapped or any model parameter has no source, splits the packed attention projections, drops the
-  position table's cls row, converts transposed convolutions with `swapaxes(0, 1)` and a spatial flip (forward through
-  `eqx.nn.ConvTranspose2d`), and writes the archive with a conversion record. The torch-to-Equimo key mapping lives here
-  and is imported by the tests through the existing `models` import pattern.
+  classifies every key (converted, computed and dropped, or unused and dropped), fails on unknown keys and while any
+  model parameter has no source, splits the packed attention projections, drops the position table's cls row, converts
+  transposed convolutions with `swapaxes(0, 1)` and a spatial flip (forward through `eqx.nn.ConvTranspose2d`), and
+  writes the archive with a conversion record. The torch-to-Equimo key mapping lives here and is imported by the tests
+  through the existing `models` import pattern.
 - `models/sam31_reference.py` (Create): the reference harness, run in its own environment. Builds the float32 reference,
   the bfloat16 reference with `use_fa3=False`, and the tiny random-weight configuration (a configuration table shared
   with the tests); registers forward hooks that save outputs; records decision traces from the policy; asserts the 1e-3
@@ -1160,7 +1160,9 @@ Video milestone:
 Before declaring the work complete, run the focused tests, then the CI-equivalent checks from `AGENTS.md` (`ruff check`,
 `ruff format --check`, `mdformat --check`, `ty check`, `pytest`), `uv run python tests/ci_shards.py validate`, and a
 fresh `uv build --no-sources --out-dir <staging-directory>` checked by the distribution tests. The full-weight parity
-runs are local, on the RTX 4080, because the scheduled job has no GPU runner.
+runs are local, on the RTX 4080, because the scheduled job has no GPU runner. On GPU they set
+`JAX_DEFAULT_MATMUL_PRECISION=highest`: XLA's default GPU matmul precision alone puts trunk features 9e-4 from exact
+float32 arithmetic, against 3e-6 at the highest precision (measured). The CPU job needs no setting.
 
 ______________________________________________________________________
 

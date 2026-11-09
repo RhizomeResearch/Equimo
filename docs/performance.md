@@ -134,6 +134,29 @@ metadata mismatch until they are rebuilt.
 
 Accelerator timing and physical multi-device performance remain unmeasured.
 
+## SAM 3.1 image inference and fine-tuning
+
+Measured on an RTX 4080 (16 GB) with `benchmarks/sam3_image.py`, in bfloat16 at 1008 x 1008 on one image, with
+`XLA_PYTHON_CLIENT_PREALLOCATE=false` and `XLA_PYTHON_CLIENT_MEM_FRACTION=1.0`. Weights load on the CPU so that peak
+memory reports the workload. Training runs 50 SGD steps with a loss on the 16 highest-scoring queries' mask logits; the
+loss stayed finite and decreased in every run that completed.
+
+| Workload                                     | Attention | Trunk rematerialized | Peak GPU memory | Step or call time |
+| -------------------------------------------- | --------- | -------------------- | --------------: | ----------------: |
+| Image inference (encode and detect)          | XLA       | no                   |          2.8 GB |            124 ms |
+| Image inference (encode and detect)          | cuDNN     | no                   |          1.4 GB |             82 ms |
+| Head-only fine-tuning (detector head)        | XLA       | yes                  |          7.0 GB |            0.84 s |
+| Head-only fine-tuning (detector head)        | cuDNN     | yes                  |          2.0 GB |            0.69 s |
+| LoRA on trunk and detector attention, rank 8 | XLA       | no                   |   out of memory |                 - |
+| LoRA on trunk and detector attention, rank 8 | XLA       | yes                  |          7.3 GB |            1.32 s |
+| LoRA on trunk and detector attention, rank 8 | cuDNN     | no                   |          8.4 GB |            1.02 s |
+| LoRA on trunk and detector attention, rank 8 | cuDNN     | yes                  |          2.2 GB |            1.06 s |
+
+Rematerialization is `encode_image(x, checkpoint_trunk=True)`, which the benchmark's training steps pass. LoRA with XLA
+attention and no rematerialization fails trying to allocate 15.4 GB. Run
+`benchmarks/sam3_image.py {inference,head,lora} --archive-dir DIR --implementation {xla,cudnn}` from the devenv shell
+with the CUDA wheels.
+
 ## Softmax precision
 
 These GPU measurements choose where Equimo uses the corrected derivative of `equimo.core.ops.softmax`. Environment:

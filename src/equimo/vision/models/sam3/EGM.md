@@ -19,8 +19,9 @@ Equimo's license.
 - Endpoints, all taking `key=None, inference=True`:
   - `features(x (C, H, W)) -> (dim, G, G)`: the detector pyramid's low-resolution level; the `FeatureSpec` endpoint.
     `[model.py:Sam3.features]`
-  - `encode_image(x) -> ImageFeatures`: `detector`, `interactive`, `propagation`, each three maps at 4G, 2G and G.
-    `[model.py:Sam3.encode_image]`, `[encoder.py:ImageFeatures]`
+  - `encode_image(x, *, checkpoint_trunk=False) -> ImageFeatures`: `detector`, `interactive`, `propagation`, each three
+    maps at 4G, 2G and G. `checkpoint_trunk` rematerializes the trunk blocks under autodiff, for fine-tuning through the
+    trunk. `[model.py:Sam3.encode_image]`, `[encoder.py:ImageFeatures]`
   - `detect(features, ConceptPrompt) -> DetectorOutput`: `logits (Q)` (joint logit), `presence_logit`, `boxes (Q, 4)`
     (normalized cxcywh), `mask_logits (Q, 4G, 4G)` (float32), `layer_boxes (L, Q, 4)`, `layer_logits (L, Q)`.
     `[model.py:Sam3.detect]`, `[detector.py:DetectorOutput]`
@@ -129,6 +130,8 @@ for the published configuration in bfloat16 (`G = 72`, `S = 16`, `dim = 256`, ab
   `[tracker.py:_memory_key_rotary]`, `[tracker.py:_chunked_attention]`
 - `MemoryEncoder` resizes masks to 16 times the feature grid in float32 before downsampling.
   `[tracker.py:MemoryEncoder]`
+- `Sam3Tracker` holds the checkpoint's `no_object_pointer`, `no_object_memory`, `interactive_pointer_proj` and
+  `interactive_mask_downsample`; the tracking steps do not read them yet. `[tracker.py:Sam3Tracker]`
 - A slot goes from empty to active and from active to removed. Objects are only added to empty slots, so a removed slot
   stays removed until its bucket is released. `[tracker.py:Sam3Tracker.commit]`
 - A released bucket is cleared before the rest of the plan applies, so it equals a bucket from `empty_state` and can

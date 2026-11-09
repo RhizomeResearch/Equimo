@@ -141,9 +141,15 @@ class Sam3(eqx.Module):
         x: Float[Array, "channels height width"],
         key: PRNGKeyArray | None = None,
         inference: bool = True,
+        *,
+        checkpoint_trunk: bool = False,
     ) -> ImageFeatures:
-        """Return the three feature pyramids of one image."""
-        return self.neck(self.trunk(x))
+        """Return the three feature pyramids of one image.
+
+        ``checkpoint_trunk`` rematerializes the trunk blocks under autodiff,
+        trading compute for the memory fine-tuning through the trunk needs.
+        """
+        return self.neck(self.trunk(x, checkpoint=checkpoint_trunk))
 
     def detect(
         self,

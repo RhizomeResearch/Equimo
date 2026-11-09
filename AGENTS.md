@@ -82,6 +82,10 @@ revision (observed in practice). Delete them before finishing, or, for files tha
 `.gitignore` containing `*` in `artifact-staging/` (run in practice). A bare `pytest` also collects a clone kept there;
 `collect_ignore_glob = ["*"]` in `artifact-staging/conftest.py` stops that (run in practice).
 
+JAX's default matmul precision on GPU is not float32: plain linear projections on the RTX 4080 differed from exact
+float32 by about 1e-4 per element. For float32 parity on a GPU, run with `JAX_DEFAULT_MATMUL_PRECISION=highest` (run in
+practice); CPU float32 needs no setting.
+
 `models/sam31_reference.py` needs a CUDA GPU and the environment in `models/sam31_reference_requirements.txt`, not the
 locked one; `tests/data/README.md` has the commands (read in config). Its `tokenizer` command needs no GPU (run in
 practice). On a NixOS host, run it through the devenv shell so the environment's wheels find their libraries, with the

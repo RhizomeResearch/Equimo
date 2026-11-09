@@ -405,7 +405,7 @@ def test_sam31_rejects_a_checkpoint_with_the_wrong_digest(tmp_path):
         ),
         ("detector.backbone.language_backbone.encoder.text_projection", "unused"),
         ("detector.transformer.decoder.norm.weight", "converted"),
-        ("tracker.model.no_obj_embed_spatial", "unmapped"),
+        ("tracker.model.no_obj_embed_spatial", "converted"),
         (
             "tracker.model.transformer.encoder.layers.3.image_cross_attn_q_proj.bias",
             "converted",
@@ -457,7 +457,6 @@ def test_sam31_conversion_rules_name_parameters_of_the_models():
 
     classification = converter.classify_keys(keys)
 
-    assert not classification.unmapped
     for key, conversion in classification.converted.items():
         for destination in conversion.destinations:
             assert destination in templates[conversion.archive], key
@@ -505,29 +504,22 @@ def test_sam31_destination_check_returns_parameters_without_a_source():
 
 
 @pytest.mark.parametrize(
-    ("keys", "without_source", "status"),
-    [
-        (["detector.dot_prod_scoring.hs_proj.weight"], [], 0),
-        (["tracker.model.no_obj_embed_spatial"], [], 1),
-        (["detector.dot_prod_scoring.hs_proj.weight"], ["tracker.parameter"], 1),
-    ],
+    ("without_source", "status"),
+    [([], 0), (["tracker.parameter"], 1)],
 )
-def test_sam31_report_fails_until_the_model_covers_the_checkpoint(
-    capsys, keys, without_source, status
+def test_sam31_report_fails_while_a_parameter_has_no_source(
+    capsys, without_source, status
 ):
     converter = load_sam31_converter()
-
-    returned = converter.report_classification(
-        converter.classify_keys(keys), without_source
+    classification = converter.classify_keys(
+        ["detector.dot_prod_scoring.hs_proj.weight"]
     )
 
-    assert returned == status
+    assert converter.report_classification(classification, without_source) == status
     output = capsys.readouterr().out
     assert "converted=" in output
     for key in without_source:
         assert f"no source: {key}" in output
-    if status and not without_source:
-        assert f"unmapped: {keys[0]}" in output
 
 
 def test_conversion_scripts_have_no_machine_specific_paths():

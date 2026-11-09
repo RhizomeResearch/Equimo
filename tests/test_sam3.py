@@ -250,6 +250,18 @@ def test_gradients_reach_every_module_and_stay_finite(model):
         assert any(jnp.any(leaf != 0) for leaf in grads), module
 
 
+def test_trunk_checkpointing_keeps_outputs_and_gradients(model):
+    def loss(trunk, checkpoint):
+        return jnp.sum(trunk(IMAGE, checkpoint=checkpoint))
+
+    np.testing.assert_array_equal(
+        model.trunk(IMAGE), model.trunk(IMAGE, checkpoint=True)
+    )
+    plain = eqx.filter_grad(loss)(model.trunk, False)
+    checkpointed = eqx.filter_grad(loss)(model.trunk, True)
+    assert eqx.tree_equal(plain, checkpointed, rtol=1e-5, atol=1e-5)
+
+
 def test_gradients_stay_finite_without_any_prompt_tokens(model):
     def loss(model):
         features = model.encode_image(IMAGE)

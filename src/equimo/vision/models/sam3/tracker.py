@@ -604,6 +604,12 @@ class Sam3Tracker(eqx.Module):
     pointer_proj: MLP
     pointer_time_proj: eqx.nn.Linear
     memory_time_embed: Float[Array, "times dim"]
+    # Weights the checkpoint holds for object-absent pointers and memory and for
+    # interactive pointers; the tracking steps do not read them yet.
+    interactive_pointer_proj: MLP
+    no_object_pointer: eqx.nn.Linear
+    no_object_memory: Float[Array, "slots dim"]
+    interactive_mask_downsample: eqx.nn.Conv2d
 
     def __init__(
         self,
@@ -629,7 +635,11 @@ class Sam3Tracker(eqx.Module):
             key_pointer,
             key_pointer_time,
             key_time_embed,
-        ) = jr.split(key, 7)
+            key_interactive_pointer,
+            key_no_object_pointer,
+            key_no_object_memory,
+            key_interactive_downsample,
+        ) = jr.split(key, 11)
         self.image_position = ImagePositionEncoding(
             dim, grid, image_size, key=key_position
         )
@@ -649,6 +659,14 @@ class Sam3Tracker(eqx.Module):
         self.pointer_proj = MLP(dim, dim, dim, 3, key=key_pointer)
         self.pointer_time_proj = eqx.nn.Linear(dim, dim, key=key_pointer_time)
         self.memory_time_embed = jr.normal(key_time_embed, (_NUM_TIME_EMBEDDINGS, dim))
+        self.interactive_pointer_proj = MLP(
+            dim, dim, dim, 3, key=key_interactive_pointer
+        )
+        self.no_object_pointer = eqx.nn.Linear(dim, dim, key=key_no_object_pointer)
+        self.no_object_memory = jr.normal(key_no_object_memory, (num_slots, dim))
+        self.interactive_mask_downsample = eqx.nn.Conv2d(
+            1, 1, kernel_size=4, stride=4, key=key_interactive_downsample
+        )
 
     def empty_state(self, num_buckets: int = 1) -> TrackerState:
         """Return a state of ``num_buckets`` cleared buckets."""

@@ -97,6 +97,20 @@ TOKENIZER_CORPUS = (
     "",
 )
 
+# Component outputs the image fixture keeps; interactive prompts are stored as
+# ``outputs.interactive.point`` and ``outputs.interactive.box``.
+IMAGE_RECORDED_OUTPUTS = (
+    "outputs.trunk",
+    "outputs.neck",
+    "outputs.text",
+    "outputs.detector.geometry",
+    "outputs.detector.head",
+    "outputs.detector.joint",
+    "outputs.interactive.point",
+    "outputs.interactive.box",
+)
+IMAGE_MEAN_ABSOLUTE_ERROR = 5e-4
+
 # Fixed by the design; the 1e-3 margin keeps numerically legitimate differences
 # from flipping a comparison.
 THRESHOLD_MARGIN = 1e-3
@@ -1468,9 +1482,14 @@ def reference_precision(precision: str, build: Callable[[], Any]) -> Iterator[An
     if precision == "bfloat16":
         yield build()
         return
+    import torch
+
     with float32_reference():
         model = build()
         exit_autocast(model)
+        # Building the video predictor turns TF32 on again.
+        torch.backends.cuda.matmul.allow_tf32 = False
+        torch.backends.cudnn.allow_tf32 = False
         yield model
 
 
@@ -1518,8 +1537,8 @@ def resized_video_frame(path: Path, size: int) -> tuple[np.ndarray, tuple[int, i
 
 def generate_image(
     checkpoint: Path, image: Path, concept: str, output_dir: Path, precision: str
-) -> None:
-    """Record every component's outputs on one real image with full weights."""
+) -> dict:
+    """Record every image component's outputs on one real image with full weights."""
     device = "cuda"
     use_deterministic_kernels()
     with reference_precision(
@@ -1528,18 +1547,89 @@ def generate_image(
         recorder = Recorder()
         for name, module in component_modules(model).items():
             recorder.watch(name, module)
+        watch_joint_scores(model, recorder)
         DecisionTrace(model, scripted=False, assert_margins=True)
         resized, source = resized_image(image, 1008)
         images = normalized_frame(resized, device)[None]
         state = initial_state(model, images, device, source, is_image_only=True)
         arrays = run_single_image(model, state, concept)
         recorder.close()
+        arrays |= concept_tokens(model, concept)
+        interactive = run_interactive_prompts(model, images, device, source, arrays)
     subset: dict[str, np.ndarray] = {"inputs.image": resized}
-    for seed, (name, array) in enumerate(sorted(recorder.arrays.items())):
-        for part, values in seeded_subset(array, 4096, seed).items():
+    recorded = recorder.arrays | interactive
+    # The first text batch holds the concept, then the placeholder names.
+    recorded["outputs.text.0"] = recorded["outputs.text.0"][:1]
+    for name in ("outputs.text.1", "outputs.text.2"):
+        recorded[name] = recorded[name][:, :1]
+    kept = (name for name in recorded if name.startswith(IMAGE_RECORDED_OUTPUTS))
+    for seed, name in enumerate(sorted(kept)):
+        for part, values in seeded_subset(recorded[name], 4096, seed).items():
             subset[f"{name}.{part}"] = values
     subset |= arrays
-    save_fixture(output_dir / f"sam31_image_reference_{precision}.npz", subset)
+    suffix = "" if precision == "float32" else f"_{precision}"
+    path = output_dir / f"sam31_image_reference{suffix}.npz"
+    save_fixture(path, subset)
+    return {path.name: image_provenance(path, concept)}
+
+
+def concept_tokens(model: Any, concept: str) -> dict[str, np.ndarray]:
+    """Store the ids the reference tokenizer gives the concept, and their padding."""
+    language = model.detector.backbone.language_backbone
+    tokens = language.tokenizer([concept], context_length=language.context_length)
+    return {
+        "inputs.text.token_ids": tokens.cpu().numpy(),
+        "inputs.text.padding_mask": (tokens == 0).cpu().numpy(),
+    }
+
+
+def run_interactive_prompts(
+    model: Any,
+    images: Any,
+    device: str,
+    source: tuple[int, int],
+    arrays: dict[str, np.ndarray],
+) -> dict[str, np.ndarray]:
+    """Run the interactive head once for a point and once for box corners.
+
+    Both prompts sit on the first emitted object, so they do real work.
+    """
+    import torch
+
+    x, y, width, height = arrays["emitted.000.boxes"][0]
+    center = (x + width / 2, y + height / 2)
+    prompts = {
+        "point": ([center], [1]),
+        "box": ([(x, y), (x + width, y + height)], [2, 3]),
+    }
+    tracker = model.tracker.model
+    recorded: dict[str, np.ndarray] = {}
+    for name, (points, labels) in prompts.items():
+        coordinates = torch.tensor(points, dtype=torch.float32)
+        point_labels = torch.tensor(labels, dtype=torch.int32)
+        arrays[f"inputs.interactive.{name}.points"] = coordinates.numpy()
+        arrays[f"inputs.interactive.{name}.labels"] = point_labels.numpy()
+        recorder = Recorder()
+        recorder.watch(
+            "interactive.prompt_encoder", tracker.interactive_sam_prompt_encoder
+        )
+        recorder.watch("interactive.mask_decoder", tracker.interactive_sam_mask_decoder)
+        state = initial_state(model, images, device, source, is_image_only=True)
+        with torch.inference_mode():
+            model.add_prompt(
+                state,
+                frame_idx=0,
+                points=coordinates,
+                point_labels=point_labels,
+                obj_id=0,
+            )
+        recorder.close()
+        recorded |= {
+            key.replace("outputs.interactive.", f"outputs.interactive.{name}."): value
+            for key, value in recorder.arrays.items()
+            if key.startswith("outputs.")
+        }
+    return recorded
 
 
 def run_single_image(model: Any, state: dict, concept: str) -> dict[str, np.ndarray]:
@@ -1548,6 +1638,25 @@ def run_single_image(model: Any, state: dict, concept: str) -> dict[str, np.ndar
     with torch.inference_mode():
         _, output = model.add_prompt(state, frame_idx=0, text_str=concept)
     return render_outputs(iter([(0, output)]), "emitted")
+
+
+def image_provenance(path: Path, concept: str) -> dict:
+    """The provenance of a full-weight fixture, compared by mean absolute error."""
+    entry = provenance(
+        path,
+        "python models/sam31_reference.py image --checkpoint /path/to/sam3.1_multiplex.pt "
+        f"--image /path/to/image --concept {json.dumps(concept)} "
+        "--output-dir /path/to/output",
+        0,
+        [3, 1008, 1008],
+    )
+    entry["comparison"] = {
+        "atol": IMAGE_MEAN_ABSOLUTE_ERROR,
+        "metric": "mean_absolute_error",
+    }
+    entry["tolerance"] = IMAGE_MEAN_ABSOLUTE_ERROR
+    entry["upstream"]["checkpoint"] = CHECKPOINT_SHA256
+    return entry
 
 
 def generate_video(
@@ -1637,10 +1746,9 @@ def main() -> None:
     elif args.command == "tiny":
         entries = generate_tiny(args.reference_dir, args.output_dir, device)
     elif args.command == "image":
-        generate_image(
+        entries = generate_image(
             args.checkpoint, args.image, args.concept, args.output_dir, args.precision
         )
-        return
     else:
         generate_video(
             args.checkpoint,
