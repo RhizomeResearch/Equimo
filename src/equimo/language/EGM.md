@@ -27,7 +27,8 @@ wrapper that fetches Equimo tokenizer files and a CLIP BPE tokenizer with a pack
   return per-token features `(context_length, out_dim)`, or `(context_length, dim)` without a projection
   [models.py:CausalTextTransformer.features].
 - `sam31_text(pretrained=False, inference_mode=True, **kwargs)`: the 32-token, 1024-wide, 24-block text encoder with a
-  projection to 256 and exact GELU, built from `_CAUSAL_TEXT_REGISTRY` [models.py:sam31_text].
+  projection to 256 and exact GELU, built from `_CAUSAL_TEXT_REGISTRY` [models.py:sam31_text]. `pretrained=True` with
+  any config override raises `ValueError` [src/equimo/core/factory.py:build_model_variant].
 - `global_avg_pooling(inputs, compatible_paddings, pooling_dims, epsilon=1e-8)` [models.py:global_avg_pooling].
 - `SentencePieceTokenizer(identifier=None, url=None, path=None, repository=DEFAULT_TOKENIZER_REPOSITORY)` with
   `encode(input_text, max_length=64, lowercase=True) -> (token_ids, padding_mask)` and `download(url) -> Path`
@@ -54,13 +55,15 @@ wrapper that fetches Equimo tokenizer files and a CLIP BPE tokenizer with a pack
   added in the embedding dtype [models.py:TextTransformerEncoder.\_prepare_tokens]. Odd `dim` zero-pads the last
   channel; `posemb` raises `ValueError` without `seq_len` or with a non-1D `position`
   [models.py:TextTransformerEncoder.posemb].
+- `TextTransformerEncoder` stores `temperature` but never reads it, so the value has no effect
+  [models.py:TextTransformerEncoder.\_\_init\_\_].
 - `global_avg_pooling` accumulates in float32 for `bfloat16` and `float16` inputs and returns the input dtype
   [models.py:global_avg_pooling].
 - Block keys are split with `split_for_mode`, so a missing key is allowed only under `inference=True`
   [models.py:TransformerEncoderStack.\_\_call\_\_].
 - The tokenizer requires at least one of `identifier`, `url`, or `path` (`ValueError`); `identifier` takes precedence
-  and builds `{repository}/{identifier}.model`; URLs must use `http://` or `https://`; a missing local path raises
-  `FileNotFoundError` \[tokenizers.py:SentencePieceTokenizer.\_\_init\_\_,
+  and builds `{repository}/{identifier}.model`, and `url` takes precedence over `path`; URLs must use `http://` or
+  `https://`; a missing local path raises `FileNotFoundError` \[tokenizers.py:SentencePieceTokenizer.\_\_init\_\_,
   tokenizers.py:SentencePieceTokenizer.download\]. It never adds BOS/EOS tokens and pads or truncates to `max_length`
   with id `0` [tokenizers.py:SentencePieceTokenizer.encode].
 
@@ -73,9 +76,9 @@ wrapper that fetches Equimo tokenizer files and a CLIP BPE tokenizer with a pack
 - The constructor and `encode` lazily import `tensorflow` and `tensorflow_text`, raising `ImportError` that points to
   the `language` extra when missing [tokenizers.py:\_require_tensorflow_text]. The constructor checks this before any
   download [tokenizers.py:SentencePieceTokenizer.\_\_init\_\_].
-- `ClipBpeTokenizer` reads the MIT CLIP vocabulary from `data/bpe_simple_vocab_16e6.txt.gz` or from `path`, and never
-  touches the network. It lazily imports `ftfy` and `regex`, raising `ImportError` that points to the `clip` extra when
-  missing [tokenizers.py:\_require_clip].
+- `ClipBpeTokenizer` reads the MIT CLIP vocabulary from `data/bpe_simple_vocab_16e6.txt.gz` or from the gzip-compressed
+  file at `path` [tokenizers.py:ClipBpeTokenizer.\_\_init\_\_], and never touches the network. It lazily imports `ftfy`
+  and `regex`, raising `ImportError` that points to the `clip` extra when missing [tokenizers.py:\_require_clip].
 - Importing `models.py` registers `TextTransformerEncoder` and `CausalTextTransformer` in the global model registry
   [models.py:TextTransformerEncoder, models.py:CausalTextTransformer].
 

@@ -170,14 +170,15 @@ for prediction in predictions:
 
 `push_frame` returns the frames that became final. Decisions need two frames of look-ahead, so from the third frame on
 each call returns the frame two steps earlier, and `finish` returns the rest. `set_prompt` must be called before the
-first frame and raises afterwards. The text applies to every frame and box or point exemplars to the first frame only,
-as in the reference.
+first frame and raises afterwards. `push_frame` raises without a prompt, after `finish`, and past `num_frames`. The text
+applies to every frame and box or point exemplars to the first frame only, as in the reference. `tracker.decisions`
+holds one decision record per planned pass.
 
-Objects occupy 16-slot buckets, and `max_objects` (default 16) caps how many are tracked. A batch of new objects that
-fits no existing group of buckets opens new ones, and a removed object's slot stays unused until its whole bucket is
-released, so the bucket count can grow even with 16 objects or fewer, up to the next power of two of `max_objects`. The
-device code compiles once per bucket count, and a `push_frame` that grows the count recompiles, which takes about a
-minute on an RTX 4080.
+Objects occupy 16-slot buckets, and `max_objects` (default 16) caps how many detected objects are tracked. A batch of
+new objects that fits no existing group of buckets opens new ones, and a removed object's slot stays unused until its
+whole bucket is released, so the bucket count can grow even with 16 objects or fewer, up to the next power of two of
+`max_objects`. The device code compiles once per bucket count, and a `push_frame` that grows the count recompiles, which
+takes about a minute on an RTX 4080.
 
 To stop tracking an object, call `remove_object`. It disappears from every frame not yet returned, and frames already
 returned keep it:
@@ -202,5 +203,6 @@ next_prediction = track.push(frames[41])  # the object on the next frame
 ```
 
 The new object runs on its own state, so it is not added to the output of `push_frame`; frames already returned do not
-change, and `remove_object` does not apply to it. Refining an existing object with points, reverse propagation and a new
-prompt after the first frame are not supported.
+change, `max_objects` does not count it, and `remove_object` does not apply to it. `object_id` can name an unused ID,
+and naming one in use raises. Refining an existing object with points, reverse propagation and a new prompt after the
+first frame are not supported.

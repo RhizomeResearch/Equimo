@@ -35,9 +35,11 @@ exposed both as a raw backbone over flattened variates and through a `predict` r
 - Per-cell mask codes are `0` valid, `1` padding, `2` missing, `4` withheld; variate types are `0` target and `2` future
   covariate (`1` is treated as causal history in scaling) [t0.py:\_VALID, t0.py:\_scale_input].
 - Inputs whose length is not a multiple of `patch_size` are left-padded with mask `1`, group id `-1`, and type `-1`
-  [t0.py:T0.\_patch]. Time attention is restricted to the same group, is causal except that future-covariate query
-  patches attend in both directions, and excludes fully padded key patches; group attention is restricted to the same
-  group [t0.py:T0.\_masks].
+  [t0.py:T0.\_patch]. Patch validity is read from each patch's first cell (group id `>= 0`), so the leading patch
+  left-padded this way is excluded as both query and key in both attention types, although it is only partly padded.
+  Time attention is restricted to the same group, is causal except that future-covariate query patches attend in both
+  directions, and excludes key patches whose cells all have mask `1`; group attention is restricted to the same group
+  [t0.py:T0.\_masks].
 - Decoded quantiles are monotone non-decreasing along the quantile axis (first value plus cumulative softplus)
   [t0.py:T0.\_\_call\_\_].
 - `predict` requires `horizon >= 1`, query quantiles strictly ascending, unique, and in `(0, 1)`, and a `patch_size`

@@ -34,6 +34,9 @@ holds only a docstring; import subpackages explicitly (`equimo.vision.models`, `
 - `resize_bilinear(x (..., H, W), size) -> (..., out_h, out_w)`: float32 resize that matches
   `torch.nn.functional.interpolate(mode="bilinear", align_corners=False)` on CUDA, including its float32 sample
   positions. `[ops.py:resize_bilinear]`
+- `resize_bilinear_antialias(x (..., H, W), size) -> (..., out_h, out_w)`: float32 resize that matches
+  `torch.nn.functional.interpolate(mode="bilinear", align_corners=False, antialias=True)`: each axis uses a triangle
+  filter widened by its downscale factor, and upscaling is plain bilinear. `[ops.py:resize_bilinear_antialias]`
 - `grid_sample(features (C, H, W), points (N, 2)) -> (N, C)`: `torch.nn.functional.grid_sample` with bilinear
   interpolation, `align_corners=False` and zero padding, for `(x, y)` points in `[-1, 1]`. `[ops.py:grid_sample]`
 
@@ -84,12 +87,15 @@ holds only a docstring; import subpackages explicitly (`equimo.vision.models`, `
   `ImportError` naming the `extras` extra when it is missing. `[io.py:load_image]`
 - `roi_align` with `sampling_ratio <= 0` takes `ceil(roi_size / output_size)` samples per bin and axis, evaluated
   against a static maximum of `ceil(H / out_h)` by `ceil(W / out_w)` with masking, so it matches torchvision for boxes
-  no larger than the map and samples larger boxes with that maximum. Both operations compute coordinates and weights in
-  float32 and return the dtype of `features`; gradients reach `features` and, through the interpolation weights, the
-  boxes or points. `[ops.py:roi_align]`, `[ops.py:_bin_weights]`, `[ops.py:grid_sample]`
-- Segmentation helpers expect nonempty `(Q, H, W)` mask logits and `(Q, K + 1)` class logits whose last column is
-  no-object, and raise `ValueError` otherwise. Class softmax and mask sigmoid are computed in float32.
-  `[segmentation.py:_validate_logits]`, `[segmentation.py:semantic_scores]`, `[segmentation.py:panoptic_predictions]`
+  no larger than the map and samples larger boxes with that maximum. `roi_align` and `grid_sample` compute coordinates
+  and weights in float32 and return the dtype of `features`; gradients reach `features` and, through the interpolation
+  weights, the boxes or points. `[ops.py:roi_align]`, `[ops.py:_bin_weights]`, `[ops.py:grid_sample]`
+- `semantic_scores`, `semantic_class_map` and `panoptic_predictions` expect nonempty `(Q, H, W)` mask logits and
+  `(Q, K + 1)` class logits whose last column is no-object, and raise `ValueError` otherwise. `resize_mask_logits` only
+  requires a `(Q, H, W)` shape and a positive size, so it accepts an empty `Q`. Class softmax and mask sigmoid are
+  computed in float32. `[segmentation.py:_validate_logits]`, `[segmentation.py:semantic_scores]`,
+  `[segmentation.py:semantic_class_map]`, `[segmentation.py:panoptic_predictions]`,
+  `[segmentation.py:resize_mask_logits]`
 - `panoptic_predictions` requires unique stuff classes in `[0, K)` and thresholds in `[0, 1]`.
   `[segmentation.py:panoptic_predictions]`
 - `merge_semantic_crops` checks on the host that crops stay inside the scaled image and cover every pixel (an uncovered
@@ -100,10 +106,11 @@ holds only a docstring; import subpackages explicitly (`equimo.vision.models`, `
   `_query_attention_mask` keeps a mask only when `uniform < probability`, so probability zero never keeps a mask.
   `[segmentation.py:_anneal_mask_probabilities]`, `[segmentation.py:_query_attention_mask]`
 - PMT checkpoints: BatchNorm PMT models require a complete `eqx.nn.State`; stateless models reject a nonempty state; the
-  mask state length must equal the decoder depth. Loading compares the recorded architecture configuration (schema, PMT
-  config, group count, masked attention, `backbone_id`, `input_view`, `class_ontology`, feature endpoint, prefix tokens,
-  patch size, positional configuration) with the template and raises on mismatch. `[pmt_checkpoint.py:_check_state]`,
-  `[pmt_checkpoint.py:_mask_state]`, `[pmt_checkpoint.py:_configuration]`, `[pmt_checkpoint.py:_check_configuration]`
+  mask state length must equal the decoder depth. Loading compares the recorded architecture configuration (schema,
+  `kind`, PMT config, group count, masked attention, `backbone_id`, `input_view`, `class_ontology`, feature endpoint,
+  prefix tokens, patch size, positional configuration) with the template and raises on mismatch.
+  `[pmt_checkpoint.py:_check_state]`, `[pmt_checkpoint.py:_mask_state]`, `[pmt_checkpoint.py:_configuration]`,
+  `[pmt_checkpoint.py:_check_configuration]`
 - Full checkpoints verify the loaded encoder digest against the recorded `base_digest`; decoder-only artifacts require a
   bound `backbone_id` (not `"unbound"`) and the template's current encoder digest must match the recorded one. A
   recorded digest that matches the encoder's pre-2.8 layout is accepted too. `[pmt_checkpoint.py:load_pmt_checkpoint]`,
@@ -112,8 +119,9 @@ holds only a docstring; import subpackages explicitly (`equimo.vision.models`, `
 - `encoder_array_digest` pulls arrays to the host and must run outside traced functions.
   `[_encoder_identity.py:encoder_array_digest]`
 - Global conventions for the subtree: modules are unbatched, forward endpoints take `key: PRNGKeyArray | None = None`
-  and run keyless under `inference=True` (except masked-attention query models), and string layer names resolve through
-  the registries in [`layers`](./layers/EGM.md).
+  and run keyless under `inference=True` (except masked-attention query models, and `VisionParcae` unless
+  `state_init="zero"`), and string layer names resolve through the registries in [`layers`](./layers/EGM.md).
+  `[models/parcae.py:VisionParcae._features_with_aux]`
 
 ## Side Effects
 

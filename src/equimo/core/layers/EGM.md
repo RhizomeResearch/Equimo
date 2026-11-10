@@ -14,7 +14,7 @@ This directory holds the shared building blocks that the vision, language, audio
 - **Generic containers:** residual wrappers, windowed sequences, and block chunks.
 
 Each layer family has a string-keyed registry, so models can name layers in their configs. `get_layer` resolves a name
-across all the core registries.
+across the core registries other than activation.
 
 ## Interface
 
@@ -24,9 +24,9 @@ names that are not re-exported there.
 ### Registries
 
 - `[_registry.py:make_register]`: builds `register(name=None, force=False)`, a decorator that stores a class under
-  `name.lower()`, or under `cls.__name__.lower()` when no name is given.
+  `name.lower()`, or under `cls.__name__.lower()` when no name is given. Not re-exported.
 - `[_registry.py:make_get]`: builds `get(module)`, a case-insensitive name lookup. A class passed in is returned
-  unchanged.
+  unchanged. Not re-exported.
 - `[_registry.py:_resolve_from_registries]`: an internal helper used across modalities. It looks a name up in several
   `[_registry.py:NamedLayerRegistry]` pairs, optionally with `collision_policy="first"`.
 - The per-family registry pairs, listed with the names registered at import:
@@ -60,12 +60,14 @@ names that are not re-exported there.
 - `[attention.py:AttentionBlock]`: pre-norm transformer block that computes
   `x + drop_path(ls1(postnorm(attn(prenorm(x)))))`, then `x + drop_path(ls2(mlp(norm(x))))`. `postnorm` is a norm only
   when `post_attention_norm=True`, and `Identity` otherwise.
+  - Constructor:
+    `AttentionBlock(dim, num_heads, *, key, mlp_ratio=4.0, drop_path=0.0, qkv_bias=True, proj_bias=True, qk_norm=False, attn_drop=0.0, proj_drop=0.0, act_layer="gelu", attn_layer="attention", ffn_layer="mlp", ffn_bias=True, ffn_norm=False, ffn_kwargs={}, norm_layer="layernorm", post_attention_norm=False, init_values=None, eps=1e-5)`.
   - Call: `__call__(x (seqlen, dim), key, inference=None, *, mask=None, attn_mask=None, ffn_mask=None, rotary=...)`.
     `key` has no default.
   - Its sublayers are resolved by name through `get_attn`, `get_ffn`, `get_norm` and `get_act`.
 - `[attention.py:with_attention_implementation]`: returns the model with every module that has an `implementation` field
   switched to `"xla"` or `"cudnn"`. Parameters are unchanged.
-- `[attention.py:AttentionImplementation]`: `Literal["xla", "cudnn"]`.
+- `[attention.py:AttentionImplementation]`: `Literal["xla", "cudnn"]`. Not re-exported.
 - `[attention.py:_fused_attention]`: internal cuDNN path, a wrapper around `jax.nn.dot_product_attention`. Instead of a
   mask, `key_value_seq_lengths` (broadcast to the leading shape `q.shape[:-3]`, a scalar for unbatched inputs) gives the
   number of valid keys packed at the front of each entry, so a variable key count needs no dense mask. `bias` is an
@@ -87,8 +89,8 @@ names that are not re-exported there.
 - `[ffn.py:SwiGlu]` and `[ffn.py:SwiGluFused]`: SwiGLU FFNs. The hidden width is `int(hidden_dim * 2 / 3)`, rounded up
   to a multiple of `align_to` (default 8). The fused variant uses a single `w12` projection and matches the DINOv2 giant
   model.
-- `[ffn.py:DINOHead]`: `fc1 -> fc2 -> fc3 -> L2 normalize -> WeightNormLinear`. Its `key` and `inference` arguments are
-  unused.
+- `[ffn.py:DINOHead]`: `fc1 -> act -> fc2 -> act -> fc3 -> L2 normalize -> WeightNormLinear`. Its `key` and `inference`
+  arguments are unused.
 - `[ffn.py:WeightNormLinear]`: weight-normalized linear layer `x @ (g * v / ||v||).T`.
 
 ### Normalization
@@ -109,7 +111,8 @@ names that are not re-exported there.
 - `[dropout.py:DropPath]`: stochastic depth for one unbatched example: a single draw zeroes the whole input with
   probability `p`, otherwise it is rescaled by `1 / (1 - p)`.
 - `[dropout.py:DropPathAdd]`: returns `x1 + x2`, or `x1` alone when the branch is dropped. `x2` is not rescaled.
-- `[dropout.py:split_drop_path]`: maps a float or a 1- or 2-element list to two rates. Not re-exported.
+- `[dropout.py:split_drop_path]`: maps a float or a 1- or 2-element list to two rates. Any other list length raises
+  `AssertionError`. Not re-exported.
 - `[mamba.py:Mamba2Mixer]`: Mamba2 / VSSD mixer over `(seqlen, dim)`. It uses `equimo.core.ops.non_causal_linear_attn`
   ([../ops/EGM.md](../ops/EGM.md)). `dt_bias`, `A_log` and `D` are tagged `ssm`, which keeps them out of weight decay by
   default.
@@ -118,7 +121,8 @@ names that are not re-exported there.
 - `[generic.py:WindowedSequence]`: pads a `(C, H, W)` input to a multiple of `window_size`, runs the blocks on each
   window with `vmap`, then crops back.
 - `[generic.py:BlockChunk]`: `posemb -> optional downsample -> blocks -> optional downsample_last`.
-  - String layer types are resolved through `layer_resolver`, which defaults to `get_layer`.
+  - String layer types are resolved through `layer_resolver`, which defaults to `get_layer`. Its type,
+    `[generic.py:LayerResolver]`, maps a name or class to a class and is not re-exported.
   - `intermediate_features(...)` returns `(x, selected block outputs)`.
 - `[generic.py:make_transformer_block_chunk]`: builds a transformer `BlockChunk`, or returns `None` when `depth <= 0`.
   Not re-exported.
@@ -166,11 +170,14 @@ names that are not re-exported there.
   - Fully masked rows are zeroed, because cuDNN returns the mean value for them. Entries whose `key_value_seq_lengths`
     is 0 are zeroed too. Passing both a mask and lengths raises `ValueError`.
   - Inputs must be bfloat16 or float16, or `ValueError` is raised.
+  - The kernel needs head widths that are multiples of 8 and at most 128. The code does not validate this.
   - `[attention.py:_check_cudnn_dropout]` rejects attention dropout that is active.
   - The cuDNN path cannot be exported with jax2onnx (per the `with_attention_implementation` docstring).
 - `[attention.py:AttentionBlock.__init__]`: does not pass `implementation` to `attn_layer`, so a newly built block uses
   the XLA path. Use `with_attention_implementation` to switch it afterwards.
-- `[attention.py:AttentionBlock.__call__]`: `attn_mask` and `ffn_mask` default to `mask`.
+- `[attention.py:AttentionBlock.__call__]`: `attn_mask` and `ffn_mask` default to `mask`. A non-`None` `ffn_mask` is
+  passed to the feed-forward layer, so it raises `TypeError` with `[ffn.py:SwiGlu.__call__]` or
+  `[ffn.py:SwiGluFused.__call__]`, which take no `mask`.
 
 ### PRNG keys and drop-path
 
@@ -180,14 +187,16 @@ names that are not re-exported there.
   with `equimo.core._prng.split_for_mode`.
   - `key=None` is valid only under static `inference=True`. Otherwise `ValueError` is raised.
 - `[dropout.py:DropPath]`, `[dropout.py:DropPathAdd]`: both are declared `strict=True`. `inference=None` falls back to
-  `self.inference`, and `p == 0` acts as inference. In training they raise `RuntimeError` without a key.
-  `[dropout.py:_drop_probability]` requires `p` to be a concrete scalar in `[0, 1]`.
+  `self.inference`, and `p == 0` acts as inference. At `p == 1` in training, they return zeros and `x1` respectively
+  without a key. Otherwise, in training they raise `RuntimeError` without a key. `[dropout.py:_drop_probability]`
+  requires `p` to be a concrete scalar in `[0, 1]`.
 
 ### Normalization
 
 - `[norm.py:RMSNormGated]`, `[norm.py:DyT]`, `[norm.py:RMSNorm2d]`, `[norm.py:SimpleNorm]`, `[norm.py:SimpleNorm2d]`,
   `[norm.py:GRN]`, `[norm.py:LayerNorm2d]`: compute in float32 and return the input dtype. `eps` is a static field on
   all of them except `DyT`, which accepts and ignores `eps` so it can be built as `norm_layer(dim, eps=eps)`.
+  `RMSNormGated` multiplies `x * z` before the float32 cast, so that product uses the promoted dtype of `x` and `z`.
 - `[norm.py:LayerScale.__call__]`: raises `ValueError` on a channel mismatch, and casts `gamma` to `x.dtype`.
 - `[norm.py:GRN.__call__]`: guards the `sqrt` gradient at 0 with `jnp.where`.
 - `[ffn.py:DINOHead.__call__]`: L2-normalizes in float32 with `+1e-12` in the denominator, then casts back.
@@ -199,7 +208,8 @@ names that are not re-exported there.
   dtype, the feature dim is even and nonzero, the layout is valid, and `scale` (when set) has the same shape.
 - `[rotary.py:apply_rotary]`: rejects scaled factors, since scaled factors must be applied to Q and K together.
 - `[rotary.py:_apply_rotary_unscaled]`: raises `ValueError` if `x` does not match the factors' feature dim or sequence
-  length. The computation runs in the factors' dtype, and the output is cast back to the input dtype.
+  length. The computation runs in the factors' dtype. `[rotary.py:apply_rotary]` and `[rotary.py:apply_rotary_qk]` cast
+  the result back to the input dtype.
 - `[rotary.py:make_1d_rotary_factors]`, `[rotary.py:insert_rotary_identity]`: validate their arguments and raise
   `ValueError` on invalid input.
 
@@ -214,6 +224,12 @@ names that are not re-exported there.
   - `downsample_last` and `downsampler_needs_key` are static fields.
 - `[generic.py:WindowedSequence.__init__]`: a `drop_path` list whose length is not `depth` raises `ValueError`. Inner
   blocks are always built with `window_size=0`.
+
+### Constructor keywords
+
+- `[attention.py:Attention.__init__]`, `[attention.py:AttentionBlock.__init__]`, `[ffn.py:DINOHead.__init__]`,
+  `[ffn.py:Mlp.__init__]`, `[ffn.py:SwiGlu.__init__]`, `[ffn.py:SwiGluFused.__init__]` and
+  `[mamba.py:Mamba2Mixer.__init__]`: unknown keywords are accepted through `**kwargs` and silently ignored.
 
 ## Side Effects
 

@@ -39,6 +39,9 @@ AST-like audio encoders. Every function delegates to the generic machinery in th
   [recipes.py:linear_probe_ast] [recipes.py:adapter_ast] [recipes.py:lora_ast] [recipes.py:ctc_head]
 - `multilabel_tagging_head` and `ctc_head` are documented as raw-logit heads [recipes.py:multilabel_tagging_head]
   [recipes.py:ctc_head]
+- `lora_ast` resolves `target` with the canonical tagger that `apply_lora` defaults to, not the audio tagger, so
+  `target=("audio.transformer.block",)` matches nothing and raises `ValueError` [recipes.py:lora_ast]
+  [../peft/lora.py:apply_lora] [../selectors.py:resolve_target]
 
 ## Side Effects
 

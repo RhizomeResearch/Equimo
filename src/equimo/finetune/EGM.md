@@ -21,7 +21,10 @@ optimizer or training loop: plans expose labels and masks for the caller's optim
   `FineTunePlan` (`combine()`), `FineTuneBundle`, `FineTuneBundleError` [config.py:TargetSpec] [config.py:TrainableSpec]
   [config.py:FeatureSpec] [config.py:LLRDConfig] [config.py:FineTunePlan] [config.py:FineTuneBundle]
 - Typing aliases `Path` (from `equimo.core.tags`), `PyTree`, `FilterSpec`, `LeafPredicate` [../core/tags.py:Path]
-  [\_typing.py:PyTree]
+  [\_typing.py:PyTree], the `Literal` aliases `TrainableMode`, `DepthAxis`, and `TargetKind` [config.py:TrainableMode]
+  [config.py:DepthAxis] [config.py:TargetKind], `CalibrationCollectorKind` and `CovarianceNormalization`
+  [calibration.py:CalibrationCollectorKind] [calibration.py:CovarianceNormalization], and the callable aliases
+  `LeafFilter` [paths.py:LeafFilter] and `SelectorPredicate` [selectors.py:SelectorPredicate]
 - Paths: `key_path_to_path`, `path_to_str`, `str_to_path`, `is_path_prefix`, `iter_param_leaves`, `iter_param_paths`,
   `extract_param_paths`, `make_path_tree`, `make_param_info_tree` [paths.py:path_to_str] [paths.py:str_to_path]
 - Tags: `CANONICAL_TAGS`, `Tagger`, `canonical_tags_for_path`, `infer_depth` (re-exported from `equimo.core.tags`),
@@ -45,7 +48,9 @@ optimizer or training loop: plans expose labels and masks for the caller's optim
   `FeatureLevelMetadata`, `FeatureResult`, `FeatureExtractor`, `LinearProbe`, `AttentionPoolingProbe`,
   `make_linear_probe`, `make_attention_pool_probe`, `make_attention_pool_input_from_forward_features`,
   `make_attention_pool_input_from_intermediates` [feature_extraction.py:extract_features]
-  [feature_extraction.py:make_linear_probe] [feature_extraction.py:AttentionPoolingProbe]
+  [feature_extraction.py:make_linear_probe] [feature_extraction.py:AttentionPoolingProbe]. `FeatureLevelMetadata` and
+  `FeatureResult` are re-exported by the package but are not in `feature_extraction.__all__`
+  [feature_extraction.py:\_\_all\_\_]
 - Heads: `IdentityHead`, `LinearHead`, `LayerNormReadoutHead`, `MultiLabelHead`, `MLPHead`,
   `AttentionPoolingClassifierHead`, `ProjectionHead`, `ContrastiveProjectionHead`, `CTCHead`, `DenseFeatureAdapter`
   [heads.py:LinearHead] [heads.py:AttentionPoolingClassifierHead]
@@ -77,7 +82,11 @@ optimizer or training loop: plans expose labels and masks for the caller's optim
   `DARETransform`, `BreadcrumbsConfig`, `FisherMergeConfig`, `RegMeanConfig`, `KnOTSConfig`, `interpolate_models`,
   `uniform_soup`, `greedy_soup`, `task_vector`, `apply_task_vector`, `ties_merge`, `dare_task_vector`,
   `breadcrumbs_task_vector`, `fisher_merge`, `regmean_merge`, `knots_task_vector`, `task_vector_bundle`
-  [merging.py:task_vector] [merging.py:ties_merge] [merging.py:regmean_merge]
+  [merging.py:task_vector] [merging.py:ties_merge] [merging.py:regmean_merge]. `task_vector_bundle` builds an in-memory
+  `FineTuneBundle` whose `delta_tree` is the vector's delta. A delta with a module layout, as every vector taken from an
+  Equinox model has, makes `save_finetune_bundle` raise `TypeError`, and delta loading raises `FineTuneBundleError` for
+  a `method` without a registered codec [merging.py:task_vector_bundle] [serialization.py:\_encode_value]
+  [serialization.py:\_codec_for_load]
 - Serialization: `save_delta(model, path, *, base_model=None, spec=None, method="lora", ...)`, `load_delta`,
   `save_finetune_bundle`, `load_finetune_bundle`, `save_calibration_artifacts`, `load_calibration_artifacts`
   [serialization.py:save_delta] [serialization.py:load_delta] [serialization.py:load_finetune_bundle]. The private
@@ -85,9 +94,11 @@ optimizer or training loop: plans expose labels and masks for the caller's optim
   for its built-in codecs [\_serialization_codecs.py:DeltaCodec] [\_serialization_codecs.py:build_codec_registry]
 - Package surface: `__init__.py` eagerly re-exports the symbols above and the PEFT exports, except
   `make_trainable_report`, `resolve_trainable_paths`, `make_labeled_param_info_tree`, `key_path_to_path`,
-  `is_path_prefix`, `Tagger`, `infer_role`, `make_param_info`, `merge_taggers`, and `PoolName`, which are public only
-  through their modules. `__all__` lists the `audio`, `language`, `recipes`, and `vision` submodules; `peft` is
-  importable as `equimo.finetune.peft` but is not in `__all__` [\_\_init\_\_.py:\_\_all\_\_]
+  `is_path_prefix`, `Tagger`, `infer_role`, `make_param_info`, `merge_taggers`, `PoolName`, `TrainableMode`,
+  `DepthAxis`, `TargetKind`, `LeafFilter`, `SelectorPredicate`, `CalibrationCollectorKind`, and
+  `CovarianceNormalization`, which are public only through their modules. `__all__` lists the `audio`, `language`,
+  `recipes`, and `vision` submodules; `peft` is importable as `equimo.finetune.peft` but is not in `__all__`
+  [\_\_init\_\_.py:\_\_all\_\_]
 
 ### Subpackages
 
@@ -103,13 +114,31 @@ optimizer or training loop: plans expose labels and masks for the caller's optim
   leaf [masks.py:make_trainable_filter] [labels.py:make_labeled_param_info_tree]
 - Trainable paths are resolved from the mode, then `train_head`/`train_norm`/`train_bias`, then wrapper bases with
   `train_base=True` in `peft` mode, minus `freeze` targets and leaves tagged `peft.metadata` or `buffer` (fields
-  declared with `equimo.core.parameters.buffer`, such as VeRA bases or a fixed AdaptFormer `scale`), in every mode. An
-  empty selection raises `ValueError` unless the mode is `frozen`; `TrainableSpec.expected_logical_ids` must match the
-  selection exactly [masks.py:resolve_trainable_paths] [masks.py:\_base_trainable_paths]
+  declared with `equimo.core.parameters.buffer`, such as VeRA bases or a fixed AdaptFormer `scale`), in every mode. A
+  `freeze` target that matches nothing raises `ValueError` unless it sets `allow_empty`. That includes the
+  `embedding.patch` freeze that `full_ft_llrd` and `partial_ft_last_k_blocks` apply by default
+  (`freeze_patch_embed=True`), so those recipes raise on a model with no `patch_embed` path. An empty selection raises
+  `ValueError` unless the mode is `frozen`; `TrainableSpec.expected_logical_ids` must match the selection exactly
+  [masks.py:resolve_trainable_paths] [masks.py:\_base_trainable_paths] [masks.py:\_target_paths]
+  [recipes.py:full_ft_llrd] [recipes.py:partial_ft_last_k_blocks]
+- `TrainableSpec.method_name` matters only without a `target`. In `peft` mode it adds `method_name` and
+  `peft.<method_name>` to the selected tags (`peft`, `lora`, `dora`, `adapter`, `randlora`, `prompt`, `prefix`, `ia3`,
+  `scale_shift`, `vera`). In `surgical` mode it names the shift, default `output`: `input` selects the first block depth
+  and `embedding.patch` leaves, `corruption` the `norm` and `block` leaves of the first depth, `feature` and
+  `subpopulation` the middle depth (index `len(depths) // 2`), and `output` and `label_space` the last depth; any other
+  value raises `ValueError` [masks.py:\_base_trainable_paths] [masks.py:\_surgical_paths]
+- `partial` mode with `depth_range=None` selects the last block depth; an explicit `(start, stop)` is half-open, must
+  name existing depths (`ValueError` otherwise), and is intersected with `target` when one is set. Without block depths,
+  `partial` raises `ValueError` if a range is given and otherwise selects nothing, as `surgical` does without a `target`
+  [masks.py:\_paths_in_depth_range] [masks.py:\_surgical_paths]
 - `ParamInfo` records built from a model (`iter_param_infos`, `make_tag_tree`, selectors, masks, labels) combine path
   tags with the tags modules give a leaf (`equimo.core.parameters.module_tags`): `norm` for leaves of registered
   normalization layers, `block.layer_scale` and `ssm` from field declarations, and `buffer`. `make_param_info` adds
-  module tags only through its `module_tags` argument [tags.py:\_model_param_info] [tags.py:make_param_info]
+  module tags only through its `module_tags` argument [tags.py:\_model_param_info] [tags.py:make_param_info]. The
+  predicates built by `HeadPlusNormConfig.trainable_spec`, `continued_ssl_trainable_spec`, and `bitfit_trainable_spec`
+  call their tagger on the path and leaf and so see path tags only: a `head_plus_norm()` recipe and
+  `TrainableSpec(mode="head_plus_norm")` can select different `norm` leaves [recipes.py:HeadPlusNormConfig]
+  [continued_ssl.py:continued_ssl_trainable_spec] [peft/bitfit.py:\_bitfit_predicate]
 - `LLRDConfig.no_weight_decay_tags` defaults to `equimo.core.parameters.DEFAULT_NO_DECAY_TAGS`, the same policy as
   `equimo.core.parameters.weight_decay_mask` for the leaves a plan trains. `make_param_labels` without `trainable_paths`
   treats every floating leaf except buffers as trainable and gives buffers the label `None` [config.py:LLRDConfig]
@@ -125,8 +154,9 @@ optimizer or training loop: plans expose labels and masks for the caller's optim
   `block.N`, `bias` for `bias` and `*_bias` leaves, `weight`) are derived from path parts, and `vector` from the leaf:
   any array with at most one axis, so PEFT vectors (DoRA magnitudes, AdaLoRA singular values, VeRA and RandLoRA scales,
   IA3 vectors, FourierFT coefficients, scale/shift, adapter scales) get `*_no_decay` labels by default. Equimo ViT block
-  depth uses execution order across chunks [../core/tags.py:canonical_tags_for_path] [tags.py:make_param_info]
-  [\_blocks.py:vision_block_depths]
+  depth uses execution order across chunks, including in the predicates of `continued_ssl_trainable_spec` and
+  `partial_unfreeze` [../core/tags.py:canonical_tags_for_path] [tags.py:make_param_info]
+  [\_blocks.py:vision_block_depths] [continued_ssl.py:continued_ssl_trainable_spec] [recipes.py:partial_unfreeze]
 - Labels are `<base>_decay` or `<base>_no_decay`, and leaves sharing a label must agree on multiplier and weight decay.
   PEFT leaves use the method as base (`lora_A`, `vera`, ...); unless every multiplier below is 1.0, the base also names
   the location, as other leaves are labeled (`lora_A_block_03`, `lora_B_head`), so each label keeps one rate. LLRD
@@ -140,42 +170,81 @@ optimizer or training loop: plans expose labels and masks for the caller's optim
 - `validate_plan` recomputes the report from `plan.combine()` and raises `ValueError` on any mismatch in fingerprint,
   partitions, labels, identities, mask, or group specs. Fingerprints are `sha256:` hashes of sorted compact JSON
   [inspection.py:validate_plan] [inspection.py:\_hash_json]
+- `TrainableReport.adapter_params` counts only leaves tagged `adapter`, `lora`, `prompt`, `prefix`, `ia3`,
+  `scale_shift`, or `adalora`, so it omits DoRA magnitudes, VeRA scales, and LoRA-FA, RandLoRA, FourierFT, and OFT
+  leaves. `TrainableReport.mergeable` is true only when a trainable leaf is tagged `lora`, `dora`, `ia3`, `vera`, or
+  `adalora` and none is tagged `adapter`, `prompt`, or `prefix`, so it is false for plans that train only LoRA-FA,
+  RandLoRA, FourierFT, OFT, or scale/shift leaves, although those methods have merge functions
+  [inspection.py:\_is_adapter_leaf] [inspection.py:\_is_mergeable_plan]
 - All config and spec dataclasses are frozen. `FeatureSpec.__post_init__` validates layout, token selection, pooling,
   mask field, layer aggregation, and endpoint options; `TrainableSpec` and `LLRDConfig` values are not validated at
   construction [config.py:FeatureSpec] [config.py:TrainableSpec] [config.py:LLRDConfig]
 - Modules take unbatched inputs (use `jax.vmap`); `extract_features` accepts each layout at its declared rank or one
   less. Forward methods default to `inference=True`, and dropout with `inference` false or `None` requires a key
   [feature_extraction.py:\_compile_feature_spec] [heads.py:MLPHead] [heads.py:AttentionPoolingClassifierHead]
-- Heads return raw logits. Attention pooling softmaxes go through `equimo.core.ops.softmax` with `where=mask` and logits
-  of at least float32. `AttentionPoolingClassifierHead` casts the probabilities back to the value dtype, and
-  `AttentionPool` (float32 query) returns the pooled features in the feature dtype
-  [heads.py:AttentionPoolingClassifierHead] [pooling.py:AttentionPool]
+- `LinearHead`, `MultiLabelHead`, `MLPHead`, `AttentionPoolingClassifierHead`, and `CTCHead` return raw logits, and
+  `LayerNormReadoutHead` returns its wrapped head's output. `IdentityHead`, `ProjectionHead`, and `DenseFeatureAdapter`
+  return features, and `ContrastiveProjectionHead` returns features that are L2-normalized by default
+  [heads.py:LinearHead] [heads.py:LayerNormReadoutHead] [heads.py:IdentityHead] [heads.py:ProjectionHead]
+  [heads.py:DenseFeatureAdapter] [heads.py:ContrastiveProjectionHead]
+- Attention pooling softmaxes go through `equimo.core.ops.softmax` with `where=mask` and logits of at least float32.
+  `AttentionPoolingClassifierHead` casts the probabilities back to the value dtype, and `AttentionPool` (float32 query)
+  returns the pooled features in the feature dtype [heads.py:AttentionPoolingClassifierHead] [pooling.py:AttentionPool]
+  [feature_extraction.py:\_attention_pool_explicit]
 - The two mask conventions are opposite: the endpoint argument named by `FeatureSpec.mask_field` is a padding mask (True
   marks padding), while the `mask` argument of `pool_features` modules and heads marks valid tokens (True keeps the
   token) [feature_extraction.py:\_masked_mean] [feature_extraction.py:\_attention_pool_explicit]
   [pooling.py:MeanTokenPool] [pooling.py:AttentionPool] [pooling.py:LastTokenPool]
 - `extract_features` with `FeatureSpec(pooling="attention")` raises `ValueError` without a key and draws a fresh random
-  query from the key on every call [feature_extraction.py:\_attention_pool_explicit]
+  query from the key on every call [feature_extraction.py:\_pool_declared_features]
+  [feature_extraction.py:\_attention_pool_explicit]
+- With a `FeatureSpec`, `extract_features` raises `ValueError` for a pool module or a `pool` name that contradicts
+  `FeatureSpec.pooling`. When `preprocessing_fingerprint` is set, it also raises unless the fingerprint equals
+  `observed_preprocessing_fingerprint`, or `model.preprocessing_fingerprint` when none is passed
+  [feature_extraction.py:\_validate_explicit_pool] [feature_extraction.py:\_check_preprocessing_fingerprint]
+- Without a `FeatureSpec`, `extract_features` calls the first of `forward_features` (unless unpooled), `features`,
+  `forward_features`, or the model itself. `pool="auto"` is inferred from the model: audio-like (`ast` or `audio` in the
+  class name, a `dist_token` attribute, or `modality="audio"`) and ViT-like (`patch_embed` and `blocks`) models use
+  their native `global_pool`. For array features, text models use `cls` with a `pooler` or `cls_token` and mean tokens
+  otherwise, ConvNets (`stem` and `stages`, no `patch_embed`) global average, MAE-like models mean patches, features of
+  at most one axis no pooling, and anything else `cls` [feature_extraction.py:extract_features]
+  [feature_extraction.py:\_resolve_pool]
 - Surgery and recipes return new trees through `eqx.tree_at`; `prepare_finetune` splits with `eqx.partition` and
   `FineTunePlan.combine` rejoins with `eqx.combine` [surgery.py:prepare_finetune] [config.py:FineTunePlan]
-- Merging touches only inexact leaves, skips head leaves unless `include_head`, checks architecture, checkpoint, and
-  logical-ID hashes when present, and requires exactly one PRNG source for DARE [merging.py:\_mergeable]
-  [merging.py:\_check_task_vector_base] [merging.py:dare_task_vector]
+- `extract_subtree` returns the `trainable` partition of a `peft`-mode plan with `train_head=False`: the leaves `target`
+  selects, minus buffers and `peft.metadata` leaves, plus the bases of wrappers with `train_base=True`
+  [surgery.py:extract_subtree] [masks.py:\_trainable_peft_base_paths]
+- Merging touches only inexact leaves. `interpolate_models`, `uniform_soup`, and `task_vector` skip head leaves unless
+  `include_head` (`True` by default for `uniform_soup`) or, for `interpolate_models` with a config, `head_policy` says
+  otherwise; `fisher_merge` and `regmean_merge` have no such option and merge head leaves. `apply_task_vector` checks
+  the architecture, checkpoint, and logical-ID hashes a vector records, and `ties_merge` and `knots_task_vector` compare
+  them across vectors. `interpolate_models`, `uniform_soup`, `task_vector`, and `regmean_merge` compare architecture
+  only when a config enables it, and `fisher_merge` never does. DARE requires exactly one PRNG source
+  [merging.py:\_mergeable] [merging.py:\_soup_leaf] [merging.py:fisher_merge] [merging.py:regmean_merge]
+  [merging.py:\_check_task_vector_base] [merging.py:\_check_vector_compatibility] [merging.py:dare_task_vector]
+- Accepted but currently unused: `WiSEFTConfig.mask`, `UniformSoupConfig.mask`, `TaskVectorConfig.mask`,
+  `FisherMergeConfig.require_statistics`, `RegMeanConfig.require_input_covariances`, `HeadPlusNormConfig.norm_types`,
+  and `HeadPlusNormConfig.bn_stats_policy`. Every built-in codec sets `DeltaCodec.merge_for_save`, and nothing calls it
+  [merging.py:WiSEFTConfig] [merging.py:UniformSoupConfig] [merging.py:TaskVectorConfig] [merging.py:FisherMergeConfig]
+  [merging.py:RegMeanConfig] [recipes.py:HeadPlusNormConfig] [\_serialization_codecs.py:DeltaCodec]
 - Calibration collectors keep int32 counts and accumulate means and centered sums in float32 (float64 only with
   `jax_enable_x64`), combine with Chan's update only when every provenance field matches, and refuse to finalize with
   zero samples [calibration.py:initialize_calibration_collector] [calibration.py:combine_calibration_collectors]
   [calibration.py:finalize_calibration_collector]
 - Bundle archives contain exactly `manifest.json` and `arrays.eqx`, use format `equimo.finetune.bundle` version 1, and
   never pickle; size limits, the arrays SHA-256, schema version, architecture hash, `sha256:` base-checkpoint hash, and
-  lineage hashes are checked on load and raise `FineTuneBundleError`. Architecture and base-checkpoint hashes recorded
-  before Equimo 2.8, which also covered values Equimo now computes such as RoPE frequencies, are accepted; a trained
-  delta entry for such a value (a module's `_legacy_stored_leaves`) raises `FineTuneBundleError`
-  [serialization.py:\_read_archive] [serialization.py:\_encode_value] [serialization.py:\_check_schema]
-  [serialization.py:\_check_hash] [serialization.py:\_check_base_checkpoint]
-  [serialization.py:\_check_bundle_lineage_consistency] [serialization.py:\_apply_trainable_delta]
-  [peft/lora.py:matches_architecture_hash]
+  the lineage's logical-ID table hash, quantization fingerprint, and preprocessing fingerprint (against `feature_spec`)
+  are checked on load and raise `FineTuneBundleError`. Architecture and base-checkpoint hashes recorded before Equimo
+  2.8, which also covered values Equimo now computes such as RoPE frequencies, are accepted; a trained delta entry for
+  such a value (a module's `_legacy_stored_leaves`) raises `FineTuneBundleError` [serialization.py:\_read_archive]
+  [serialization.py:\_encode_value] [serialization.py:\_check_schema] [serialization.py:\_check_hash]
+  [serialization.py:\_check_base_checkpoint] [serialization.py:\_check_bundle_lineage_consistency]
+  [serialization.py:\_apply_trainable_delta] [peft/lora.py:matches_architecture_hash]
 - `l2_sp_loss`, `adapter_norm_loss`, and `task_vector_norm_loss` cover trainable leaves only
-  (`equimo.core.parameters.trainable_mask`), so buffers are never penalized [regularization.py:\_trainable_entries]
+  (`equimo.core.parameters.trainable_mask`), so buffers are never penalized; `ewc_loss` covers every inexact leaf,
+  buffers included. The default `tags` of `adapter_norm_loss` omit `adalora`, `lora_fa`, `randlora`, `fourierft`, and
+  `orthogonal`, so those leaves are not penalized by default [regularization.py:\_trainable_entries]
+  [regularization.py:ewc_loss] [regularization.py:adapter_norm_loss]
 - Calibration archives use the same two members, size limits, and arrays SHA-256 check, with format
   `equimo.finetune.calibration` version 1 and the encoded artifacts under the manifest's `artifacts` key.
   `load_calibration_artifacts` raises `FineTuneBundleError` on another format or version and validates the loaded
@@ -203,8 +272,9 @@ optimizer or training loop: plans expose labels and masks for the caller's optim
   `pool_features(pool="attention")` and `extract_features` with `FeatureSpec(pooling="attention")`, which draw a fresh
   random query on every call [regularization.py:mixout_tree] [merging.py:dare_task_vector] [pooling.py:pool_features]
   [feature_extraction.py:\_attention_pool_explicit]
-- `greedy_soup` calls the user's `score_fn` once per candidate (plus once per model with a config)
-  [merging.py:greedy_soup]
+- `greedy_soup` calls the user's `score_fn` `n` times for `n` models without a config (the first model, then one
+  proposal per remaining model, in input order) and `2n-1` times with one (every model, then one proposal per model
+  after the best, in score order) [merging.py:greedy_soup] [merging.py:\_greedy_soup_from_best]
 - Host synchronization that is not jit-traceable: calibration finalize and validation, and full-value hashing of base
   models during bundle enrichment and merge checks [calibration.py:finalize_calibration_collector]
   [serialization.py:\_checkpoint_hash] [merging.py:\_checkpoint_hash]. These value hashes also cover the static fields

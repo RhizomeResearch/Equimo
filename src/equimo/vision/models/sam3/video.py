@@ -111,7 +111,8 @@ class FramePrediction:
 
     ``boxes`` are ``(x_min, y_min, x_max, y_max)`` pixels of each mask before
     per-pixel overlaps are resolved. ``scores`` are detection probabilities at
-    birth, or -1e4 for an object removed on this frame.
+    birth, the object-score probability of a point track, or -1e4 for an object
+    removed on this frame.
     """
 
     frame_index: int

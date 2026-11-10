@@ -42,10 +42,11 @@ All of the following are re-exported by `equimo.core.ops` ([`__init__.py`](./__i
     tangent, so its gradient is rebuilt from the other entries rather than computed by subtracting two numbers near 1.
   - Slices without an anchor use the ordinary derivative.
   - Masked entries have probability 0, and fully masked rows return zeros.
-- `[probability.py:softmax]`, `[probability.py:log_softmax]`,
-  `[probability.py:softmax_cross_entropy_with_integer_labels]` and
-  `[probability.py:softmax_cross_entropy_with_logit_targets]` follow the same dtype rule: they compute in
+- `[probability.py:softmax]`, `[probability.py:log_softmax]` and
+  `[probability.py:softmax_cross_entropy_with_integer_labels]` follow the same dtype rule: they compute in
   `result_type(dtype, float32)` and return the input's float dtype. Integer inputs are promoted to float.
+  `[probability.py:softmax_cross_entropy_with_logit_targets]` applies that rule to the common dtype of its two inputs,
+  `result_type(logits.dtype, target_logits.dtype, 0.0)`, and returns that dtype.
 - `[probability.py:_log_softmax_parts]`: exactly one maximum, the first argmax, is left out of the exponential sum and
   added back through `log1p`.
 - `[probability.py:softmax_cross_entropy_with_integer_labels]`: input and output contract.

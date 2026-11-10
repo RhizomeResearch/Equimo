@@ -154,7 +154,7 @@ class QueryLossContext(eqx.Module):
 
 
 class LossTerm(eqx.Module):
-    """Additive numerator and denominator; empty reductions evaluate to zero."""
+    """Additive numerator and denominator; a non-positive denominator divides by one."""
 
     numerator: jax.Array
     denominator: jax.Array

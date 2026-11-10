@@ -89,6 +89,14 @@ Full-weight SAM 3.1 parity reads the archives from `~/.cache/equimo/sam31`. To k
 symlink that directory into an `artifact-staging` home and run with `HOME` pointing at it and `UV_CACHE_DIR` set to the
 real `~/.cache/uv` (run in practice).
 
+Converting a SAM 3.1 archive needs torch, which the devenv venv lacks: build a separate environment with
+`UV_PROJECT_ENVIRONMENT=<staging>/convert-env .devenv/profile/bin/uv sync --locked --group reference --no-default-groups`
+and run `<staging>/convert-env/bin/python models/sam31.py multiplex --checkpoint <path> --output-dir <staging>` (run in
+practice). `load_weights` checks a signature over every leaf's path and shape, so renaming a field or adding or removing
+a leaf needs a new archive, a Hugging Face upload, and new `sam31_multiplex` and `DEFAULT_REPOSITORY_REVISION` values in
+`_pretrained.py` (run in practice). In a sandbox where `~/.cache` is read-only, set `HF_XET_CACHE` to a writable
+directory for the upload (run in practice).
+
 JAX's default matmul precision on GPU is not float32: plain linear projections on the RTX 4080 differed from exact
 float32 by about 1e-4 per element. For float32 parity on a GPU, run with `JAX_DEFAULT_MATMUL_PRECISION=highest` (run in
 practice); CPU float32 needs no setting.

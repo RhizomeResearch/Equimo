@@ -28,6 +28,9 @@ work is delegated to the parent package (`src/equimo/finetune/`) and its `peft` 
   `blocks` add `text.embedding`/`text.token`, `text.position`, and `text.block`; canonical tags `attention.qkv`,
   `attention.proj`, `mlp.fc1`, `mlp.fc2`, and `head` add the matching `text.` prefixed tag (`head` maps to
   `text.projection_head`) [selectors.py:language_tags_for_path]
+- `text.token` is emitted but is not in `CANONICAL_TAGS`, while `text.token_type`, `text.attention.q`,
+  `text.attention.k`, `text.attention.v`, and `text.pooler` are in `CANONICAL_TAGS` but never emitted
+  [selectors.py:language_tags_for_path] [../../core/tags.py:CANONICAL_TAGS]
 - `resolve_target`, `resolve_target_paths`, and `make_tag_tree` always pass `tagger=language_tags_for_path` to the
   shared implementations in `finetune/selectors.py` and `finetune/tags.py` [selectors.py:resolve_target]
   [selectors.py:resolve_target_paths] [selectors.py:make_tag_tree]

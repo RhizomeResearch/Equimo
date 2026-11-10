@@ -82,10 +82,11 @@ reference's detections for one box exemplar with no text, generated with:
 ```
 
 The image is `skimage/data/coins.png` (Greek coins from Pompeii, Brooklyn Museum Collection, no known copyright
-restrictions), and the fixture stores it resized to 1008 x 1008. To run the checks on a GPU, set
-`JAX_DEFAULT_MATMUL_PRECISION=highest`; the default XLA GPU matmul precision alone exceeds the 5e-4 mean absolute error.
-The checks read the hosted archives through `pretrained=True`, from the cache filled by
-`models/prefetch_reference_checkpoints.py`, and skip without them.
+restrictions), and the fixture stores it resized to 1008 x 1008. The checks run on CPU in the scheduled job. To run them
+on a GPU, set `JAX_DEFAULT_MATMUL_PRECISION=highest`; the default XLA GPU matmul precision alone exceeds the 5e-4 mean
+absolute error. The checks read the hosted archives through `pretrained=True`, from the cache filled by
+`models/prefetch_reference_checkpoints.py`, and skip without them unless `EQUIMO_REQUIRE_REFERENCE_CACHE=1`, which makes
+a missing archive fail.
 
 The tiny clip's decision trace is in `sam3_tiny_reference.json`. Its detection and track masks are a fixed script,
 because random weights produce nothing the association policy would act on; the real detector and tracker still run and
@@ -119,6 +120,8 @@ frames of that clip, for one box exemplar on frame 0. The box is on a pigeon the
 /path/to/environment/bin/python models/sam31_reference.py video-exemplar --checkpoint /path/to/sam3.1_multiplex.pt --frames-dir frames --box 0.1906 0.2472 0.1219 0.2611 --output-dir /path/to/output
 ```
 
-The harness fails when a kept detection, overlap or box center lies within 1e-3 of its threshold, and when the clip does
-not trigger an addition, an unmatched removal, a reconditioning and a confirmation; suppression is covered by the tiny
-occlusion fixture. To run the checks on a GPU, set `JAX_DEFAULT_MATMUL_PRECISION=highest` as for the image fixture.
+The harness fails when a kept detection probability, a detection-track overlap, a box center or a track probability lies
+within 1e-3 of its threshold, except in the `video-exemplar` run, which does not assert these margins. The `video` run
+also fails when the clip does not trigger an addition, an unmatched removal, a reconditioning and a confirmation;
+suppression is covered by the tiny occlusion fixture. To run the checks on a GPU, set
+`JAX_DEFAULT_MATMUL_PRECISION=highest` as for the image fixture.

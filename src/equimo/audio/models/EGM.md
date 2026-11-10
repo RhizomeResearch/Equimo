@@ -30,11 +30,16 @@ today is the Audio Spectrogram Transformer (AST).
 ## Invariants
 
 - Two prefix tokens (CLS then distillation) precede the patch tokens: `num_prefix_tokens = 2`, and `pos_embed` has shape
-  `(num_patches + 2, dim)` [ast.py:AudioSpectrogramTransformer.\_\_init\_\_]. Prefix tokens and positional embeddings
-  are cast to the input dtype before concatenation [ast.py:AudioSpectrogramTransformer.\_prepare_tokens].
+  `(num_patches + 2, dim)` [ast.py:AudioSpectrogramTransformer.\_\_init\_\_]. Prefix tokens are cast to the patch
+  embedding's output dtype before concatenation, and positional embeddings are cast to that dtype and added afterwards
+  [ast.py:AudioSpectrogramTransformer.\_prepare_tokens].
 - `global_pool="token"` averages the normalized CLS and distillation tokens; other modes go through
-  `equimo.utils.pool_sd` excluding prefix tokens. `"cls_patch_mean"` doubles the head input width to `2 * dim`
-  [ast.py:AudioSpectrogramTransformer.\_\_call\_\_, ast.py:AudioSpectrogramTransformer.\_\_init\_\_].
+  `equimo.utils.pool_sd`. `"avg"`, `"avgmax"` and `"max"` exclude prefix tokens, while `"cls_patch_mean"` concatenates
+  the CLS token with the patch-token mean and doubles the head input width to `2 * dim`
+  \[ast.py:AudioSpectrogramTransformer.\_\_call\_\_, ast.py:AudioSpectrogramTransformer.\_\_init\_\_,
+  src/equimo/utils.py:pool_sd\].
+- The constructor accepts and discards extra `**kwargs`, so a mistyped factory override is ignored
+  [ast.py:AudioSpectrogramTransformer.\_\_init\_\_, ast.py:\_build_ast].
 - `num_classes=None` or `<= 0` replaces the head with `eqx.nn.Identity`; `head_norm_layer=None` gives an identity head
   norm [ast.py:AudioSpectrogramTransformer.\_\_init\_\_].
 - Keys are split with `split_for_mode`, so forward methods run without a key only when `inference=True`

@@ -19,23 +19,28 @@ audio and tabular packages build on all of these.
 `equimo.core` itself re-exports only `update_ema_model` ([`__init__.py`](./__init__.py)). Import everything else from
 its submodule.
 
-- `[emamodel.py:update_ema_model]`: `update_ema_model(ema_model, current_params, decay=0.9999)`, a `jax.jit`-compiled
-  function. It returns a new module whose trainable leaves are `decay * ema + (1 - decay) * new`.
+- `[emamodel.py:update_ema_model]`: `update_ema_model(ema_model, current_params, decay=0.9999)`. `current_params` holds
+  the array leaves of the training model, as returned by `eqx.filter(model, eqx.is_array)`. The jitted helper
+  `[emamodel.py:_average_params]` does the averaging. It returns a new module whose trainable leaves are
+  `decay * ema + (1 - decay) * new`.
 - `[tags.py:canonical_tags_for_path]`: `canonical_tags_for_path(path, leaf=None) -> frozenset[str]` infers tags such as
   `norm` and `embedding.position` from a parameter path, `bias` for a last path part named `bias` or ending in `_bias`,
   and `vector` when *leaf* is an array with at most one axis. Children of `attn`, `attention`, `self_attn`,
   `self_attention` and `cross_attn` parents, including entries of a tuple of them, get the `attention` tags.
-  `[tags.py:_add_attention_tags]`. `[tags.py:CANONICAL_TAGS]` lists the canonical tags, `Tagger` is the
-  `(path, leaf) -> Iterable[str]` type, `[tags.py:infer_depth]` derives block indices, `[tags.py:infer_block_depth]` the
-  innermost index under `blocks` or `block`, and `[tags.py:key_path_to_path]` converts a JAX key path to the path form.
-  `equimo.finetune` re-exports `canonical_tags_for_path`, `CANONICAL_TAGS`, and `infer_depth`; `key_path_to_path` is
-  available from `equimo.finetune.paths`.
+  `[tags.py:_add_attention_tags]`. `[tags.py:CANONICAL_TAGS]` lists documented tag names; `canonical_tags_for_path` also
+  emits names outside it, such as `block.N`, `backbone`, `bias`, `weight`, and those from `[tags.py:_add_peft_tags]`
+  (`lora`, `adapter`). `[tags.py:Path]` is the `tuple[str | int, ...]` path type and `[tags.py:Tagger]` the
+  `(path, leaf) -> Iterable[str]` type. `[tags.py:infer_block_depth]` returns the innermost index under `blocks` or
+  `block`, `[tags.py:infer_depth]` returns that index or falls back to the index that follows `stages`, and
+  `[tags.py:key_path_to_path]` converts a JAX key path to the path form. `equimo.finetune` re-exports
+  `canonical_tags_for_path`, `CANONICAL_TAGS`, and `infer_depth`; `key_path_to_path` is available from
+  `equimo.finetune.paths`.
 - `[parameters.py:tagged]`: `tagged(*tags, when=None, **field_kwargs)` declares an Equinox field whose leaves carry
   `tags`, optionally only when `when(module)` is true, and raises `ValueError` without tags. `[parameters.py:buffer]` is
   `tagged("buffer", ...)`: an array the module stores but never trains.
 - `[parameters.py:module_tags]`, `[parameters.py:buffer_mask]`, `[parameters.py:trainable_mask]`: return the tree with
-  each leaf replaced by its module-given tags, by whether it is a buffer, and by whether it is a floating array outside
-  buffers. `trainable_mask` is an Equinox filter specification.
+  each leaf replaced by its module-given tags, by whether it is a buffer, and by whether it is an inexact (floating or
+  complex) array outside buffers. `trainable_mask` is an Equinox filter specification.
 - `[parameters.py:weight_decay_mask]`:
   `weight_decay_mask(tree, *, no_decay_tags=DEFAULT_NO_DECAY_TAGS, tagger=canonical_tags_for_path)` returns whether each
   leaf decays. It can be passed directly as an optax `mask`. `[parameters.py:DEFAULT_NO_DECAY_TAGS]` lists biases,
@@ -45,7 +50,9 @@ its submodule.
   `build_model_variant(model_cls, registry, variant, *, pretrained=False, inference_mode=True, key=None, deepcopy_cfg=False, pretrained_variants=None, pretrained_identifiers=None, pretrained_label=None, allow_pretrained_overrides=True, **overrides)`.
   - It builds `model_cls(**(base_cfg | variant_cfg | overrides), key=key)`, where `registry[variant]` is the pair
     `(base_cfg, variant_cfg)`.
-  - When `pretrained=True`, it then calls `equimo.serialization.load_weights`.
+  - When `pretrained=True`, it then calls `equimo.serialization.load_weights` with `inference_mode` and the identifier
+    `pretrained_identifiers[variant]`, or `variant` itself when no identifier is given. `pretrained_label` names the
+    family in the pretrained error messages.
 - `[intermediates.py:intermediate_indices]`:
   `intermediate_indices(total, *, indices=None, n_last_blocks=None) -> frozenset[int]`. It returns every index by
   default, the last `n_last_blocks` indices, or the given `indices` with negative values wrapped.
@@ -70,7 +77,9 @@ Subdirectories:
 ## Invariants
 
 - `[_prng.py:split_for_mode]`: `key=None` is accepted only when `inference is True`. Otherwise it raises `ValueError`.
-  `inference=None` counts as stochastic. Forward passes therefore run without a key only under static inference.
+  `inference=None` counts as stochastic. Forward passes therefore run without a key under static inference. Outside
+  inference, the convolution blocks in `equimo.vision.layers` additionally fall back to a fixed key through
+  `[_prng.py:default_key_for_mode]` ([../vision/layers/EGM.md](../vision/layers/EGM.md)).
 - `[emamodel.py:update_ema_model]`: it averages only trainable leaves (`trainable_mask`). Other array leaves, such as
   integer indices and buffers, take the current value, and non-array leaves are kept. `current_params` must have the
   same tree structure as the filtered EMA parameters. It returns a new module and mutates nothing.
@@ -83,7 +92,7 @@ Subdirectories:
   `jax.lax.stop_gradient`. Values that follow from static configuration are computed at use instead of being stored.
 - `[factory.py:build_model_variant]`: it raises these errors:
   - `KeyError` when `variant` is unknown;
-  - `ValueError` when `pretrained=True` and `variant` is not in `pretrained_variants`;
+  - `ValueError` when `pretrained=True`, `pretrained_variants` is set, and `variant` is not in it;
   - `ValueError` when `pretrained=True`, `allow_pretrained_overrides=False` and overrides are given.
 - `[factory.py:build_model_variant]`: on configs and keys:
   - Overrides take precedence over `variant_cfg`, which takes precedence over `base_cfg`.

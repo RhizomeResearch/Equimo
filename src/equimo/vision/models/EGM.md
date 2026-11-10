@@ -57,7 +57,8 @@ package `__init__.py` auto-imports every module and merges each module's `__all_
   (biases, norms, layer scales, vectors, position embeddings, and class, register, and mask tokens). The patch embedding
   still decays. `[parcae.py:VisionParcae]`
 - `VisionParcae.intermediate_features` indexes the fixed triple (recurrent state, `C` projection, coda output), not
-  blocks. `[parcae.py:VisionParcae.intermediate_features]`
+  blocks; the recurrent state and `C` projection are `stop_gradient`. `[parcae.py:VisionParcae.intermediate_features]`,
+  `[parcae.py:VisionParcae._features_with_aux]`
 - Injection adapters `VisionParcaeDiagonalInjection`, `VisionParcaeDiagonalExactZOHInjection`,
   `VisionParcaeLinearInjection`, `VisionParcaeAdditiveInjection`, selected by `injection_type` (`diagonal`,
   `diagonal_exact_zoh`, `linear`, `add`); `dynamics_from_alpha(...)` maps a decay `alpha` to `(A_init, B_init_scale)`;
@@ -70,8 +71,8 @@ package `__init__.py` auto-imports every module and merges each module's `__all_
 - `EoMT(backbone: VisionTransformer, num_classes, num_queries=100, num_blocks=4, *, key, masked_attention=True)`:
   learned queries injected into the last `num_blocks` ViT blocks.
   `__call__(x, *, key=None, inference=True, mask_state=None) -> EoMTOutput(final, auxiliary)` of
-  `MaskPrediction(class_logits (Q, K+1), mask_logits (Q, h, w))`; `joint_features` / `features`, `token_trace`.
-  `[eomt.py:EoMT]`, `[eomt.py:MaskPrediction]`, `[eomt.py:EoMTOutput]`
+  `MaskPrediction(class_logits (Q, K+1), mask_logits (Q, h, w))`; `auxiliary` is empty when masked attention is off.
+  `joint_features` / `features`, `token_trace`. `[eomt.py:EoMT]`, `[eomt.py:MaskPrediction]`, `[eomt.py:EoMTOutput]`
 - `EoMTMaskState`, `anneal_mask_state(step, start_steps, end_steps, *, power=0.9)`, `mask_free_eomt(model, state)`, and
   `ScaleBlock(channels, *, key)` (twofold upscaling in the mask head). `[eomt.py:EoMTMaskState]`,
   `[eomt.py:anneal_mask_state]`, `[eomt.py:mask_free_eomt]`, `[eomt.py:ScaleBlock]`
@@ -79,12 +80,14 @@ package `__init__.py` auto-imports every module and merges each module's `__all_
   frozen ViT encoder plus a trainable `PlainMaskDecoder`. `encode(image) -> PMTFeatures`,
   `decode(features, state=..., *, inference, key, mask_state, example_valid)`, `__call__`, `is_stateful()`,
   `encoder_features` / `features`; `mask_free_pmt(model, mask_state)`. `[pmt.py:PMT]`, `[pmt.py:mask_free_pmt]`
-- `PMTConfig` (frozen dataclass with `small()`, `base()`, `large()` presets), `PMTFeatures`, `PMTOutput`,
+- `PMTConfig` (frozen dataclass with `small()`, `base()`, `large()` presets), `PMTFeatures` (`levels`, `rotary`, and the
+  static `grid_size`, `patch_size`, `prefix_tokens`, `taps`, `positional_configuration`, `backbone_id`,
+  `backbone_digest`, `input_view`), `PMTOutput(final, auxiliary)` (`auxiliary` is empty when masked attention is off),
   `PMTMaskState`, `anneal_pmt_mask_state`, `ReferenceBatchNorm` (stateful, cross-device BatchNorm), `PlainMaskDecoder`.
   `PMDAttention` and `Lateral` are decoder internals outside `pmd.__all__`; import them from `pmd`. `Lateral.scale` is
   tagged `block.layer_scale`, so the default no-decay policy and layer-scale selectors treat it as a layer scale.
-  `[pmd.py:PMTConfig]`, `[pmd.py:ReferenceBatchNorm]`, `[pmd.py:PlainMaskDecoder]`, `[pmd.py:PMDAttention]`,
-  `[pmd.py:Lateral]`
+  `[pmd.py:PMTConfig]`, `[pmd.py:PMTFeatures]`, `[pmd.py:PMTOutput]`, `[pmd.py:ReferenceBatchNorm]`,
+  `[pmd.py:PlainMaskDecoder]`, `[pmd.py:PMDAttention]`, `[pmd.py:Lateral]`
 
 ### Concept segmentation and tracking (`sam3/`)
 
@@ -98,14 +101,16 @@ package `__init__.py` auto-imports every module and merges each module's `__all_
 - `ConvNeXt` (V1/V2, `_ols` stems, tagged in12k/in22k/fcmae and EUPE checkpoints) with `convnext_sizes`,
   `convnext_v2_sizes`, and factories `convnext_*`, `convnextv2_*`, `eupe_convnext_*`. `[convnext.py:ConvNeXt]`,
   `[convnext.py:_build_convnext]`
-- `DEQ` with fixed-point (`fpi`) stages, `readout(z_star)`, `get_fpi_cells()`, and `deq_convnext_t`; `__call__` returns
-  `(logits, auxs)`. `[deq.py:DEQ]`, `[deq.py:deq_convnext_t]`
+- `DEQ` with fixed-point (`fpi`) stages, `readout(z_star)`, `get_fpi_cells()`, and `deq_convnext_t`; `features` returns
+  `(features, auxs)` and `__call__` returns `(logits, auxs)`. `[deq.py:DEQ]`, `[deq.py:DEQ.features]`,
+  `[deq.py:deq_convnext_t]`
 - `FasterViT` (HAT carrier tokens), `IFormer` (`iformer_*`), `LowFormer` (`lowformer_backbone_b0..b3`), `Mlla`, `Vssd`
   (both built by `build_mlla_stack`). `[fastervit.py:FasterViT]`, `[iformer.py:IFormer]`, `[lowformer.py:LowFormer]`,
   `[mlla.py:build_mlla_stack]`, `[vssd.py:Vssd]`
 - `AttNet` (`attnet_*`), `MobileNetv3` (`mobilenetv3_small`, `mobilenetv3_large`), `PartialFormer`, `ReduceFormer`
-  (`reduceformer_backbone_b1..b3`), `SHViT`. `[attnet.py:AttNet]`, `[mobilenet.py:MobileNetv3]`,
-  `[partialformer.py:PartialFormer]`, `[reduceformer.py:ReduceFormer]`, `[shvit.py:SHViT]`
+  (`reduceformer_backbone_b1..b3`), `SHViT`. `PartialFormer.features(..., return_qa=True)` also returns the final query
+  attention token. `[attnet.py:AttNet]`, `[mobilenet.py:MobileNetv3]`, `[partialformer.py:PartialFormer]`,
+  `[partialformer.py:PartialFormer.features]`, `[reduceformer.py:ReduceFormer]`, `[shvit.py:SHViT]`
 - Most backbones expose `features`, `intermediate_features(x, key, inference, indices, n_last_blocks)`, and `__call__`.
   `ConvNeXt` and `IFormer` inherit them from `DenseStageFeatures`; `Mlla` and `Vssd` from `TokenStemFeatures`.
   `[_features.py:DenseStageFeatures]`, `[_features.py:TokenStemFeatures]`
@@ -148,11 +153,12 @@ package `__init__.py` auto-imports every module and merges each module's `__all_
 - `EoMT` requires a `VisionTransformer` backbone with `dynamic_img_size`, an identity head, plain `AttentionBlock`
   chunks without downsampling, square power-of-two patches of at least 8, and `1 <= num_blocks <= backbone.num_blocks`.
   `[eomt.py:EoMT]`
-- `PMT` requires `config.dim == backbone.dim`, `taps[-1] == backbone.num_blocks - 1`, matching heads, local RoPE,
-  `dynamic_img_size`, an identity head, a nonempty `backbone_id` and `input_view`, and a unique `class_ontology` of
-  length `num_classes`. `encode` runs the backbone with `inference=True` and `stop_gradient`, so the encoder is frozen.
-  `decode` raises when the feature identity (`backbone_id`, `backbone_digest`, `input_view`, positional configuration)
-  differs from the model. `[pmt.py:PMT]`, `[pmt.py:PMT.encode]`, `[pmt.py:PMT.decode]`
+- `PMT` requires `num_classes > 0`, `config.dim == backbone.dim`, `taps[-1] == backbone.num_blocks - 1`, matching heads,
+  local RoPE, `dynamic_img_size`, an identity head, chunks without downsampling, a square power-of-two patch of at least
+  8, a nonempty `backbone_id` and `input_view`, and a unique `class_ontology` of length `num_classes`. `encode` runs the
+  backbone with `inference=True` and `stop_gradient`, so the encoder is frozen. `decode` raises when the feature
+  identity (`backbone_id`, `backbone_digest`, `input_view`, positional configuration) differs from the model.
+  `[pmt.py:PMT]`, `[pmd.py:PlainMaskDecoder]`, `[pmt.py:PMT.encode]`, `[pmt.py:PMT.decode]`
 - `PMTConfig` validates positive sizes, `dim % num_heads == 0`, `(dim // num_heads) % 4 == 0`, sorted unique nonnegative
   taps, `norm_layer` in `{groupnorm, batchnorm, layernorm, rmsnorm, none}`, and a per-norm `norm_kwargs` allowlist.
   `[pmd.py:PMTConfig]`
@@ -166,9 +172,9 @@ package `__init__.py` auto-imports every module and merges each module's `__all_
 - `VisionParcae` validates recurrence settings (`mean_recurrence >= 1`, `max_recurrence >= mean_recurrence`,
   `max_recurrence >= mean_backprop_depth`, and others); its configuration fields are static, so changing
   `max_recurrence` requires a new model. Python step counts above `max_recurrence` raise; traced step counts are
-  clamped. Diagonal injections are contractive by construction. Unlike `VisionTransformer`, `VisionParcae.__init__`
-  raises `TypeError` on unknown kwargs. `[parcae.py:VisionParcae]`, `[parcae.py:VisionParcae._resolve_num_steps]`,
-  `[parcae.py:VisionParcaeDiagonalInjection]`
+  clamped. Diagonal injections are contractive by construction. Like `VisionTransformer.__init__`,
+  `VisionParcae.__init__` raises `TypeError` on unknown kwargs. `[parcae.py:VisionParcae]`,
+  `[parcae.py:VisionParcae._resolve_num_steps]`, `[parcae.py:VisionParcaeDiagonalInjection]`
 - `DEQ.readout` raises unless exactly one stage is `fpi`. `[deq.py:DEQ.readout]`
 - `LowFormer` and `ReduceFormer` pop the stem entry from the caller's `widths`, `depths`, and `block_types` lists; their
   factories pass `deepcopy_cfg=True` to protect the registry configs. `[lowformer.py:LowFormer]`,

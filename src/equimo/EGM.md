@@ -14,7 +14,8 @@ The subpackages layer as follows:
   inference, the config-registry model factory, Deep Equilibrium layers, and parameter tags with the `buffer`/`tagged`
   field markers and the trainable and weight-decay masks built on them.
 - `vision`, `language`, `audio`, `tabular` and `timeseries` are modalities. Each one builds models from `core` layers
-  plus its own layers, and registers them in the root registry under its modality name.
+  plus its own `layers` subpackage (`language` has none and uses `core` blocks directly,
+  `[language/models.py:TransformerEncoderStack]`), and registers them in the root registry under its modality name.
 - `finetune` operates on any of those models: trainable selection, PEFT wrappers, heads, merging, and delta
   serialization.
 - `conversion` ports PyTorch weights into Equinox models for the maintainer scripts in the repository's `models/`
@@ -42,27 +43,35 @@ calls `serialization.py:load_weights`, which downloads into `~/.cache/equimo/` w
   deterministic `.tar.lz4` archive, or a directory when `compression=False`.
 - `[serialization.py:download]`:
   `download(identifier, repository, timeout=60, expected_sha256=None, *, limits=None) -> Path` fetches
-  `{repository}/{model}/{identifier}.tar.lz4` into the cache.
+  `{repository}/{model}/{identifier}.tar.lz4` into the cache, where `{model}` is the identifier's first `_`-separated
+  segment.
 - `[serialization.py:inspect_checkpoint]`: returns a `[serialization.py:CheckpointInfo]` (format, version, weights
   digest, model class and signature, Equimo version, verified/legacy flags) without loading weights.
-- `[serialization.py:load_weights]`: loads a checkpoint (by identifier from `DEFAULT_REPOSITORY_URL`, or by local path)
-  into a model template, with optional expected digests, expected config and `CheckpointLimits`. It returns
-  `eqx.nn.inference_mode(model, inference_mode)` (default `inference_mode=True`), so the flag is set in both directions.
+- `[serialization.py:load_weights]`: loads a checkpoint (by identifier from `repository`, which defaults to
+  `DEFAULT_REPOSITORY_URL`, or by local path) into a model template, with optional expected digests, expected config and
+  `CheckpointLimits`. It returns `eqx.nn.inference_mode(model, inference_mode)` (default `inference_mode=True`), so the
+  flag is set in both directions.
 - `[serialization.py:DEFAULT_REPOSITORY_URL]`: the Hugging Face `poiretclement/equimo` repository, pinned to
   `[_pretrained.py:DEFAULT_REPOSITORY_REVISION]`.
 - `[utils.py]`: `normalize`, `make_divisible`, `make_2tuple`, `to_list`, `nearest_power_of_2_divisor`,
   `make_drop_path_schedule`, `pool_sd` (jitted token pooling), `count_params`, `cost_analysis`, `PCAVisualizer` and
-  `plot_image_and_feature_map`. Model and layer modules across the modalities import these.
+  `plot_image_and_feature_map`. `[utils.py:normalize]`, `[utils.py:count_params]`, `[utils.py:cost_analysis]`,
+  `[utils.py:PCAVisualizer]` and `[utils.py:plot_image_and_feature_map]` have no importers elsewhere in the package and
+  are for direct use; modules across the package import the others.
 - Private modules that other packages import:
   - `[_checkpoint_limits.py:CheckpointLimits]`, `resolve_limits`, `LimitedReader`, `array_template` and
-    `scan_array_stream` are used by `finetune/serialization.py` and `vision/pmt_checkpoint.py`.
+    `scan_array_stream` are used by `serialization.py` and `finetune/serialization.py`. `vision/pmt_checkpoint.py`
+    imports only `CheckpointLimits` and `[_checkpoint_limits.py:resolve_limits]`.
   - `[_io.py:atomic_file]`, `sha256_file`, `sha256_stream`, `validate_sha256`, `read_limited` and `copy_limited` are
-    used by `finetune/serialization.py`.
+    used by `serialization.py` and `finetune/serialization.py`. `serialization.py` also uses `[_io.py:atomic_directory]`
+    and `[_io.py:file_lock]`, and `language/tokenizers.py` uses `atomic_file`.
   - `[_pretrained.py:PRETRAINED_ARCHIVE_SHA256]` maps about 130 pretrained identifiers to archive digests. It is used by
-    `serialization.download` and `vision/models/convnext.py`.
-  - `[_legacy_layouts.py:legacy_leaves_with_path]`, `legacy_layout` and `restore_layout` describe pre-2.8 layouts. They
-    are used by `serialization.py`, `finetune/peft/_compat.py` (bundle hashes) and `vision/_encoder_identity.py` (PMT
-    encoder digests).
+    `serialization.download` and `vision/models/convnext.py`. `[_pretrained.py:DEFAULT_REPOSITORY_REVISION]` is used by
+    `serialization.py` and `language/tokenizers.py`.
+  - `[_legacy_layouts.py:legacy_leaves_with_path]`, `legacy_layout` and `restore_layout` describe pre-2.8 layouts.
+    `serialization.py` imports all three. `finetune/peft/_compat.py` (bundle hashes) and `vision/_encoder_identity.py`
+    (PMT encoder digests) import `legacy_leaves_with_path` and `[_legacy_layouts.py:computed_value_settings]`, and
+    `finetune/serialization.py` imports `[_legacy_layouts.py:is_legacy_stored_leaf]`.
 
 ### Invariants
 
@@ -75,7 +84,9 @@ calls `serialization.py:load_weights`, which downloads into `~/.cache/equimo/` w
 - `[catalog.py:_load_catalog]` raises `ValueError` on duplicate keys. `[catalog.py:_resolve_model]` accepts an exact key
   or a unique bare variant name, and otherwise raises `ValueError` with suggestions.
 - Checkpoint format (`[serialization.py:_CHECKPOINT_FORMAT]`, `[serialization.py:_CHECKPOINT_FORMAT_VERSION]`):
-  - an archive holds exactly `metadata.json` then `weights.eqx`, with format `equimo.model.checkpoint` version 1;
+  - an archive holds exactly `metadata.json` and `weights.eqx`, with format `equimo.model.checkpoint` version 1;
+    `[serialization.py:_write_deterministic_archive]` writes them in that order, but extraction does not check the order
+    (`[serialization.py:_extract_model_archive_stream]`);
   - unexpected, duplicate, non-file, oversized and truncated members are rejected
     (`[serialization.py:_extract_model_archive_stream]`);
   - `inspect_checkpoint` rejects schema-less v2-alpha (legacy) checkpoints unless `allow_legacy=True`, while
@@ -112,17 +123,19 @@ calls `serialization.py:load_weights`, which downloads into `~/.cache/equimo/` w
 - `[serialization.py:load_weights]` stages the weights in a spooled temporary file and re-hashes them, raising
   `ValueError` if the bytes changed during loading.
 - `[serialization.py:_resolve_weights_dir]` raises `ValueError` when both or neither of `identifier` and `path` are
-  given, and when `expected_sha256` is combined with a directory or a path whose suffixes are not `.tar.lz4`.
+  given, and when `expected_sha256` is combined with a directory or a path whose name does not end in `.tar.lz4`.
 - `[utils.py:pool_sd]` raises `ValueError` for an unknown `pool_type`, and for `cls_patch_mean` without prefix tokens.
   `[utils.py:PCAVisualizer]` and `[utils.py:plot_image_and_feature_map]` raise `ImportError` without the `extras` extra.
 
 ### Side effects
 
-- `[serialization.py:download]` makes an HTTPS GET and writes `~/.cache/equimo/{model}/{identifier}.tar.lz4` plus a JSON
-  `.sha256` sidecar. `[serialization.py:_verify_cached_download]` rewrites the sidecar and warns if the cache is
-  read-only.
+- `[serialization.py:download]` makes a GET request to `repository` (HTTPS by default) and writes
+  `~/.cache/equimo/{model}/{identifier}.tar.lz4` plus a JSON `.sha256` sidecar.
+  `[serialization.py:_verify_cached_download]` rewrites the sidecar only when it is missing or its recorded size and
+  modification time no longer match the archive, and warns if the cache is read-only.
 - `[serialization.py:_decompress_archive]` extracts to a sibling `<archive>.extracted/` directory with a `.complete`
-  sentinel, under a file lock on `<archive>.extracted.lock`.
+  sentinel, under a file lock on `<archive>.extracted.lock`. `[serialization.py:_inspect_checkpoint]` calls it too, so
+  `inspect_checkpoint` on an archive writes those files beside it.
 - `[_io.py:atomic_file]`/`[_io.py:atomic_directory]` write through hidden temporaries in the target's parent directory
   and commit with `os.replace`. `[serialization.py:save_model]` uses `atomic_directory` when `compression=False`. With
   `compression=True` it first writes `weights.eqx` and `metadata.json` to a system `tempfile.TemporaryDirectory()`, and
@@ -144,7 +157,7 @@ calls `serialization.py:load_weights`, which downloads into `~/.cache/equimo/` w
 - vision: [./vision/EGM.md](./vision/EGM.md) - registered image architectures (ViT family with DINOv2/v3, SigLIP2, TIPS,
   EUPE, LingBot and ViT-5 presets, ConvNeXt, EoMT, PMT, SAM 3.1, and others), vision layers and registries,
   query-segmentation training losses, image loading, segmentation post-processing, PMT checkpoints, and the `vision.ops`
-  operations (`roi_align`, `grid_sample`).
+  operations (`roi_align`, `grid_sample`, `resize_bilinear`, `resize_bilinear_antialias`).
 - language: [./language/EGM.md](./language/EGM.md) - `TextTransformerEncoder`, `CausalTextTransformer` with its
   `sam31_text` factory, the SentencePiece tokenizer, which downloads its tokenizer files, and `ClipBpeTokenizer`, which
   ships its vocabulary.
@@ -159,12 +172,19 @@ calls `serialization.py:load_weights`, which downloads into `~/.cache/equimo/` w
 
 ## Global Invariants
 
-- Modules are unbatched: models and layers process one example, and callers batch with `jax.vmap`. See the per-package
-  Invariants in [./core/layers/EGM.md](./core/layers/EGM.md) and [./vision/models/EGM.md](./vision/models/EGM.md).
+- Modules are unbatched: models and layers process one example, and callers batch with `jax.vmap`. The exception is
+  `T0`: `__call__` takes `(variates, time)` arrays of flattened samples told apart by `group_ids`, and `predict` takes
+  batched contexts (`[timeseries/models/t0.py:T0.__call__]`, `[timeseries/models/t0.py:T0.predict]`). See the
+  per-package Invariants in [./core/layers/EGM.md](./core/layers/EGM.md) and
+  [./vision/models/EGM.md](./vision/models/EGM.md).
 - Forward and feature endpoints take `key=None` and split keys with `core/_prng.py:split_for_mode`, so they run without
   a key only under static `inference=True` ([./core/EGM.md](./core/EGM.md)). The exceptions are masked-attention
-  EoMT/PMT and `VisionParcae` ([./vision/models/EGM.md](./vision/models/EGM.md)), and the vision convolution blocks that
-  fall back to a fixed key through `default_key_for_mode` ([./vision/layers/EGM.md](./vision/layers/EGM.md)).
+  EoMT/PMT and `VisionParcae` ([./vision/models/EGM.md](./vision/models/EGM.md)), the vision convolution blocks that
+  fall back to a fixed key through `default_key_for_mode` ([./vision/layers/EGM.md](./vision/layers/EGM.md)), the
+  tabular attention blocks, which turn a `None` key into `None` subkeys
+  (`[tabular/layers/blocks.py:_split_optional_key]`) and give their MLPs a fixed key
+  (`[tabular/layers/mlp.py:_call_mlp]`), and PEFT prompt features on Equimo ViTs, which use a fixed model key when none
+  is given (`[finetune/peft/prompts.py:_equimo_vit_features]`).
 - Numerically sensitive operations (attention logits, softmax, norms, scan exponents, pooling accumulators) compute in
   at least float32 and cast back to the input dtype. Token attention uses `jax.nn.softmax`, while other softmaxes and
   the classification losses use `equimo.core.ops` ([./core/ops/EGM.md](./core/ops/EGM.md)).
@@ -172,25 +192,31 @@ calls `serialization.py:load_weights`, which downloads into `~/.cache/equimo/` w
   trainable and weight-decay masks; values that follow from static configuration (RoPE frequencies, coordinate tables)
   are computed, not stored ([./core/EGM.md](./core/EGM.md), [./vision/layers/EGM.md](./vision/layers/EGM.md)).
 - Layers and models are resolved by lowercased string names through per-family registries built from
-  `core/layers/_registry.py`, and models through `[registry.py:register_model]`. Registering a duplicate name raises
-  unless `force=True`.
+  `core/layers/_registry.py` (tabular has its own implementation, `[tabular/layers/registry.py:_register_module]` and
+  `[tabular/layers/registry.py:_resolve_from_registry]`), and models through `[registry.py:register_model]`. Registering
+  a duplicate name raises unless `force=True`.
 - Pretrained weights load only through `[serialization.py:load_weights]`, with digest pinning and `CheckpointLimits`.
   `finetune` bundles use their own format (`manifest.json` plus `arrays.eqx`, also never pickled) and the same limit and
   I/O helpers ([./finetune/EGM.md](./finetune/EGM.md)).
 
 ## Global Side Effects
 
-- Network: the Hugging Face repository `poiretclement/equimo` at a pinned revision, for model archives
-  (`[serialization.py:download]`) and tokenizer files (`language/tokenizers.py`). `conversion` may also call `torch.hub`
-  or `timm`.
+- Network: by default the Hugging Face repository `poiretclement/equimo` at a pinned revision, for model archives
+  (`[serialization.py:download]`) and tokenizer files (`language/tokenizers.py`). The `repository=` arguments and the
+  tokenizer `url=` reach any host, and `[language/tokenizers.py:SentencePieceTokenizer.download]` accepts `http://`.
+  `conversion` may also call `torch.hub` or `timm`.
 - Disk: the cache under `~/.cache/equimo/` (archives, sidecars, extracted directories, lock files, tokenizers), plus
   checkpoints and bundles written by `save_model`, `vision/pmt_checkpoint.py` and `finetune/serialization.py`.
-- Import-time global state: importing modality packages fills the layer registries and the root model registry.
+- Import-time global state: importing `equimo.language` (`[language/__init__.py:__all__]`), or the `models` and `layers`
+  subpackages of the other modalities, fills the layer registries and the root model registry. The other modality
+  package roots register nothing.
 - Optional dependencies are imported lazily and raise `ImportError` that names the extra: `extras` (Pillow,
   scikit-learn, matplotlib), `audio` (torch, torchaudio), `language` (tensorflow, tensorflow-text), `clip` (regex, ftfy)
   and `torch` (torch, timm).
-- Cross-device collectives: `vision/query_training` (`psum`, `pmin`) and PMT's `ReferenceBatchNorm` (`psum`) when an
-  `axis_name` is given.
+- Cross-device collectives: `vision/query_training` (`psum`, `pmin`) when an `axis_name` is given
+  (`[vision/query_training/_loss.py:reduce_query_losses]`), and PMT's `ReferenceBatchNorm` (`psum`) on every
+  non-inference call, over its `axis_name`, which defaults to `pmt_batch`
+  (`[vision/models/pmd.py:ReferenceBatchNorm.__call__]`).
 
 ## System Verification
 

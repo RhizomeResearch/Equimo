@@ -15,8 +15,8 @@ VPT, P-Tuning v2), and BitFit.
 
 - `PEFTConfig`: union alias of
   `LoRAConfig | DoRAConfig | AdapterConfig | OrthogonalAdapterConfig | FourierFTConfig | PromptConfig | PrefixConfig | ScaleShiftConfig | IA3Config | VeRAConfig`
-  (excludes `BitFitConfig`, `AdaptFormerConfig`, `AdapterBankConfig`, `AdapterFusionConfig`, and `EVAInitializerConfig`)
-  [\_\_init\_\_.py:PEFTConfig]
+  (excludes `BitFitConfig`, `AdaptFormerConfig`, `AdapterBankConfig`, `AdapterFusionConfig`, `EVAInitializerConfig`,
+  `LoRAPlusLabelConfig`, and `CalibrationSpec`) [\_\_init\_\_.py:PEFTConfig]
 - Package exports: public names of `adapters`, `bitfit`, `dora`, `ia3`, `lora`, `prefix`, `prompts`, `scale_shift`, and
   `vera`. `architecture_hash`, `lora_config_to_dict`, `iter_dora_modules`, `strip_prefixes`, and
   `iter_prefix_attentions` are only in their module `__all__`; `base`, `_common`, and `_compat` are not re-exported
@@ -65,7 +65,8 @@ VPT, P-Tuning v2), and BitFit.
 - Adapters: `AdapterConfig`, `ParallelAdapterConfig`, `AdaptFormerConfig`, `AdapterBankConfig`, `AdapterFusionConfig`,
   `OrthogonalAdapterConfig`; modules `BottleneckAdapter`, `AdaptFormerAdapter`, `SerialAdapterBlock`,
   `OutputAdapterModule`, `ParallelAdapterBlock`, `AdaptFormerBlock`, `AdapterFusion`, `OrthogonalLinear`
-  [adapters.py:AdapterConfig] [adapters.py:OrthogonalLinear] [adapters.py:AdapterFusion]
+  [adapters.py:AdapterConfig] [adapters.py:OrthogonalLinear] [adapters.py:AdapterFusion]. Only delta loading constructs
+  `SerialAdapterBlock` [adapters.py:\_wrapper_from_entry]
 - Adapter functions: `apply_adapters`, `add_adapter`, `set_active_adapter`, `configure_adapter_bank`,
   `apply_adapter_fusion`, `adapter_fusion_trainable_spec`, `apply_adaptformer`, `apply_orthogonal_adapters`,
   `merge_orthogonal_adapters`, `unmerge_orthogonal_adapters`, `extract_adapter_delta`, `load_adapter_delta`,
@@ -106,9 +107,11 @@ VPT, P-Tuning v2), and BitFit.
   `residual_handling="freeze_residual"` the base weight compensates; with `"none"` nothing does, so the wrapped model's
   output differs from the base at initialization [lora.py:\_pissa_init] [lora.py:\_pissa_prepare]
 - LoRA scaling is `alpha / rank` for `alpha_over_r` and `alpha / sqrt(rank)` for `alpha_over_sqrt_r`; any other mode
-  raises `ValueError`. Wrapper ranks must be at least 1. `apply_adalora` applies the configured scaling mode and raises
-  `ValueError` for a nonzero `config.dropout`, since `AdaLoRAModule` has no dropout path [lora.py:\_scaling]
-  [lora.py:LoRALinear] [lora.py:AdaLoRAModule] [lora.py:apply_adalora]
+  raises `ValueError`. `LoRALinear`, `LoRAFALinear`, `RandLoRALinear`, and `AdaLoRAModule` reject ranks below 1.
+  `apply_adalora` applies the configured scaling mode, raises `ValueError` for a nonzero `config.dropout`, since
+  `AdaLoRAModule` has no dropout path, and does not read `fan_in_fan_out`. `apply_lora_fa` and `apply_randlora` do not
+  read `config.dropout` [lora.py:\_scaling] [lora.py:LoRALinear] [lora.py:LoRAFALinear] [lora.py:RandLoRALinear]
+  [lora.py:AdaLoRAModule] [lora.py:apply_adalora] [lora.py:apply_lora_fa] [lora.py:apply_randlora]
 - RandLoRA with `seed` set builds every wrapper's bases from `jr.PRNGKey(seed)`, so same-shape modules share bases; with
   `seed=None` each module uses its split subkey [lora.py:RandLoRALinear]
 - Unsupported options raise `ValueError`: `apply_lora` with an init other than `kaiming_A_zero_B` or `pissa`,
@@ -116,11 +119,24 @@ VPT, P-Tuning v2), and BitFit.
   `PTuningV2Config(reparameterizer="mlp")` [lora.py:apply_lora] [lora.py:apply_lora_fa] [lora.py:apply_randlora]
   [prompts.py:\_validate_prompt_config]
 - Target resolution raises `ValueError` when nothing resolves unless `target.allow_empty`; non-linear targets raise
-  `TypeError`; already-wrapped modules of the same type are skipped; paths are processed in sorted order with one split
-  subkey each [lora.py:apply_lora] [dora.py:apply_dora] [ia3.py:\_target_linear_specs]
-- A path containing `qkv` selects `LoRAMergedLinear` / `DoRAMergedLinear`; QKV projection segments require the output
-  dim to be divisible by 3 and axis 0, and zero delta rows outside the selected q/k/v segments [lora.py:LoRALinear]
-  [lora.py:\_projection_segments_for_target] [ia3.py:\_projection_segments_for_target] [dora.py:apply_dora]
+  `TypeError`, except in `apply_scale_shift`, which wraps any module with a `weight`, `bias`, or `scale` leaf. Paths are
+  processed in sorted order with one split subkey each; `apply_ia3` and `apply_orthogonal_adapters` take no key, and
+  `apply_scale_shift` uses one only with `init="normal"` [lora.py:apply_lora] [dora.py:apply_dora]
+  [ia3.py:\_target_linear_specs] [ia3.py:apply_ia3] [adapters.py:apply_orthogonal_adapters]
+  [scale_shift.py:\_target_module_paths] [scale_shift.py:\_module_keys]
+- Re-applying a method does not nest wrappers: the LoRA family, DoRA, VeRA, IA3, orthogonal adapters, and scale/shift
+  skip a target that names or lies inside their own wrapper type, `apply_adapters` skips block wrappers and existing
+  `OutputAdapterModule` sites, and `apply_adaptformer` skips `AdaptFormerBlock`s. `add_adapter` deliberately stacks: it
+  adds a named adapter next to those already at a site [\_common.py:inside_wrapper] [vera.py:apply_vera]
+  [scale_shift.py:apply_scale_shift] [adapters.py:apply_adapters] [adapters.py:apply_adaptformer]
+  [adapters.py:add_adapter] [adapters.py:\_add_output_adapter_at_path]
+- In `apply_lora` and `apply_dora`, a path containing `qkv` selects `LoRAMergedLinear` / `DoRAMergedLinear`;
+  `apply_eva_lora` always builds `LoRALinear`. QKV projection segments require the output dim to be divisible by 3 and
+  axis 0. `LoRALinear` and `RandLoRALinear` zero delta rows outside the selected q/k/v segments, only with
+  `target_kind="projection_segment"`. IA3 ignores `target_kind`: it builds segments whenever the target names q, k, or
+  v, and leaves the other rows at scale 1. LoRA-FA, AdaLoRA, FourierFT, and EVA change every row [lora.py:apply_lora]
+  [lora.py:apply_eva_lora] [lora.py:LoRALinear] [lora.py:RandLoRALinear] [lora.py:\_projection_segments_for_target]
+  [lora.py:\_mask_projection_segments] [ia3.py:\_projection_segments_for_target] [ia3.py:IA3Linear] [dora.py:apply_dora]
 - Merge contract: `merge` raises `ValueError` if the wrapper is not mergeable or already merged, adds the delta cast to
   the base weight dtype, and sets `merged=True`; `unmerge` of an unmerged wrapper returns it unchanged; a merged wrapper
   returns `base(x)` [lora.py:AdaLoRAModule] [lora.py:\_merge_additive_lora] [adapters.py:OrthogonalLinear]
@@ -129,9 +145,11 @@ VPT, P-Tuning v2), and BitFit.
   only `eqx.nn.Linear` and `eqx.nn.LayerNorm` bases and requires a bias when the shift is nonzero [dora.py:merge_dora]
   [ia3.py:merge_ia3] [vera.py:merge_vera] [scale_shift.py:\_merge_scale_shift_linear]
 - Dropout runs only when `dropout > 0` and `not inference`, and then requires a PRNG key (`ValueError` otherwise). Most
-  wrappers default to `inference=True`; adapter block wrappers, `PrefixAttention`, and `ScaleShiftWrapper` default to
-  `inference=None`, which counts as training [lora.py:LoRALinear] [\_common.py:dropout] [adapters.py:BottleneckAdapter]
-  [adapters.py:SerialAdapterBlock] [prefix.py:PrefixAttention] [scale_shift.py:ScaleShiftWrapper]
+  wrappers default to `inference=True`; adapter block wrappers and `PrefixAttention` default to `inference=None`, which
+  counts as training. `ScaleShiftWrapper` also defaults to `inference=None` but has no dropout, and passes `key` and
+  `inference` to its base only when they are not `None` [lora.py:LoRALinear] [\_common.py:dropout]
+  [adapters.py:BottleneckAdapter] [adapters.py:SerialAdapterBlock] [prefix.py:PrefixAttention]
+  [scale_shift.py:ScaleShiftWrapper] [scale_shift.py:\_call_base]
 - Precision: AdapterFusion and prefix-attention logits are computed in at least float32 and the probabilities cast back
   to the activation dtype; LoRA-FA correction matrices, AdaLoRA orthogonality loss, and OFT orthogonality error are
   computed in float32 [adapters.py:AdapterFusion] [prefix.py:PrefixAttention] [lora.py:LoRAFALinear]
@@ -168,6 +186,10 @@ VPT, P-Tuning v2), and BitFit.
   `{attention.k, attention.v}` and `direct_kv=True`, and prepends an all-ones mask of width `num_prefix_tokens`. Rotary
   embedding is applied only to base tokens [prefix.py:\_validate_prefix_config] [prefix.py:\_is_supported_attention]
   [prefix.py:\_extend_mask] [prefix.py:PrefixAttention]
+- `PrefixConfig(depth="shallow")` wraps only the first supported attention [prefix.py:apply_prefixes].
+  `PrefixAttention.state` is a float array leaf not declared as a buffer; `PrefixTunedModel` overwrites it from
+  `prefixes` and `prefix_projections` on every `__call__` and `features()` [prefix.py:PrefixTunedModel]
+  [prefix.py:\_sync_prefixes]
 - Prompt tuning supports Equimo ViT-like models and simple token models only (`ValueError` otherwise). Prompts are cast
   to the token dtype at use. `init="normal"` draws float32 prompts; `init="from_embedding_if_available"` (the
   `SoftPromptConfig` default) copies `token_embed.weight` rows in the embedding dtype, with the same rows for every
@@ -177,6 +199,12 @@ VPT, P-Tuning v2), and BitFit.
   has none; use `features()` for headless bases [prompts.py:PromptedModel]
 - `PEFTConfig` must equal the set of config types registered by the parent package's serialization codecs, which is
   checked at import time [\_\_init\_\_.py:PEFTConfig] [../serialization.py:\_validate_codec_config_families]
+- Accepted but currently unused: `LoRAPlusLabelConfig.label_A`, `label_B`, and `label_base`, `VeRAConfig.seed_required`,
+  and `DoRAConfig.magnitude_axis`. No `apply_*` reads `train_head` on `IA3Config`, `ScaleShiftConfig`, `PrefixConfig`,
+  `PromptConfig`, or `AdaptFormerConfig`; `save_delta` reads it only when such a config is passed as `spec`
+  [lora.py:LoRAPlusLabelConfig] [vera.py:VeRAConfig] [dora.py:DoRAConfig] [ia3.py:IA3Config]
+  [scale_shift.py:ScaleShiftConfig] [prefix.py:PrefixConfig] [prompts.py:PromptConfig] [adapters.py:AdaptFormerConfig]
+  [../serialization.py:\_trainable_spec] [../serialization.py:\_require_base_for_unrepresented_trainables]
 
 ## Side Effects
 
