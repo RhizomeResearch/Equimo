@@ -254,9 +254,9 @@ so the vision model takes text features, not token ids.
   antialiased upsampling and the pixel decoder's nearest upsampling.
 - `VisionRoPE` gains `width_first_factors`; `get_factors` is unchanged.
 
-The `Sam3` vision archive is about 519M parameters (2.1 GB in float32): trunk 446M, tri-neck 21M, detector heads 33M,
-tracker 20M. The text archive is about 354M parameters (1.4 GB). Image-only users load the tracker's 20M parameters too;
-splitting it out would save under 4%.
+The `Sam3` vision archive is about 519M parameters (2.1 GB in float32): trunk 446M, tri-neck 21M, detector heads 32M,
+interactive head 4M, tracker 15M. The text archive is about 354M parameters (1.4 GB). Image-only users load the
+tracker's 15M parameters too; splitting it out would save under 3%.
 
 ### Public interface
 
@@ -341,9 +341,10 @@ transformer blocks sit in lists named `blocks`. The two random Fourier matrices 
 - **RoPE.** `VisionRoPE` with the mode strategy (`freqs_for="lang"`, `theta=10000`, `rope_dim=32`, `pt_seq_len=24`)
   already produces the reference's frequencies, interleaved pairs and interpolation. The one difference is axis order:
   the reference rotates by width first, then height. On a square grid that is `VisionRoPE`'s table with the two grid
-  axes exchanged, so the encoder transposes the computed factors from `(H, W)` to `(W, H)` order before flattening.
-  `VisionRoPE` itself does not change, so no identity hash changes. Windowed blocks use a 24 x 24 grid; global blocks
-  use 72 x 72 with positions scaled by 24/72. Tables are computed while tracing, not stored.
+  axes exchanged, so the encoder calls `VisionRoPE.width_first_factors`, which transposes the computed factors from
+  `(H, W)` to `(W, H)` order before flattening. The method adds no field, so no identity hash changes. Windowed blocks
+  use a 24 x 24 grid; global blocks use 72 x 72 with positions scaled by 24/72. Tables are computed while tracing, not
+  stored.
 - **Tri-neck.** Three simple feature pyramids of the same structure over the block-31 map (scale factors 4, 2 and 1,
   giving 288, 144 and 72 pixel grids, 256 channels), one for the detector, one for the interactive head and one for
   propagation. Their sine position encodings (DETR style, 128 features per axis, normalized) are computed while tracing.
@@ -1031,6 +1032,16 @@ they name what the code does.
   `attention.*` tags select cross-attention layers.
 - `tests/finetune/test_tags.py` (Modify): those tags, including the tuple entries.
 - `src/equimo/core/EGM.md` (Modify): the tag rule.
+- `src/equimo/core/layers/ffn.py`, `src/equimo/core/layers/norm.py` and `src/equimo/core/layers/_apply.py` (Modify,
+  Modify, Create): `LinearStack` and `layer_norm`, applied over the last axis of an input of any rank.
+- `src/equimo/core/ops/probability.py` and `src/equimo/core/ops/EGM.md` (Modify): the clamped `inverse_sigmoid`.
+- `src/equimo/vision/layers/posemb.py` (Modify): sine and Fourier position encodings and
+  `VisionRoPE.width_first_factors`.
+- `src/equimo/vision/layers/convolution.py` (Modify): `upsample_twofold`, which `eomt.py` also uses.
+- `src/equimo/vision/layers/EGM.md` (Modify): these position encodings and `upsample_twofold`.
+- `src/equimo/vision/segmentation.py` (Modify): the mask overlap, NMS and box operations.
+- `tests/test_ffn.py`, `tests/test_norm.py`, `tests/test_posemb.py`, `tests/test_probability.py` and
+  `tests/test_segmentation_masks.py` (Modify): those blocks.
 - `src/equimo/vision/ops.py` (Create):
   `roi_align(features[C, H, W], boxes[N, 4], output_size, spatial_scale=1.0, sampling_ratio=-1, aligned=False)` with
   boxes as xyxy in feature pixels, matching torchvision's CUDA kernel exactly, which reads the border for samples
@@ -1175,12 +1186,12 @@ they name what the code does.
   factories.
 - `tests/cases/model_cases.py` (Modify): tiny `Sam3` and `CausalTextTransformer` cases appended at the end of
   `MODEL_CASES` (seeds follow position), with their `features` endpoints, which bring them under the output manifest,
-  feature contract, PRNG-free inference and ONNX checks. Both stay in the ONNX matrix, with no xfail; the `sam3` export
-  is a known failure inside jax2onnx, recorded in `AGENTS.md`, until it is fixed upstream.
+  feature contract, PRNG-free inference and ONNX checks. Both stay in the ONNX matrix; `tests/test_onnx_export.py` skips
+  the `sam3` export on jax2onnx 0.17.1 and 0.18.0, which fail inside jax2onnx, as `AGENTS.md` records.
 - `tests/test_checkpoint_signature_stability.py` (Modify): `BUILDERS` entries for tiny `Sam3` and
   `CausalTextTransformer`.
 - `tests/data/model_output_references.json` and `tests/data/model_structure_signatures.json` (Modify): regenerated with
-  `uv run python models/generate_model_contract_references.py` and
+  `uv run python models/generate_model_contract_references.py --source-revision <reviewed-revision> --force` and
   `uv run python tests/test_checkpoint_signature_stability.py`; the diff must touch only the new keys.
 - `tests/cases/finetune_cases.py` (Modify): a LoRA case over the encoder and detector attention projections and a
   head-only case on the tiny `Sam3`.
@@ -1224,21 +1235,22 @@ they name what the code does.
 - `benchmarks/sam3_image.py` and `benchmarks/sam3_video.py` (Create): the GPU memory and latency measurements recorded
   in `docs/performance.md`.
 - `AGENTS.md` (Modify): notes on running the reference harness, GPU parity and the known jax2onnx failure.
-- `src/equimo/finetune/EGM.md`, `src/equimo/finetune/peft/EGM.md` and `src/equimo/vision/layers/EGM.md` (Modify):
-  contract corrections to match their modules, independent of SAM 3.1.
+- `src/equimo/finetune/EGM.md` and `src/equimo/finetune/peft/EGM.md` (Modify): contract corrections to match their
+  modules, independent of SAM 3.1.
 
 The model catalog (`docs/model_catalog.md`, `src/equimo/catalog.py`) is deliberately representative and is not changed.
 
 ### Order of work and verification
 
-`pytest` passes after every step, apart from the known `sam3` ONNX export failure: a family is registered in the same
-step as its `ModelCase`, output references and structure signatures. Until digests are pinned, scheduled tests read
-archives through a local archive-path override that only those tests use.
+`pytest` passes after every step: a family is registered in the same step as its `ModelCase`, output references and
+structure signatures. Until digests are pinned, scheduled tests read archives through a local archive-path override that
+only those tests use.
 
 Drafting, from this design, Equimo's code, the SAM 3 paper and the SAM 3.1 release post, without reading the reference:
 
-1. **Shared blocks.** `core/layers/attention.py`, `core/layers/__init__.py`, `core/layers/EGM.md`, `vision/ops.py` and
-   their tests against NumPy expectations. Check: new tests pass; existing attention and RoPE tests pass unchanged.
+1. **Shared blocks.** `core/layers/attention.py`, `core/layers/__init__.py`, `core/layers/EGM.md`, `vision/ops.py`, the
+   other shared core and vision files listed above, and their tests against NumPy expectations. Check: new tests pass;
+   existing attention and RoPE tests pass unchanged.
 1. **Text model and tokenizer.** The language files, package data, `pyproject.toml` extra, `uv.lock`, the CI job and the
    optional-dependency test; `causal_text_transformer` registered with its model case, references and signature. Check:
    causal masking bit-exact, jit, vmap, bfloat16.
@@ -1277,12 +1289,11 @@ Video milestone:
 
 Before declaring the work complete, run the focused tests, then the CI-equivalent checks from `AGENTS.md` (`ruff check`,
 `ruff format --check`, `mdformat --check`, `ty check`, `pytest`), `uv run python tests/ci_shards.py validate`, and a
-fresh `uv build --no-sources --out-dir <staging-directory>` checked by the distribution tests. `pytest` passes apart
-from the `sam3` case of `tests/test_onnx_export.py`, which fails inside jax2onnx and has no xfail; it stays a known
-failure until jax2onnx is fixed upstream, as `AGENTS.md` records. Full-weight parity, video included, runs in the
-scheduled CPU job, which needs no precision setting. On a GPU, set `JAX_DEFAULT_MATMUL_PRECISION=highest`: XLA's default
-GPU matmul precision alone puts trunk features 9e-4 from exact float32 arithmetic, against 3e-6 at the highest precision
-(measured).
+fresh `uv build --no-sources --out-dir <staging-directory>` checked by the distribution tests. `pytest` passes, with the
+`sam3` case of `tests/test_onnx_export.py` skipped on jax2onnx 0.17.1 and 0.18.0, as `AGENTS.md` records. Full-weight
+parity, video included, runs in the scheduled CPU job, which needs no precision setting. On a GPU, set
+`JAX_DEFAULT_MATMUL_PRECISION=highest`: XLA's default GPU matmul precision alone puts trunk features 9e-4 from exact
+float32 arithmetic, against 3e-6 at the highest precision (measured).
 
 ______________________________________________________________________
 

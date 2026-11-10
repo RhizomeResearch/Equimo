@@ -45,7 +45,7 @@
   },
   "lowformer_b0": {
     "model_class": "equimo.vision.models.lowformer.LowFormer",
-    "model_signature": "sha256:f615920fbd9671ca31af57db3285eeaacb2b197ea0ec4a87b4e528fdddb907f6"
+    "model_signature": "sha256:b981a4977e0cbae318368b3b6668ddf19a1d0b9b2a9a884082f426c98357608d"
   },
   "mlla_tiny": {
     "model_class": "equimo.vision.models.mlla.Mlla",

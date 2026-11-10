@@ -91,7 +91,9 @@ names that are not re-exported there.
 - `[ffn.py:LinearStack]`:
   `LinearStack(in_features, hidden_features, out_features, num_layers, *, key, act_layer="relu")`. Linear layers in
   `layers`, with the activation between them, applied over the last axis of an input of any rank. It has no dropout or
-  norm and is not registered, because it does not take the `ffn_layer` arguments.
+  norm and is not registered, because it does not take the `ffn_layer` arguments. `LinearStack` and `layer_norm` reach
+  any rank through `[_apply.py:_apply_module_last_dim]`, which `vmap`s the module on the array alone, so no `key`,
+  `inference` or state can reach it.
 - `[ffn.py:SwiGlu]` and `[ffn.py:SwiGluFused]`: SwiGLU FFNs. The hidden width is `int(hidden_dim * 2 / 3)`, rounded up
   to a multiple of `align_to` (default 8). The fused variant uses a single `w12` projection and matches the DINOv2 giant
   model.
@@ -109,7 +111,7 @@ names that are not re-exported there.
 - Channel-first `(C, H, W)` norms that normalize over axis 0 at each pixel: `[norm.py:RMSNorm2d]`,
   `[norm.py:LayerNorm2d]`, `[norm.py:SimpleNorm2d]`.
 - `[norm.py:layer_norm]`: `layer_norm(norm, x)` applies an `eqx.nn.LayerNorm` over the last axis of an input of any rank
-  in float32 and returns the input dtype.
+  in float32 and returns the input dtype. Not re-exported.
 - `[norm.py:SimpleNorm]`: uncentered norm that uses the Bessel-corrected variance.
 - `[norm.py:GRN]`: global response normalization. It is the identity at initialization.
 - `SimpleNorm`, `SimpleNorm2d` and `GRN` are registered but not re-exported.

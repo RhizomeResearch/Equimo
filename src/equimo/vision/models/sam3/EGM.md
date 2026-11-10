@@ -72,10 +72,11 @@ Equimo's license.
   frame; later calls raise `ValueError`), `push_frame(frame) -> list[FramePrediction]`,
   `finish() -> list[FramePrediction]`, `remove_object(object_id)` and
   `add_object(frame_index, frame, points, labels, *, object_id=None) -> PointTrack`. Frames are at the model's input
-  size and `source_size` is the clip's `(height, width)`. `decisions` holds one `FrameDecision` per planned pass.
-  `remove_object` raises `ValueError` for an object that is not being tracked, and hides the object from frames not yet
-  returned. `push_frame` raises `ValueError` before `set_prompt`, after `finish` and past `num_frames`; `add_object`
-  raises `ValueError` for an ID already in use. `[video.py:Sam3VideoTracker]`, `[video.py:Sam3VideoTracker.push_frame]`,
+  size and `source_size` is the clip's `(height, width)`. `decisions` holds one `FrameDecision` per planned pass, and
+  `policy` is the driver's `AssociationPolicy`. `remove_object` raises `ValueError` for an object that is not being
+  tracked, and hides the object from frames not yet returned. `push_frame` raises `ValueError` before `set_prompt`,
+  after `finish` and past `num_frames`; `add_object` raises `ValueError` for an ID already in use.
+  `[video.py:Sam3VideoTracker]`, `[video.py:Sam3VideoTracker.push_frame]`,
   `[video.py:AssociationPolicy.reserve_object_id]`
 - `PointTrack`: `object_id`, `first_prediction` (the frame it was added on) and `push(frame) -> FramePrediction`. Its
   `scores` hold, on every frame, the sigmoid of its object-score logit on the frame it was added on.
@@ -91,6 +92,10 @@ Equimo's license.
   `remove_object(object_id) -> released_buckets` and `live_objects()` (active slots, by increasing ID).
   `[video.py:AssociationPolicy]`, `[video.py:TrackedObject]`, `[video.py:AssociationPolicy.reserve_object_id]`,
   `[video.py:AssociationPolicy.remove_object]`, `[video.py:AssociationPolicy.live_objects]`
+- Building blocks not in their module's `__all__`, reached through the fields of `Sam3`: `GeometryBlock`, `FusionBlock`,
+  `FusionEncoder`, `BoxRelativeBias`, `ConceptDecoder`, `DotProductScoring`, `PixelStage`, `SegmentationHead`
+  (`detector.py`); `PyramidLevel`, `FeaturePyramid`, `TriNeck` (`encoder.py`); `TwoWayBlock`, `MaskUpsampler`,
+  `MaskDecoder`, `InteractiveHead` (`interactive.py`).
 - `FrameObservation`, the NumPy input of `plan`: `frame_index`, `detection_probabilities` and every `Association` field
   except `iom`. `from_device(frame_index, association, detection_probabilities)` copies them to the host.
   `[video.py:FrameObservation]`

@@ -84,14 +84,18 @@ optimizer or training loop: plans expose labels and masks for the caller's optim
   `breadcrumbs_task_vector`, `fisher_merge`, `regmean_merge`, `knots_task_vector`, `task_vector_bundle`
   [merging.py:task_vector] [merging.py:ties_merge] [merging.py:regmean_merge]. `task_vector_bundle` builds an in-memory
   `FineTuneBundle` whose `delta_tree` is the vector's delta. A delta with a module layout, as every vector taken from an
-  Equinox model has, makes `save_finetune_bundle` raise `TypeError`, and delta loading raises `FineTuneBundleError` for
-  a `method` without a registered codec [merging.py:task_vector_bundle] [serialization.py:\_encode_value]
-  [serialization.py:\_codec_for_load]
+  Equinox model has, makes `save_finetune_bundle` raise `TypeError`. Delta loading raises `FineTuneBundleError` whatever
+  the `method` when the vector records a logical-ID hash, because the bundle has no entries or target paths and fails
+  the lineage check before any codec lookup, and otherwise for a `method` without a registered codec
+  [merging.py:task_vector_bundle] [serialization.py:\_encode_value]
+  [serialization.py:\_check_bundle_lineage_consistency] [serialization.py:\_codec_for_load]
 - Serialization: `save_delta(model, path, *, base_model=None, spec=None, method="lora", ...)`, `load_delta`,
   `save_finetune_bundle`, `load_finetune_bundle`, `save_calibration_artifacts`, `load_calibration_artifacts`
   [serialization.py:save_delta] [serialization.py:load_delta] [serialization.py:load_finetune_bundle]. The private
   `_serialization_codecs.py` defines the `DeltaCodec` descriptor and the registry builder that `serialization.py` uses
-  for its built-in codecs [\_serialization_codecs.py:DeltaCodec] [\_serialization_codecs.py:build_codec_registry]
+  for its built-in codecs, and `supported_methods_text` formats the method names for the save error
+  [\_serialization_codecs.py:DeltaCodec] [\_serialization_codecs.py:build_codec_registry]
+  [\_serialization_codecs.py:supported_methods_text]
 - Package surface: `__init__.py` eagerly re-exports the symbols above and the PEFT exports, except
   `make_trainable_report`, `resolve_trainable_paths`, `make_labeled_param_info_tree`, `key_path_to_path`,
   `is_path_prefix`, `Tagger`, `infer_role`, `make_param_info`, `merge_taggers`, `PoolName`, `TrainableMode`,
@@ -155,8 +159,9 @@ optimizer or training loop: plans expose labels and masks for the caller's optim
   any array with at most one axis, so PEFT vectors (DoRA magnitudes, AdaLoRA singular values, VeRA and RandLoRA scales,
   IA3 vectors, FourierFT coefficients, scale/shift, adapter scales) get `*_no_decay` labels by default. Equimo ViT block
   depth uses execution order across chunks, including in the predicates of `continued_ssl_trainable_spec` and
-  `partial_unfreeze` [../core/tags.py:canonical_tags_for_path] [tags.py:make_param_info]
-  [\_blocks.py:vision_block_depths] [continued_ssl.py:continued_ssl_trainable_spec] [recipes.py:partial_unfreeze]
+  `partial_unfreeze`; `model_block_depth` maps a parameter path to the depth of the block containing it
+  [../core/tags.py:canonical_tags_for_path] [tags.py:make_param_info] [\_blocks.py:vision_block_depths]
+  [\_blocks.py:model_block_depth] [continued_ssl.py:continued_ssl_trainable_spec] [recipes.py:partial_unfreeze]
 - Labels are `<base>_decay` or `<base>_no_decay`, and leaves sharing a label must agree on multiplier and weight decay.
   PEFT leaves use the method as base (`lora_A`, `vera`, ...); unless every multiplier below is 1.0, the base also names
   the location, as other leaves are labeled (`lora_A_block_03`, `lora_B_head`), so each label keeps one rate. LLRD
@@ -188,9 +193,9 @@ optimizer or training loop: plans expose labels and masks for the caller's optim
   [heads.py:LinearHead] [heads.py:LayerNormReadoutHead] [heads.py:IdentityHead] [heads.py:ProjectionHead]
   [heads.py:DenseFeatureAdapter] [heads.py:ContrastiveProjectionHead]
 - Attention pooling softmaxes go through `equimo.core.ops.softmax` with `where=mask` and logits of at least float32.
-  `AttentionPoolingClassifierHead` casts the probabilities back to the value dtype, and `AttentionPool` (float32 query)
-  returns the pooled features in the feature dtype [heads.py:AttentionPoolingClassifierHead] [pooling.py:AttentionPool]
-  [feature_extraction.py:\_attention_pool_explicit]
+  `AttentionPoolingClassifierHead` and `FeatureSpec(pooling="attention")` cast the probabilities back to the value
+  dtype, and `AttentionPool` (float32 query) returns the pooled features in the feature dtype
+  [heads.py:AttentionPoolingClassifierHead] [pooling.py:AttentionPool] [feature_extraction.py:\_attention_pool_explicit]
 - The two mask conventions are opposite: the endpoint argument named by `FeatureSpec.mask_field` is a padding mask (True
   marks padding), while the `mask` argument of `pool_features` modules and heads marks valid tokens (True keeps the
   token) [feature_extraction.py:\_masked_mean] [feature_extraction.py:\_attention_pool_explicit]
@@ -223,10 +228,12 @@ optimizer or training loop: plans expose labels and masks for the caller's optim
   [merging.py:\_mergeable] [merging.py:\_soup_leaf] [merging.py:fisher_merge] [merging.py:regmean_merge]
   [merging.py:\_check_task_vector_base] [merging.py:\_check_vector_compatibility] [merging.py:dare_task_vector]
 - Accepted but currently unused: `WiSEFTConfig.mask`, `UniformSoupConfig.mask`, `TaskVectorConfig.mask`,
-  `FisherMergeConfig.require_statistics`, `RegMeanConfig.require_input_covariances`, `HeadPlusNormConfig.norm_types`,
-  and `HeadPlusNormConfig.bn_stats_policy`. Every built-in codec sets `DeltaCodec.merge_for_save`, and nothing calls it
-  [merging.py:WiSEFTConfig] [merging.py:UniformSoupConfig] [merging.py:TaskVectorConfig] [merging.py:FisherMergeConfig]
-  [merging.py:RegMeanConfig] [recipes.py:HeadPlusNormConfig] [\_serialization_codecs.py:DeltaCodec]
+  `BreadcrumbsConfig.require_same_base_hash`, `FisherMergeConfig.require_statistics`,
+  `RegMeanConfig.require_input_covariances`, `HeadPlusNormConfig.norm_types`, and `HeadPlusNormConfig.bn_stats_policy`.
+  Every built-in codec sets `DeltaCodec.merge_for_save`, and nothing calls it [merging.py:WiSEFTConfig]
+  [merging.py:UniformSoupConfig] [merging.py:TaskVectorConfig] [merging.py:BreadcrumbsConfig]
+  [merging.py:FisherMergeConfig] [merging.py:RegMeanConfig] [recipes.py:HeadPlusNormConfig]
+  [\_serialization_codecs.py:DeltaCodec]
 - Calibration collectors keep int32 counts and accumulate means and centered sums in float32 (float64 only with
   `jax_enable_x64`), combine with Chan's update only when every provenance field matches, and refuse to finalize with
   zero samples [calibration.py:initialize_calibration_collector] [calibration.py:combine_calibration_collectors]

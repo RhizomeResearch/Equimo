@@ -104,9 +104,9 @@ package `__init__.py` auto-imports every module and merges each module's `__all_
 - `DEQ` with fixed-point (`fpi`) stages, `readout(z_star)`, `get_fpi_cells()`, and `deq_convnext_t`; `features` returns
   `(features, auxs)` and `__call__` returns `(logits, auxs)`. `[deq.py:DEQ]`, `[deq.py:DEQ.features]`,
   `[deq.py:deq_convnext_t]`
-- `FasterViT` (HAT carrier tokens), `IFormer` (`iformer_*`), `LowFormer` (`lowformer_backbone_b0..b3`), `Mlla`, `Vssd`
-  (both built by `build_mlla_stack`). `[fastervit.py:FasterViT]`, `[iformer.py:IFormer]`, `[lowformer.py:LowFormer]`,
-  `[mlla.py:build_mlla_stack]`, `[vssd.py:Vssd]`
+- `FasterViT` (HAT carrier tokens), `IFormer` (`iformer_*`), `LowFormer` (`lowformer_backbone_b0..b3`, which require
+  `attention_type`), `Mlla`, `Vssd` (both built by `build_mlla_stack`). `[fastervit.py:FasterViT]`,
+  `[iformer.py:IFormer]`, `[lowformer.py:LowFormer]`, `[mlla.py:build_mlla_stack]`, `[vssd.py:Vssd]`
 - `AttNet` (`attnet_*`), `MobileNetv3` (`mobilenetv3_small`, `mobilenetv3_large`), `PartialFormer`, `ReduceFormer`
   (`reduceformer_backbone_b1..b3`), `SHViT`. `PartialFormer.features(..., return_qa=True)` also returns the final query
   attention token. `[attnet.py:AttNet]`, `[mobilenet.py:MobileNetv3]`, `[partialformer.py:PartialFormer]`,
@@ -114,6 +114,11 @@ package `__init__.py` auto-imports every module and merges each module's `__all_
 - Most backbones expose `features`, `intermediate_features(x, key, inference, indices, n_last_blocks)`, and `__call__`.
   `ConvNeXt` and `IFormer` inherit them from `DenseStageFeatures`; `Mlla` and `Vssd` from `TokenStemFeatures`.
   `[_features.py:DenseStageFeatures]`, `[_features.py:TokenStemFeatures]`
+- `ReduceFormer.intermediates` returns a list of the stem output followed by every stage output, and
+  `intermediate_features` is built on it. `[reduceformer.py:ReduceFormer.intermediates]`
+- Building blocks not in their module's `__all__`: `MaskEmbedding` (EoMT's three-layer mask head), `TokenInitializer`
+  (FasterViT's carrier tokens) and `BasicBlock` (SHViT's block). `[eomt.py:MaskEmbedding]`,
+  `[fastervit.py:TokenInitializer]`, `[shvit.py:BasicBlock]`
 
 ### Shared private helpers
 
@@ -176,9 +181,11 @@ package `__init__.py` auto-imports every module and merges each module's `__all_
   `VisionParcae.__init__` raises `TypeError` on unknown kwargs. `[parcae.py:VisionParcae]`,
   `[parcae.py:VisionParcae._resolve_num_steps]`, `[parcae.py:VisionParcaeDiagonalInjection]`
 - `DEQ.readout` raises unless exactly one stage is `fpi`. `[deq.py:DEQ.readout]`
-- `LowFormer` and `ReduceFormer` pop the stem entry from the caller's `widths`, `depths`, and `block_types` lists; their
-  factories pass `deepcopy_cfg=True` to protect the registry configs. `[lowformer.py:LowFormer]`,
-  `[reduceformer.py:ReduceFormer]`
+- `LowFormer` and `ReduceFormer` pop the stem entry from the caller's `widths`, `depths`, and `block_types` lists, and
+  `LowFormer` also from `att_strides`; their factories pass `deepcopy_cfg=True` to protect the registry configs.
+  `[lowformer.py:LowFormer]`, `[reduceformer.py:ReduceFormer]`
+- Every window of a `FasterViT` HAT stage shares the block's key, because the carrier tokens leave the block once per
+  image. `[fastervit.py:BlockChunk.__call__]`
 - Only ConvNeXt variants listed in `PRETRAINED_ARCHIVE_SHA256` accept `pretrained=True`; `_build_convnext` passes them
   as `pretrained_variants`. With `pretrained=True`, `convnext_*` and `convnextv2_*` variants default
   `act_layer="exactgelu"` (a caller override wins), and `convnext_zepto_rms_ols` also gets `exactgelu` in its default

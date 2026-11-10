@@ -66,6 +66,14 @@ All notable changes to Equimo are documented here. Equimo follows Semantic Versi
 
 ### Fixed
 
+- `FasterViT` runs models with three or more stages. Their window stages previously raised `ValueError` on every forward
+  endpoint.
+- `SHViT.__call__` pools before its final norm. It previously raised `ValueError` with the default `norm_layer`.
+- `LowFormer` drops the stem entry of `att_strides`, so each stage uses its own stride and the presets run at 224
+  pixels. The last attention stage of every preset changes shape: its checkpoints saved by earlier versions no longer
+  load.
+- `FeatureSpec(pooling="attention")` returns the feature dtype instead of float32 for low-precision features.
+- `apply_eva_lora` skips targets it already wrapped instead of raising for missing activation artifacts.
 - `MllaBlock` (used by `Mlla` and `Vssd`) applies its output projection to the gated attention output and keeps the
   first convolutional position encoding in the residual stream, as in MLLA and VSSD. Outputs of these models change.
 - EUPE ViTs use the DINOv3 patch RoPE configuration, including training-time coordinate rescaling, which their config

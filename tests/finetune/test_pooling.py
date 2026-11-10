@@ -107,6 +107,21 @@ def test_pool_attention_policy_requires_key():
         eqft.pool_features(tokens, pool="attention")
 
 
+def test_feature_spec_attention_pooling_returns_feature_dtype():
+    class Bfloat16Tokens(eqx.Module):
+        def features(self, x):
+            return jnp.arange(20, dtype=jnp.bfloat16).reshape(1, 5, 4)
+
+    pooled = eqft.extract_features(
+        Bfloat16Tokens(),
+        jnp.zeros((1,)),
+        feature_spec=eqft.FeatureSpec("features", "BTC", "all", "attention"),
+        key=jr.PRNGKey(0),
+    )
+
+    assert pooled.dtype == jnp.bfloat16
+
+
 def test_attention_pool_returns_feature_dtype():
     tokens = jnp.arange(20, dtype=jnp.bfloat16).reshape(5, 4)
 

@@ -76,7 +76,8 @@ shared core layers (activation, dropout, FFN, generic, Mamba mixer, norm) so mod
   `inference=True`. `[convolution.py:GenericGhostModule]`, `[convolution.py:GhostBottleneck]`,
   `[convolution.py:update_ghostnet]`, `[convolution.py:finalize_ghostnet]`
 - `upsample_twofold(conv, x)`: a 2x2 stride-2 `ConvTranspose2d` applied as a per-pixel matmul, equal to the transposed
-  convolution, in the input dtype. `[convolution.py:upsample_twofold]`
+  convolution, in the input dtype. `conv` must have a bias, otherwise this raises `AssertionError`.
+  `[convolution.py:upsample_twofold]`
 
 ### Patch embedding, stems, and downsamplers
 
@@ -141,12 +142,14 @@ shared core layers (activation, dropout, FFN, generic, Mamba mixer, norm) so mod
   `inference` is not `True`, so stochastic layers run with a fixed key rather than raising. `SingleConvBlock`
   substitutes a key only when `dropout.p > 0`. `[convolution.py:SingleConvBlock]`, `[convolution.py:MBConv]`,
   `[convolution.py:FasterNetBlock]`
-- Key and `inference` defaults are not uniform. `WindowedAttention`, `MMSA`, `PWSEDownsampler`, and `PosCNN2D` take
-  `key` with no default, and `HWDConv` takes a required keyword `key`; `PosCNN2D` and `HWDConv` default
-  `inference=False`. `VisionRoPE` and `CompositeVisionRoPE` default `key=None, inference=True`, while
-  `DinoRoPE.get_factors` requires a keyword `key` and defaults `inference=False`. `[attention.py:WindowedAttention]`,
-  `[attention.py:MMSA]`, `[downsample.py:PWSEDownsampler]`, `[posemb.py:PosCNN2D]`, `[wavelet.py:HWDConv]`,
-  `[posemb.py:VisionRoPE]`, `[posemb.py:CompositeVisionRoPE]`, `[posemb.py:DinoRoPE]`
+- Key and `inference` defaults are not uniform. `WindowedAttention`, `MMSA`, `HATBlock`, `SHMA`, `SHMABlock`, `SQA`,
+  `LinearAngularAttention`, `RFAttention`, `RFAttentionBlock`, `ConvAttention`, `ConvAttentionBlock`, `LowFormerBlock`,
+  `PWSEDownsampler`, and `PosCNN2D` take `key` with no default, so a keyless `inference=True` call raises `TypeError`.
+  `SHSA`, `LinearAttention`, `MllaBlock` and `PartialFormerBlock` default `key=None`. `HWDConv` takes a required keyword
+  `key`; `PosCNN2D` and `HWDConv` default `inference=False`. `VisionRoPE` and `CompositeVisionRoPE` default
+  `key=None, inference=True`, while `DinoRoPE.get_factors` requires a keyword `key` and defaults `inference=False`.
+  `[attention.py:WindowedAttention]`, `[attention.py:MMSA]`, `[downsample.py:PWSEDownsampler]`, `[posemb.py:PosCNN2D]`,
+  `[wavelet.py:HWDConv]`, `[posemb.py:VisionRoPE]`, `[posemb.py:CompositeVisionRoPE]`, `[posemb.py:DinoRoPE]`
 - Attention logits are cast to float32 before softmax or sigmoid and probabilities are cast back to the input dtype;
   `LinearAngularAttention` accumulates `k^T v` and norms in float32 with `1e-6` guards; `RFAttention` sums in float32
   with denominator `max(sum_q * sum_k, eps)`. `[attention.py:WindowedAttention]`, `[attention.py:SHSA]`,
@@ -171,8 +174,9 @@ shared core layers (activation, dropout, FFN, generic, Mamba mixer, norm) so mod
 - `RFAttentionBlock(residual=False)` computes the context branch and discards it, returning the local branch alone.
   `[attention.py:RFAttentionBlock]`
 - Where a block exposes `norm_max_group`, GroupNorm group counts use
-  `nearest_power_of_2_divisor(channels, norm_max_group)`; `HWDConv` has no such argument and uses 32.
-  `[convolution.py:SingleConvBlock]`, `[patch.py:SEPatchMerging]`, `[wavelet.py:HWDConv]`
+  `nearest_power_of_2_divisor(channels, norm_max_group)`; `HWDConv` has no such argument and uses 32, and the `SHSA`
+  pre-norm always uses one group. `[convolution.py:SingleConvBlock]`, `[patch.py:SEPatchMerging]`,
+  `[wavelet.py:HWDConv]`, `[attention.py:SHSA]`
 - Ghost blocks pick paths with a Python `if` when `inference` is a Python bool (required after `finalize_ghostnet`
   removes branches) and with `jax.lax.cond` otherwise; reparameterization fuses kernels only (no bias) and keeps the
   shared GroupNorms. `[convolution.py:GenericGhostModule]`, `[convolution.py:_update_ghostmodule]`

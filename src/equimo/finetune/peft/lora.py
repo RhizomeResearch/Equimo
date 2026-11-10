@@ -1097,7 +1097,11 @@ def apply_eva_lora(
     """Initialize LoRA A factors from EVA activation right-singular directions."""
 
     target = LoRAConfig().target if target is None else target
-    module_paths = _target_linear_module_paths(model, target, tagger=tagger)
+    module_paths = tuple(
+        path
+        for path in _target_linear_module_paths(model, target, tagger=tagger)
+        if not _common.inside_wrapper(model, path, LoRALinear)
+    )
     activation_statistics = _eva_activation_statistics(
         module_paths,
         activation_artifacts,
@@ -1115,8 +1119,6 @@ def apply_eva_lora(
     updated = model
     for module_path, subkey in zip(module_paths, keys, strict=True):
         module = get_path(updated, module_path)
-        if _common.inside_wrapper(updated, module_path, LoRALinear):
-            continue
         if not _is_linear_like(module):
             raise TypeError(
                 f"EVA target {path_to_str(module_path)!r} is "

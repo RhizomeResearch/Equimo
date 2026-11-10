@@ -21,6 +21,12 @@ VPT, P-Tuning v2), and BitFit.
   `vera`. `architecture_hash`, `lora_config_to_dict`, `iter_dora_modules`, `strip_prefixes`, and
   `iter_prefix_attentions` are only in their module `__all__`; `base`, `_common`, and `_compat` are not re-exported
   [\_\_init\_\_.py:\_\_all\_\_]
+- Private helpers in `_common.py`, besides `inside_wrapper` and `dropout`: `apply_last_axis` applies a vector module
+  over the last axis, `split_optional_key` passes an absent key through, `linear_module_path` strips a trailing `weight`
+  or `bias`, `target_linear_paths` resolves a target to the modules owning matched leaves, and
+  `target_mentions_qkv_segment` and `selected_qkv_segment_names` read Q, K and V segments from a target's tags
+  [\_common.py:apply_last_axis] [\_common.py:split_optional_key] [\_common.py:linear_module_path]
+  [\_common.py:target_linear_paths] [\_common.py:target_mentions_qkv_segment] [\_common.py:selected_qkv_segment_names]
 - Private helpers in `_compat.py`, besides `hash_inexact_pytree`: `bundle_get_path` resolves a delta path with the
   stable bundle error, `is_head_path` recognizes classifier-head paths, `is_linear_like`, `linear_weight` and
   `linear_bias` validate linear-like modules, `linear_state` and `linear_from_state` encode and decode the stable
@@ -62,17 +68,21 @@ VPT, P-Tuning v2), and BitFit.
 
 - DoRA: `DoRAConfig`, `DoRALinear`, `DoRAMergedLinear`, `apply_dora`, `merge_dora`, `iter_dora_modules`
   [dora.py:DoRALinear] [dora.py:apply_dora] [dora.py:merge_dora]
-- Adapters: `AdapterConfig`, `ParallelAdapterConfig`, `AdaptFormerConfig`, `AdapterBankConfig`, `AdapterFusionConfig`,
-  `OrthogonalAdapterConfig`; modules `BottleneckAdapter`, `AdaptFormerAdapter`, `SerialAdapterBlock`,
-  `OutputAdapterModule`, `ParallelAdapterBlock`, `AdaptFormerBlock`, `AdapterFusion`, `OrthogonalLinear`
-  [adapters.py:AdapterConfig] [adapters.py:OrthogonalLinear] [adapters.py:AdapterFusion]. Only delta loading constructs
-  `SerialAdapterBlock` [adapters.py:\_wrapper_from_entry]
+- Adapters: `AdapterConfig`, `ParallelAdapterConfig`, `AdaptFormerConfig` (presets `safe_default` and `paper_chen2022`,
+  the latter with `activation="relu"`, `scale_init=0.1` and `scale_trainable=False`), `AdapterBankConfig`,
+  `AdapterFusionConfig`, `OrthogonalAdapterConfig`; modules `BottleneckAdapter`, `AdaptFormerAdapter`,
+  `SerialAdapterBlock`, `OutputAdapterModule`, `ParallelAdapterBlock`, `AdaptFormerBlock`, `AdapterFusion`,
+  `OrthogonalLinear` [adapters.py:AdapterConfig] [adapters.py:OrthogonalLinear] [adapters.py:AdapterFusion]. Only delta
+  loading constructs `SerialAdapterBlock` [adapters.py:\_wrapper_from_entry]
 - Adapter functions: `apply_adapters`, `add_adapter`, `set_active_adapter`, `configure_adapter_bank`,
   `apply_adapter_fusion`, `adapter_fusion_trainable_spec`, `apply_adaptformer`, `apply_orthogonal_adapters`,
   `merge_orthogonal_adapters`, `unmerge_orthogonal_adapters`, `extract_adapter_delta`, `load_adapter_delta`,
   `strip_adapters`, `iter_adapter_wrappers`, `iter_orthogonal_adapters` [adapters.py:apply_adapters]
   [adapters.py:add_adapter] [adapters.py:configure_adapter_bank] [adapters.py:extract_adapter_delta]
-  [adapters.py:load_adapter_delta]
+  [adapters.py:load_adapter_delta]. With one active adapter at a site, `apply_adapter_fusion` stores every adapter name
+  at that site as active, dropping the earlier selection. Sites match on path parts only, so a `SerialAdapterBlock` at a
+  block path never matches `after_mlp`, and no matching site raises `ValueError` [adapters.py:apply_adapter_fusion]
+  [adapters.py:\_fusion_active_names]
 - IA3: `IA3Config`, `IA3Linear`, `apply_ia3`, `merge_ia3`, `iter_ia3_modules` [ia3.py:IA3Linear] [ia3.py:apply_ia3]
 - VeRA: `VeRAConfig`, `VeRALinear`, `apply_vera`, `merge_vera`, `strip_vera`, `iter_vera_modules` [vera.py:VeRALinear]
   [vera.py:apply_vera]
@@ -200,10 +210,13 @@ VPT, P-Tuning v2), and BitFit.
 - `PEFTConfig` must equal the set of config types registered by the parent package's serialization codecs, which is
   checked at import time [\_\_init\_\_.py:PEFTConfig] [../serialization.py:\_validate_codec_config_families]
 - Accepted but currently unused: `LoRAPlusLabelConfig.label_A`, `label_B`, and `label_base`, `VeRAConfig.seed_required`,
-  and `DoRAConfig.magnitude_axis`. No `apply_*` reads `train_head` on `IA3Config`, `ScaleShiftConfig`, `PrefixConfig`,
-  `PromptConfig`, or `AdaptFormerConfig`; `save_delta` reads it only when such a config is passed as `spec`
-  [lora.py:LoRAPlusLabelConfig] [vera.py:VeRAConfig] [dora.py:DoRAConfig] [ia3.py:IA3Config]
-  [scale_shift.py:ScaleShiftConfig] [prefix.py:PrefixConfig] [prompts.py:PromptConfig] [adapters.py:AdaptFormerConfig]
+  `DoRAConfig.magnitude_axis`, `LoRAConfig.weight_layout`, `EVAInitializerConfig.svd` and `allocation`,
+  `ParallelAdapterConfig.branch` and `fusion`, `AdaptFormerConfig.placement`, and `OrthogonalAdapterConfig.eps`.
+  `PiSSAConfig.svd` and `niter` are only validated and recorded in metadata, and PiSSA always runs a full SVD. No
+  `apply_*` reads `train_head` on `IA3Config`, `ScaleShiftConfig`, `PrefixConfig`, `PromptConfig`, or
+  `AdaptFormerConfig`; `save_delta` reads it only when such a config is passed as `spec` [lora.py:LoRAPlusLabelConfig]
+  [vera.py:VeRAConfig] [dora.py:DoRAConfig] [ia3.py:IA3Config] [scale_shift.py:ScaleShiftConfig]
+  [prefix.py:PrefixConfig] [prompts.py:PromptConfig] [adapters.py:AdaptFormerConfig]
   [../serialization.py:\_trainable_spec] [../serialization.py:\_require_base_for_unrepresented_trainables]
 
 ## Side Effects

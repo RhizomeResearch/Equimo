@@ -12,7 +12,7 @@ This is the code that every modality shares. The direct files provide:
 - validation of the indices used to select intermediate features.
 
 The subdirectories hold the shared layers, the numerical kernels and the Deep Equilibrium layers. The vision, language,
-audio and tabular packages build on all of these.
+audio, tabular and timeseries packages build on `core`; only `vision`'s `DEQ` uses the Deep Equilibrium layers.
 
 ## Interface
 
@@ -69,8 +69,8 @@ Subdirectories:
 
 - [layers/EGM.md](./layers/EGM.md): attention (XLA and opt-in cuDNN), rotary embeddings, FFNs, norms, drop-path, the
   Mamba2 mixer, and generic containers, with string-keyed layer registries and `get_layer`.
-- [ops/EGM.md](./ops/EGM.md): state-space scan kernels, and softmax/log-softmax/cross-entropy computed in at least
-  float32 with custom JVPs that stay accurate at high confidence.
+- [ops/EGM.md](./ops/EGM.md): state-space scan kernels, softmax/log-softmax/cross-entropy computed in at least float32
+  with custom JVPs that stay accurate at high confidence, and a clamped float32 `inverse_sigmoid`.
 - [implicit/EGM.md](./implicit/EGM.md): Deep Equilibrium layers (`DEQBlock`, `DEQCell`) solved with `banax`. Their
   injectors, stabilizers and stack strategies are pluggable through registries.
 

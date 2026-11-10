@@ -60,7 +60,8 @@ calls `serialization.py:load_weights`, which downloads into `~/.cache/equimo/` w
   are for direct use; modules across the package import the others.
 - Private modules that other packages import:
   - `[_checkpoint_limits.py:CheckpointLimits]`, `resolve_limits`, `LimitedReader`, `array_template` and
-    `scan_array_stream` are used by `serialization.py` and `finetune/serialization.py`. `vision/pmt_checkpoint.py`
+    `scan_array_stream` are used by `serialization.py` and `finetune/serialization.py`, and the
+    `[_checkpoint_limits.py:SeekableReader]` protocol types the stream those functions read. `vision/pmt_checkpoint.py`
     imports only `CheckpointLimits` and `[_checkpoint_limits.py:resolve_limits]`.
   - `[_io.py:atomic_file]`, `sha256_file`, `sha256_stream`, `validate_sha256`, `read_limited` and `copy_limited` are
     used by `serialization.py` and `finetune/serialization.py`. `serialization.py` also uses `[_io.py:atomic_directory]`
@@ -152,8 +153,9 @@ calls `serialization.py:load_weights`, which downloads into `~/.cache/equimo/` w
 ## Subdirectories & System Boundaries
 
 - core: [./core/EGM.md](./core/EGM.md) - shared layers with string-keyed registries (attention with XLA and opt-in cuDNN
-  paths, rotary, FFNs, norms, drop-path, Mamba2), float32-safe softmax/cross-entropy and SSM kernels, PRNG mode helpers,
-  the EMA update, `build_model_variant`, Deep Equilibrium layers, and parameter tags, field markers and masks.
+  paths, rotary, FFNs, norms, drop-path, Mamba2), float32-safe softmax/cross-entropy, `inverse_sigmoid` and SSM kernels,
+  PRNG mode helpers, the EMA update, `build_model_variant`, Deep Equilibrium layers, and parameter tags, field markers
+  and masks.
 - vision: [./vision/EGM.md](./vision/EGM.md) - registered image architectures (ViT family with DINOv2/v3, SigLIP2, TIPS,
   EUPE, LingBot and ViT-5 presets, ConvNeXt, EoMT, PMT, SAM 3.1, and others), vision layers and registries,
   query-segmentation training losses, image loading, segmentation post-processing, PMT checkpoints, and the `vision.ops`

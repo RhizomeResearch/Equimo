@@ -252,11 +252,14 @@ class BlockChunk(eqx.Module):
         if self.is_hat:
             x = self.window_partition(x, self.window_size)
             for blk, key_block in zip(self.blocks, keys):
+                # Carrier tokens leave the block once per image, so every window
+                # shares the block's key. jax.vmap maps keyword arguments, so
+                # these stay positional.
                 x, ct = jax.vmap(
                     blk,
                     in_axes=(0, None, None, None),
                     out_axes=(0, None),
-                )(x, ct, inference=inference, key=key_block)
+                )(x, ct, key_block, inference)
             x = self.window_reverse(x, self.window_size, h, w)
         else:
             for blk, key_block in zip(self.blocks, keys):

@@ -149,4 +149,4 @@ holds only a docstring; import subpackages explicitly (`equimo.vision.models`, `
 ## Verification
 
 - Run:
-  `devenv shell -- uv run pytest tests/test_io.py tests/test_vision_ops.py tests/test_eomt.py tests/test_pmt.py tests/test_query_training.py tests/test_query_training_models.py tests/test_models.py tests/test_attention.py tests/test_convolution.py -q`
+  `devenv shell -- uv run pytest tests/test_io.py tests/test_vision_ops.py tests/test_eomt.py tests/test_pmt.py tests/test_query_training.py tests/test_query_training_models.py tests/test_models.py tests/test_attention.py tests/test_convolution.py tests/test_segmentation_masks.py -q`
