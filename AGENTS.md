@@ -33,9 +33,8 @@ platform markers. After changing `pyproject.toml` (including version bumps), rel
 
 The lock keeps JAX at 0.11.2: jax2onnx 0.17.1 fails on JAX 0.12 (`jax._src.core.ClosedJaxpr` was removed), so upgrade
 JAX in the lock only together with a jax2onnx release that supports it (0.18.0 does), and run
-`tests/test_onnx_export.py`. On JAX 0.12.0.1, `test_dense_probe_supports_deterministic_jit_vmap_and_gradients` fails
-because jit and eager outputs differ by one ulp and it asserts exact equality (run in practice). With JAX 0.11 or newer,
-jax2onnx's `flax.nnx` import fails on flax 0.12.6 and works on 0.12.10 (observed in practice).
+`tests/test_onnx_export.py`. With JAX 0.11 or newer, jax2onnx's `flax.nnx` import fails on flax 0.12.6 and works on
+0.12.10 (observed in practice).
 
 Equimo code does not work around jax2onnx bugs; they are fixed upstream. With jax2onnx 0.17.1 and 0.18.0,
 `tests/test_onnx_export.py` fails for the `posemb.py` tables (`RoPE`, Swin), `mlla`, and batched `partialformer`;
@@ -105,6 +104,13 @@ and compare the text (run in practice on SAM 3.1).
 JAX's default matmul precision on GPU is not float32: plain linear projections on the RTX 4080 differed from exact
 float32 by about 1e-4 per element. For float32 parity on a GPU, run with `JAX_DEFAULT_MATMUL_PRECISION=highest` (run in
 practice); CPU float32 needs no setting.
+
+On CPU, jit and eager outputs are not bit-identical, so tests must compare them with a tolerance. Under `vmap`, jit
+rewrites `dot(W, X)` plus a transpose to `dot(X, W)`, which changes the summation order: a 12x4 `Linear` differs on Zen
+3 (EPYC 7543) but only 32x4 and larger on Zen 4 (Ryzen 7940HS). XLA also merges `a*b+c` into FMA only within one
+compiled program. On the 7543, 80 seeds of the dense-probe fixture differed by at most 2.1e-7 absolute and 7.3e-5
+relative (all run in practice). A failure limited to Zen 3 looks flaky in CI: about 1 finetune job in 7 lands on an EPYC
+7B13, and each job log prints `Running on CPU:`.
 
 `models/sam31_reference.py` needs a CUDA GPU and the environment in `models/sam31_reference_requirements.txt`, not the
 locked one; `tests/data/README.md` has the commands (read in config). Its `tokenizer` command needs no GPU (run in

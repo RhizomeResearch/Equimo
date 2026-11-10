@@ -317,7 +317,9 @@ def test_dense_probe_supports_deterministic_jit_vmap_and_gradients():
     assert eager.shape == (3, 2, 3)
     assert eager.dtype == jnp.float32
     assert jnp.all(jnp.isfinite(eager))
-    assert jnp.array_equal(compiled, eager)
+    # jit may reorder a matmul's operands, which changes the summation order and
+    # so the rounding; how much depends on the CPU.
+    assert jnp.allclose(compiled, eager, rtol=1e-4, atol=1e-6)
     assert batched.shape == (2, 3, 2, 3)
     assert gradient.shape == x.shape
     assert jnp.all(jnp.isfinite(gradient))
