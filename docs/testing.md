@@ -94,4 +94,5 @@ contracts enforce bfloat16 output dtype.
 ONNX adapters are batched through `vmap`. The model inventory can mark a family unbatched (`onnx_batched=False` with an
 `onnx_batch_limitation` reason) so such an exception cannot become an unnoticed fallback; no family needs it. With
 jax2onnx 0.17.1 and 0.18.0, the exports of MLLA, batched PartialFormer, and the `RoPE` and Swin position-embedding
-tables fail inside jax2onnx; enpasos/jax2onnx#291 fixes them.
+tables fail inside jax2onnx; enpasos/jax2onnx#291 fixes them. `tests/test_onnx_export.py` skips those cases and SAM 3.1
+on these two versions, and runs them again on any later release.
