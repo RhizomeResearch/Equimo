@@ -7,6 +7,11 @@ and takes the usual `key=None, inference=True`; batch images with `jax.vmap`.
 The image endpoints, the text model and the tokenizer are stable. The video path (`Sam3VideoTracker`, `TrackerState`,
 `CommitPlan`, `propagate`, `associate`, `commit`) is experimental and may change in a minor release.
 
+![SAM 3.1 tracking the concept "person" through a film scene](https://rhizome-labs.com/equimo/sam31-video-tracking.gif)
+
+*SAM 3.1 weights tracking the text prompt `"person"`, with [this code](#tracking-a-film-clip). Excerpt from* Pulp
+Fiction *(1994, Miramax), which belongs to its rights holders and is not covered by Equimo's licenses.*
+
 ## Weights and license
 
 ```bash
@@ -206,3 +211,69 @@ The new object runs on its own state, so it is not added to the output of `push_
 change, `max_objects` does not count it, and `remove_object` does not apply to it. `object_id` can name an unused ID,
 and naming one in use raises. Refining an existing object with points, reverse propagation and a new prompt after the
 first frame are not supported.
+
+### Tracking a film clip
+
+This is the code behind the animation at the top of this page, from a video file to a GIF, on a GPU. Equimo does not
+decode video, so `ffmpeg` splits five seconds of `clip.mp4` into frames and assembles the result. The Python part also
+needs Pillow and a CUDA build of JAX:
+
+```bash
+mkdir frames
+ffmpeg -ss 5 -t 5 -i clip.mp4 -an -vf fps=12 frames/%04d.png
+```
+
+```python
+from pathlib import Path
+
+import equinox as eqx
+import jax
+import jax.numpy as jnp
+import numpy as np
+from equimo.core.layers.attention import with_attention_implementation
+from equimo.language import ClipBpeTokenizer, sam31_text
+from equimo.vision.models.sam3 import encode_concept, sam31_multiplex
+from equimo.vision.models.sam3.video import Sam3VideoTracker
+from PIL import Image
+
+
+def to_bfloat16(tree):
+    return jax.tree.map(
+        lambda leaf: leaf.astype(jnp.bfloat16) if eqx.is_inexact_array(leaf) else leaf,
+        tree,
+    )
+
+
+vision = to_bfloat16(sam31_multiplex(pretrained=True))
+vision = with_attention_implementation(vision, "cudnn")
+text = to_bfloat16(sam31_text(pretrained=True))
+
+images = [Image.open(p).convert("RGB") for p in sorted(Path("frames").glob("*.png"))]
+tracker = Sam3VideoTracker(
+    vision,
+    num_frames=len(images),
+    source_size=(images[0].height, images[0].width),
+)
+tracker.set_prompt(encode_concept(text, ClipBpeTokenizer(), "person"))
+
+predictions = []
+for image in images:
+    pixels = jnp.asarray(image.resize((1008, 1008)), jnp.float32) / 255.0
+    frame = jnp.moveaxis((pixels - 0.5) / 0.5, -1, 0).astype(jnp.bfloat16)
+    predictions += tracker.push_frame(frame)
+predictions += tracker.finish()
+
+Path("overlays").mkdir(exist_ok=True)
+colors = np.array([[255, 64, 96], [64, 200, 255], [255, 200, 64], [120, 255, 120]])
+for prediction, image in zip(predictions, images, strict=True):
+    canvas = np.array(image)
+    for object_id, mask in zip(prediction.object_ids, prediction.masks, strict=True):
+        canvas[mask] = 0.45 * canvas[mask] + 0.55 * colors[object_id % len(colors)]
+    Image.fromarray(canvas).save(f"overlays/{prediction.frame_index:04d}.png")
+```
+
+```bash
+ffmpeg -framerate 12 -i overlays/%04d.png \
+  -vf "scale=640:-1:flags=lanczos,split[a][b];[a]palettegen=stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=3" \
+  -loop 0 tracked.gif
+```

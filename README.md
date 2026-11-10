@@ -7,6 +7,12 @@ Equimo provides JAX/Equinox implementations of recent architectures across modal
 modality today; language has first-class text encoders/tokenizers, audio includes AST spectrogram models, tabular
 includes TabPFN-3 core models, and the experimental time-series namespace includes the raw T0 backbone.
 
+![SAM 3.1 tracking the concept "person" through a film scene](https://rhizome-labs.com/equimo/sam31-video-tracking.gif)
+
+*SAM 3.1 video tracking from the text prompt `"person"`, with
+[the code in the guide](docs/sam3.md#tracking-a-film-clip). Excerpt from* Pulp Fiction *(1994, Miramax), which belongs
+to its rights holders and is not covered by Equimo's licenses.*
+
 ## Features
 
 - Pure JAX/Equinox implementations

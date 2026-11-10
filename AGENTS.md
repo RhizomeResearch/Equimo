@@ -89,6 +89,11 @@ Full-weight SAM 3.1 parity reads the archives from `~/.cache/equimo/sam31`. To k
 symlink that directory into an `artifact-staging` home and run with `HOME` pointing at it and `UV_CACHE_DIR` set to the
 real `~/.cache/uv` (run in practice).
 
+The GIF in the README and `docs/sam3.md` is served from the company website repository at
+`static/equimo/sam31-video-tracking.gif`, not from this one. To regenerate it, run the blocks of "Tracking a film clip"
+in `docs/sam3.md`; the Python block needs `uv run --with "jax[cuda12]==0.11.2" --with pillow` because the locked
+environment has neither (run in practice).
+
 Converting a SAM 3.1 archive needs torch, which the devenv venv lacks: build a separate environment with
 `UV_PROJECT_ENVIRONMENT=<staging>/convert-env .devenv/profile/bin/uv sync --locked --group reference --no-default-groups`
 and run `<staging>/convert-env/bin/python models/sam31.py multiplex --checkpoint <path> --output-dir <staging>` (run in
