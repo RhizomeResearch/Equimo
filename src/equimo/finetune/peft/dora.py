@@ -190,7 +190,7 @@ def apply_dora(
     updated = model
     for module_path, subkey in zip(module_paths, keys, strict=True):
         module = get_path(updated, module_path)
-        if isinstance(module, DoRALinear):
+        if _common.inside_wrapper(updated, module_path, DoRALinear):
             continue
         if not isinstance(module, eqx.nn.Linear):
             raise TypeError(

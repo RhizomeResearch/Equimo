@@ -214,6 +214,18 @@ class TestWindowedSequence:
         assert_prng_free_jaxpr(lambda value: layer(value, KEY, inference=True), x)
         assert layer(x, KEY, inference=True).shape == (DIM, 8, 8)
 
+    def test_runs_without_a_key_under_inference(self):
+        layer = WindowedSequence(
+            in_channels=DIM,
+            depth=2,
+            block_type=_WindowBlock,
+            block_kwargs={},
+            window_size=4,
+            key=KEY,
+        )
+        x = jr.normal(KEY, (DIM, 8, 8))
+        assert layer(x, None, inference=True).shape == (DIM, 8, 8)
+
 
 # BlockChunk
 

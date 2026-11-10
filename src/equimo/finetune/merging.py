@@ -627,7 +627,10 @@ def task_vector_bundle(
     metadata: Mapping[str, Any] | None = None,
     adapter_config: Mapping[str, Any] | None = None,
 ) -> FineTuneBundle:
-    """Package a merged task vector as a portable fine-tuning bundle."""
+    """Package a merged task vector as an in-memory fine-tuning bundle.
+
+    The delta keeps its module layout, so ``save_finetune_bundle`` rejects it.
+    """
 
     merged_metadata = dict(vector.metadata)
     if metadata:

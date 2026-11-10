@@ -10,8 +10,8 @@ patch encoding, and register themselves in a time-series layer registry that fal
 
 - `register_layer(name=None, force=False)` \[registry.py:register_layer\]: registers into the time-series
   `_LAYER_REGISTRY`.
-- `get_layer(name_or_cls)` \[registry.py:get_layer\]: resolves the time-series registry first, then the shared core
-  layer registries, with `collision_policy="first"`.
+- `get_layer(module)` \[registry.py:get_layer\]: resolves the time-series registry first, then the shared core layer
+  registries, with `collision_policy="first"`.
 - `AxisAttention(dim, num_heads, dropout, attention_type, *, key)` called as `(x, mask, *, key, inference=None)`
   \[axis_attn.py:AxisAttention\]: shared `equimo.core.layers.Attention` with `qk_norm=True`, `RMSNormGated` QK norm,
   `eps=1e-8`.

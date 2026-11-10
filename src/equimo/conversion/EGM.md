@@ -20,7 +20,7 @@ on these helpers. The package `__init__.py` is empty.
 - `torch_parameter_name(path, replace_cfg) -> str` \[utils.py:torch_parameter_name\]: the PyTorch name a JAX parameter
   converts from.
 - `expand_torch_tensor(tensor, pos, n)` \[utils.py:expand_torch_tensor\]: adds `n` singleton axes `"before"` or
-  `"after"`.
+  `"after"`; any other `pos` raises `ValueError`.
 
 ## Invariants
 
@@ -33,7 +33,8 @@ on these helpers. The package `__init__.py` is empty.
 - Candidates come only from `torch_model.named_parameters()`; buffers such as BatchNorm running statistics are never
   matched, so JAX arrays that correspond to buffers count as missing [utils.py:convert_params_from_torch].
 - `expand_cfg[name]` is `(pos, n)` passed to `expand_torch_tensor`; `squeeze_cfg[name]` is the `torch.squeeze` dim;
-  after reshaping, a shape mismatch always raises `ValueError` [utils.py:convert_params_from_torch].
+  expansion runs before squeezing, and after reshaping, a shape mismatch always raises `ValueError`
+  [utils.py:convert_params_from_torch].
 - With `strict=True`, a JAX parameter missing from PyTorch raises `AttributeError` unless it is in `jax_whitelist`, and
   a leftover PyTorch parameter raises `AttributeError` unless it is in `torch_whitelist`; non-strict or whitelisted
   missing parameters keep their original JAX values [utils.py:convert_params_from_torch].
@@ -44,8 +45,8 @@ on these helpers. The package `__init__.py` is empty.
 
 ## Side Effects
 
-- Lazily imports `torch` and `timm`, raising `ImportError` pointing to the `torch` extra when missing
-  [utils.py:convert_params_from_torch].
+- Lazily imports `torch` and `timm` for every `source`, including `"custom"`, raising `ImportError` pointing to the
+  `torch` extra when missing [utils.py:convert_params_from_torch].
 - `source="torchhub"` calls `torch.hub.load` and `source="timm"` calls `timm.create_model`, which may download code and
   weights [utils.py:convert_params_from_torch].
 - Logs every converted, missing, and unconverted parameter through `loguru` [utils.py:convert_params_from_torch].

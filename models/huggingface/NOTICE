@@ -77,3 +77,17 @@ Equimo converted the parameters to its JAX/Equinox layout and archive format.
 Each archive records its timm tag, upstream Hugging Face commit, preprocessing
 configuration, and numerical conversion checks. Sources and bundled licenses
 are linked in README.md. No endorsement by the upstream authors is implied.
+
+SAM 3.1
+-------
+
+Copyright (c) Meta Platforms, Inc. and affiliates. All Rights Reserved.
+Source: https://github.com/facebookresearch/sam3
+Checkpoint: facebook/sam3.1, sam3.1_multiplex.pt
+License: SAM License; see LICENSES/pretrained/sam-License.md and
+models/default/sam31/sam-License.md.
+
+Equimo converted the checkpoint's vision and text parameters to its
+JAX/Equinox layout and archive format, as sam31_multiplex and sam31_text. The
+converted archives remain SAM Materials under the SAM License. They are not an
+official Meta product, and no endorsement by Meta is implied.

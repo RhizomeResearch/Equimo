@@ -14,6 +14,7 @@ from equimo.core.layers.norm import (
     RMSNorm2d,
     RMSNormGated,
     get_norm,
+    layer_norm,
 )
 
 # Shared fixtures
@@ -369,3 +370,22 @@ class TestGetNorm:
     def test_unknown_string_raises(self):
         with pytest.raises(ValueError, match="unknown module string"):
             get_norm("nonexistent_norm")
+
+
+class TestLayerNormFunction:
+    @pytest.mark.parametrize("shape", [(), (3,), (3, 5)])
+    def test_applies_over_the_last_axis_of_any_rank(self, shape):
+        norm = eqx.nn.LayerNorm(DIM)
+        x = jr.normal(KEY, (*shape, DIM))
+        out = layer_norm(norm, x)
+        assert out.shape == x.shape
+        index = (0,) * len(shape)
+        assert jnp.array_equal(out[index], norm(x[index]))
+
+    def test_computes_in_float32_and_returns_the_input_dtype(self):
+        norm = eqx.nn.LayerNorm(DIM)
+        x = jr.normal(KEY, (4, DIM)).astype(jnp.bfloat16)
+        out = layer_norm(norm, x)
+        assert out.dtype == jnp.bfloat16
+        expected = jax.vmap(norm)(x.astype(jnp.float32)).astype(jnp.bfloat16)
+        assert jnp.array_equal(out, expected)

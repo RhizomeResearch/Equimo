@@ -7,6 +7,10 @@
     "model_class": "equimo.vision.models.attnet.AttNet",
     "model_signature": "sha256:ed225bf9a301c21ebfc2bd7650f9ce693aa570d3c45ba44e7160108f131fa834"
   },
+  "causal_text_transformer_tiny": {
+    "model_class": "equimo.language.models.CausalTextTransformer",
+    "model_signature": "sha256:32cd431fbf291a1fd020f71c0ca329afd99ba77069187939cc7dcc84eba0cd4c"
+  },
   "convnext_tiny_2stage": {
     "model_class": "equimo.vision.models.convnext.ConvNeXt",
     "model_signature": "sha256:19ee75364dcc4699c247b14ac38f66565758fb6e740e9bc6d9dda1cb1daae66c"
@@ -41,7 +45,7 @@
   },
   "lowformer_b0": {
     "model_class": "equimo.vision.models.lowformer.LowFormer",
-    "model_signature": "sha256:f615920fbd9671ca31af57db3285eeaacb2b197ea0ec4a87b4e528fdddb907f6"
+    "model_signature": "sha256:b981a4977e0cbae318368b3b6668ddf19a1d0b9b2a9a884082f426c98357608d"
   },
   "mlla_tiny": {
     "model_class": "equimo.vision.models.mlla.Mlla",
@@ -66,6 +70,10 @@
   "reduceformer_b1": {
     "model_class": "equimo.vision.models.reduceformer.ReduceFormer",
     "model_signature": "sha256:e727dd69354dfb5a5d73276f3e7ffe698afe97c554a83060be902e178d04a909"
+  },
+  "sam3_tiny": {
+    "model_class": "equimo.vision.models.sam3.model.Sam3",
+    "model_signature": "sha256:bb015da0e4172cdb5dfdbd2cf1f63b7ce2e7af1268b25e29bc25dedf8c69a77a"
   },
   "shvit_tiny": {
     "model_class": "equimo.vision.models.shvit.SHViT",

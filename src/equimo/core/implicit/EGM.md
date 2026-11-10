@@ -23,7 +23,8 @@ Re-exported by `equimo.core.implicit` ([`__init__.py`](./__init__.py)): `DEQBloc
   - Solvers: `solver = banax.solver.Picard(atol=0.0, rtol=tol, max_steps=max_steps)` and
     `adjoint = banax.adjoint.NeumannPhantom(solver, b_solver=banax.solver.Relaxed(damp=0.5, max_steps=5))`.
   - Call: `__call__(x, z0=None, *, inference=False, key)` returns `(z_star, aux)`. `aux` has the keys `key`,
-    `x_context`, `z0`, `z_star`, `trajectory`, `depth` (solver steps) and `error` (relative error).
+    `x_context`, `z0`, `z_star`, `trajectory`, `depth` (solver steps) and `error` (relative error). `aux["z0"]` is the
+    caller's `z0` argument, possibly `None`, not the value the solver started from.
 - `[deq.py:DEQCell]`: one application of the map. It holds `blocks`, `injector`, `stabilizer` and `strategy`.
   - Construction:
     `__init__(*, channels, depth, module, module_kwargs, injector, stabilizer, strategy=EntryInjection(), key)` builds
@@ -38,24 +39,32 @@ Re-exported by `equimo.core.implicit` ([`__init__.py`](./__init__.py)): `DEQBloc
 - `[_base.py:AbstractStackStrategy]`: base class for stack strategies. Its abstract method is
   `__call__(blocks, z, x_ctx, injector, *, inference=False, key)`.
 - `[_base.py:InputContext]`: alias of `Any`. It is the PyTree that `prepare` returns.
-- `[injectors.py:get_injector]` / `[injectors.py:register_injector]`: lookup and registration for injectors. The
-  registered names are:
-  - `add` (`Add`)
-  - `proj_add` (`ProjAdd`, a 1x1 `Conv2d` projection of `x`)
-  - `prenorm_add` (`PreNormAdd`, computes `norm(z) + proj(x)`; the default norm is `LayerNorm2d`)
-  - `gated` (`Gated`, a sigmoid-gated mix `(1-g)*z + g*x`)
-  - `film` (`FiLM`, computes `(1+gamma)*norm(z) + beta`)
+- `[injectors.py:get_injector]` / `[injectors.py:register_injector]`: lookup and registration for injectors. Every
+  constructor also accepts and ignores extra keywords. The registered names are:
+  - `add` (`[injectors.py:Add]`, no arguments)
+  - `proj_add` (`[injectors.py:ProjAdd]`, `ProjAdd(in_channels, out_channels, *, use_bias=True, key)`, a 1x1 `Conv2d`
+    projection of `x`)
+  - `prenorm_add` (`[injectors.py:PreNormAdd]`,
+    `PreNormAdd(in_channels, out_channels, *, use_bias=True, norm_factory=..., key)`, computes `norm(z) + proj(x)`; the
+    default norm is `LayerNorm2d`)
+  - `gated` (`[injectors.py:Gated]`, `Gated(channels, *, init_gate=0.5, key=None)`, a sigmoid-gated mix `(1-g)*z + g*x`)
+  - `film` (`[injectors.py:FiLM]`, `FiLM(in_channels, out_channels, *, norm_factory=..., key)`, computes
+    `(1+gamma)*norm(z) + beta`; the default norm is `LayerNorm2d`)
 - `[stabilizers.py:get_stabilizer]` / `[stabilizers.py:register_stabilizer]`: lookup and registration for stabilizers.
-  The registered names are:
-  - `identity` (`Identity`)
-  - `projected` (`GroupNormProject`)
-  - `damped` (`Damped`, computes `(1-a)*z_in + a*z_out`)
-  - `damped_projected` (`DampedProject`)
+  Every constructor also accepts and ignores extra keywords. The registered names are:
+  - `identity` (`[stabilizers.py:Identity]`, no arguments)
+  - `projected` (`[stabilizers.py:GroupNormProject]`, `GroupNormProject(dim, *, num_groups=32, eps=1e-6)`)
+  - `damped` (`[stabilizers.py:Damped]`, `Damped(dim, *, init_alpha=1.0, learnable=True, mode="scalar")`, computes
+    `(1-a)*z_in + a*z_out`)
+  - `damped_projected` (`[stabilizers.py:DampedProject]`,
+    `DampedProject(dim, *, num_groups=32, eps=1e-6, init_alpha=1.0, learnable=True, mode="scalar")`)
 - `[strategies.py:get_strategy]` / `[strategies.py:register_strategy]`: lookup and registration for stack strategies.
-  The registered names are:
-  - `entry` (`EntryInjection`, injects once before the stack)
-  - `per_block` (`PerBlockInjection`, injects before every block)
-  - `scheduled` (`ScheduledInjection`, injects at the static `indices` in `[0, len(blocks)]`)
+  Every constructor takes keyword-only `dim=None` and `key=None` and ignores them and any extra keywords. The registered
+  names are:
+  - `entry` (`[strategies.py:EntryInjection]`, injects once before the stack)
+  - `per_block` (`[strategies.py:PerBlockInjection]`, injects before every block)
+  - `scheduled` (`[strategies.py:ScheduledInjection]`, takes keyword-only `indices=(0,)` and injects at the static
+    `indices` in `[0, len(blocks)]`)
 
 ## Invariants
 
@@ -77,14 +86,19 @@ Re-exported by `equimo.core.implicit` ([`__init__.py`](./__init__.py)): `DEQBloc
 - `[deq.py:DEQCell.__call__]`: `x` must be the `(injector_ctx, stabilizer_ctx)` pair that `DEQCell.prepare` returns.
 - `[_base.py:AbstractStackStrategy]`: strategies must apply the blocks as they are, without bypassing them, rewrapping
   them or re-adding residuals around them.
-- `[stabilizers.py:Damped]`, `[stabilizers.py:DampedProject]`: these classes take `init_alpha` and `mode` arguments.
+- `[stabilizers.py:Damped]`, `[stabilizers.py:DampedProject]`: these classes take `init_alpha`, `learnable` and `mode`
+  arguments.
   - `init_alpha` must lie in `[0, 1]`, and `mode` must be `"scalar"` or `"channel"`. Both are checked with `assert`.
-  - A learnable alpha is a float32 logit with shape `(1,)` or `(dim, 1, 1)`, passed through a sigmoid.
+  - With `learnable=True`, alpha is a float32 logit with shape `(1,)` or `(dim, 1, 1)`, passed through a sigmoid. With
+    `learnable=False`, `init_alpha` is stored as `fixed_alpha` and there is no parameter.
+  - A float32 logit with lower-precision `z_in` or `z_out` returns float32 by JAX type promotion; nothing casts back. A
+    fixed alpha, a Python float, adds no promotion.
   - `fixed_alpha` and `mode` are static fields.
-- `[stabilizers.py:GroupNormProject]`: the GroupNorm group count is `nearest_power_of_2_divisor(dim, num_groups)`, not
-  `num_groups` itself.
+- `[stabilizers.py:GroupNormProject]`, `[stabilizers.py:DampedProject]`: the GroupNorm group count is
+  `nearest_power_of_2_divisor(dim, num_groups)`, not `num_groups` itself.
 - `[injectors.py:FiLM]`: `gamma_proj` is zero-initialised, so the layer starts as `norm(z) + beta`.
-  `[injectors.py:Gated]` stores its gate as a float32 logit of `init_gate`, clamped to `[1e-4, 1 - 1e-4]`.
+  `[injectors.py:Gated]` stores its gate as a float32 logit of `init_gate`, clamped to `[1e-4, 1 - 1e-4]`. With that
+  float32 logit and lower-precision `z` or `x`, the output is float32 by JAX type promotion; nothing casts back.
 - `[strategies.py:ScheduledInjection]`: an empty `indices` raises `ValueError`. At call time, indices outside
   `[0, len(blocks)]` are ignored. If none remain, the strategy falls back to entry injection `(0,)`.
 - `[injectors.py:register_injector]`, `[stabilizers.py:register_stabilizer]`, `[strategies.py:register_strategy]`: these
@@ -97,7 +111,8 @@ Re-exported by `equimo.core.implicit` ([`__init__.py`](./__init__.py)): `DEQBloc
 - `[injectors.py:_INJECTOR_REGISTRY]`, `[stabilizers.py:_STABILIZER_REGISTRY]`, `[strategies.py:_STRATEGY_REGISTRY]`:
   importing the module fills these module-global registries. The `register_*` functions mutate them at runtime, and
   `force=True` overwrites an existing entry.
-- `[deq.py:_init_z0]`: draws random numbers from the supplied key in training (`mixed` and `random` modes). Its default
+- `[deq.py:_init_z0]`: `mixed` mode draws random numbers from the supplied key in training only. `random` mode with
+  `z0=None` draws them even under inference. `[deq.py:DEQBlock.__call__]` only ever uses `mixed`. The default
   `key=jr.PRNGKey(42)` is created once, at import time.
 - `[deq.py:DEQCell.__init__]`: the default `strategy=EntryInjection()` is a single instance created at import and shared
   by every caller that uses the default.
@@ -106,3 +121,4 @@ Re-exported by `equimo.core.implicit` ([`__init__.py`](./__init__.py)): `DEQBloc
 ## Verification
 
 - Run: `devenv shell -- uv run pytest tests/test_implicit.py -q`
+- `tests/test_implicit.py` has no low-precision case.

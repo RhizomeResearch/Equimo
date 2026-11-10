@@ -59,8 +59,12 @@ def validate_fixture(path: Path, provenance: dict, *, verify_hash: bool) -> None
             raise ValueError(f"{path.name}: comparison rtol must be non-negative")
 
     identifier = provenance.get("identifier")
-    if identifier is not None and identifier not in PRETRAINED_ARCHIVE_SHA256:
-        raise ValueError(f"{path.name}: untrusted pretrained identifier {identifier!r}")
+    identifiers = provenance.get("additional_identifiers", [])
+    if identifier is not None:
+        identifiers = [identifier, *identifiers]
+    for name in identifiers:
+        if name not in PRETRAINED_ARCHIVE_SHA256:
+            raise ValueError(f"{path.name}: untrusted pretrained identifier {name!r}")
 
     if verify_hash:
         actual = _sha256(path)

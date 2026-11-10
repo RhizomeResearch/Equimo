@@ -26,6 +26,7 @@ notices.
 | dinov3     | `dinov3_`         |     8 | DINOv3 License                                               | [snapshot](LICENSES/pretrained/dinov3-License.md)                           | [DINOv3](https://github.com/facebookresearch/dinov3)                                     | [upstream license](https://github.com/facebookresearch/dinov3/blob/main/LICENSE.md)                              | 2026-08-21 |
 | eupe       | `eupe_`           |     6 | FAIR Noncommercial Research License v1                       | [snapshot](LICENSES/pretrained/eupe-FAIR-Noncommercial-Research-License.md) | [EUPE](https://github.com/facebookresearch/EUPE)                                         | [upstream license](https://github.com/facebookresearch/EUPE/blob/main/LICENSE.md)                                | 2026-08-21 |
 | lingbot    | `lingbot_`        |     4 | Apache 2.0                                                   | [snapshot](LICENSES/pretrained/lingbot-vision-Apache-2.0.txt)               | [LingBot-Vision checkpoints](https://huggingface.co/collections/robbyant/lingbot-vision) | [upstream license](https://github.com/robbyant/lingbot-vision/blob/main/LICENSE)                                 | 2026-09-23 |
+| sam31      | `sam31_`          |     2 | SAM License                                                  | [snapshot](LICENSES/pretrained/sam-License.md)                              | [SAM 3.1](https://github.com/facebookresearch/sam3)                                      | [upstream license](https://github.com/facebookresearch/sam3/blob/main/LICENSE)                                   | 2026-11-09 |
 | siglip2    | `siglip2_`        |    15 | Apache 2.0                                                   | [snapshot](LICENSES/pretrained/siglip2-Apache-2.0.txt)                      | [SigLIP 2 model](https://huggingface.co/google/siglip2-base-patch16-256)                 | [current license declaration](https://huggingface.co/google/siglip2-base-patch16-256)                            | 2026-08-21 |
 | t0         | `t0_`             |     1 | Apache 2.0                                                   | [snapshot](LICENSES/pretrained/t0-alpha-Apache-2.0.txt)                     | [T0-alpha model](https://huggingface.co/theforecastingcompany/t0-alpha)                  | [upstream license](https://github.com/theforecastingcompany/tfc-t0/blob/main/LICENSE)                            | 2026-08-21 |
 | tabpfn     | `tabpfn_`         |     8 | TABPFN-3 License v1.0                                        | [snapshot](LICENSES/pretrained/tabpfn-3-License-v1.0.txt)                   | [TabPFN-3 model](https://huggingface.co/Prior-Labs/tabpfn_3)                             | [upstream license](https://huggingface.co/Prior-Labs/tabpfn_3/blob/main/LICENSE)                                 | 2026-08-21 |
@@ -33,7 +34,7 @@ notices.
 
 <!-- pretrained-license-table:end -->
 
-The family prefixes and counts cover the 130 pretrained identifiers currently registered by Equimo. Existing checkpoint
+The family prefixes and counts cover the 132 pretrained identifiers currently registered by Equimo. Existing checkpoint
 paths remain under `models/default/<family>/`.
 
 ## LingBot-Vision
@@ -47,6 +48,16 @@ The upstream [Small](https://huggingface.co/robbyant/lingbot-vision-vit-small),
 Equimo converts the checkpoint parameters to its JAX/Equinox layout and archive format; the converted archives retain
 the upstream terms. The [current upstream license](https://github.com/robbyant/lingbot-vision/blob/main/LICENSE) and
 model cards were checked on 2026-09-23.
+
+## SAM 3.1
+
+The `sam31_multiplex` and `sam31_text` archives are converted from `facebook/sam3.1` (`sam3.1_multiplex.pt`, SHA-256
+`0567debeec80ba4ac6369540c6c248025283cb3ff2b92827509e57e2b3541cb6`). They remain SAM Materials under the
+[SAM License](LICENSES/pretrained/sam-License.md), a copy of which sits next to them at
+`models/default/sam31/sam-License.md`. The license requires anyone who distributes the materials to pass on a copy of
+it, requires publications using them to acknowledge SAM Materials, and restricts uses subject to trade controls. Equimo
+converts the parameters to its JAX/Equinox layout and archive format; its code is under its own license and is not
+covered by the SAM License.
 
 ## ConvNeXt conversion validation
 

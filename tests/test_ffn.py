@@ -10,6 +10,7 @@ import pytest
 
 from equimo.core.layers.ffn import (
     DINOHead,
+    LinearStack,
     Mlp,
     SwiGlu,
     SwiGluFused,
@@ -368,3 +369,24 @@ class TestGetFfn:
         model = cls(DIM, hidden_dim=128, out_dim=32, key=KEY)
         x = jr.normal(KEY, (SEQLEN, DIM))
         assert model(x, KEY).shape == (SEQLEN, 32)
+
+
+class TestLinearStack:
+    def test_layer_widths_follow_the_depth(self):
+        stack = LinearStack(8, 16, 4, 3, key=KEY)
+        widths = [(layer.in_features, layer.out_features) for layer in stack.layers]
+        assert widths == [(8, 16), (16, 16), (16, 4)]
+
+    @pytest.mark.parametrize("shape", [(), (3,), (3, 5)])
+    def test_applies_over_the_last_axis_of_any_rank(self, shape):
+        stack = LinearStack(8, 16, 4, 3, key=KEY)
+        x = jr.normal(KEY, (*shape, 8))
+        out = stack(x)
+        assert out.shape == (*shape, 4)
+        assert jnp.allclose(out[(0,) * len(shape)], stack(x[(0,) * len(shape)]))
+
+    def test_activation_runs_between_layers_only(self):
+        stack = LinearStack(4, 4, 1, 2, act_layer="relu", key=KEY)
+        x = jr.normal(KEY, (4,))
+        expected = stack.layers[1](jax.nn.relu(stack.layers[0](x)))
+        assert jnp.array_equal(stack(x), expected)

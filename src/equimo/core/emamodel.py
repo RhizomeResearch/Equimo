@@ -9,6 +9,17 @@ from .parameters import trainable_mask
 
 
 @jax.jit
+def _average_params(ema_params: Any, current_params: Any, decay: float) -> Any:
+    return jax.tree_util.tree_map(
+        lambda ema, new, trainable: (
+            decay * ema + (1.0 - decay) * new if trainable else new
+        ),
+        ema_params,
+        current_params,
+        trainable_mask(ema_params),
+    )
+
+
 def update_ema_model(
     ema_model: eqx.Module, current_params: Any, decay: float = 0.9999
 ) -> eqx.Module:
@@ -28,14 +39,4 @@ def update_ema_model(
         Updated EMA model
     """
     ema_params = eqx.filter(ema_model, eqx.is_array)
-
-    new_ema_params = jax.tree_util.tree_map(
-        lambda ema, new, trainable: (
-            decay * ema + (1.0 - decay) * new if trainable else new
-        ),
-        ema_params,
-        current_params,
-        trainable_mask(ema_params),
-    )
-
-    return eqx.combine(new_ema_params, ema_model)
+    return eqx.combine(_average_params(ema_params, current_params, decay), ema_model)

@@ -37,6 +37,11 @@ adapter and distillation presets, and model-specific fine-tuning plans for the E
 - `DenseProbe.__call__` defaults to `inference=True` and forwards `key` and `inference` to `extract_features`
   [dense.py:DenseProbe]
 - `DenseProbe.feature_spec` is a static Equinox field [dense.py:DenseProbe]
+- `DenseProbe` does not check its `head` at construction: a head without a `linear` attribute raises `AttributeError` at
+  the first call [dense.py:DenseProbe]
+- `make_dense_probe` checks a user-supplied `head` against `in_features` and `out_features` and raises `ValueError` on a
+  mismatch; widths it cannot inspect pass [../feature_extraction.py:\_linear_probe_head]
+  [../surgery.py:\_validate_declared_head_dimensions]
 - `make_dense_probe` wraps the backbone with the parent package's private `_headless_backbone` and builds the head with
   `_linear_probe_head`. `_headless_backbone` returns the backbone unchanged when `replace_head` raises `ValueError` (no
   unique head resolves), so the original head stays in place [dense.py:make_dense_probe]

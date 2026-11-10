@@ -1,9 +1,12 @@
+from typing import Callable
+
 import equinox as eqx
 import jax
 import jax.numpy as jnp
 import pytest
 
 from equimo.core import update_ema_model
+from equimo.core.layers.dropout import DropPathAdd
 from equimo.core.parameters import buffer
 
 
@@ -63,3 +66,26 @@ def test_update_ema_model_copies_integer_and_buffer_leaves():
     assert result.index.dtype == jnp.int32
     assert jnp.array_equal(result.index, current_model.index)
     assert jnp.array_equal(result.basis, current_model.basis)
+
+
+class _EmaStateWithNonArrayLeaves(eqx.Module):
+    weight: jax.Array
+    drop_path: DropPathAdd
+    activation: Callable
+
+
+def test_update_ema_model_keeps_non_array_leaves():
+    ema_model = _EmaStateWithNonArrayLeaves(
+        jnp.array([0.0]), DropPathAdd(0.1), jax.nn.relu
+    )
+    current_model = _EmaStateWithNonArrayLeaves(
+        jnp.array([4.0]), DropPathAdd(0.2), jax.nn.gelu
+    )
+
+    result = update_ema_model(
+        ema_model, eqx.filter(current_model, eqx.is_array), decay=0.5
+    )
+
+    assert jnp.allclose(result.weight, jnp.array([2.0]))
+    assert result.drop_path.p == 0.1
+    assert result.activation is jax.nn.relu

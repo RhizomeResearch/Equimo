@@ -25,14 +25,21 @@ package root exports only the preprocessing API; models and layers are imported 
 
 ## Invariants
 
-- `AudioPreprocessingSpec.__post_init__` only accepts the AST-faithful configuration: `mean_to_mono` channels,
-  `float32_unit_range` amplitudes, `sinc_interp_hann` resampling, Hanning window, zero dither, `fft_length` equal to the
-  next power of two covering one frame, Kaldi mel scale with natural log, log-power fbanks without an energy bin,
-  normalization `after_crop_pad`, `truncate_end` / `pad_end`, positive normalization std and scale, and a finite padding
-  value; anything else raises `ValueError` [io.py:AudioPreprocessingSpec.\_\_post_init\_\_].
-- Waveforms must be 1D or 2D, non-empty, finite, and within `[-1, 1]`; multi-channel input is averaged to mono in
-  float32 [io.py:\_mono_float32]. `sampling_rate` must be an `int` other than `bool` (`TypeError` otherwise) and
-  positive (`ValueError` otherwise) [io.py:preprocess_ast_waveform].
+- `AudioPreprocessingSpec.__post_init__` raises `ValueError` unless all of these hold: non-empty `variant`, `checkpoint`
+  and `checkpoint_revision`; positive `sample_rate`, `resampling_lowpass_filter_width`, `frame_length_ms`,
+  `frame_shift_ms`, `max_frames`, `normalization_std` and `normalization_scale`; `resampling_rolloff` in `(0, 1]`;
+  `mean_to_mono` channels, `float32_unit_range` amplitudes, `sinc_interp_hann` resampling, Hanning window, zero dither;
+  `round_to_power_of_two` set and `fft_length` equal to the next power of two covering one frame; `low_frequency_hz` in
+  `[0, Nyquist)` and `high_frequency_hz` at most Nyquist; `num_mel_bins > 3`; Kaldi mel scale with natural log;
+  log-power fbanks without an energy bin (`use_log_fbank` and `use_power` set, `use_energy` unset); normalization
+  `after_crop_pad`; `truncate_end` / `pad_end`; and a finite `padding_value`
+  [io.py:AudioPreprocessingSpec.\_\_post_init\_\_]. The fields `feature_extractor`, `feature_extractor_version`,
+  `energy_floor`, `preemphasis_coefficient`, `raw_energy`, `remove_dc_offset`, `snip_edges`, `subtract_mean` and
+  `normalization_mean` are not validated.
+- Waveforms must be 1D or 2D and non-empty. Multi-channel input is averaged to mono in float32, and the finiteness and
+  `[-1, 1]` checks apply to that mono mix, so channels of `+2.0` and `-2.0` pass [io.py:\_mono_float32]. `sampling_rate`
+  must be an `int` other than `bool` (`TypeError` otherwise) and positive (`ValueError` otherwise)
+  [io.py:preprocess_ast_waveform].
 - At least one frame of samples (`round(sample_rate * frame_length_ms / 1000)`) must remain after resampling
   [io.py:preprocess_ast_waveform].
 - Features are truncated or end-padded to `max_frames`, then normalized as

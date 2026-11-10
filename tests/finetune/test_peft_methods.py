@@ -318,6 +318,26 @@ def test_eva_allocates_rank_from_activation_svd_statistics(
     assert model.blocks[1].attn.proj.lora_A.shape == (expected_ranks[1], 4)
 
 
+def test_eva_skips_targets_it_already_wrapped(tiny_vision_transformer):
+    artifacts = {
+        "blocks.0.attn.proj": jnp.eye(4, dtype=jnp.float32),
+        "blocks.1.attn.proj": jnp.eye(4, dtype=jnp.float32),
+    }
+
+    def apply(model):
+        return eqft.apply_eva_lora(
+            model,
+            eqft.EVAInitializerConfig(rank_budget=4, per_layer_min_rank=1),
+            activation_artifacts=artifacts,
+            target=eqft.TargetSpec(tags_any=("attention.proj",)),
+            key=jr.PRNGKey(2),
+        )
+
+    wrapped = apply(tiny_vision_transformer)
+
+    assert eqx.tree_equal(apply(wrapped), wrapped)
+
+
 def test_eva_rejects_non_artifact_when_calibration_is_pinned(tiny_vision_transformer):
     artifacts = {
         "blocks.0.attn.proj": jnp.eye(4, dtype=jnp.float32),

@@ -34,6 +34,11 @@ Fused cuDNN attention, selected with `equimo.core.layers.with_attention_implemen
 experimental. Its supported dtypes, masks, and module coverage follow cuDNN and `jax.nn.dot_product_attention` and may
 change in a minor release. The default `implementation="xla"` is stable.
 
+SAM 3.1 is covered in two tiers. The image endpoints (`Sam3.features`, `encode_image`, `detect`, `predict_interactive`,
+`decode_concepts`, `encode_concept`), the `sam31_text` model and `ClipBpeTokenizer` are stable. `TrackerState`,
+`CommitPlan`, `propagate`, `associate`, `commit`, and the video driver and policy in `equimo.vision.models.sam3.video`
+are experimental and may change in a minor release.
+
 Optional integrations remain optional. Their public Equimo wrappers are stable, but the supported Python range may be
 narrower when an upstream dependency does not publish wheels. Equimo documents and tests those exceptions explicitly.
 

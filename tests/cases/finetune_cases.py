@@ -41,6 +41,25 @@ def _lora(model: Any, key: jax.Array) -> Any:
     )
 
 
+def _lora_encoder_and_detector(model: Any, key: jax.Array) -> Any:
+    return eqft.apply_lora(
+        model,
+        eqft.LoRAConfig(
+            rank=2,
+            target=eqft.TargetSpec(
+                tags_any=(
+                    "attention.q",
+                    "attention.k",
+                    "attention.v",
+                    "attention.proj",
+                ),
+                exclude=("interactive", "tracker"),
+            ),
+        ),
+        key=key,
+    )
+
+
 @dataclass(frozen=True)
 class FineTuneModeCase:
     mode: str
@@ -87,6 +106,13 @@ FINETUNE_MODE_CASES = (
         "vit",
         eqft.TrainableSpec(mode="peft", method_name="lora", train_head=False),
         _lora,
+    ),
+    FineTuneModeCase("head", "sam3", eqft.TrainableSpec(mode="head")),
+    FineTuneModeCase(
+        "peft",
+        "sam3",
+        eqft.TrainableSpec(mode="peft", method_name="lora", train_head=False),
+        _lora_encoder_and_detector,
     ),
 )
 

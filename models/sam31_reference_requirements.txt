@@ -1,0 +1,18 @@
+# Environment for models/sam31_reference.py. It is separate from uv.lock because the
+# reference requires NumPy below 2. Install with:
+#   uv venv --python 3.12 <environment>
+#   uv pip install --python <environment>/bin/python -r models/sam31_reference_requirements.txt
+sam3 @ git+https://github.com/facebookresearch/sam3.git@f1647e8d0c1d280991f4d1b7d974c2704537fe66
+torch==2.11.0
+torchvision==0.26.0
+timm==1.0.26
+numpy==1.26.4
+ftfy==6.1.1
+regex==2025.11.3
+iopath==0.1.10
+huggingface-hub==0.36.0
+setuptools==80.9.0
+einops==0.8.1
+pycocotools==2.0.10
+opencv-python-headless==4.11.0.86
+psutil==7.1.3

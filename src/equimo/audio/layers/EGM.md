@@ -11,10 +11,10 @@ Transformer, plus name-keyed registries so model configs can refer to audio laye
   \[patch.py:SpectrogramPatchEmbedding\]: maps one `(time, frequency)` log-mel spectrogram to `(num_patches, embed_dim)`
   tokens through a single-input-channel 2D `eqx.nn.Conv`. Exposes static `patch_size`, `stride`, `img_size`
   (`(input_fdim, input_tdim)`), `grid_size`, and `num_patches`.
-- `register_patch(name=None, force=False)` / `get_patch(name_or_cls)` \[patch.py:register_patch, patch.py:get_patch\]:
+- `register_patch(name=None, force=False)` / `get_patch(module)` \[patch.py:register_patch, patch.py:get_patch\]:
   register and resolve audio patch modules in `_PATCH_REGISTRY`; built from `equimo.core.layers._registry.make_register`
   / `make_get`.
-- `register_layer(name=None, force=False)` / `get_layer(name_or_cls)` \[\_\_init\_\_.py:register_layer,
+- `register_layer(name=None, force=False)` / `get_layer(module)` \[\_\_init\_\_.py:register_layer,
   \_\_init\_\_.py:get_layer\]: generic audio layer registry `_AUDIO_LAYER_REGISTRY` (empty by default).
 
 ## Invariants
@@ -22,8 +22,9 @@ Transformer, plus name-keyed registries so model configs can refer to audio laye
 - Inputs are unbatched `(time, frequency)` arrays; the module rearranges them to `(1, frequency, time)` before the
   convolution so `fstride` and `tstride` act on the AST reference axes, then flattens tokens in frequency-major `(f t)`
   order [patch.py:SpectrogramPatchEmbedding.\_\_call\_\_]. Batch with `jax.vmap`.
-- The input shape must equal `(input_tdim, input_fdim)` exactly; a mismatch raises `AssertionError` (explicit raise, not
-  an `assert`) [patch.py:SpectrogramPatchEmbedding.\_\_call\_\_].
+- The input shape must equal `(input_tdim, input_fdim)` exactly: a 2D mismatch raises `AssertionError` (explicit raise,
+  not an `assert`), and a non-2D input raises `ValueError` when its shape is unpacked
+  [patch.py:SpectrogramPatchEmbedding.\_\_call\_\_].
 - The constructor raises `ValueError` when the patch does not fit, i.e. when
   `(input_fdim - patch_f) // fstride + 1 <= 0` or the time equivalent [patch.py:SpectrogramPatchEmbedding.\_\_init\_\_].
 - Registry names are lowercased class names by default; registering an existing name without `force=True` raises

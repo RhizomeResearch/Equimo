@@ -306,8 +306,8 @@ class SHViT(eqx.Module):
             Classification logits for each class
         """
         x = self.features(x, inference=inference, key=key)
-        x = jax.vmap(self.norm)(x)
         x = reduce(x, "c h w -> c", "mean")
+        x = self.norm(x)
         x = self.head(x)
 
         return x

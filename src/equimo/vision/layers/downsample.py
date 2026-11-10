@@ -40,8 +40,8 @@ class ConvNormDownsampler(eqx.Module):
             ``out_channels // 2``.
 
     Note:
-        ``act_layer`` is only applied in ``"double"`` mode between the two
-        convolution layers. It is ignored in ``"simple"`` mode.
+        ``act_layer`` is applied after the convolution in ``"simple"`` mode and
+        between the two convolution layers in ``"double"`` mode.
 
     Attributes:
         downsampler: Sequential module that performs the downsampling.

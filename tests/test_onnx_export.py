@@ -1,5 +1,7 @@
 """ONNX export coverage for every registered Equimo model family."""
 
+from importlib.metadata import version
+
 import jax
 import jax.numpy as jnp
 import jax.random as jr
@@ -22,6 +24,14 @@ from cases.model_cases import MODEL_CASES, extract_features
 
 # MODEL_CASES covers every registered built-in family; that completeness is
 # enforced by tests/finetune/test_feature_spec_model_coverage.py.
+
+_JAX2ONNX_WITHOUT_EXPORT_FIXES = {"0.17.1", "0.18.0"}
+
+
+def _skip_without_jax2onnx_export_fixes() -> None:
+    """Skip on the releases that predate enpasos/jax2onnx#291."""
+    if version("jax2onnx") in _JAX2ONNX_WITHOUT_EXPORT_FIXES:
+        pytest.skip("Needs enpasos/jax2onnx#291, merged after the 0.18.0 release.")
 
 
 @pytest.mark.parametrize("variant", ["plain", "vmap", "where"])
@@ -83,6 +93,8 @@ _SWIN_V2 = dict(window_size=(4, 4), pretrained_window_size=(0, 0), num_heads=2)
     ids=lambda value: value if isinstance(value, str) else None,
 )
 def test_posemb_tables_export_as_constants(cls, kwargs, table):
+    if cls in (RoPE, PosEmbMLPSwinv1D, PosEmbMLPSwinv2D):
+        _skip_without_jax2onnx_export_fixes()
     if cls in (PosEmbMLPSwinv1D, PosEmbMLPSwinv2D):
         kwargs = dict(kwargs, key=jr.PRNGKey(0))
     module = cls(**kwargs)
@@ -107,6 +119,8 @@ def test_posemb_tables_export_as_constants(cls, kwargs, table):
 
 @pytest.mark.parametrize("case", MODEL_CASES, ids=lambda case: case.registry_name)
 def test_builtin_model_family_exports_to_onnx_with_runtime_parity(case):
+    if case.registry_name in ("mlla", "partialformer", "sam3"):
+        _skip_without_jax2onnx_export_fixes()
     invocation = case.build(jr.PRNGKey(40))
     export_args = (
         [jnp.expand_dims(value, 0) for value in invocation.args]

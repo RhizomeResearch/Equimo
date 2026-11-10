@@ -289,6 +289,69 @@ def test_fused_reduceformer():
     assert len(y_hat) == 10
 
 
+# FasterViT
+
+
+@pytest.mark.parametrize("hat", [False, True])
+def test_fastervit_runs_window_stages(hat):
+    key = jr.PRNGKey(0)
+    model = em.FasterViT(
+        img_size=64,
+        in_channels=3,
+        dim=8,
+        in_dim=4,
+        num_heads=2,
+        hat=hat,
+        depths=[1, 1, 2],
+        window_size=2,
+        ct_size=1,
+        num_classes=NUM_CLASSES,
+        key=key,
+    )
+
+    assert model.features(IMG_64, inference=True).ndim == 2
+    assert (
+        len(model.intermediate_features(IMG_64, inference=True, n_last_blocks=2)) == 2
+    )
+    assert model(IMG_64, inference=True).shape == (NUM_CLASSES,)
+    assert model(IMG_64, key=key, inference=False).shape == (NUM_CLASSES,)
+
+
+# SHViT
+
+
+@pytest.mark.parametrize("norm_layer", ["layernorm", "rmsnorm"])
+def test_shvit_classification(norm_layer):
+    key = jr.PRNGKey(0)
+    model = em.SHViT(
+        in_channels=3,
+        dim=[8],
+        pdim=[4],
+        qk_dim=[4],
+        depths=[1],
+        block_type=["s"],
+        norm_layer=norm_layer,
+        num_classes=NUM_CLASSES,
+        key=key,
+    )
+
+    assert model(IMG_64, inference=True).shape == (NUM_CLASSES,)
+
+
+# LowFormer
+
+
+def test_lowformer_preset_runs_at_224_pixels():
+    key = jr.PRNGKey(0)
+    model = em.lowformer_backbone_b0(
+        in_channels=3, num_classes=NUM_CLASSES, attention_type="softmax", key=key
+    )
+
+    y_hat = model(jnp.zeros((3, 224, 224)), inference=True)
+
+    assert y_hat.shape == (NUM_CLASSES,)
+
+
 # Mlla
 
 

@@ -134,6 +134,63 @@ metadata mismatch until they are rebuilt.
 
 Accelerator timing and physical multi-device performance remain unmeasured.
 
+## SAM 3.1 image inference and fine-tuning
+
+Measured on an RTX 4080 (16 GB) with `benchmarks/sam3_image.py`, in bfloat16 at 1008 x 1008 on one image, with
+`XLA_PYTHON_CLIENT_PREALLOCATE=false` and `XLA_PYTHON_CLIENT_MEM_FRACTION=1.0`. Weights load on the CPU so that peak
+memory reports the workload. Training runs 50 SGD steps with a loss on the 16 highest-scoring queries' mask logits; the
+loss stayed finite and decreased in every run that completed.
+
+| Workload                                     | Attention | Trunk rematerialized | Peak GPU memory | Step or call time |
+| -------------------------------------------- | --------- | -------------------- | --------------: | ----------------: |
+| Image inference (encode and detect)          | XLA       | no                   |          2.8 GB |            124 ms |
+| Image inference (encode and detect)          | cuDNN     | no                   |          1.4 GB |             82 ms |
+| Head-only fine-tuning (detector head)        | XLA       | yes                  |          7.0 GB |            0.84 s |
+| Head-only fine-tuning (detector head)        | cuDNN     | yes                  |          2.0 GB |            0.69 s |
+| LoRA on trunk and detector attention, rank 8 | XLA       | no                   |   out of memory |                 - |
+| LoRA on trunk and detector attention, rank 8 | XLA       | yes                  |          7.3 GB |            1.32 s |
+| LoRA on trunk and detector attention, rank 8 | cuDNN     | no                   |          8.4 GB |            1.02 s |
+| LoRA on trunk and detector attention, rank 8 | cuDNN     | yes                  |          2.2 GB |            1.06 s |
+
+Rematerialization is `encode_image(x, checkpoint_trunk=True)`, which the benchmark's training steps pass. LoRA with XLA
+attention and no rematerialization fails trying to allocate 15.4 GB. Run
+`benchmarks/sam3_image.py {inference,head,lora} --archive-dir DIR --implementation {xla,cudnn}` from the devenv shell
+with the CUDA wheels.
+
+## SAM 3.1 video tracking
+
+Measured on an RTX 4080 (16 GB) with `benchmarks/sam3_video.py`, in bfloat16 on 12 frames of the hosted video fixture,
+with the same allocator settings as above. Buckets are padded to the listed count, so the state and attention arrays
+have the shapes of a clip that uses them; empty buckets attend to no keys, so step time is a lower bound. Each row ran
+in a fresh process except the first two XLA rows, which ran in one process.
+
+| Buckets | Attention | Peak GPU memory | Frame time | Compile (first 4 frames) |
+| ------: | --------- | --------------: | ---------: | -----------------------: |
+|       1 | XLA       |          4.3 GB |     380 ms |                     41 s |
+|       2 | XLA       |          6.1 GB |     593 ms |                     47 s |
+|       4 | XLA       |   out of memory |          - |                        - |
+|       1 | cuDNN     |          4.0 GB |     143 ms |                     38 s |
+|       2 | cuDNN     |          4.0 GB |     151 ms |                     58 s |
+|       4 | cuDNN     |          4.5 GB |     168 ms |                     92 s |
+
+At 4 buckets, cuDNN attention peaks at 4.5 GB, well inside the 15 GB target. XLA attention fails trying to allocate 6.9
+GB for memory attention, so bfloat16 tracking past two buckets needs cuDNN attention. Run
+`benchmarks/sam3_video.py --archive-dir DIR --fixture FILE --implementation {xla,cudnn} --buckets N` from the devenv
+shell with the CUDA wheels.
+
+Two latency ideas from the reference were measured with a throwaway script on the same GPU, in bfloat16 with cuDNN
+attention on 32 frames of the fixture, and left out because neither reaches the 20% frame-time gain that would justify
+the added complexity. A frame took 145 ms, of which image encoding and detection took 88 ms and final mask rendering 5.5
+ms. Rendering on the device can therefore save under 4% of a frame. Encoding and detecting frames in chunks through
+`jax.vmap`, as the reference's 16-frame chunks do, gives no gain, because each frame already keeps the GPU busy:
+
+| Chunk size | Encode + detect per frame | Projected frame time | Change |
+| ---------: | ------------------------: | -------------------: | -----: |
+|          2 |                     88 ms |               145 ms |     0% |
+|          4 |                     88 ms |               146 ms |  -0.2% |
+|          8 |                     98 ms |               156 ms |  -7.2% |
+|         16 |                     97 ms |               154 ms |  -6.2% |
+
 ## Softmax precision
 
 These GPU measurements choose where Equimo uses the corrected derivative of `equimo.core.ops.softmax`. Environment:

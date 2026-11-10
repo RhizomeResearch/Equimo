@@ -89,7 +89,7 @@ def _validate_identifier(identifier: str) -> None:
     """Raise ValueError if *identifier* contains characters unsafe for use in
     file paths or URLs (e.g. ``..``, ``/``, ``?``).
     """
-    if not _SAFE_IDENTIFIER_RE.match(identifier):
+    if not _SAFE_IDENTIFIER_RE.fullmatch(identifier):
         raise ValueError(
             f"Unsafe model identifier: {identifier!r}. "
             "Only alphanumeric characters, hyphens, and underscores are allowed."
@@ -613,7 +613,7 @@ def _resolve_weights_dir(
         )
     elif expected_sha256 is not None:
         assert path is not None
-        if path.is_dir() or path.suffixes != [".tar", ".lz4"]:
+        if path.is_dir() or not path.name.endswith(".tar.lz4"):
             raise ValueError(
                 "expected_sha256 applies to a .tar.lz4 archive; use "
                 "expected_weights_sha256 for a checkpoint directory."
@@ -627,7 +627,7 @@ def _resolve_weights_dir(
             )
 
     assert path is not None
-    if path.suffixes == [".tar", ".lz4"]:
+    if path.name.endswith(".tar.lz4"):
         logger.info("Decompressing...")
         path = _decompress_archive(path, allow_legacy_cache=False, limits=limits)
 
@@ -719,7 +719,7 @@ def _inspect_checkpoint(
     source_path = Path(path)
     if source_path.is_dir():
         checkpoint_dir = source_path
-    elif source_path.suffixes == [".tar", ".lz4"]:
+    elif source_path.name.endswith(".tar.lz4"):
         checkpoint_dir = _decompress_archive(
             source_path,
             allow_legacy_cache=False,

@@ -7,6 +7,7 @@ from typing import Any, Literal, Mapping
 
 import jax
 
+from ._blocks import model_block_depth, vision_block_depths
 from ._typing import Path, PyTree
 from .config import FineTunePlan, TargetSpec, TrainableSpec
 from .peft.lora import LoRAConfig, apply_lora, lora_config_to_dict
@@ -70,6 +71,7 @@ def continued_ssl_trainable_spec(
         model, config.unfreeze_blocks, config.unfreeze_policy
     )
     peft_tag = _peft_tag(config.peft)
+    block_depths = vision_block_depths(model)
 
     def predicate(path: Path, leaf: Any) -> bool:
         tags = canonical_tags_for_path(path, leaf)
@@ -77,7 +79,9 @@ def continued_ssl_trainable_spec(
             return True
         if config.train_norm and "norm" in tags:
             return True
-        depth = infer_depth(path)
+        depth = model_block_depth(path, block_depths)
+        if depth is None:
+            depth = infer_depth(path)
         return depth in active_depths and "block" in tags
 
     return TrainableSpec(

@@ -254,7 +254,9 @@ equimo.finetune.task_vector_bundle(vector: 'TaskVector', *, method: 'str', metad
 
 Defined in `equimo.finetune.merging`.
 
-> Package a merged task vector as a portable fine-tuning bundle.
+> Package a merged task vector as an in-memory fine-tuning bundle.
+>
+> The delta keeps its module layout, so `save_finetune_bundle` rejects it.
 
 <!-- equimo.finetune:TaskVector -->
 

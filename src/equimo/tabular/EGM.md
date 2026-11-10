@@ -19,8 +19,9 @@ into the TabPFN v3 classifier and regressor variants.
   in-context keys and values come only from them \[layers/preprocessing.py:Preprocessor.\_\_call\_\_,
   layers/attention.py:InContextAttention.\_\_call\_\_, models/tabpfn.py:TabPFN.features\].
 - Modules are unbatched; batch datasets with `jax.vmap` [models/tabpfn.py:TabPFN].
-- `TabPFN` resolves its pluggable submodules by name through the tabular family registries, so custom layers must be
-  registered with the matching `register_*` decorator [models/tabpfn.py:TabPFN.\_\_init\_\_].
+- `TabPFN` resolves its pluggable submodules through the tabular family registries, which return non-string values
+  unchanged, so a custom layer needs the matching `register_*` decorator only when it is named by string
+  [models/tabpfn.py:TabPFN.\_\_init\_\_, layers/registry.py:\_resolve_from_registry].
 
 ## Side Effects
 

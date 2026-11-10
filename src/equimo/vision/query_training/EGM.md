@@ -7,7 +7,7 @@ and criterion, PointRend point selection). The package prepares nondifferentiabl
 sampling points for one stochastic forward, then evaluates differentiable classification, mask BCE, and Dice losses as
 additive numerator/denominator statistics that can be reduced across batches and devices. Model outputs are consumed
 through the `QueryMaskPrediction` / `QuerySegmentationOutput` protocols from
-[`equimo/vision/segmentation.py`](../segmentation.py); the classification NLL comes from `equimo.core.ops`.
+[`equimo/vision/segmentation.py`](../segmentation.py); the classification softmax and NLL come from `equimo.core.ops`.
 
 ## Interface
 
@@ -37,15 +37,16 @@ Public names are re-exported by `[__init__.py:__all__]`.
 - `LossTerm(numerator, denominator)` with `value` property; `PredictionLoss` (classification, mask, dice terms,
   `supervised_examples`, `matched_masks`, `is_valid`); `QueryLossResult(final, auxiliary, config)` with `is_valid` and
   `total` properties. `[_loss.py:LossTerm]`, `[_loss.py:PredictionLoss]`, `[_loss.py:QueryLossResult]`
-- `query_matching_costs(prediction, targets, points, *, config) -> MatchingCosts`: class (negative probability), sampled
-  BCE, and Dice costs on shared points. `[_loss.py:query_matching_costs]`
-- `prepare_query_loss(output, targets, *, key, config) -> QueryLossContext`: samples matching points, computes costs,
-  matches queries, and samples loss points for final and auxiliary predictions. Matching points are always uniform;
-  `sampling_policy` selects only the loss points (per-query uncertainty points, or uniform points shared by all
-  queries). With `auxiliary_matching="reuse_final"`, auxiliaries reuse the final assignment and matching points and
-  sample only their own loss points. `[_loss.py:prepare_query_loss]`
-- `query_prediction_loss(prediction, targets, context, *, config) -> PredictionLoss`: unweighted terms for one
-  prediction. `[_loss.py:query_prediction_loss]`
+- `query_matching_costs(prediction, targets, points, *, config=QueryLossConfig()) -> MatchingCosts`: class (negative
+  probability), sampled BCE, and Dice costs on shared points. `[_loss.py:query_matching_costs]`
+- `prepare_query_loss(output, targets, *, key, config=QueryLossConfig()) -> QueryLossContext`: samples matching points,
+  computes costs, matches queries, and samples loss points for final and auxiliary predictions. Matching points are
+  always uniform; `sampling_policy` selects only the loss points (per-query uncertainty points, or uniform points shared
+  by all queries). With `auxiliary_matching="reuse_final"`, auxiliaries reuse the final assignment and matching points
+  and sample only their own loss points. `[_loss.py:prepare_query_loss]`
+- `query_prediction_loss(prediction, targets, context, *, config=QueryLossConfig()) -> PredictionLoss`: terms for one
+  prediction before `loss_weights`; the classification term still applies `no_object_weight` per query.
+  `[_loss.py:query_prediction_loss]`
 - `query_segmentation_loss(output, targets, context) -> QueryLossResult`: evaluates final and auxiliary losses with a
   retained context. `[_loss.py:query_segmentation_loss]`
 - `reduce_query_losses(result, *, axis=0, axis_name=None) -> QueryLossResult`: sums statistics over a local vmapped axis
@@ -87,8 +88,9 @@ Public names are re-exported by `[__init__.py:__all__]`.
 - `prepare_query_loss` folds `key` by prediction index (final `0`, auxiliary `i + 1`) and splits it into matching and
   loss keys, so disabling auxiliaries does not change the final prediction's stream. A context must be reused only with
   the same targets and forward draw. `[_loss.py:prepare_query_loss]`, `[_loss.py:QueryLossContext]`
-- `LossTerm.value` returns zero for an empty denominator; aggregate numerators and denominators (for example with
-  `reduce_query_losses`) before reading `total`. `[_loss.py:LossTerm]`, `[_loss.py:reduce_query_losses]`
+- `LossTerm.value` divides by 1 when the denominator is not positive, so it returns the numerator, which is zero for the
+  terms `query_prediction_loss` builds; aggregate numerators and denominators (for example with `reduce_query_losses`)
+  before reading `total`. `[_loss.py:LossTerm]`, `[_loss.py:query_prediction_loss]`, `[_loss.py:reduce_query_losses]`
 - `QueryLossContext.config` and `QueryLossResult.config` are static Equinox fields. `[_loss.py:QueryLossContext]`,
   `[_loss.py:QueryLossResult]`
 

@@ -33,19 +33,24 @@ platform markers. After changing `pyproject.toml` (including version bumps), rel
 
 The lock keeps JAX at 0.11.2: jax2onnx 0.17.1 fails on JAX 0.12 (`jax._src.core.ClosedJaxpr` was removed), so upgrade
 JAX in the lock only together with a jax2onnx release that supports it (0.18.0 does), and run
-`tests/test_onnx_export.py`. On JAX 0.12.0.1, `test_dense_probe_supports_deterministic_jit_vmap_and_gradients` fails
-because jit and eager outputs differ by one ulp and it asserts exact equality (run in practice). With JAX 0.11 or newer,
-jax2onnx's `flax.nnx` import fails on flax 0.12.6 and works on 0.12.10 (observed in practice).
+`tests/test_onnx_export.py`. With JAX 0.11 or newer, jax2onnx's `flax.nnx` import fails on flax 0.12.6 and works on
+0.12.10 (observed in practice).
 
 Equimo code does not work around jax2onnx bugs; they are fixed upstream. With jax2onnx 0.17.1 and 0.18.0,
 `tests/test_onnx_export.py` fails for the `posemb.py` tables (`RoPE`, Swin), `mlla`, and batched `partialformer`;
-enpasos/jax2onnx#291 fixes them, and the whole file passes against that branch on JAX 0.11.2 (run in practice).
+enpasos/jax2onnx#291 fixes them, and the whole file passes against that branch on JAX 0.11.2 (run in practice). `sam3`
+fails at the same RoPE table with the locked jax2onnx and passes with its `main` after #291 (both run in practice). The
+test file skips these cases on those two versions only, so a later release runs them again.
 
 Anything that imports JAX must run inside the devenv shell, for example `devenv shell -- uv run pytest ...` (run in
 practice): outside it, even the devenv-provided uv fails to import jaxlib because `libstdc++.so.6` is not on the library
 path. Where `devenv shell` cannot start (for example a sandbox with a read-only `/run/user`), use the venv devenv
 manages, `.devenv/state/venv/bin/python -m pytest ...`, with `LD_LIBRARY_PATH` taken from `.devenv/shell-env.sh` (run in
 practice); `.venv` is not the devenv-managed environment.
+
+The lock installs CPU-only jaxlib, so GPU-only tests skip by default. To run them on a CUDA machine without changing the
+lock, overlay the CUDA wheels and expose the NixOS driver (run in practice on an RTX 4080; about 3 GB of wheels):
+`devenv shell -- bash -c 'export LD_LIBRARY_PATH=/run/opengl-driver/lib:$LD_LIBRARY_PATH; uv run --with "jax[cuda12]==0.11.2" pytest ...'`.
 
 Run a focused test while iterating:
 
@@ -72,8 +77,56 @@ a full check cannot be run, report exactly what was and was not verified.
 archives can fail that inventory check; verify fresh build outputs before changing package inclusion rules. Confirmed
 with `uv build --no-sources --out-dir <staging-directory>` and the existing distribution assertions.
 
+A license snapshot in Markdown must keep its section numbers: `mdformat` renumbers `4.` to `1.` and so alters the text
+unless they are escaped as `4\.` (run in practice; compare the words with the upstream file after formatting).
+
 `artifact-staging/` is Syncthing-ignored but not git-ignored: jj snapshots scratch files there into the working-copy
-revision (observed in practice). Delete them before finishing.
+revision (observed in practice). Delete them before finishing, or, for files that stay, such as a reference clone, put a
+`.gitignore` containing `*` in `artifact-staging/` (run in practice). A bare `pytest` also collects a clone kept there;
+`collect_ignore_glob = ["*"]` in `artifact-staging/conftest.py` stops that (run in practice).
+
+Full-weight SAM 3.1 parity reads the archives from `~/.cache/equimo/sam31`. To keep them under `artifact-staging/`,
+symlink that directory into an `artifact-staging` home and run with `HOME` pointing at it and `UV_CACHE_DIR` set to the
+real `~/.cache/uv` (run in practice).
+
+The GIF in the README and `docs/sam3.md` is served from the company website repository at
+`static/equimo/sam31-video-tracking.gif`, not from this one. To regenerate it, run the blocks of "Tracking a film clip"
+in `docs/sam3.md`; the Python block needs `uv run --with "jax[cuda12]==0.11.2" --with pillow` because the locked
+environment has neither (run in practice).
+
+Converting a SAM 3.1 archive needs torch, which the devenv venv lacks: build a separate environment with
+`UV_PROJECT_ENVIRONMENT=<staging>/convert-env .devenv/profile/bin/uv sync --locked --group reference --no-default-groups`
+and run `<staging>/convert-env/bin/python models/sam31.py multiplex --checkpoint <path> --output-dir <staging>` (run in
+practice). `load_weights` checks a signature over every leaf's path and shape, so renaming a field or adding or removing
+a leaf needs a new archive, a Hugging Face upload, and new `sam31_multiplex` and `DEFAULT_REPOSITORY_REVISION` values in
+`_pretrained.py` (run in practice). In a sandbox where `~/.cache` is read-only, set `HF_XET_CACHE` to a writable
+directory for the upload (run in practice).
+
+A refactor meant to keep numerics and speed can be checked without timing noise: lower each endpoint with
+`jax.jit(fn).lower(*args).as_text()` from both source trees, using `eqx.filter_eval_shape` models so no weights load,
+and compare the text (run in practice on SAM 3.1).
+
+JAX's default matmul precision on GPU is not float32: plain linear projections on the RTX 4080 differed from exact
+float32 by about 1e-4 per element. For float32 parity on a GPU, run with `JAX_DEFAULT_MATMUL_PRECISION=highest` (run in
+practice); CPU float32 needs no setting.
+
+On CPU, jit and eager outputs are not bit-identical, so tests must compare them with a tolerance. Under `vmap`, jit
+rewrites `dot(W, X)` plus a transpose to `dot(X, W)`, which changes the summation order: a 12x4 `Linear` differs on Zen
+3 (EPYC 7543) but only 32x4 and larger on Zen 4 (Ryzen 7940HS). XLA also merges `a*b+c` into FMA only within one
+compiled program. On the 7543, 80 seeds of the dense-probe fixture differed by at most 2.1e-7 absolute and 7.3e-5
+relative (all run in practice). A failure limited to Zen 3 looks flaky in CI: about 1 finetune job in 7 lands on an EPYC
+7B13, and each job log prints `Running on CPU:`.
+
+`models/sam31_reference.py` needs a CUDA GPU and the environment in `models/sam31_reference_requirements.txt`, not the
+locked one; `tests/data/README.md` has the commands (read in config). Its `tokenizer` command needs no GPU (run in
+practice). On a NixOS host, run it through the devenv shell so the environment's wheels find their libraries, with the
+driver on the path:
+`devenv shell -- bash -c 'export LD_LIBRARY_PATH=/run/opengl-driver/lib:$LD_LIBRARY_PATH; /path/to/environment/bin/python models/sam31_reference.py ...'`
+(run in practice).
+
+jj's snapshot skips new files over `snapshot.max-new-file-size` (1 MiB in this setup), which covers the CLIP vocabulary
+and large test fixtures. Track such a file once with `jj --config snapshot.max-new-file-size=2MiB status` (run in
+practice); later edits to a tracked file are not limited.
 
 ## Change Workflow
 
@@ -119,11 +172,12 @@ revision (observed in practice). Delete them before finishing.
   accurate at high confidence, for under 0.5% of a step. Classification losses use the `equimo.core.ops` losses.
   Measurements are in `docs/performance.md` under "Softmax precision".
 - Opt-in cuDNN attention goes through `_fused_attention` in `core/layers/attention.py`. It pads sequences to multiples
-  of 64 (the backward kernel requires it), expands masks to every head (a broadcast head axis fails under `vmap`,
-  jax-ml/jax#34920), and zeroes fully masked rows (cuDNN returns the mean value). jax2onnx cannot export it. The
-  `implementation` field is static: `eqx.tree_at` cannot replace it and `copy.copy` returns the same module, hence
-  `with_attention_implementation`. CPU tests cover padding and masking with `implementation="xla"`; the cuDNN parity
-  tests in `tests/test_core_attention.py` run only on a GPU (run on an RTX 4080 in practice).
+  of 64 (the backward kernel requires it; the kernel also needs head widths that are multiples of 8 and at most 128, run
+  in practice), expands masks to every head (a broadcast head axis fails under `vmap`, jax-ml/jax#34920), and zeroes
+  fully masked rows (cuDNN returns the mean value). jax2onnx cannot export it. The `implementation` field is static:
+  `eqx.tree_at` cannot replace it and `copy.copy` returns the same module, hence `with_attention_implementation`. CPU
+  tests cover padding and masking with `implementation="xla"`; the cuDNN parity tests in `tests/test_core_attention.py`
+  run only on a GPU (run on an RTX 4080 in practice).
 - Use the repository registries and modality boundaries instead of duplicating shared layers or adding cross-modality
   imports without a demonstrated need.
 

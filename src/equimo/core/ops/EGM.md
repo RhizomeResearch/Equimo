@@ -6,8 +6,8 @@ Pure-JAX numerical kernels.
 
 - `scan.py` holds the state-space kernels: a selective scan, segment-sum, chunked SSD for Mamba2, and VSSD non-causal
   linear attention. These kernels take a single example without a batch axis, so callers batch them with `jax.vmap`.
-- `probability.py` holds softmax, log-softmax and two cross-entropy losses. They compute in at least float32 and use
-  custom JVPs that stay accurate at high confidence.
+- `probability.py` holds softmax, log-softmax, two cross-entropy losses and a clamped inverse sigmoid. The softmaxes and
+  losses compute in at least float32 and use custom JVPs that stay accurate at high confidence.
 
 ## Interface
 
@@ -24,6 +24,8 @@ All of the following are re-exported by `equimo.core.ops` ([`__init__.py`](./__i
 - `[scan.py:non_causal_linear_attn]`:
   `non_causal_linear_attn(x (l, h, d), dt (l, h), A (h,), B (l, d_state), C (l, d_state), D (h,), n_groups=1) -> (l, h, d)`.
   VSSD non-causal attention duality, used by `Mamba2Mixer` ([../layers/EGM.md](../layers/EGM.md)).
+- `[probability.py:inverse_sigmoid]`: `inverse_sigmoid(x)` in float32, with `x` and `1 - x` at least 1e-3, so the result
+  stays within about +/-6.9 and is finite at 0 and 1.
 - `[probability.py:softmax]`: `softmax(x, axis=-1, where=None)`. Same signature as `jax.nn.softmax`, computed in at
   least float32, returned in the input's float dtype.
 - `[probability.py:log_softmax]`: `log_softmax(x, axis=-1, where=None)`. `axis` must be a single axis. Masked positions
@@ -42,10 +44,11 @@ All of the following are re-exported by `equimo.core.ops` ([`__init__.py`](./__i
     tangent, so its gradient is rebuilt from the other entries rather than computed by subtracting two numbers near 1.
   - Slices without an anchor use the ordinary derivative.
   - Masked entries have probability 0, and fully masked rows return zeros.
-- `[probability.py:softmax]`, `[probability.py:log_softmax]`,
-  `[probability.py:softmax_cross_entropy_with_integer_labels]` and
-  `[probability.py:softmax_cross_entropy_with_logit_targets]` follow the same dtype rule: they compute in
+- `[probability.py:softmax]`, `[probability.py:log_softmax]` and
+  `[probability.py:softmax_cross_entropy_with_integer_labels]` follow the same dtype rule: they compute in
   `result_type(dtype, float32)` and return the input's float dtype. Integer inputs are promoted to float.
+  `[probability.py:softmax_cross_entropy_with_logit_targets]` applies that rule to the common dtype of its two inputs,
+  `result_type(logits.dtype, target_logits.dtype, 0.0)`, and returns that dtype.
 - `[probability.py:_log_softmax_parts]`: exactly one maximum, the first argmax, is left out of the exponential sum and
   added back through `log1p`.
 - `[probability.py:softmax_cross_entropy_with_integer_labels]`: input and output contract.

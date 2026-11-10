@@ -23,6 +23,7 @@ still current.
 | dinov3     | `dinov3_`         |     8 | DINOv3 License                                               | [snapshot](dinov3-License.md)                           | [DINOv3](https://github.com/facebookresearch/dinov3)                                     | [upstream license](https://github.com/facebookresearch/dinov3/blob/main/LICENSE.md)                              | 2026-08-21 |
 | eupe       | `eupe_`           |     6 | FAIR Noncommercial Research License v1                       | [snapshot](eupe-FAIR-Noncommercial-Research-License.md) | [EUPE](https://github.com/facebookresearch/EUPE)                                         | [upstream license](https://github.com/facebookresearch/EUPE/blob/main/LICENSE.md)                                | 2026-08-21 |
 | lingbot    | `lingbot_`        |     4 | Apache 2.0                                                   | [snapshot](lingbot-vision-Apache-2.0.txt)               | [LingBot-Vision checkpoints](https://huggingface.co/collections/robbyant/lingbot-vision) | [upstream license](https://github.com/robbyant/lingbot-vision/blob/main/LICENSE)                                 | 2026-09-23 |
+| sam31      | `sam31_`          |     2 | SAM License                                                  | [snapshot](sam-License.md)                              | [SAM 3.1](https://github.com/facebookresearch/sam3)                                      | [upstream license](https://github.com/facebookresearch/sam3/blob/main/LICENSE)                                   | 2026-11-09 |
 | siglip2    | `siglip2_`        |    15 | Apache 2.0                                                   | [snapshot](siglip2-Apache-2.0.txt)                      | [SigLIP 2 model](https://huggingface.co/google/siglip2-base-patch16-256)                 | [current license declaration](https://huggingface.co/google/siglip2-base-patch16-256)                            | 2026-08-21 |
 | t0         | `t0_`             |     1 | Apache 2.0                                                   | [snapshot](t0-alpha-Apache-2.0.txt)                     | [T0-alpha model](https://huggingface.co/theforecastingcompany/t0-alpha)                  | [upstream license](https://github.com/theforecastingcompany/tfc-t0/blob/main/LICENSE)                            | 2026-08-21 |
 | tabpfn     | `tabpfn_`         |     8 | TABPFN-3 License v1.0                                        | [snapshot](tabpfn-3-License-v1.0.txt)                   | [TabPFN-3 model](https://huggingface.co/Prior-Labs/tabpfn_3)                             | [upstream license](https://huggingface.co/Prior-Labs/tabpfn_3/blob/main/LICENSE)                                 | 2026-08-21 |
@@ -79,6 +80,15 @@ TIPS checkpoint materials are Copyright 2025 DeepMind Technologies Limited and a
 the upstream vision and text checkpoint parameters to its JAX/Equinox parameter layout and archive format. The upstream
 source is the [`google-deepmind/tips` project](https://github.com/google-deepmind/tips), which states that it is not an
 official Google product. No endorsement by the upstream authors is implied.
+
+### SAM 3.1
+
+The `sam31_multiplex` and `sam31_text` archives are converted from Meta's SAM 3.1 checkpoint (`facebook/sam3.1`,
+`sam3.1_multiplex.pt`) and remain SAM Materials under the [SAM License](sam-License.md). Equimo converted the parameters
+to its JAX/Equinox layout and archive format; they are not an official Meta product and no endorsement by Meta is
+implied. The license requires that a copy of it accompany any distribution, that publications using the materials
+acknowledge them (section 1.b.ii), and that uses comply with trade controls (sections 1.b.iii and 1.b.v). Equimo's SAM
+3.1 code is not SAM Materials in the author's reading; see `docs/licensing/sam3-provenance.md`.
 
 ### T0-alpha
 

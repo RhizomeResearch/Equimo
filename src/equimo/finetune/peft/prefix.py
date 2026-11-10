@@ -169,9 +169,9 @@ class PrefixAttention(eqx.Module):
             _check_cudnn_dropout(attn_drop, inference)
             y = _fused_attention(q, k, v, allowed)
         else:
-            attn = jnp.einsum("...hqd,...hkd->...hqk", q, k).astype(
-                jnp.float32
-            ) / jnp.sqrt(self.head_dim)
+            attn = jnp.einsum("...hqd,...hkd->...hqk", q, k)
+            attn = attn.astype(jnp.promote_types(attn.dtype, jnp.float32))
+            attn = attn / jnp.sqrt(self.head_dim)
             attn = jax.nn.softmax(attn, axis=-1, where=allowed).astype(x.dtype)
             attn = _call_dropout(attn_drop, attn, inference, key1)
             y = jnp.einsum("...hqk,...hkd->...hqd", attn, v)

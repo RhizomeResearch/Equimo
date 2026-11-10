@@ -6,6 +6,8 @@ from typing import Any
 import equimo.audio.models as audio_models
 import equimo.tabular.models as tabular_models
 import equimo.vision.models as vision_models
+from equimo.language import sam31_text
+from equimo.vision.models.sam3 import sam31_multiplex
 from equimo.timeseries.models import t0_alpha
 
 
@@ -90,6 +92,20 @@ PRETRAINED_PATH_CASES = (
         None,  # Covered by the dedicated LingBot-Vision reference test.
     ),
     PretrainedPathCase(
+        "sam31",
+        "vision",
+        "sam31_multiplex",
+        sam31_multiplex,
+        "sam31_image_reference.npz",
+    ),
+    PretrainedPathCase(
+        "sam31",
+        "text",
+        "sam31_text",
+        sam31_text,
+        None,
+    ),
+    PretrainedPathCase(
         "siglip2",
         "huggingface-vit",
         "siglip2_vitb16_256",
@@ -142,6 +158,7 @@ PRETRAINED_FAMILY_PREFIXES = {
     "dinov3": "dinov3_",
     "eupe": "eupe_",
     "lingbot": "lingbot_",
+    "sam31": "sam31_",
     "siglip2": "siglip2_",
     "t0": "t0_",
     "tabpfn": "tabpfn_",

@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 
 from equimo.core.ops import (
+    inverse_sigmoid,
     log_softmax,
     softmax,
     softmax_cross_entropy_with_integer_labels,
@@ -208,3 +209,14 @@ def test_loss_batching_and_curvature():
             teacher, direction
         )
         np.testing.assert_allclose(hvp, expected_hvp, rtol=2e-6, atol=1e-7)
+
+
+def test_inverse_sigmoid_clamps_the_logit_and_stays_finite():
+    x = jnp.asarray([0.0, 1e-4, 0.25, 0.5, 1.0], jnp.bfloat16)
+    logits = inverse_sigmoid(x)
+    assert logits.dtype == jnp.float32
+    limit = float(np.log(1e3))
+    np.testing.assert_allclose(logits[jnp.asarray([0, 4])], [-limit, limit], rtol=1e-4)
+    np.testing.assert_allclose(logits[1], logits[0], atol=1e-3)
+    np.testing.assert_allclose(logits[3], 0.0, atol=1e-6)
+    np.testing.assert_allclose(jax.nn.sigmoid(logits[2]), 0.25, rtol=1e-3)

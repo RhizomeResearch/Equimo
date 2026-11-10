@@ -21,6 +21,9 @@ MODEL_TESTS = (
     "tests/test_models.py",
     "tests/test_pretrained_coverage.py",
     "tests/test_reference_parity.py",
+    "tests/test_sam3.py",
+    "tests/test_sam3_reference.py",
+    "tests/test_sam3_video.py",
     "tests/test_tabpfn.py",
 )
 INTEROP_TESTS = (

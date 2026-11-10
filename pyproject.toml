@@ -17,6 +17,7 @@ license-files = [
   "LICENSES/pretrained/dinov3-License.md",
   "LICENSES/pretrained/eupe-FAIR-Noncommercial-Research-License.md",
   "LICENSES/pretrained/lingbot-vision-Apache-2.0.txt",
+  "LICENSES/pretrained/sam-License.md",
   "LICENSES/pretrained/siglip2-Apache-2.0.txt",
   "LICENSES/pretrained/t0-alpha-Apache-2.0.txt",
   "LICENSES/pretrained/tabpfn-3-License-v1.0.txt",
@@ -62,6 +63,11 @@ language = [
   "tensorflow>=2.18.1",
   "tensorflow-text>=2.18.1",
 ]
+# Required for the CLIP tokenizer in equimo.language
+clip = [
+  "ftfy>=6.1,<7",
+  "regex>=2024.11.6",
+]
 # Required for some external utils
 extras = [
   "matplotlib>=3.10.1",
@@ -76,6 +82,7 @@ build-backend = "uv_build"
 [tool.uv.build-backend]
 source-include = [
   "CHANGELOG.md",
+  "docs/licensing/sam3-provenance.md",
   "docs/licensing/t0-source-provenance.md",
   "docs/migration-v2.md",
   "docs/stability.md",
@@ -118,8 +125,10 @@ ignore = ["E731", "E741", "F722"]
 replace-imports-with-any = ["equinox._module._module"]
 # Optional extras are imported lazily and may be absent from the checked environment.
 allowed-unresolved-imports = [
+  "ftfy.**",
   "matplotlib.**",
   "PIL.**",
+  "regex.**",
   "sklearn.**",
   "tensorflow.**",
   "tensorflow_text.**",

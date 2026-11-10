@@ -148,6 +148,9 @@ class LowFormer(eqx.Module):
         depth_stem = depths.pop(0)
         block_type_stem = block_types.pop(0)
         key_block_stem = key_blocks.pop(0)
+        # The stem has no attention, but zipping with the popped lists below needs
+        # its stride entry gone too.
+        att_strides.pop(0)
 
         dpr = make_drop_path_schedule(
             drop_path_rate, [depth], uniform=drop_path_uniform

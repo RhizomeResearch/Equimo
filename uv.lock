@@ -425,6 +425,10 @@ audio = [
     { name = "torch" },
     { name = "torchaudio" },
 ]
+clip = [
+    { name = "ftfy" },
+    { name = "regex" },
+]
 extras = [
     { name = "matplotlib" },
     { name = "pillow" },
@@ -465,12 +469,14 @@ requires-dist = [
     { name = "banax", specifier = ">=0.1.2" },
     { name = "einops", specifier = ">=0.8.0" },
     { name = "equinox", specifier = ">=0.13.3" },
+    { name = "ftfy", marker = "extra == 'clip'", specifier = ">=6.1,<7" },
     { name = "jax", specifier = ">=0.11.1" },
     { name = "jaxlib", specifier = ">=0.11.1" },
     { name = "loguru", specifier = ">=0.7.3" },
     { name = "lz4", specifier = ">=4.4.3" },
     { name = "matplotlib", marker = "extra == 'extras'", specifier = ">=3.10.1" },
     { name = "pillow", marker = "extra == 'extras'", specifier = ">=11.1.0" },
+    { name = "regex", marker = "extra == 'clip'", specifier = ">=2024.11.6" },
     { name = "requests", specifier = ">=2.32.3" },
     { name = "scikit-learn", marker = "extra == 'extras'", specifier = ">=1.6.1" },
     { name = "tensorflow", marker = "extra == 'language'", specifier = ">=2.18.1" },
@@ -480,7 +486,7 @@ requires-dist = [
     { name = "torch", marker = "extra == 'torch'", specifier = ">=2.6.0" },
     { name = "torchaudio", marker = "extra == 'audio'", specifier = ">=2.11,<2.12" },
 ]
-provides-extras = ["audio", "torch", "language", "extras"]
+provides-extras = ["audio", "torch", "language", "clip", "extras"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -623,6 +629,18 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/e1/cf/b50ddf667c15276a9ab15a70ef5f257564de271957933ffea49d2cdbcdfb/fsspec-2026.3.0.tar.gz", hash = "sha256:1ee6a0e28677557f8c2f994e3eea77db6392b4de9cd1f5d7a9e87a0ae9d01b41", size = 313547, upload-time = "2026-03-27T19:11:14.892Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/d5/1f/5f4a3cd9e4440e9d9bc78ad0a91a1c8d46b4d429d5239ebe6793c9fe5c41/fsspec-2026.3.0-py3-none-any.whl", hash = "sha256:d2ceafaad1b3457968ed14efa28798162f1638dbb5d2a6868a2db002a5ee39a4", size = 202595, upload-time = "2026-03-27T19:11:13.595Z" },
+]
+
+[[package]]
+name = "ftfy"
+version = "6.3.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "wcwidth" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/a5/d3/8650919bc3c7c6e90ee3fa7fd618bf373cbbe55dff043bd67353dbb20cd8/ftfy-6.3.1.tar.gz", hash = "sha256:9b3c3d90f84fb267fe64d375a07b7f8912d817cf86009ae134aa03e1819506ec", size = 308927, upload-time = "2024-10-26T00:50:35.149Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ab/6e/81d47999aebc1b155f81eca4477a616a70f238a2549848c38983f3c22a82/ftfy-6.3.1-py3-none-any.whl", hash = "sha256:7c70eb532015cd2f9adb53f101fb6c7945988d023a085d127d1573dc49dd0083", size = 44821, upload-time = "2024-10-26T00:50:33.425Z" },
 ]
 
 [[package]]

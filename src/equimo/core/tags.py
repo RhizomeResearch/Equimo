@@ -213,10 +213,19 @@ def _normalise_part(part: Any) -> str | int:
 
 def _add_attention_tags(parts: tuple[str, ...], tags: set[str]) -> None:
     for index, part in enumerate(parts[:-1]):
-        if part not in {"attn", "attention", "self_attn", "self_attention"}:
+        if part not in {
+            "attn",
+            "attention",
+            "self_attn",
+            "self_attention",
+            "cross_attn",
+        }:
             continue
         tags.update(("attention", "block.attention"))
         next_part = parts[index + 1]
+        # A block with several cross-attentions holds them in a tuple.
+        if next_part.isdecimal() and index + 2 < len(parts):
+            next_part = parts[index + 2]
         if next_part == "qkv":
             tags.update(("attention.qkv", "block.attention.qkv"))
         elif next_part in {"proj", "out_proj", "projection"}:

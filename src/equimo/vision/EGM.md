@@ -5,7 +5,8 @@
 The vision modality of Equimo: registered image models, vision-specific layers, query-segmentation training utilities,
 and a few top-level helpers for image loading, segmentation post-processing, and bounded PMT checkpoints. `__init__.py`
 holds only a docstring; import subpackages explicitly (`equimo.vision.models`, `equimo.vision.layers`,
-`equimo.vision.query_training`) or the top-level modules below.
+`equimo.vision.query_training`) or the top-level modules below, including the sampling operations in
+`equimo.vision.ops`.
 
 ## Interface
 
@@ -15,7 +16,7 @@ holds only a docstring; import subpackages explicitly (`equimo.vision.models`, `
   squeeze-and-excitation, and wavelet layers with name-keyed registries and the cross-registry resolver `get_layer`.
 - [`models`](./models/EGM.md): registered architectures (`vit`, `vision_parcae`, `convnext`, `deq`, `eomt`, `pmt`,
   `fastervit`, `iformer`, `lowformer`, `mlla`, `vssd`, `attnet`, `mobilenetv3`, `partialformer`, `reduceformer`,
-  `shvit`) and named preset factories, auto-exported through each module's `__all__`.
+  `shvit`, `sam3`) and named preset factories, auto-exported through each module's `__all__`.
 - [`query_training`](./query_training/EGM.md): JAX-native query matching, point sampling, and Mask2Former-style
   segmentation losses for EoMT and PMT outputs.
 
@@ -24,6 +25,20 @@ holds only a docstring; import subpackages explicitly (`equimo.vision.models`, `
 - `load_image(path, mean=None, std=None, size=None, center_crop=False) -> [3, H, W]`: reads an RGB image with Pillow,
   scales to `[0, 1]` float32, optionally center-crops to a square, resizes bilinearly to `size x size`, normalizes with
   `mean` / `std` when both are given, and returns channel-first. `[io.py:load_image]`
+
+### Sampling operations (`ops.py`)
+
+- `roi_align(features (C, H, W), boxes (N, 4), output_size, spatial_scale=1.0, sampling_ratio=-1, aligned=False) -> (N, C, out_h, out_w)`:
+  `torchvision.ops.roi_align`'s CUDA kernel for one image, with `(x1, y1, x2, y2)` boxes multiplied by `spatial_scale`;
+  samples outside the map read the border pixel. `[ops.py:roi_align]`
+- `resize_bilinear(x (..., H, W), size) -> (..., out_h, out_w)`: float32 resize that matches
+  `torch.nn.functional.interpolate(mode="bilinear", align_corners=False)` on CUDA, including its float32 sample
+  positions. `[ops.py:resize_bilinear]`
+- `resize_bilinear_antialias(x (..., H, W), size) -> (..., out_h, out_w)`: float32 resize that matches
+  `torch.nn.functional.interpolate(mode="bilinear", align_corners=False, antialias=True)`: each axis uses a triangle
+  filter widened by its downscale factor, and upscaling is plain bilinear. `[ops.py:resize_bilinear_antialias]`
+- `grid_sample(features (C, H, W), points (N, 2)) -> (N, C)`: `torch.nn.functional.grid_sample` with bilinear
+  interpolation, `align_corners=False` and zero padding, for `(x, y)` points in `[-1, 1]`. `[ops.py:grid_sample]`
 
 ### Segmentation post-processing (`segmentation.py`)
 
@@ -44,6 +59,15 @@ holds only a docstring; import subpackages explicitly (`equimo.vision.models`, `
   bottom padding, resize to the original size. `[segmentation.py:restore_panoptic_mask_logits]`
 - `panoptic_predictions(mask_logits, class_logits, *, stuff_classes, mask_threshold=0.8, overlap_threshold=0.8) -> PanopticPrediction`:
   assigns query masks to thing instances and merged stuff regions. `[segmentation.py:panoptic_predictions]`
+- Mask operations on boolean `(N, H, W)` masks, all fixed-shape:
+  - `iom_matrix(a, b)` (intersection over the smaller area, 0 when either mask is empty) and `iou_matrix(a, b)` (0 when
+    both are empty). `[segmentation.py:iom_matrix]`, `[segmentation.py:iou_matrix]`
+  - `non_greedy_iom_nms(masks, threshold)`, for masks sorted by decreasing score, where a suppressed mask still
+    suppresses later ones, and `greedy_iom_nms(masks, scores, candidates, threshold)`, where only kept masks suppress
+    and ranking uses a stable sort. `[segmentation.py:non_greedy_iom_nms]`, `[segmentation.py:greedy_iom_nms]`
+  - `boxes_from_masks(masks)` (xyxy extents, zeros when empty) and `remove_overlaps(masks)` (each pixel to the first
+    mask covering it, for masks sorted by decreasing priority). `[segmentation.py:boxes_from_masks]`,
+    `[segmentation.py:remove_overlaps]`
 - Internal helpers used by the query models: `_query_attention_mask` (per-query stochastic attention mask in
   query/prefix/patch order) and `_anneal_mask_probabilities` (polynomial per-block mask retention).
   `[segmentation.py:_query_attention_mask]`, `[segmentation.py:_anneal_mask_probabilities]`
@@ -70,9 +94,17 @@ holds only a docstring; import subpackages explicitly (`equimo.vision.models`, `
 
 - `load_image` raises `ValueError` when only one of `mean` / `std` is given, and requires Pillow, raising an
   `ImportError` naming the `extras` extra when it is missing. `[io.py:load_image]`
-- Segmentation helpers expect nonempty `(Q, H, W)` mask logits and `(Q, K + 1)` class logits whose last column is
-  no-object, and raise `ValueError` otherwise. Class softmax and mask sigmoid are computed in float32.
-  `[segmentation.py:_validate_logits]`, `[segmentation.py:semantic_scores]`, `[segmentation.py:panoptic_predictions]`
+- `roi_align` with `sampling_ratio <= 0` takes `ceil(roi_size / output_size)` samples per bin and axis, evaluated
+  against a static maximum of `ceil(H / out_h)` by `ceil(W / out_w)` with masking, so it matches torchvision for boxes
+  no larger than the map and samples larger boxes with that maximum. `roi_align` and `grid_sample` compute coordinates
+  and weights in float32 and return the dtype of `features`; gradients reach `features` and, through the interpolation
+  weights, the boxes or points. `[ops.py:roi_align]`, `[ops.py:_bin_weights]`, `[ops.py:grid_sample]`
+- `semantic_scores`, `semantic_class_map` and `panoptic_predictions` expect nonempty `(Q, H, W)` mask logits and
+  `(Q, K + 1)` class logits whose last column is no-object, and raise `ValueError` otherwise. `resize_mask_logits` only
+  requires a `(Q, H, W)` shape and a positive size, so it accepts an empty `Q`. Class softmax and mask sigmoid are
+  computed in float32. `[segmentation.py:_validate_logits]`, `[segmentation.py:semantic_scores]`,
+  `[segmentation.py:semantic_class_map]`, `[segmentation.py:panoptic_predictions]`,
+  `[segmentation.py:resize_mask_logits]`
 - `panoptic_predictions` requires unique stuff classes in `[0, K)` and thresholds in `[0, 1]`.
   `[segmentation.py:panoptic_predictions]`
 - `merge_semantic_crops` checks on the host that crops stay inside the scaled image and cover every pixel (an uncovered
@@ -83,10 +115,11 @@ holds only a docstring; import subpackages explicitly (`equimo.vision.models`, `
   `_query_attention_mask` keeps a mask only when `uniform < probability`, so probability zero never keeps a mask.
   `[segmentation.py:_anneal_mask_probabilities]`, `[segmentation.py:_query_attention_mask]`
 - PMT checkpoints: BatchNorm PMT models require a complete `eqx.nn.State`; stateless models reject a nonempty state; the
-  mask state length must equal the decoder depth. Loading compares the recorded architecture configuration (schema, PMT
-  config, group count, masked attention, `backbone_id`, `input_view`, `class_ontology`, feature endpoint, prefix tokens,
-  patch size, positional configuration) with the template and raises on mismatch. `[pmt_checkpoint.py:_check_state]`,
-  `[pmt_checkpoint.py:_mask_state]`, `[pmt_checkpoint.py:_configuration]`, `[pmt_checkpoint.py:_check_configuration]`
+  mask state length must equal the decoder depth. Loading compares the recorded architecture configuration (schema,
+  `kind`, PMT config, group count, masked attention, `backbone_id`, `input_view`, `class_ontology`, feature endpoint,
+  prefix tokens, patch size, positional configuration) with the template and raises on mismatch.
+  `[pmt_checkpoint.py:_check_state]`, `[pmt_checkpoint.py:_mask_state]`, `[pmt_checkpoint.py:_configuration]`,
+  `[pmt_checkpoint.py:_check_configuration]`
 - Full checkpoints verify the loaded encoder digest against the recorded `base_digest`; decoder-only artifacts require a
   bound `backbone_id` (not `"unbound"`) and the template's current encoder digest must match the recorded one. A
   recorded digest that matches the encoder's pre-2.8 layout is accepted too. `[pmt_checkpoint.py:load_pmt_checkpoint]`,
@@ -95,8 +128,9 @@ holds only a docstring; import subpackages explicitly (`equimo.vision.models`, `
 - `encoder_array_digest` pulls arrays to the host and must run outside traced functions.
   `[_encoder_identity.py:encoder_array_digest]`
 - Global conventions for the subtree: modules are unbatched, forward endpoints take `key: PRNGKeyArray | None = None`
-  and run keyless under `inference=True` (except masked-attention query models), and string layer names resolve through
-  the registries in [`layers`](./layers/EGM.md).
+  and run keyless under `inference=True` (except masked-attention query models, and `VisionParcae` unless
+  `state_init="zero"`), and string layer names resolve through the registries in [`layers`](./layers/EGM.md).
+  `[models/parcae.py:VisionParcae._features_with_aux]`
 
 ## Side Effects
 
@@ -115,4 +149,4 @@ holds only a docstring; import subpackages explicitly (`equimo.vision.models`, `
 ## Verification
 
 - Run:
-  `devenv shell -- uv run pytest tests/test_io.py tests/test_eomt.py tests/test_pmt.py tests/test_query_training.py tests/test_query_training_models.py tests/test_models.py tests/test_attention.py tests/test_convolution.py -q`
+  `devenv shell -- uv run pytest tests/test_io.py tests/test_vision_ops.py tests/test_eomt.py tests/test_pmt.py tests/test_query_training.py tests/test_query_training_models.py tests/test_models.py tests/test_attention.py tests/test_convolution.py tests/test_segmentation_masks.py -q`

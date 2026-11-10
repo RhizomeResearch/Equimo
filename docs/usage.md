@@ -53,6 +53,8 @@ features = model.features(image, key=key, inference=True)
 Most vision models accept channel-first arrays shaped `(channels, height, width)`. Pass `num_classes=None` or
 `num_classes=0` when you want a feature backbone without a classification head.
 
+SAM 3.1 has its own guide for concept and interactive segmentation and video tracking: [SAM 3.1](sam3.md).
+
 ## Deterministic Inference and PRNG Keys
 
 Pass the Python value `inference=True` to make deterministic built-in model and layer paths PRNG-free. Equimo continues

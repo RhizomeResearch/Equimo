@@ -111,6 +111,7 @@ class TestValidateIdentifier:
             "model name",
             "model.tar.lz4",
             "model\x00null",
+            "model\n",
             "",
             "../../etc/passwd",
             "model?foo=bar&baz=qux",
@@ -385,6 +386,15 @@ class TestSaveLoadRoundTrip:
 
         assert result == path
         assert path.exists()
+
+    def test_load_weights_reads_an_archive_with_a_dotted_name(self, tmp_path):
+        model = self._make_model()
+        path = save_model(tmp_path / "model.v1", model, self._model_config())
+
+        restored = load_weights(model, path=path)
+
+        assert path.name == "model.v1.tar.lz4"
+        assert jnp.array_equal(restored.linear.weight, model.linear.weight)
 
     def test_save_no_compression(self, tmp_path):
         model = self._make_model()

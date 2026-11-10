@@ -7,6 +7,12 @@ Equimo provides JAX/Equinox implementations of recent architectures across modal
 modality today; language has first-class text encoders/tokenizers, audio includes AST spectrogram models, tabular
 includes TabPFN-3 core models, and the experimental time-series namespace includes the raw T0 backbone.
 
+![SAM 3.1 tracking the concept "person" through a film scene](https://rhizome-labs.com/equimo/sam31-video-tracking.gif)
+
+*SAM 3.1 video tracking from the text prompt `"person"`, with
+[the code in the guide](docs/sam3.md#tracking-a-film-clip). Excerpt from* Pulp Fiction *(1994, Miramax), which belongs
+to its rights holders and is not covered by Equimo's licenses.*
+
 ## Features
 
 - Pure JAX/Equinox implementations
@@ -100,6 +106,7 @@ Beyond a standard ViT (e.g., DINOv2 or SigLIP), Equimo provides other SotA archi
 | FreeNet        | [FreeNet: Liberating Depth-Wise Separable Operations for Building Faster Mobile Vision Architectures](https://ojs.aaai.org/index.php/AAAI/article/view/33041)   | 2025 | ✅‡       |
 | EUPE           | [Efficient Universal Perception Encoder](https://arxiv.org/abs/2603.22387)                                                                                      | 2026 | ✅        |
 | LingBot-Vision | [Vision Pretraining for Dense Spatial Perception](https://arxiv.org/abs/2607.05247)                                                                             | 2026 | ✅§       |
+| SAM 3.1        | [SAM 3: Segment Anything with Concepts](https://arxiv.org/abs/2511.16719)                                                                                       | 2025 | ✅¶       |
 | ViT-5          | [ViT-5: Vision Transformers for The Mid-2020s](https://arxiv.org/abs/2602.08071)                                                                                | 2026 | ✅        |
 
 \*: Only contains the Linear Angular Attention module. It is straightforward to build a ViT around it, but may require
@@ -115,6 +122,9 @@ network from these blocks.
 §: LingBot-Vision is a `VisionTransformer` configuration using DINOv3-style RoPE positional embeddings, four register
 tokens, and self-attention without a key bias; the Giant variant uses a SwiGLU FFN. Pretrained Small, Base, Large, and
 Giant backbones are available — see [pretrained models](#list-of-pretrained-models).
+
+¶: SAM 3.1 finds every instance of a concept in an image, segments objects from clicks, and tracks through video
+(experimental). See the [SAM 3.1 guide](docs/sam3.md). Its weights are under the SAM License.
 
 ## Implemented Audio Models
 
@@ -747,6 +757,7 @@ The following models have pretrained weights available in Equimo:
 - [TabPFN-3](https://arxiv.org/abs/2605.13986)
 - [T0-alpha](https://huggingface.co/theforecastingcompany/t0-alpha)
 - [LingBot-Vision](https://arxiv.org/abs/2607.05247) (Small, Base, Large, and Giant)
+- [SAM 3.1](https://arxiv.org/abs/2511.16719) (the `sam31_multiplex` vision and `sam31_text` text models)
 
 Before using any pretrained weights, review the [pretrained-model license index](LICENSES/pretrained/README.md). It
 links the current upstream terms and records when each bundled license snapshot was last checked. Upstream licenses can
@@ -754,7 +765,7 @@ change, so the copies in this repository may be outdated; always check the lates
 terms are welcome as issues or pull requests.
 
 Model identifiers map to filenames in Equimo's
-[Hugging Face repository](https://huggingface.co/poiretclement/equimo/tree/2ce35f6512516a67ff99c473423e6ca48aa0ae01/models/default).
+[Hugging Face repository](https://huggingface.co/poiretclement/equimo/tree/f4b4cf5bc2d47a98fd0df11eddb08fd3bb5dded6/models/default).
 
 Published ConvNeXt size factories load the default classifier with `pretrained=True`:
 

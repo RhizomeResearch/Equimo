@@ -44,6 +44,12 @@ followed by test rows) and returns predictions for the test rows.
 - Inputs are one unbatched dataset: `x` is `(rows, columns)`, `y` holds labels or targets for at least the first
   `n_train` rows, and the first `n_train` rows are the in-context training set; use `jax.vmap` over datasets
   [tabpfn.py:TabPFN, tabpfn.py:TabPFN.features].
+- `n_train` must be a concrete integer, not a traced value, because it slices arrays and drives Python control flow
+  [src/equimo/tabular/layers/preprocessing.py:Preprocessor.\_\_call\_\_], although the catalog lists it as an `int32`
+  scalar input [tabpfn.py:\_catalog_model_variants].
+- `features` and `intermediate_features` ignore extra `**kwargs`, and `forward_features` and `__call__` pass theirs to
+  `features` \[tabpfn.py:TabPFN.features, tabpfn.py:TabPFN.intermediate_features, tabpfn.py:TabPFN.forward_features,
+  tabpfn.py:TabPFN.\_\_call\_\_\].
 - `task_type` must be `"classification"` or `"regression"`; `depths` must have exactly three entries (feature encoder,
   column aggregator, context blocks); `dim` must be divisible by the first two head counts and `dim * num_cls_tokens` by
   the third (`ValueError` otherwise) [tabpfn.py:TabPFN.\_\_init\_\_]. `num_heads` is an int or a list or tuple of

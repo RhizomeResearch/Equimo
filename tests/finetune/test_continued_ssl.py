@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import equinox as eqx
+import jax
 import jax.random as jr
 import pytest
 
 import equimo.finetune as eqft
+from equimo.vision.models.vit import VisionTransformer
 
 
 def test_continued_ssl_default_applies_lora_and_unfreezes_last_block(
@@ -63,3 +66,37 @@ def test_supervised_after_ssl_requires_key_when_not_reusing_delta(
             tiny_vision_transformer,
             eqft.SupervisedAfterSSLConfig(reuse_ssl_delta=False),
         )
+
+
+@pytest.mark.parametrize(("policy", "expected"), [("last", (1, 1)), ("first", (0, 0))])
+def test_continued_ssl_counts_blocks_across_vit_chunks(policy, expected):
+    model = VisionTransformer(
+        img_size=32,
+        in_channels=3,
+        dim=32,
+        patch_size=8,
+        num_heads=2,
+        depths=[2, 2],
+        num_classes=2,
+        key=jr.PRNGKey(0),
+    )
+    plan = eqft.prepare_finetune(
+        model,
+        trainable=eqft.continued_ssl_trainable_spec(
+            model,
+            eqft.ContinuedSSLAdaptationConfig(
+                peft=None,
+                unfreeze_blocks=1,
+                unfreeze_policy=policy,
+                train_norm=False,
+            ),
+        ),
+    )
+
+    trainable_blocks = [
+        (chunk_index, block_index)
+        for chunk_index, chunk in enumerate(plan.trainable.blocks)
+        for block_index, block in enumerate(chunk.blocks)
+        if jax.tree.leaves(eqx.filter(block, eqx.is_array))
+    ]
+    assert trainable_blocks == [expected]

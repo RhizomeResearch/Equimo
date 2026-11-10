@@ -2,12 +2,14 @@ __all__ = [
     "Attention",
     "AttentionBlock",
     "BlockChunk",
+    "CrossAttention",
     "DINOHead",
     "DropPath",
     "DropPathAdd",
     "DyT",
     "LayerNorm2d",
     "LayerScale",
+    "LinearStack",
     "Mamba2Mixer",
     "Mlp",
     "RMSNorm2d",
@@ -45,6 +47,7 @@ from .activation import get_act, register_act
 from .attention import (
     Attention,
     AttentionBlock,
+    CrossAttention,
     get_attn,
     get_attn_block,
     register_attn,
@@ -54,6 +57,7 @@ from .attention import (
 from .dropout import DropPath, DropPathAdd, get_dropout, register_dropout
 from .ffn import (
     DINOHead,
+    LinearStack,
     Mlp,
     SwiGlu,
     SwiGluFused,

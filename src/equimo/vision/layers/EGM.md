@@ -27,11 +27,13 @@ shared core layers (activation, dropout, FFN, generic, Mamba mixer, norm) so mod
     `[downsample.py:register_downsampler]`; `register_posemb` / `get_posemb` `[posemb.py:register_posemb]`;
     `register_se` / `get_se` `[squeeze_excite.py:register_se]`; `register_wavelet` / `get_wavelet`
     `[wavelet.py:register_wavelet]`
-- `__all__` re-exports the vision classes plus core `get_act`, `DropPath`, `DropPathAdd`, `Mlp`, `SwiGlu`,
-  `SwiGluFused`, `DINOHead`, `WeightNormLinear`, `BlockChunk`, `Residual`, `WindowedSequence`, `Mamba2Mixer`, `DyT`,
-  `LayerNorm2d`, `LayerScale`, `RMSNorm2d`, `RMSNormGated` and their registries. Convolution classes,
-  `MaskedKeyAttention`, `ConvNeXtOverlapStem`, and the Haar functions are not re-exported; import them from their module
-  or resolve registered classes by name. `[__init__.py:__all__]`
+- `__all__` re-exports the vision classes plus core `get_act`, `register_act`, `get_dropout`, `register_dropout`,
+  `get_ffn`, `register_ffn`, `get_mixer`, `register_mixer`, `get_norm`, `register_norm`, `DropPath`, `DropPathAdd`,
+  `Mlp`, `SwiGlu`, `SwiGluFused`, `DINOHead`, `WeightNormLinear`, `BlockChunk`, `Residual`, `WindowedSequence`,
+  `Mamba2Mixer`, `DyT`, `LayerNorm2d`, `LayerScale`, `RMSNorm2d`, and `RMSNormGated`. It holds no `_*_REGISTRY` dict.
+  Convolution classes, `get_conv`, `register_conv`, `update_ghostnet`, `finalize_ghostnet`, `MaskedKeyAttention`,
+  `ConvNeXtOverlapStem`, and the Haar functions are not re-exported; import them from their module or resolve registered
+  classes by name. `[__init__.py:__all__]`
 
 ### Attention (`attention.py`)
 
@@ -48,9 +50,10 @@ shared core layers (activation, dropout, FFN, generic, Mamba mixer, norm) so mod
   (iFormer single-head multi-scale attention with optional windowing), `RFAttention` (ReduceFormer ReLU linear
   attention), `ConvAttention` (LowFormer attention on a strided grid with transposed-conv upsampling).
   `[attention.py:SHSA]`, `[attention.py:SHMA]`, `[attention.py:RFAttention]`, `[attention.py:ConvAttention]`
-- Blocks: `HATBlock` (FasterViT window plus carrier tokens; `__call__(x, carrier_tokens, key, inference) -> (x, ct)`),
-  `SHMABlock`, `MllaBlock`, `PartialFormerBlock` (`__call__(x, qa, inference, key) -> (x, qa)`), `RFAttentionBlock`,
-  `ConvAttentionBlock`, `LowFormerBlock`. `[attention.py:HATBlock]`, `[attention.py:SHMABlock]`,
+- Blocks: `HATBlock` (FasterViT window plus carrier tokens; `__call__(x, carrier_tokens, key, inference) -> (x, ct)`,
+  where `ct` is the carrier-token branch output from before the joint attention, or `carrier_tokens` when
+  `sr_ratio == 1`), `SHMABlock`, `MllaBlock`, `PartialFormerBlock` (`__call__(x, qa, inference, key) -> (x, qa)`),
+  `RFAttentionBlock`, `ConvAttentionBlock`, `LowFormerBlock`. `[attention.py:HATBlock]`, `[attention.py:SHMABlock]`,
   `[attention.py:MllaBlock]`, `[attention.py:PartialFormerBlock]`, `[attention.py:RFAttentionBlock]`,
   `[attention.py:ConvAttentionBlock]`, `[attention.py:LowFormerBlock]`
 - `Mamba2Mixer` (from `equimo.core.layers.mamba`) is also reachable as attention name `mamba2mixer`.
@@ -72,6 +75,9 @@ shared core layers (activation, dropout, FFN, generic, Mamba mixer, norm) so mod
   inference kernels while keeping training branches, `finalize_ghostnet(model)` fuses, drops training branches, and sets
   `inference=True`. `[convolution.py:GenericGhostModule]`, `[convolution.py:GhostBottleneck]`,
   `[convolution.py:update_ghostnet]`, `[convolution.py:finalize_ghostnet]`
+- `upsample_twofold(conv, x)`: a 2x2 stride-2 `ConvTranspose2d` applied as a per-pixel matmul, equal to the transposed
+  convolution, in the input dtype. `conv` must have a bias, otherwise this raises `AssertionError`.
+  `[convolution.py:upsample_twofold]`
 
 ### Patch embedding, stems, and downsamplers
 
@@ -93,9 +99,18 @@ shared core layers (activation, dropout, FFN, generic, Mamba mixer, norm) so mod
   `split_half` layout), `VisionRoPE(strategy="period" | "mode", ...)` with `layout`,
   `get_factors(H, W, num_prefix_tokens, key, inference)` and `__call__`,
   `CompositeVisionRoPE(patch_rope, reg_rope, num_prefix_tokens, num_registers, reg_grid)` for
-  `[CLS | registers | patches]` layouts. `[posemb.py:RoPE]`, `[posemb.py:DinoRoPE]`, `[posemb.py:VisionRoPE]`,
-  `[posemb.py:CompositeVisionRoPE]`
+  `[CLS | registers | patches]` layouts, whose `get_factors(*, H, W, key=None, inference=True)` gives identity rows for
+  prefix tokens, and for registers when `reg_rope` is `None`. `[posemb.py:RoPE]`, `[posemb.py:DinoRoPE]`,
+  `[posemb.py:VisionRoPE]`, `[posemb.py:CompositeVisionRoPE]`
 - `PosCNN` (tokens, square grid), `PosCNN2D` (`[C, H, W]`). `[posemb.py:PosCNN]`, `[posemb.py:PosCNN2D]`
+- `VisionRoPE.width_first_factors(grid)`: factors for a square grid that rotate width before height, evaluated while
+  tracing. `[posemb.py:VisionRoPE.width_first_factors]`
+- Functions, all in float32: `sine_coordinates(coords, num_features, *, temperature=10000.0)` (DETR sines on even
+  features and cosines on odd ones), `sine_position_encoding(height, width, num_features, *, temperature=10000.0)`
+  (`[2 * num_features, H, W]`, y channels first, evaluated while tracing), `fourier_encoding(matrix, coords)` and
+  `dense_fourier_encoding(matrix, grid, dtype)` (random-frequency encoding, returned in `dtype` for the grid).
+  `[posemb.py:sine_coordinates]`, `[posemb.py:sine_position_encoding]`, `[posemb.py:fourier_encoding]`,
+  `[posemb.py:dense_fourier_encoding]`
 
 ### Squeeze-and-excitation and wavelets
 
@@ -116,19 +131,25 @@ shared core layers (activation, dropout, FFN, generic, Mamba mixer, norm) so mod
   `[attention.py:register_attn]`, `[convolution.py:register_conv]`, `[posemb.py:register_posemb]`
 - `get_layer` uses `collision_policy="first"` in the registry order listed above, so a vision attention block shadows a
   same-named entry in a later registry. `[registry.py:get_layer]`
+- Names registered only in vision registries are unknown to `WindowedSequence`, which always uses the core `get_layer`,
+  and to `BlockChunk` unless the caller passes `layer_resolver=equimo.vision.layers.get_layer`.
+  `[../../core/layers/generic.py:WindowedSequence]`, `[../../core/layers/generic.py:BlockChunk]`
 - `mamba2mixer` is inserted with a direct dict assignment, bypassing `register_attn` collision checks.
   `[attention.py:_ATTN_REGISTRY]`
 - Forward passes split keys with `split_for_mode(key, n, inference=...)`: with `inference=True` a `None` key is allowed;
   otherwise a missing key raises `ValueError`. `[attention.py:MMSA]`, `[downsample.py:PWSEDownsampler]`
 - Many convolution blocks instead call `default_key_for_mode`, which substitutes `jr.PRNGKey(0)` when `key is None` and
-  `inference` is not `True`, so stochastic layers run with a fixed key rather than raising.
-  `[convolution.py:SingleConvBlock]`, `[convolution.py:MBConv]`, `[convolution.py:FasterNetBlock]`
-- Key and `inference` defaults are not uniform. `WindowedAttention`, `MMSA`, `PWSEDownsampler`, and `PosCNN2D` take
-  `key` with no default, and `HWDConv` takes a required keyword `key`; `PosCNN2D` and `HWDConv` default
-  `inference=False`. `VisionRoPE` and `CompositeVisionRoPE` default `key=None, inference=True`, while
-  `DinoRoPE.get_factors` requires a keyword `key` and defaults `inference=False`. `[attention.py:WindowedAttention]`,
-  `[attention.py:MMSA]`, `[downsample.py:PWSEDownsampler]`, `[posemb.py:PosCNN2D]`, `[wavelet.py:HWDConv]`,
-  `[posemb.py:VisionRoPE]`, `[posemb.py:CompositeVisionRoPE]`, `[posemb.py:DinoRoPE]`
+  `inference` is not `True`, so stochastic layers run with a fixed key rather than raising. `SingleConvBlock`
+  substitutes a key only when `dropout.p > 0`. `[convolution.py:SingleConvBlock]`, `[convolution.py:MBConv]`,
+  `[convolution.py:FasterNetBlock]`
+- Key and `inference` defaults are not uniform. `WindowedAttention`, `MMSA`, `HATBlock`, `SHMA`, `SHMABlock`, `SQA`,
+  `LinearAngularAttention`, `RFAttention`, `RFAttentionBlock`, `ConvAttention`, `ConvAttentionBlock`, `LowFormerBlock`,
+  `PWSEDownsampler`, and `PosCNN2D` take `key` with no default, so a keyless `inference=True` call raises `TypeError`.
+  `SHSA`, `LinearAttention`, `MllaBlock` and `PartialFormerBlock` default `key=None`. `HWDConv` takes a required keyword
+  `key`; `PosCNN2D` and `HWDConv` default `inference=False`. `VisionRoPE` and `CompositeVisionRoPE` default
+  `key=None, inference=True`, while `DinoRoPE.get_factors` requires a keyword `key` and defaults `inference=False`.
+  `[attention.py:WindowedAttention]`, `[attention.py:MMSA]`, `[downsample.py:PWSEDownsampler]`, `[posemb.py:PosCNN2D]`,
+  `[wavelet.py:HWDConv]`, `[posemb.py:VisionRoPE]`, `[posemb.py:CompositeVisionRoPE]`, `[posemb.py:DinoRoPE]`
 - Attention logits are cast to float32 before softmax or sigmoid and probabilities are cast back to the input dtype;
   `LinearAngularAttention` accumulates `k^T v` and norms in float32 with `1e-6` guards; `RFAttention` sums in float32
   with denominator `max(sum_q * sum_k, eps)`. `[attention.py:WindowedAttention]`, `[attention.py:SHSA]`,
@@ -149,8 +170,13 @@ shared core layers (activation, dropout, FFN, generic, Mamba mixer, norm) so mod
 - `MBConv`, `DSConv`, and `UIB` enable the residual only when `residual=True` (default `False`), `stride == 1`, and
   `in_channels == out_channels`; tuple arguments must have length 3 (`MBConv`) or 2 (`DSConv`).
   `[convolution.py:MBConv]`, `[convolution.py:DSConv]`, `[convolution.py:UIB]`
-- GroupNorm group counts use `nearest_power_of_2_divisor(channels, norm_max_group)`. `[convolution.py:SingleConvBlock]`,
-  `[patch.py:SEPatchMerging]`, `[wavelet.py:HWDConv]`
+- `DoubleConvBlock` adds its residual only at `stride == 1`. `[convolution.py:DoubleConvBlock]`
+- `RFAttentionBlock(residual=False)` computes the context branch and discards it, returning the local branch alone.
+  `[attention.py:RFAttentionBlock]`
+- Where a block exposes `norm_max_group`, GroupNorm group counts use
+  `nearest_power_of_2_divisor(channels, norm_max_group)`; `HWDConv` has no such argument and uses 32, and the `SHSA`
+  pre-norm always uses one group. `[convolution.py:SingleConvBlock]`, `[patch.py:SEPatchMerging]`,
+  `[wavelet.py:HWDConv]`, `[attention.py:SHSA]`
 - Ghost blocks pick paths with a Python `if` when `inference` is a Python bool (required after `finalize_ghostnet`
   removes branches) and with `jax.lax.cond` otherwise; reparameterization fuses kernels only (no bias) and keeps the
   shared GroupNorms. `[convolution.py:GenericGhostModule]`, `[convolution.py:_update_ghostmodule]`

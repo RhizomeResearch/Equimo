@@ -45,6 +45,7 @@ def test_reference_matrix_tracks_every_available_pretrained_path_fixture():
         "dinov2",
         "dinov3",
         "eupe",
+        "sam31",
         "siglip2",
         "t0",
         "tabpfn",
@@ -56,6 +57,7 @@ def test_reference_matrix_tracks_every_available_pretrained_path_fixture():
     } == {
         ("eupe", "convnext"),
         ("lingbot", "author-checkpoint"),
+        ("sam31", "text"),
         ("tabpfn", "regressor"),
         ("tips", "vision"),
         ("tips", "text"),

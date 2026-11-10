@@ -11,8 +11,8 @@ tabular layer registry.
 
 - Registries \[registry.py:register_layer, registry.py:get_layer\]: `register_layer` adds to `_LAYER_REGISTRY`;
   `get_layer` resolves tabular names first, then falls back to `equimo.core.layers.get_layer`.
-- Family registries, each a `register_*(name=None, force=False)` / `get_*(name_or_cls)` pair: `register_attn` /
-  `get_attn` [attention.py:register_attn, attention.py:get_attn]; `register_attn_block` / `get_attn_block`
+- Family registries, each a `register_*(name=None, force=False)` / `get_*(module)` pair: `register_attn` / `get_attn`
+  [attention.py:register_attn, attention.py:get_attn]; `register_attn_block` / `get_attn_block`
   [blocks.py:register_attn_block, blocks.py:get_attn_block]; `register_decoder` / `get_decoder` and `register_embedding`
   / `get_embedding` \[decoder.py:register_decoder, decoder.py:get_decoder, decoder.py:register_embedding,
   decoder.py:get_embedding\]; `register_preprocessor` / `get_preprocessor` \[preprocessing.py:register_preprocessor,
@@ -69,10 +69,12 @@ tabular layer registry.
   appended the same way [preprocessing.py:Preprocessor.\_\_call\_\_].
 - `SoftmaxScaling` always runs its MLPs with `inference=True` [attention.py:SoftmaxScaling.\_\_call\_\_].
 - The attention blocks accept `key=None` by returning `None` subkeys; otherwise keys are split with `split_for_mode`
-  [blocks.py:\_split_optional_key]. `_call_mlp` replaces a `None` key with `jr.PRNGKey(0)` unless `inference=True`
-  [mlp.py:\_call_mlp, src/equimo/core/\_prng.py:default_key_for_mode]; the blocks build their MLPs with
-  `dropout_rate=0.0`, so that key does not affect their output \[blocks.py:CrossAttentionBlock,
-  blocks.py:AttentionBlock, blocks.py:InContextAttentionBlock\].
+  [blocks.py:\_split_optional_key]. With a `None` key outside inference, a `drop_path` rate strictly between 0 and 1
+  makes `DropPathAdd` raise `RuntimeError` [src/equimo/core/layers/dropout.py:DropPathAdd.\_\_call\_\_]. `_call_mlp`
+  replaces a `None` key with `jr.PRNGKey(0)` unless `inference=True` \[mlp.py:\_call_mlp,
+  src/equimo/core/\_prng.py:default_key_for_mode\]; the blocks build their MLPs with `dropout_rate=0.0`, so that key
+  does not affect their output \[blocks.py:CrossAttentionBlock, blocks.py:AttentionBlock,
+  blocks.py:InContextAttentionBlock\].
 - `FeatureDistributionEncoder.__call__` and `ColumnAggregator.__call__` take a required keyword `key`; it may be `None`
   only under `inference=True` (`ValueError` otherwise), because `BlockChunk` and `ColumnAggregator._row` split it with
   `split_for_mode` \[blocks.py:FeatureDistributionEncoder.\_\_call\_\_, blocks.py:ColumnAggregator.\_row,
@@ -82,6 +84,10 @@ tabular layer registry.
   [blocks.py:ColumnAggregator.\_\_init\_\_, blocks.py:ColumnAggregator.\_row].
 - `LinearLabelEmbedding` ignores `num_outputs`; `RegressionDecoder` ignores train embeddings, targets, and `n_train`
   [decoder.py:LinearLabelEmbedding, decoder.py:RegressionDecoder.\_\_call\_\_].
+- `AttentionDecoder` and `RegressionDecoder` discard extra keywords. `AttentionDecoder` therefore drops the `mlp_ratio`
+  and `act_layer` that `TabPFN` passes, and its `SoftmaxScaling` always uses the default `exactgelu`
+  \[decoder.py:AttentionDecoder.\_\_init\_\_, decoder.py:RegressionDecoder.\_\_init\_\_,
+  src/equimo/tabular/models/tabpfn.py:TabPFN.\_\_init\_\_\].
 
 ## Side Effects
 
