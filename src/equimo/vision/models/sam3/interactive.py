@@ -329,7 +329,7 @@ class TwoWayTransformer(eqx.Module):
     """Transformer shared by the interactive and multiplex mask decoders."""
 
     blocks: tuple[TwoWayBlock, ...]
-    final_attn: PositionedAttention
+    cross_attn: PositionedAttention
     norm: eqx.nn.LayerNorm
 
     def __init__(
@@ -352,7 +352,7 @@ class TwoWayTransformer(eqx.Module):
             )
             for index, block_key in enumerate(jr.split(key_blocks, depth))
         )
-        self.final_attn = PositionedAttention(
+        self.cross_attn = PositionedAttention(
             dim, num_heads, internal_dim=dim // 2, key=key_final
         )
         self.norm = eqx.nn.LayerNorm(dim)
@@ -368,7 +368,7 @@ class TwoWayTransformer(eqx.Module):
         token_pos = tokens
         for block in self.blocks:
             tokens, image = block(tokens, image, token_pos, image_pos, valid)
-        attended = self.final_attn(tokens + token_pos, image + image_pos, values=image)
+        attended = self.cross_attn(tokens + token_pos, image + image_pos, values=image)
         return layer_norm(self.norm, tokens + attended), image
 
 

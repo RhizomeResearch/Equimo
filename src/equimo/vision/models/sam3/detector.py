@@ -722,13 +722,10 @@ class SegmentationHead(eqx.Module):
     cross_attn: CrossAttention
     stages: tuple[PixelStage, PixelStage]
     instance_proj: eqx.nn.Conv2d
-    semantic_proj: eqx.nn.Conv2d
     mask_embed: MLP
 
     def __init__(self, dim: int, num_heads: int, *, key: PRNGKeyArray):
-        key_cross, key_mask, key_middle, key_high, key_instance, key_semantic = (
-            jr.split(key, 6)
-        )
+        key_cross, key_mask, key_middle, key_high, key_instance = jr.split(key, 5)
         self.norm = eqx.nn.LayerNorm(dim)
         self.cross_attn = CrossAttention(dim, num_heads, key=key_cross)
         self.stages = (
@@ -736,7 +733,6 @@ class SegmentationHead(eqx.Module):
             PixelStage(dim, key=key_high),
         )
         self.instance_proj = eqx.nn.Conv2d(dim, dim, 1, key=key_instance)
-        self.semantic_proj = eqx.nn.Conv2d(dim, 1, 1, key=key_semantic)
         self.mask_embed = MLP(dim, dim, dim, 3, key=key_mask)
 
     def pixel_embedding(
@@ -771,12 +767,6 @@ class SegmentationHead(eqx.Module):
             self.mask_embed(queries).astype(jnp.float32),
             pixels.astype(jnp.float32),
         )
-
-    def semantic_logits(
-        self, pixels: Float[Array, "dim height width"]
-    ) -> Float[Array, "1 height width"]:
-        """Return the semantic-segmentation map of a pixel embedding."""
-        return self.semantic_proj(pixels)
 
 
 class DetectorHead(eqx.Module):

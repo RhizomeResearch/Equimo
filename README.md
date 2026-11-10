@@ -759,7 +759,7 @@ change, so the copies in this repository may be outdated; always check the lates
 terms are welcome as issues or pull requests.
 
 Model identifiers map to filenames in Equimo's
-[Hugging Face repository](https://huggingface.co/poiretclement/equimo/tree/f5b691f2b25e3b5a9782440e169c8370ee8ed9f8/models/default).
+[Hugging Face repository](https://huggingface.co/poiretclement/equimo/tree/f4b4cf5bc2d47a98fd0df11eddb08fd3bb5dded6/models/default).
 
 Published ConvNeXt size factories load the default classifier with `pretrained=True`:
 

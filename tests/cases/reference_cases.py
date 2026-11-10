@@ -196,7 +196,6 @@ def _sam31_components(vision, text, image, token_ids, padding_mask, interactive)
     )
     pyramid = (high, middle, low)
     segmentation = detector.head.segmentation
-    pixels = segmentation.pixel_embedding(pyramid, memory, prompt_tokens, prompt_valid)
     reference_boxes = jax.nn.sigmoid(decoder.reference_boxes)[None]
     joint = joint_logit(scores[-1], presence[-1, None])
     outputs |= {
@@ -211,9 +210,6 @@ def _sam31_components(vision, text, image, token_ids, padding_mask, interactive)
         "outputs.detector.head.segmentation.pred_masks": segmentation(
             pyramid, memory, tokens[-1], prompt_tokens, prompt_valid
         )[None],
-        "outputs.detector.head.segmentation.semantic_seg": (
-            segmentation.semantic_logits(pixels)[None]
-        ),
         "outputs.detector.joint.pred_logits": joint[None, :, None],
         "outputs.detector.joint.pred_boxes": boxes[-1][None],
         "outputs.detector.joint.presence_logit_dec": presence[-1, None, None],

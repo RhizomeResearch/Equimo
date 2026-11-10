@@ -764,6 +764,20 @@ def test_lora_on_attention_projections_runs_forward(model):
     assert jnp.all(jnp.isfinite(out.mask_logits))
 
 
+def test_lora_selects_every_two_way_cross_attention(model):
+    adapted = apply_lora(
+        model,
+        LoRAConfig(rank=2, target=TargetSpec(tags_any=("attention.proj",))),
+        key=KEY,
+    )
+    transformer = adapted.tracker.mask_decoder.transformer
+    assert not isinstance(transformer.cross_attn.proj, eqx.nn.Linear)
+    assert all(
+        not isinstance(attention.proj, eqx.nn.Linear)
+        for attention in transformer.blocks[0].cross_attn
+    )
+
+
 def test_attention_implementation_switches_every_attention(model):
     switched = with_attention_implementation(model, "cudnn")
     block = switched.trunk.blocks[0]
@@ -1684,13 +1698,9 @@ def test_segmentation_matches_the_reference(reference_model, tiny_reference):
     queries = jnp.asarray(tiny_reference[f"{inputs}.obj_queries"][-1, 0])
 
     masks = head(pyramid, memory, queries, prompt, valid)
-    pixels = head.pixel_embedding(pyramid, memory, prompt, valid)
 
     outputs = "outputs.detector.head.segmentation"
     _assert_close(masks, tiny_reference[f"{outputs}.pred_masks"][0])
-    _assert_close(
-        head.semantic_logits(pixels), tiny_reference[f"{outputs}.semantic_seg"][0]
-    )
 
 
 def test_prompt_encoder_matches_the_reference_for_masks_and_boxes(

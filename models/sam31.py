@@ -49,6 +49,8 @@ UNUSED_KEYS = frozenset(
         f"{SEGMENTATION}.pixel_decoder.conv_layers.2.bias",
         f"{SEGMENTATION}.pixel_decoder.norms.2.weight",
         f"{SEGMENTATION}.pixel_decoder.norms.2.bias",
+        f"{SEGMENTATION}.semantic_seg_head.weight",
+        f"{SEGMENTATION}.semantic_seg_head.bias",
     }
 )
 COMPUTED_KEY = re.compile(re.escape(VISION) + r"\.trunk\.blocks\.\d+\.attn\.freqs_cis")
@@ -310,7 +312,6 @@ def _detector_rules() -> list[Rule]:
         ),
         *_linear(f"{SEGMENTATION}.cross_attn_norm", f"{segmentation}.norm"),
         *_conv(f"{SEGMENTATION}.instance_seg_head", f"{segmentation}.instance_proj"),
-        *_conv(f"{SEGMENTATION}.semantic_seg_head", f"{segmentation}.semantic_proj"),
         *_linear(
             f"{SEGMENTATION}.mask_predictor.mask_embed.layers" + ".{i}",
             f"{segmentation}.mask_embed.layers" + ".{i}",
@@ -358,7 +359,7 @@ def _mask_decoder_rules(source: str, destination: str) -> list[Rule]:
         ),
         *_separate_attention(
             f"{source}.transformer.final_attn_token_to_image.",
-            f"{destination}.transformer.final_attn",
+            f"{destination}.transformer.cross_attn",
         ),
         *_separate_attention(f"{block}.self_attn.", f"{target}.attn"),
         *_separate_attention(
