@@ -73,7 +73,7 @@
   },
   "sam3_tiny": {
     "model_class": "equimo.vision.models.sam3.model.Sam3",
-    "model_signature": "sha256:de2c5ac50d9730f0e646f9eb9b5f800715174f2fc2ae58c740d3132555682429"
+    "model_signature": "sha256:bb015da0e4172cdb5dfdbd2cf1f63b7ce2e7af1268b25e29bc25dedf8c69a77a"
   },
   "shvit_tiny": {
     "model_class": "equimo.vision.models.shvit.SHViT",

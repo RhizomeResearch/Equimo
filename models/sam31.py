@@ -151,8 +151,8 @@ def _separate_attention(source_prefix: str, destination: str) -> list[Rule]:
 
 def _feed_forward(block: str, destination: str) -> list[Rule]:
     return [
-        *_linear(f"{block}.linear1", f"{destination}.mlp.layers.0"),
-        *_linear(f"{block}.linear2", f"{destination}.mlp.layers.1"),
+        *_linear(f"{block}.linear1", f"{destination}.mlp.fc1"),
+        *_linear(f"{block}.linear2", f"{destination}.mlp.fc2"),
     ]
 
 
@@ -368,8 +368,8 @@ def _mask_decoder_rules(source: str, destination: str) -> list[Rule]:
         *_separate_attention(
             f"{block}.cross_attn_image_to_token.", f"{target}.cross_attn.1"
         ),
-        *_linear(f"{block}.mlp.lin1", f"{target}.mlp.layers.0"),
-        *_linear(f"{block}.mlp.lin2", f"{target}.mlp.layers.1"),
+        *_linear(f"{block}.mlp.lin1", f"{target}.mlp.fc1"),
+        *_linear(f"{block}.mlp.lin2", f"{target}.mlp.fc2"),
         *_norms(block, target, ("norm1", "norm2", "norm3", "norm4")),
     ]
 

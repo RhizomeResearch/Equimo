@@ -9,6 +9,7 @@ __all__ = [
     "DyT",
     "LayerNorm2d",
     "LayerScale",
+    "LinearStack",
     "Mamba2Mixer",
     "Mlp",
     "RMSNorm2d",
@@ -56,6 +57,7 @@ from .attention import (
 from .dropout import DropPath, DropPathAdd, get_dropout, register_dropout
 from .ffn import (
     DINOHead,
+    LinearStack,
     Mlp,
     SwiGlu,
     SwiGluFused,

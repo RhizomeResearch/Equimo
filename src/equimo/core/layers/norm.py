@@ -1,7 +1,9 @@
 import equinox as eqx
+import jax
 import jax.numpy as jnp
 from jax import lax
 from jaxtyping import Array, Float
+from equimo.core.layers._apply import _apply_module_last_dim
 from equimo.core.layers._registry import make_get, make_register
 from equimo.core.parameters import tagged
 
@@ -12,6 +14,11 @@ register_norm = make_register(_NORM_REGISTRY)
 
 
 get_norm = make_get(_NORM_REGISTRY)
+
+
+def layer_norm(norm: eqx.nn.LayerNorm, x: jax.Array) -> jax.Array:
+    """Apply ``norm`` over the last axis in float32 and return the input dtype."""
+    return _apply_module_last_dim(norm, x.astype(jnp.float32)).astype(x.dtype)
 
 
 @register_norm()

@@ -62,15 +62,13 @@ import numpy as np
 from jaxtyping import Array, Bool, Float
 from loguru import logger
 
-from equimo.vision.models.sam3.decoding import (
-    boxes_from_masks,
-    single_frame_nms,
-)
+from equimo.vision.models.sam3.decoding import _SINGLE_FRAME_NMS_THRESHOLD
 from equimo.vision.models.sam3.detector import ConceptPrompt, DetectorOutput
 from equimo.vision.models.sam3.encoder import ImageFeatures
 from equimo.vision.models.sam3.interactive import InteractivePrompt
 from equimo.vision.models.sam3.model import Sam3
 from equimo.vision.ops import resize_bilinear
+from equimo.vision.segmentation import boxes_from_masks, non_greedy_iom_nms
 from equimo.vision.models.sam3.tracker import (
     _MASK_SCALE,
     _NEW_OBJECT_PROBABILITY,
@@ -610,8 +608,8 @@ def _prompt_frame_objects(
     """
     probabilities = jax.nn.sigmoid(detections.logits.astype(jnp.float32))
     order = jnp.argsort(-probabilities, stable=True)
-    ranked = (probabilities[order] >= _NEW_OBJECT_PROBABILITY) & single_frame_nms(
-        detections.mask_logits[order] > 0
+    ranked = (probabilities[order] >= _NEW_OBJECT_PROBABILITY) & non_greedy_iom_nms(
+        detections.mask_logits[order] > 0, _SINGLE_FRAME_NMS_THRESHOLD
     )
     _, keep = detection_keep(detections)
     return jnp.zeros_like(ranked).at[order].set(ranked), keep, probabilities

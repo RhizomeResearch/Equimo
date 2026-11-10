@@ -40,7 +40,7 @@ jax2onnx's `flax.nnx` import fails on flax 0.12.6 and works on 0.12.10 (observed
 Equimo code does not work around jax2onnx bugs; they are fixed upstream. With jax2onnx 0.17.1 and 0.18.0,
 `tests/test_onnx_export.py` fails for the `posemb.py` tables (`RoPE`, Swin), `mlla`, and batched `partialformer`;
 enpasos/jax2onnx#291 fixes them, and the whole file passes against that branch on JAX 0.11.2 (run in practice). `sam3`
-fails at the same RoPE table with the locked jax2onnx (run in practice; not yet run against that branch).
+fails at the same RoPE table with the locked jax2onnx and passes with its `main` after #291 (both run in practice).
 
 Anything that imports JAX must run inside the devenv shell, for example `devenv shell -- uv run pytest ...` (run in
 practice): outside it, even the devenv-provided uv fails to import jaxlib because `libstdc++.so.6` is not on the library
@@ -96,6 +96,10 @@ practice). `load_weights` checks a signature over every leaf's path and shape, s
 a leaf needs a new archive, a Hugging Face upload, and new `sam31_multiplex` and `DEFAULT_REPOSITORY_REVISION` values in
 `_pretrained.py` (run in practice). In a sandbox where `~/.cache` is read-only, set `HF_XET_CACHE` to a writable
 directory for the upload (run in practice).
+
+A refactor meant to keep numerics and speed can be checked without timing noise: lower each endpoint with
+`jax.jit(fn).lower(*args).as_text()` from both source trees, using `eqx.filter_eval_shape` models so no weights load,
+and compare the text (run in practice on SAM 3.1).
 
 JAX's default matmul precision on GPU is not float32: plain linear projections on the RTX 4080 differed from exact
 float32 by about 1e-4 per element. For float32 parity on a GPU, run with `JAX_DEFAULT_MATMUL_PRECISION=highest` (run in

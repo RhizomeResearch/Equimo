@@ -98,6 +98,16 @@ def log_softmax(
     return jnp.moveaxis(result, -1, axis).astype(x.dtype)
 
 
+def inverse_sigmoid(x: jax.Array) -> jax.Array:
+    """Return ``logit(x)`` in float32, with ``x`` and ``1 - x`` at least 1e-3.
+
+    The clamp is the one DETR-style box refinement uses. It caps the result at
+    about 6.9 and keeps it finite at 0 and 1.
+    """
+    x = jnp.clip(x.astype(jnp.float32), 0.0, 1.0)
+    return jnp.log(jnp.maximum(x, 1e-3) / jnp.maximum(1.0 - x, 1e-3))
+
+
 def softmax_cross_entropy_with_integer_labels(
     logits: jax.Array, labels: jax.Array
 ) -> jax.Array:

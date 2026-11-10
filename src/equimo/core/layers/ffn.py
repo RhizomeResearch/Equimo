@@ -7,6 +7,7 @@ import jax.random as jr
 from jaxtyping import Array, Float, PRNGKeyArray
 
 from equimo.core._prng import split_for_mode
+from equimo.core.layers._apply import _apply_module_last_dim
 from equimo.core.layers.activation import get_act
 from equimo.core.layers.norm import get_norm
 from equimo.core.layers._registry import make_get, make_register
@@ -255,6 +256,43 @@ class Mlp(eqx.Module):
             x *= mask
 
         return x
+
+
+class LinearStack(eqx.Module):
+    """Any number of linear layers with an activation between them.
+
+    Applied over the last axis of an input of any rank, without dropout or
+    norms, which suits prediction heads. Transformer feed-forwards use
+    :class:`Mlp`. It is not registered, because it does not take the
+    ``in_dim``/``hidden_dim`` arguments of the ``ffn_layer`` contract.
+    """
+
+    layers: tuple[eqx.nn.Linear, ...]
+    act: Callable = eqx.field(static=True)
+
+    def __init__(
+        self,
+        in_features: int,
+        hidden_features: int,
+        out_features: int,
+        num_layers: int,
+        *,
+        key: PRNGKeyArray,
+        act_layer: str | Callable = "relu",
+    ):
+        sizes = [in_features, *[hidden_features] * (num_layers - 1), out_features]
+        self.layers = tuple(
+            eqx.nn.Linear(size_in, size_out, key=subkey)
+            for size_in, size_out, subkey in zip(
+                sizes[:-1], sizes[1:], jr.split(key, num_layers)
+            )
+        )
+        self.act = get_act(act_layer)
+
+    def __call__(self, x: Float[Array, "... in_features"]) -> Array:
+        for layer in self.layers[:-1]:
+            x = self.act(_apply_module_last_dim(layer, x))
+        return _apply_module_last_dim(self.layers[-1], x)
 
 
 @register_ffn()

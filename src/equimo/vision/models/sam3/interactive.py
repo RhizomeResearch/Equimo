@@ -6,18 +6,16 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import jax.random as jr
+from einops import rearrange
 from jaxtyping import Array, Bool, Float, Int, PRNGKeyArray
 
-from equimo.core.layers.norm import LayerNorm2d
+from equimo.core.layers.attention import CrossAttention
+from equimo.core.layers.ffn import LinearStack, Mlp
+from equimo.core.layers.norm import LayerNorm2d, layer_norm
 from equimo.core.parameters import buffer
-from equimo.vision.models.sam3.common import (
-    MLP,
-    PositionedAttention,
-    flatten_map,
-    layer_norm,
-    unflatten_map,
-)
-from equimo.vision.models.sam3.encoder import ImageFeatures, _upsample_twofold
+from equimo.vision.layers.convolution import upsample_twofold
+from equimo.vision.layers.posemb import dense_fourier_encoding, fourier_encoding
+from equimo.vision.models.sam3.encoder import ImageFeatures
 
 _STABILITY_OFFSET = 0.05
 _STABILITY_THRESHOLD = 0.98
@@ -124,25 +122,6 @@ class MultiplexOutput(eqx.Module):
     mask_tokens: Float[Array, "slots masks dim"]
 
 
-def _fourier_encoding(
-    matrix: Float[Array, "2 fourier"], coords: Float[Array, "... 2"]
-) -> Float[Array, "... dim"]:
-    """Random-frequency encoding of coordinates in ``[0, 1]``, in float32."""
-    matrix = jax.lax.stop_gradient(matrix).astype(jnp.float32)
-    angles = 2.0 * jnp.pi * (2.0 * coords.astype(jnp.float32) - 1.0) @ matrix
-    return jnp.concatenate((jnp.sin(angles), jnp.cos(angles)), axis=-1)
-
-
-def _dense_fourier_encoding(
-    matrix: Float[Array, "2 fourier"], grid: int, dtype: jnp.dtype
-) -> Float[Array, "dim grid grid"]:
-    """Fourier encoding of a square feature grid's cell centers."""
-    centers = (jnp.arange(grid, dtype=jnp.float32) + 0.5) / grid
-    ys, xs = jnp.meshgrid(centers, centers, indexing="ij")
-    encoded = _fourier_encoding(matrix, jnp.stack((xs, ys), axis=-1))
-    return jnp.moveaxis(encoded, -1, 0).astype(dtype)
-
-
 class ImagePositionEncoding(eqx.Module):
     """Fourier position encoding of the tracker's feature grid."""
 
@@ -156,7 +135,7 @@ class ImagePositionEncoding(eqx.Module):
         self.image_size = image_size
 
     def __call__(self, dtype: jnp.dtype) -> Float[Array, "dim grid grid"]:
-        return _dense_fourier_encoding(self.fourier_matrix, self.grid, dtype)
+        return dense_fourier_encoding(self.fourier_matrix, self.grid, dtype)
 
 
 class PromptEncoder(eqx.Module):
@@ -191,7 +170,7 @@ class PromptEncoder(eqx.Module):
 
     def dense_position_encoding(self) -> Float[Array, "dim grid grid"]:
         """Fourier encoding of the feature grid's cell centers."""
-        return _dense_fourier_encoding(
+        return dense_fourier_encoding(
             self.fourier_matrix, self.grid, self.no_mask_embed.dtype
         )
 
@@ -235,7 +214,7 @@ class PromptEncoder(eqx.Module):
                 jnp.stack((prompt.has_box, prompt.has_box, jnp.asarray(True))),
             )
         )
-        position = _fourier_encoding(
+        position = fourier_encoding(
             self.fourier_matrix, (coords + 0.5) / self.image_size
         ).astype(dtype)
         learned = self.point_embeddings[jnp.maximum(labels, 0)]
@@ -260,11 +239,11 @@ class TwoWayBlock(eqx.Module):
     first block's self-attention takes no position encoding and adds no residual.
     """
 
-    attn: PositionedAttention
+    attn: CrossAttention
     norm1: eqx.nn.LayerNorm
-    cross_attn: tuple[PositionedAttention, PositionedAttention]
+    cross_attn: tuple[CrossAttention, CrossAttention]
     norm2: eqx.nn.LayerNorm
-    mlp: MLP
+    mlp: Mlp
     norm3: eqx.nn.LayerNorm
     norm4: eqx.nn.LayerNorm
     use_token_position: bool = eqx.field(static=True)
@@ -279,18 +258,14 @@ class TwoWayBlock(eqx.Module):
         use_token_position: bool,
     ):
         key_attn, key_to_image, key_to_token, key_mlp = jr.split(key, 4)
-        self.attn = PositionedAttention(dim, num_heads, key=key_attn)
+        self.attn = CrossAttention(dim, num_heads, key=key_attn)
         self.norm1 = eqx.nn.LayerNorm(dim)
         self.cross_attn = (
-            PositionedAttention(
-                dim, num_heads, internal_dim=dim // 2, key=key_to_image
-            ),
-            PositionedAttention(
-                dim, num_heads, internal_dim=dim // 2, key=key_to_token
-            ),
+            CrossAttention(dim, num_heads, internal_dim=dim // 2, key=key_to_image),
+            CrossAttention(dim, num_heads, internal_dim=dim // 2, key=key_to_token),
         )
         self.norm2 = eqx.nn.LayerNorm(dim)
-        self.mlp = MLP(dim, ffn_features, dim, 2, key=key_mlp)
+        self.mlp = Mlp(dim, hidden_dim=ffn_features, act_layer="relu", key=key_mlp)
         self.norm3 = eqx.nn.LayerNorm(dim)
         self.norm4 = eqx.nn.LayerNorm(dim)
         self.use_token_position = use_token_position
@@ -318,7 +293,7 @@ class TwoWayBlock(eqx.Module):
             tokens
             + token_to_image(tokens + token_pos, image + image_pos, values=image),
         )
-        tokens = layer_norm(self.norm3, tokens + self.mlp(tokens))
+        tokens = layer_norm(self.norm3, tokens + self.mlp(tokens, None, inference=True))
         attended = image_to_token(
             image + image_pos, tokens + token_pos, values=tokens, key_mask=valid
         )
@@ -329,7 +304,7 @@ class TwoWayTransformer(eqx.Module):
     """Transformer shared by the interactive and multiplex mask decoders."""
 
     blocks: tuple[TwoWayBlock, ...]
-    cross_attn: PositionedAttention
+    cross_attn: CrossAttention
     norm: eqx.nn.LayerNorm
 
     def __init__(
@@ -352,7 +327,7 @@ class TwoWayTransformer(eqx.Module):
             )
             for index, block_key in enumerate(jr.split(key_blocks, depth))
         )
-        self.cross_attn = PositionedAttention(
+        self.cross_attn = CrossAttention(
             dim, num_heads, internal_dim=dim // 2, key=key_final
         )
         self.norm = eqx.nn.LayerNorm(dim)
@@ -404,9 +379,9 @@ class MaskUpsampler(eqx.Module):
     ) -> Float[Array, "pixel height width"]:
         """Upsample ``image``, adding levels already passed through :meth:`project`."""
         high, middle = high_res
-        x = _upsample_twofold(self.deconvs[0], image) + middle
+        x = upsample_twofold(self.deconvs[0], image) + middle
         x = jax.nn.gelu(self.norm(x), approximate=False)
-        x = _upsample_twofold(self.deconvs[1], x) + high
+        x = upsample_twofold(self.deconvs[1], x) + high
         return jax.nn.gelu(x, approximate=False)
 
 
@@ -418,9 +393,9 @@ class MaskDecoder(eqx.Module):
     mask_tokens: Float[Array, "masks dim"]
     iou_token: Float[Array, " dim"]
     object_token: Float[Array, " dim"]
-    mask_embed: tuple[MLP, ...]
-    iou_head: MLP
-    object_head: MLP
+    mask_embed: tuple[LinearStack, ...]
+    iou_head: LinearStack
+    object_head: LinearStack
 
     def __init__(
         self,
@@ -449,11 +424,13 @@ class MaskDecoder(eqx.Module):
         self.iou_token = jr.normal(key_iou, (dim,))
         self.object_token = jr.normal(key_object, (dim,))
         self.mask_embed = tuple(
-            MLP(dim, dim, dim // 8, 3, key=subkey)
+            LinearStack(dim, dim, dim // 8, 3, key=subkey)
             for subkey in jr.split(key_embed, _INTERACTIVE_MASK_TOKENS)
         )
-        self.iou_head = MLP(dim, dim, _INTERACTIVE_MASK_TOKENS, 3, key=key_iou_head)
-        self.object_head = MLP(dim, dim, 1, 3, key=key_object_head)
+        self.iou_head = LinearStack(
+            dim, dim, _INTERACTIVE_MASK_TOKENS, 3, key=key_iou_head
+        )
+        self.object_head = LinearStack(dim, dim, 1, 3, key=key_object_head)
 
     def __call__(
         self,
@@ -480,9 +457,14 @@ class MaskDecoder(eqx.Module):
             (jnp.ones(2 + _INTERACTIVE_MASK_TOKENS, bool), sparse_valid)
         )
         tokens, attended = self.transformer(
-            tokens, flatten_map(image + dense), flatten_map(image_pos), valid
+            tokens,
+            rearrange(image + dense, "c h w -> (h w) c"),
+            rearrange(image_pos, "c h w -> (h w) c"),
+            valid,
         )
-        pixels = self.upsampler(unflatten_map(attended, grid), high_res)
+        pixels = self.upsampler(
+            rearrange(attended, "(h w) c -> c h w", h=grid, w=grid), high_res
+        )
         mask_tokens = tokens[2 : 2 + _INTERACTIVE_MASK_TOKENS]
         embeddings = jnp.stack(
             [mlp(token) for mlp, token in zip(self.mask_embed, mask_tokens)]
@@ -516,9 +498,9 @@ class MultiplexMaskDecoder(eqx.Module):
     object_token: Float[Array, "slots dim"]
     valid_embed: Float[Array, "slots dim"]
     invalid_embed: Float[Array, "slots dim"]
-    mask_embed: tuple[MLP, ...]
-    iou_head: MLP
-    object_head: MLP
+    mask_embed: tuple[LinearStack, ...]
+    iou_head: LinearStack
+    object_head: LinearStack
     num_slots: int = eqx.field(static=True)
 
     def __init__(
@@ -553,11 +535,11 @@ class MultiplexMaskDecoder(eqx.Module):
         self.valid_embed = jr.normal(key_valid, (num_slots, dim))
         self.invalid_embed = jr.normal(key_invalid, (num_slots, dim))
         self.mask_embed = tuple(
-            MLP(dim, dim, dim // 8, 3, key=subkey)
+            LinearStack(dim, dim, dim // 8, 3, key=subkey)
             for subkey in jr.split(key_embed, _MASKS_PER_SLOT)
         )
-        self.iou_head = MLP(dim, dim, _MASKS_PER_SLOT, 3, key=key_iou_head)
-        self.object_head = MLP(dim, dim, 1, 3, key=key_object_head)
+        self.iou_head = LinearStack(dim, dim, _MASKS_PER_SLOT, 3, key=key_iou_head)
+        self.object_head = LinearStack(dim, dim, 1, 3, key=key_object_head)
         self.num_slots = num_slots
 
     def __call__(
@@ -586,11 +568,13 @@ class MultiplexMaskDecoder(eqx.Module):
         ).astype(dtype)
         tokens, attended = self.transformer(
             tokens,
-            flatten_map(image),
-            flatten_map(image_pos),
+            rearrange(image, "c h w -> (h w) c"),
+            rearrange(image_pos, "c h w -> (h w) c"),
             jnp.ones(tokens.shape[0], bool),
         )
-        pixels = self.upsampler(unflatten_map(attended, grid), high_res)
+        pixels = self.upsampler(
+            rearrange(attended, "(h w) c -> c h w", h=grid, w=grid), high_res
+        )
 
         object_tokens = tokens[: self.num_slots]
         iou_tokens = tokens[self.num_slots : 2 * self.num_slots]

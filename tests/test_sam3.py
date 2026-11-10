@@ -11,6 +11,7 @@ import jax.numpy as jnp
 import jax.random as jr
 import numpy as np
 import pytest
+from einops import rearrange
 
 from equimo.core.layers.attention import with_attention_implementation
 from equimo.conversion.utils import stringify_name
@@ -23,7 +24,7 @@ from equimo.finetune import (
     apply_adapters,
     apply_lora,
 )
-from equimo.vision.layers.posemb import VisionRoPE
+from equimo.vision.layers.posemb import VisionRoPE, sine_position_encoding
 from equimo.vision.models.sam3 import (
     CommitPlan,
     ConceptPrompt,
@@ -38,16 +39,11 @@ from equimo.vision.models.sam3 import (
     pad_tracker_buckets,
 )
 from equimo.vision.models.sam3 import tracker as tracker_module
-from equimo.vision.models.sam3.common import (
-    exchanged_rope_factors,
-    flatten_map,
-    sine_position_encoding,
-)
-from equimo.vision.models.sam3.decoding import greedy_iom_nms, single_frame_nms
 from equimo.vision.models.sam3.detector import joint_logit
 from equimo.vision.models.sam3.encoder import ViTDetBlock
 from equimo.vision.models.sam3.interactive import _select_mask
 from equimo.vision.ops import resize_bilinear_antialias
+from equimo.vision.segmentation import greedy_iom_nms, non_greedy_iom_nms
 from equimo.vision.models.sam3.video import Sam3VideoTracker
 from equimo.vision.models.sam3.tracker import (
     SLOT_ACTIVE,
@@ -483,35 +479,6 @@ def _row_masks(*spans: tuple[int, int]) -> jax.Array:
     return jnp.asarray(masks)
 
 
-def test_single_frame_nms_lets_suppressed_masks_suppress_later_ones():
-    masks = _row_masks((0, 4), (3, 7), (6, 8))
-    keep = single_frame_nms(masks)
-    assert keep.tolist() == [True, False, False]
-
-
-def test_greedy_nms_only_lets_kept_masks_suppress():
-    masks = _row_masks((0, 4), (3, 7), (6, 8))
-    scores = jnp.asarray([0.9, 0.8, 0.7])
-    everything = jnp.ones(3, bool)
-    assert greedy_iom_nms(masks, scores, everything, 0.1).tolist() == [
-        True,
-        False,
-        True,
-    ]
-    skip_first = jnp.asarray([False, True, True])
-    assert greedy_iom_nms(masks, scores, skip_first, 0.1).tolist() == [
-        False,
-        True,
-        False,
-    ]
-
-
-def test_greedy_nms_breaks_score_ties_by_index():
-    masks = _row_masks((0, 4), (0, 4))
-    keep = greedy_iom_nms(masks, jnp.asarray([0.5, 0.5]), jnp.ones(2, bool), 0.1)
-    assert keep.tolist() == [True, False]
-
-
 def _output_with_masks(
     mask_logits: jax.Array, logits: jax.Array, presence: float = 3.0
 ) -> DetectorOutput:
@@ -615,22 +582,11 @@ def test_global_block_attends_across_the_whole_grid():
     assert not jnp.array_equal(edited[:, 0, 0], base[:, 0, 0])
 
 
-def test_rope_factors_rotate_width_before_height():
-    rope = VisionRoPE(
-        "mode", dim=16, num_heads=2, freqs_for="lang", theta=10000, pt_seq_len=2
-    )
-    factors = exchanged_rope_factors(rope, 3)
-    original = rope.get_factors(H=3, W=3)
-    assert jnp.array_equal(factors.sin[0 * 3 + 1], original.sin[1 * 3 + 0])
-    assert jnp.array_equal(factors.cos[2 * 3 + 1], original.cos[1 * 3 + 2])
-    assert factors.layout == original.layout
-
-
 def test_memory_key_rotary_repeats_per_frame_and_skips_pointers():
     rope = VisionRoPE(
         "mode", dim=16, num_heads=2, freqs_for="lang", theta=10000, pt_seq_len=2
     )
-    table = exchanged_rope_factors(rope, 2)
+    table = rope.width_first_factors(2)
     rotary = _memory_key_rotary(table, 10, jnp.asarray(8), 2)
     assert jnp.array_equal(rotary.sin[:4], table.sin)
     assert jnp.array_equal(rotary.sin[4:8], table.sin)
@@ -1649,8 +1605,12 @@ def test_geometry_encoder_matches_the_reference_without_exemplars(
 def test_fusion_encoder_matches_the_reference(reference_model, tiny_reference):
     fusion = "inputs.detector.head.fusion.kwargs"
     memory = reference_model.detector.head.fusion(
-        flatten_map(jnp.asarray(tiny_reference[f"{fusion}.src.0"][0])),
-        flatten_map(jnp.asarray(tiny_reference[f"{fusion}.src_pos.0"][0])),
+        rearrange(
+            jnp.asarray(tiny_reference[f"{fusion}.src.0"][0]), "c h w -> (h w) c"
+        ),
+        rearrange(
+            jnp.asarray(tiny_reference[f"{fusion}.src_pos.0"][0]), "c h w -> (h w) c"
+        ),
         jnp.asarray(tiny_reference[f"{fusion}.prompt"][:, 0]),
         ~jnp.asarray(tiny_reference[f"{fusion}.prompt_key_padding_mask"][0]),
     )
@@ -1904,7 +1864,7 @@ def test_mask_nms_keeps_what_the_reference_keeps(tiny_reference):
     single = (
         jnp.zeros_like(candidates)
         .at[order]
-        .set(candidates[order] & single_frame_nms(masks[order]))
+        .set(candidates[order] & non_greedy_iom_nms(masks[order], 0.1))
     )
     np.testing.assert_array_equal(single, tiny_reference["outputs.nms.keep"])
 

@@ -75,6 +75,8 @@ shared core layers (activation, dropout, FFN, generic, Mamba mixer, norm) so mod
   inference kernels while keeping training branches, `finalize_ghostnet(model)` fuses, drops training branches, and sets
   `inference=True`. `[convolution.py:GenericGhostModule]`, `[convolution.py:GhostBottleneck]`,
   `[convolution.py:update_ghostnet]`, `[convolution.py:finalize_ghostnet]`
+- `upsample_twofold(conv, x)`: a 2x2 stride-2 `ConvTranspose2d` applied as a per-pixel matmul, equal to the transposed
+  convolution, in the input dtype. `[convolution.py:upsample_twofold]`
 
 ### Patch embedding, stems, and downsamplers
 
@@ -100,6 +102,14 @@ shared core layers (activation, dropout, FFN, generic, Mamba mixer, norm) so mod
   prefix tokens, and for registers when `reg_rope` is `None`. `[posemb.py:RoPE]`, `[posemb.py:DinoRoPE]`,
   `[posemb.py:VisionRoPE]`, `[posemb.py:CompositeVisionRoPE]`
 - `PosCNN` (tokens, square grid), `PosCNN2D` (`[C, H, W]`). `[posemb.py:PosCNN]`, `[posemb.py:PosCNN2D]`
+- `VisionRoPE.width_first_factors(grid)`: factors for a square grid that rotate width before height, evaluated while
+  tracing. `[posemb.py:VisionRoPE.width_first_factors]`
+- Functions, all in float32: `sine_coordinates(coords, num_features, *, temperature=10000.0)` (DETR sines on even
+  features and cosines on odd ones), `sine_position_encoding(height, width, num_features, *, temperature=10000.0)`
+  (`[2 * num_features, H, W]`, y channels first, evaluated while tracing), `fourier_encoding(matrix, coords)` and
+  `dense_fourier_encoding(matrix, grid, dtype)` (random-frequency encoding, returned in `dtype` for the grid).
+  `[posemb.py:sine_coordinates]`, `[posemb.py:sine_position_encoding]`, `[posemb.py:fourier_encoding]`,
+  `[posemb.py:dense_fourier_encoding]`
 
 ### Squeeze-and-excitation and wavelets
 

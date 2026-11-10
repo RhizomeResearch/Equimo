@@ -8,20 +8,14 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import jax.random as jr
+from einops import rearrange
 from jaxtyping import Array, Bool, Float, Int, PRNGKeyArray
 
 from equimo.core.layers.attention import CrossAttention
-from equimo.vision.models.sam3.common import (
-    MLP,
-    PositionedAttention,
-    flatten_map,
-    group_norm,
-    inverse_sigmoid,
-    layer_norm,
-    sine_coordinates,
-    sine_position_encoding,
-    unflatten_map,
-)
+from equimo.core.layers.ffn import LinearStack, Mlp
+from equimo.core.layers.norm import layer_norm
+from equimo.core.ops import inverse_sigmoid
+from equimo.vision.layers.posemb import sine_coordinates, sine_position_encoding
 from equimo.vision.models.sam3.encoder import ImageFeatures
 from equimo.vision.ops import grid_sample, roi_align
 
@@ -220,9 +214,9 @@ class GeometryBlock(eqx.Module):
     norm1: eqx.nn.LayerNorm
     attn: CrossAttention
     norm2: eqx.nn.LayerNorm
-    cross_attn: PositionedAttention
+    cross_attn: CrossAttention
     norm3: eqx.nn.LayerNorm
-    mlp: MLP
+    mlp: Mlp
 
     def __init__(
         self, dim: int, num_heads: int, ffn_features: int, *, key: PRNGKeyArray
@@ -231,9 +225,9 @@ class GeometryBlock(eqx.Module):
         self.norm1 = eqx.nn.LayerNorm(dim)
         self.attn = CrossAttention(dim, num_heads, key=key_attn)
         self.norm2 = eqx.nn.LayerNorm(dim)
-        self.cross_attn = PositionedAttention(dim, num_heads, key=key_cross)
+        self.cross_attn = CrossAttention(dim, num_heads, key=key_cross)
         self.norm3 = eqx.nn.LayerNorm(dim)
-        self.mlp = MLP(dim, ffn_features, dim, 2, key=key_mlp)
+        self.mlp = Mlp(dim, hidden_dim=ffn_features, act_layer="relu", key=key_mlp)
 
     def __call__(
         self,
@@ -246,7 +240,7 @@ class GeometryBlock(eqx.Module):
         tokens = tokens + self.attn(normed, normed, key_mask=valid)
         normed = layer_norm(self.norm2, tokens)
         tokens = tokens + self.cross_attn(normed, image + image_pos, values=image)
-        return tokens + self.mlp(layer_norm(self.norm3, tokens))
+        return tokens + self.mlp(layer_norm(self.norm3, tokens), None, inference=True)
 
 
 class GeometryEncoder(eqx.Module):
@@ -323,7 +317,12 @@ class GeometryEncoder(eqx.Module):
         and the class token, so padded slots stay inside the sequence.
         """
         dtype = image_tokens.dtype
-        image_map = unflatten_map(layer_norm(self.image_norm, image_tokens), grid)
+        image_map = rearrange(
+            layer_norm(self.image_norm, image_tokens),
+            "(h w) c -> c h w",
+            h=grid,
+            w=grid,
+        )
 
         points = prompt.points.astype(jnp.float32)
         x, y = points[:, 0], points[:, 1]
@@ -381,22 +380,22 @@ class FusionBlock(eqx.Module):
     """Pre-norm block conditioning image tokens on the prompt tokens."""
 
     norm1: eqx.nn.LayerNorm
-    attn: PositionedAttention
+    attn: CrossAttention
     norm2: eqx.nn.LayerNorm
     cross_attn: CrossAttention
     norm3: eqx.nn.LayerNorm
-    mlp: MLP
+    mlp: Mlp
 
     def __init__(
         self, dim: int, num_heads: int, ffn_features: int, *, key: PRNGKeyArray
     ):
         key_attn, key_cross, key_mlp = jr.split(key, 3)
         self.norm1 = eqx.nn.LayerNorm(dim)
-        self.attn = PositionedAttention(dim, num_heads, key=key_attn)
+        self.attn = CrossAttention(dim, num_heads, key=key_attn)
         self.norm2 = eqx.nn.LayerNorm(dim)
         self.cross_attn = CrossAttention(dim, num_heads, key=key_cross)
         self.norm3 = eqx.nn.LayerNorm(dim)
-        self.mlp = MLP(dim, ffn_features, dim, 2, key=key_mlp)
+        self.mlp = Mlp(dim, hidden_dim=ffn_features, act_layer="relu", key=key_mlp)
 
     def __call__(
         self,
@@ -411,7 +410,7 @@ class FusionBlock(eqx.Module):
         x = x + self.cross_attn(
             layer_norm(self.norm2, x), prompt, key_mask=prompt_valid
         )
-        return x + self.mlp(layer_norm(self.norm3, x))
+        return x + self.mlp(layer_norm(self.norm3, x), None, inference=True)
 
 
 class FusionEncoder(eqx.Module):
@@ -452,13 +451,13 @@ class BoxRelativeBias(eqx.Module):
     small network per axis; the bias of a cell is the sum of both axes.
     """
 
-    embed_x: MLP
-    embed_y: MLP
+    embed_x: LinearStack
+    embed_y: LinearStack
 
     def __init__(self, dim: int, num_heads: int, *, key: PRNGKeyArray):
         key_x, key_y = jr.split(key)
-        self.embed_x = MLP(2, dim, num_heads, 2, key=key_x)
-        self.embed_y = MLP(2, dim, num_heads, 2, key=key_y)
+        self.embed_x = LinearStack(2, dim, num_heads, 2, key=key_x)
+        self.embed_y = LinearStack(2, dim, num_heads, 2, key=key_y)
 
     def __call__(
         self, boxes: Float[Array, "queries 4"], grid: int
@@ -492,27 +491,27 @@ class BoxRelativeBias(eqx.Module):
 class DecoderBlock(eqx.Module):
     """Post-norm DETR layer: self, prompt and image attention, then feed-forward."""
 
-    attn: PositionedAttention
+    attn: CrossAttention
     norm1: eqx.nn.LayerNorm
-    cross_attn: tuple[CrossAttention, PositionedAttention]
+    cross_attn: tuple[CrossAttention, CrossAttention]
     norm2: eqx.nn.LayerNorm
     norm3: eqx.nn.LayerNorm
-    mlp: MLP
+    mlp: Mlp
     norm4: eqx.nn.LayerNorm
 
     def __init__(
         self, dim: int, num_heads: int, ffn_features: int, *, key: PRNGKeyArray
     ):
         key_attn, key_prompt, key_image, key_mlp = jr.split(key, 4)
-        self.attn = PositionedAttention(dim, num_heads, key=key_attn)
+        self.attn = CrossAttention(dim, num_heads, key=key_attn)
         self.norm1 = eqx.nn.LayerNorm(dim)
         self.cross_attn = (
             CrossAttention(dim, num_heads, key=key_prompt),
-            PositionedAttention(dim, num_heads, key=key_image),
+            CrossAttention(dim, num_heads, key=key_image),
         )
         self.norm2 = eqx.nn.LayerNorm(dim)
         self.norm3 = eqx.nn.LayerNorm(dim)
-        self.mlp = MLP(dim, ffn_features, dim, 2, key=key_mlp)
+        self.mlp = Mlp(dim, hidden_dim=ffn_features, act_layer="relu", key=key_mlp)
         self.norm4 = eqx.nn.LayerNorm(dim)
 
     def __call__(
@@ -541,7 +540,9 @@ class DecoderBlock(eqx.Module):
                 tokens + position, memory + memory_pos, values=memory, bias=bias
             ),
         )
-        feed_forward = self.mlp(tokens.astype(jnp.float32)).astype(tokens.dtype)
+        feed_forward = self.mlp(
+            tokens.astype(jnp.float32), None, inference=True
+        ).astype(tokens.dtype)
         return layer_norm(self.norm4, tokens + feed_forward)
 
 
@@ -551,13 +552,13 @@ class ConceptDecoder(eqx.Module):
     queries: Float[Array, "queries dim"]
     reference_boxes: Float[Array, "queries 4"]
     presence_token: Float[Array, " dim"]
-    position_proj: MLP
+    position_proj: LinearStack
     relative_bias: BoxRelativeBias
     blocks: tuple[DecoderBlock, ...]
     norm: eqx.nn.LayerNorm
     presence_norm: eqx.nn.LayerNorm
-    box_head: MLP
-    presence_head: MLP
+    box_head: LinearStack
+    presence_head: LinearStack
     position_features: int = eqx.field(static=True)
 
     def __init__(
@@ -584,7 +585,7 @@ class ConceptDecoder(eqx.Module):
         self.reference_boxes = jr.normal(key_boxes, (num_queries, 4))
         self.presence_token = jr.normal(key_presence, (dim,))
         self.position_features = dim // 2
-        self.position_proj = MLP(2 * dim, dim, dim, 2, key=key_position)
+        self.position_proj = LinearStack(2 * dim, dim, dim, 2, key=key_position)
         self.relative_bias = BoxRelativeBias(dim, num_heads, key=key_bias)
         self.blocks = tuple(
             DecoderBlock(dim, num_heads, ffn_features, key=block_key)
@@ -592,8 +593,8 @@ class ConceptDecoder(eqx.Module):
         )
         self.norm = eqx.nn.LayerNorm(dim)
         self.presence_norm = eqx.nn.LayerNorm(dim)
-        self.box_head = MLP(dim, dim, 4, 3, key=key_box_head)
-        self.presence_head = MLP(dim, dim, 1, 3, key=key_presence_head)
+        self.box_head = LinearStack(dim, dim, 4, 3, key=key_box_head)
+        self.presence_head = LinearStack(dim, dim, 1, 3, key=key_presence_head)
 
     def _box_position(self, boxes: Float[Array, "queries 4"]) -> jax.Array:
         """Sine encoding of a box, ordered y, x, width, height, then projected."""
@@ -658,14 +659,14 @@ class ConceptDecoder(eqx.Module):
 class DotProductScoring(eqx.Module):
     """Score queries by their dot product with the pooled, refined prompt."""
 
-    prompt_mlp: MLP
+    prompt_mlp: LinearStack
     prompt_norm: eqx.nn.LayerNorm
     query_proj: eqx.nn.Linear
     prompt_proj: eqx.nn.Linear
 
     def __init__(self, dim: int, ffn_features: int, *, key: PRNGKeyArray):
         key_mlp, key_query, key_prompt = jr.split(key, 3)
-        self.prompt_mlp = MLP(dim, ffn_features, dim, 2, key=key_mlp)
+        self.prompt_mlp = LinearStack(dim, ffn_features, dim, 2, key=key_mlp)
         self.prompt_norm = eqx.nn.LayerNorm(dim)
         self.query_proj = eqx.nn.Linear(dim, dim, key=key_query)
         self.prompt_proj = eqx.nn.Linear(dim, dim, key=key_prompt)
@@ -703,7 +704,8 @@ class PixelStage(eqx.Module):
         self.norm = eqx.nn.GroupNorm(8, channels)
 
     def __call__(self, x: Float[Array, "channels height width"]) -> jax.Array:
-        return jax.nn.relu(group_norm(self.norm, self.conv(x)))
+        x = self.conv(x)
+        return jax.nn.relu(self.norm(x.astype(jnp.float32)).astype(x.dtype))
 
 
 def _upsample_nearest(x: Float[Array, "channels height width"]) -> jax.Array:
@@ -722,7 +724,7 @@ class SegmentationHead(eqx.Module):
     cross_attn: CrossAttention
     stages: tuple[PixelStage, PixelStage]
     instance_proj: eqx.nn.Conv2d
-    mask_embed: MLP
+    mask_embed: LinearStack
 
     def __init__(self, dim: int, num_heads: int, *, key: PRNGKeyArray):
         key_cross, key_mask, key_middle, key_high, key_instance = jr.split(key, 5)
@@ -733,7 +735,7 @@ class SegmentationHead(eqx.Module):
             PixelStage(dim, key=key_high),
         )
         self.instance_proj = eqx.nn.Conv2d(dim, dim, 1, key=key_instance)
-        self.mask_embed = MLP(dim, dim, dim, 3, key=key_mask)
+        self.mask_embed = LinearStack(dim, dim, dim, 3, key=key_mask)
 
     def pixel_embedding(
         self,
@@ -747,7 +749,7 @@ class SegmentationHead(eqx.Module):
         attended = memory + self.cross_attn(
             layer_norm(self.norm, memory), prompt, key_mask=prompt_valid
         )
-        x = unflatten_map(attended, grid)
+        x = rearrange(attended, "(h w) c -> c h w", h=grid, w=grid)
         x = self.stages[0](_upsample_nearest(x) + middle)
         return self.stages[1](_upsample_nearest(x) + high)
 
@@ -839,8 +841,10 @@ class ConceptDetector(eqx.Module):
         high, middle, low = features.detector
         dtype = low.dtype
         dim, grid, _ = low.shape
-        pos = flatten_map(sine_position_encoding(grid, grid, dim // 2)).astype(dtype)
-        image_tokens = flatten_map(low)
+        pos = rearrange(
+            sine_position_encoding(grid, grid, dim // 2), "c h w -> (h w) c"
+        ).astype(dtype)
+        image_tokens = rearrange(low, "c h w -> (h w) c")
 
         geometry_tokens, geometry_valid = self.geometry(image_tokens, pos, grid, prompt)
         prompt_tokens = jnp.concatenate(

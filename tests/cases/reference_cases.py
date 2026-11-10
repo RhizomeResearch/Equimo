@@ -7,6 +7,7 @@ import jax
 import jax.numpy as jnp
 import jax.random as jr
 import numpy as np
+from einops import rearrange
 
 import equimo.audio.models as audio_models
 import equimo.tabular.models as tabular_models
@@ -19,7 +20,7 @@ from equimo.vision.models.sam3 import (
     InteractivePrompt,
     sam31_multiplex,
 )
-from equimo.vision.models.sam3.common import flatten_map, sine_position_encoding
+from equimo.vision.layers.posemb import sine_position_encoding
 from equimo.vision.models.sam3.detector import joint_logit
 
 
@@ -177,8 +178,10 @@ def _sam31_components(vision, text, image, token_ids, padding_mask, interactive)
 
     high, middle, low = features.detector
     dim, grid, _ = low.shape
-    position = flatten_map(sine_position_encoding(grid, grid, dim // 2))
-    image_tokens = flatten_map(low)
+    position = rearrange(
+        sine_position_encoding(grid, grid, dim // 2), "c h w -> (h w) c"
+    )
+    image_tokens = rearrange(low, "c h w -> (h w) c")
     prompt = ConceptPrompt.create(
         text_features=text_features, text_padding_mask=padding_mask, dim=dim
     )

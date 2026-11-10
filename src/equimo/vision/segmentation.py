@@ -11,6 +11,7 @@ import jax.numpy as jnp
 import jax.random as jr
 import numpy as np
 from jax import lax
+from jaxtyping import Array, Bool, Float
 
 from equimo.core.ops import softmax
 
@@ -289,12 +290,112 @@ def _validate_logits(mask_logits: jax.Array, class_logits: jax.Array) -> None:
         raise ValueError("Expected matching nonempty (Q,H,W) and (Q,K+1) logits.")
 
 
+def _intersections(
+    masks_a: Bool[Array, "a height width"], masks_b: Bool[Array, "b height width"]
+) -> Float[Array, "a b"]:
+    a = masks_a.reshape(masks_a.shape[0], -1).astype(jnp.float32)
+    b = masks_b.reshape(masks_b.shape[0], -1).astype(jnp.float32)
+    return a @ b.T
+
+
+def _areas(masks: Bool[Array, "n height width"]) -> Float[Array, " n"]:
+    return masks.reshape(masks.shape[0], -1).astype(jnp.float32).sum(axis=-1)
+
+
+def iom_matrix(
+    masks_a: Bool[Array, "a height width"], masks_b: Bool[Array, "b height width"]
+) -> Float[Array, "a b"]:
+    """Intersection over the smaller mask's area, 0 when either mask is empty."""
+    smaller = jnp.minimum(_areas(masks_a)[:, None], _areas(masks_b)[None, :])
+    return jnp.where(
+        smaller > 0, _intersections(masks_a, masks_b) / jnp.maximum(smaller, 1.0), 0.0
+    )
+
+
+def iou_matrix(
+    masks_a: Bool[Array, "a height width"], masks_b: Bool[Array, "b height width"]
+) -> Float[Array, "a b"]:
+    """Intersection over union, 0 when both masks are empty."""
+    intersection = _intersections(masks_a, masks_b)
+    union = _areas(masks_a)[:, None] + _areas(masks_b)[None, :] - intersection
+    return jnp.where(union > 0, intersection / jnp.maximum(union, 1.0), 0.0)
+
+
+def non_greedy_iom_nms(
+    masks: Bool[Array, "n height width"], threshold: float
+) -> Bool[Array, " n"]:
+    """Keep mask of masks already sorted by decreasing score.
+
+    Overlap is the intersection over the smaller of the two masks, and a
+    suppressed mask still suppresses later ones.
+    """
+    return ~jnp.any(jnp.triu(iom_matrix(masks, masks) > threshold, k=1), axis=0)
+
+
+def greedy_iom_nms(
+    masks: Bool[Array, "n height width"],
+    scores: Float[Array, " n"],
+    candidates: Bool[Array, " n"],
+    threshold: float,
+) -> Bool[Array, " n"]:
+    """Keep mask of a greedy NMS by intersection over minimum.
+
+    Unlike :func:`non_greedy_iom_nms`, only masks that are kept suppress later
+    ones, and masks outside ``candidates`` take no part. Scores are ranked with
+    a stable sort.
+    """
+    count = scores.shape[0]
+    order = jnp.argsort(-scores.astype(jnp.float32), stable=True)
+    overlaps = (iom_matrix(masks, masks) > threshold)[order][:, order]
+    ranked_candidates = candidates[order]
+
+    def visit(kept: jax.Array, rank: jax.Array) -> tuple[jax.Array, None]:
+        clear = ~jnp.any(kept & overlaps[rank])
+        return kept.at[rank].set(ranked_candidates[rank] & clear), None
+
+    kept, _ = lax.scan(visit, jnp.zeros(count, bool), jnp.arange(count))
+    return jnp.zeros(count, bool).at[order].set(kept)
+
+
+def boxes_from_masks(
+    masks: Bool[Array, "n height width"],
+) -> Float[Array, "n 4"]:
+    """``(x_min, y_min, x_max, y_max)`` of each mask's extent, zeros when empty."""
+    height, width = masks.shape[-2:]
+    columns = jnp.any(masks, axis=-2)
+    rows = jnp.any(masks, axis=-1)
+    x_min = jnp.argmax(columns, axis=-1)
+    x_max = width - 1 - jnp.argmax(columns[..., ::-1], axis=-1)
+    y_min = jnp.argmax(rows, axis=-1)
+    y_max = height - 1 - jnp.argmax(rows[..., ::-1], axis=-1)
+    boxes = jnp.stack((x_min, y_min, x_max, y_max), axis=-1).astype(jnp.float32)
+    return jnp.where(jnp.any(columns, axis=-1)[..., None], boxes, 0.0)
+
+
+def remove_overlaps(
+    masks: Bool[Array, "n height width"],
+) -> Bool[Array, "n height width"]:
+    """Give each pixel to the first mask covering it.
+
+    Masks must be sorted by decreasing priority.
+    """
+    winner = jnp.argmax(masks, axis=0)
+    indices = jnp.arange(masks.shape[0])[:, None, None]
+    return masks & (winner == indices)
+
+
 __all__ = [
     "PanopticPrediction",
     "QueryMaskPrediction",
     "QuerySegmentationOutput",
+    "boxes_from_masks",
+    "greedy_iom_nms",
+    "iom_matrix",
+    "iou_matrix",
     "merge_semantic_crops",
+    "non_greedy_iom_nms",
     "panoptic_predictions",
+    "remove_overlaps",
     "resize_mask_logits",
     "restore_panoptic_mask_logits",
     "semantic_class_map",

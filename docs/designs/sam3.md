@@ -239,13 +239,20 @@ so the vision model takes text features, not token ids.
   driver and the policy (the policy uses only NumPy; the module is never imported by `import equimo`).
 - `equimo.language`: `CausalTextTransformer`, a CLIP-style text transformer registered as `"causal_text_transformer"`
   with `modality="language"`, and `ClipBpeTokenizer`.
-- `equimo.core.layers.attention`: `CrossAttention`, a multi-head attention with separate query and key-value inputs
-  (needed by the fusion encoder, DETR decoder, geometry encoder, segmentation head and two-way transformer), and
-  per-batch key lengths and an additive bias in `_fused_attention`.
+- `equimo.core.layers.attention`: `CrossAttention`, a multi-head attention with separate query, key and value inputs
+  (needed by the trunk, fusion encoder, DETR decoder, geometry encoder, segmentation head, two-way transformer and
+  memory attention), and per-batch key lengths and an additive bias in `_fused_attention`.
+- `equimo.core.layers`: `LinearStack` in `ffn.py` (linear layers of any depth, for the prediction heads and projections)
+  and the float32 `layer_norm` function in `norm.py`. Every transformer feed-forward is an `Mlp`.
+- `equimo.core.ops`: `inverse_sigmoid`.
+- `equimo.vision.layers`: `sine_coordinates`, `sine_position_encoding`, `fourier_encoding` and `dense_fourier_encoding`
+  in `posemb.py`, and `upsample_twofold` in `convolution.py`, shared with EoMT.
+- `equimo.vision.segmentation`: `iom_matrix`, `iou_matrix`, `non_greedy_iom_nms`, `greedy_iom_nms`, `boxes_from_masks`
+  and `remove_overlaps`.
 - `equimo.vision.ops` (new module, imported explicitly): `roi_align`, bilinear `grid_sample`, and `resize_bilinear` and
   `resize_bilinear_antialias`, which match torch's float32 resizing. `jax.image.resize` stays in the memory encoder's
   antialiased upsampling and the pixel decoder's nearest upsampling.
-- `VisionRoPE` is reused unchanged.
+- `VisionRoPE` gains `width_first_factors`; `get_factors` is unchanged.
 
 The `Sam3` vision archive is about 519M parameters (2.1 GB in float32): trunk 446M, tri-neck 21M, detector heads 33M,
 tracker 20M. The text archive is about 354M parameters (1.4 GB). Image-only users load the tracker's 20M parameters too;
@@ -518,16 +525,17 @@ unused `object_id` is accepted, and the counter moves past it.
 
 - **`CrossAttention`** (`core/layers/attention.py`): `q`, `k`, `v` and `proj` linear fields, `dim`, `num_heads`,
   `internal_dim` (the projected width, which SAM's two-way transformer halves), `kv_dim`, and a static `implementation`.
-  It is called as `(x, context, *, key_mask=None, bias=None, key=None, inference=True)`, where `key_mask` uses True for
-  keys to attend to and `bias` is an additive logit bias (the DETR box bias). It is not registered as an
-  `AttentionBlock` layer. `equinox.nn.MultiheadAttention` is not reused because it has no float32 softmax with masks
-  through `where`, no zeroing of fully masked rows and no cuDNN path; the tabular `CrossAttention` is not reused because
-  it has no bias or mask and uses TabPFN's scaling.
-- **`PositionedAttention`** (`vision/models/sam3/common.py`): a `CrossAttention` subclass used in the trunk, detector,
-  two-way transformer and memory self-attention. Its keys may differ from its values, because DETR-style attention adds
-  position encodings to queries and keys only, and it rotates queries and keys with RoPE after projection. Memory
-  cross-attention is a plain `CrossAttention`: `MemoryAttentionBlock.__call__` calls its `q` and `k` projections, and
-  `_attend_packed_memory` in `tracker.py` calls `v` and `proj`, for the packed keys below.
+  It is called as
+  `(x, context, *, values=None, rotary=None, key_rotary=None, key_mask=None, bias=None, key=None, inference=True)`,
+  where `key_mask` uses True for keys to attend to and `bias` is an additive logit bias (the DETR box bias). Keys may
+  differ from `values`, because DETR-style attention adds position encodings to queries and keys only, and `rotary` and
+  `key_rotary` rotate queries and keys with RoPE after projection. It is not registered as an `AttentionBlock` layer.
+  `equinox.nn.MultiheadAttention` is not reused because it has no float32 softmax with masks through `where`, no zeroing
+  of fully masked rows and no cuDNN path; the tabular `CrossAttention` is not reused because it has no bias or mask and
+  uses TabPFN's scaling.
+- **Memory cross-attention** is also a `CrossAttention`, driven from outside its `__call__`:
+  `MemoryAttentionBlock.__call__` calls its `q` and `k` projections, and `_attend_packed_memory` in `tracker.py` calls
+  `v` and `proj`, for the packed keys below.
 - **Packed keys.** Memory attention has up to 52,144 keys per bucket, and the count changes from frame to frame. A dense
   mask would take about 2.2 GB per call, so `propagate` packs the valid keys first (a gather with static size) and
   passes per-bucket key lengths. `_fused_attention` gains `key_value_seq_lengths`, broadcast to the leading shape
@@ -1066,9 +1074,6 @@ they name what the code does.
 
 - `__init__.py`: `__all__` with `Sam3`, `sam31_multiplex`, the typed outputs, prompts, `decode_concepts`,
   `encode_concept` and `pad_tracker_buckets`. It does not import `video`.
-- `common.py`: one `MLP` module with `layers.{i}` linear fields and an activation argument, used by every SAM head;
-  `PositionedAttention`; the sine position encoding and the transposed `VisionRoPE` factors, both computed while
-  tracing.
 - `encoder.py`: `ViTDetBlock` and the ViTDet trunk (flat `blocks` list, run-time tiled position table), the tri-neck
   with flipped transposed-convolution weights, and `ImageFeatures`.
 - `detector.py`: `ConceptPrompt`, the geometry encoder (using `equimo.vision.ops`), the fusion encoder, the DETR decoder
@@ -1082,8 +1087,7 @@ they name what the code does.
   keys and the private query-chunked float32 path, pointer projections and temporal encodings, `TrackerState`,
   `TrackOutput`, `Association`, `CommitPlan`, the step functions behind `propagate`, `associate` and `commit`, and the
   function that pads the bucket axis.
-- `decoding.py`: fixed-shape IoM and IoU matrices, both NMS variants, `decode_concepts`, boxes from mask extents, and
-  per-pixel non-overlap.
+- `decoding.py`: `decode_concepts` and `ConceptDetections`, on the mask operations of `equimo.vision.segmentation`.
 - `model.py`: the `Sam3` module (fields `trunk`, `neck`, `detector`, `interactive`, `tracker`), registered as `"sam3"`
   with `modality="vision"`, with the endpoints in "Public interface"; `_SAM3_REGISTRY` and the factory
   `sam31_multiplex(pretrained=...)`.
@@ -1238,8 +1242,8 @@ Drafting, from this design, Equimo's code, the SAM 3 paper and the SAM 3.1 relea
 1. **Text model and tokenizer.** The language files, package data, `pyproject.toml` extra, `uv.lock`, the CI job and the
    optional-dependency test; `causal_text_transformer` registered with its model case, references and signature. Check:
    causal masking bit-exact, jit, vmap, bfloat16.
-1. **Image modules and tracker modules.** `common.py`, `encoder.py`, `detector.py`, `interactive.py`, `decoding.py`, the
-   tracker's memory encoder, memory attention and multiplex decoder, `model.py`; `sam3` registered with its model case,
+1. **Image modules and tracker modules.** `encoder.py`, `detector.py`, `interactive.py`, `decoding.py`, the tracker's
+   memory encoder, memory attention and multiplex decoder, `model.py`; `sam3` registered with its model case,
    references, signature and fine-tuning cases. Check: shapes, jit, vmap, gradients and finite bfloat16 outputs.
 1. **Tracking state and steps.** The rest of `tracker.py`. Check: one compilation per bucket count, slot and ring-buffer
    invariants, the scan test.

@@ -43,14 +43,10 @@ Equimo's license.
   values other than 1, 0 and -1 raise, also under `jit`. `[interactive.py:InteractivePrompt]`
 - `decode_concepts(out, *, output_size, max_detections=None, threshold=0.5) -> ConceptDetections`: `keep`, `masks`,
   `boxes` (pixels, xyxy), `scores`, `query_index`, `presence`. `max_detections=None` keeps every query. A query is kept
-  at `threshold` or above unless `single_frame_nms` suppresses it at 0.1; that NMS runs over every query, so one below
+  at `threshold` or above unless `non_greedy_iom_nms` suppresses it at 0.1; that NMS runs over every query, so one below
   `threshold` can still suppress. Boxes are taken before overlaps are resolved, then each pixel goes to the
   highest-scoring mask. `[decoding.py:decode_concepts]`, `[decoding.py:ConceptDetections]`,
-  `[decoding.py:single_frame_nms]`
-- Mask helpers in `decoding.py`, outside its `__all__`: `iom_matrix(a, b)` (0 when either mask is empty),
-  `iou_matrix(a, b)` (0 when both are empty), `boxes_from_masks(masks)` (zeros when empty) and `remove_overlaps(masks)`
-  (each pixel to the first mask covering it, for masks sorted by decreasing priority). `[decoding.py:iom_matrix]`,
-  `[decoding.py:iou_matrix]`, `[decoding.py:boxes_from_masks]`, `[decoding.py:remove_overlaps]`
+  `[../../segmentation.py:non_greedy_iom_nms]`
 - Tracker modules on `Sam3.tracker`: `image_position(dtype)` (the Fourier position map),
   `memory_encoder(features, masks (2 * num_slots, H, W))`,
   `memory_attention(x, x_pos, memory_image, memory, memory_image_pos, *, num_spatial_keys, key_lengths)`, and
@@ -152,24 +148,24 @@ for the published configuration in bfloat16 (`G = 72`, `S = 16`, `dim = 256`, ab
   `[encoder.py:ViTDetBlock]`
 - `dim` must be divisible by 8, or building the detector raises `ValueError`. `[detector.py:ConceptDetector]`
 - RoPE tables are computed while tracing and rotate width before height, by exchanging `VisionRoPE`'s grid axes.
-  `[common.py:exchanged_rope_factors]`
+  `[../../layers/posemb.py:VisionRoPE.width_first_factors]`
 - The two random Fourier matrices are `buffer()` fields read through `stop_gradient`. `[interactive.py:PromptEncoder]`
 - Prompt tokens out of use are masked from attention, so their contents have no effect on the output: padded exemplars,
   padded points and the box corners when there is no box. The appended padding point takes part, and an empty prompt
   also encodes one padding point in the first slot. `[interactive.py:PromptEncoder]`, `[detector.py:GeometryEncoder]`
 - Attention softmax on the XLA path, RoPE rotation, layer norms, the DETR feed-forward, and mask logits run in float32;
   outputs return in the model dtype, except mask logits, which stay float32. cuDNN attention runs in its bfloat16 or
-  float16 inputs and raises `ValueError` for any other dtype. `[common.py:PositionedAttention]`,
-  `[common.py:layer_norm]`, `[detector.py:DecoderBlock]`, `[../../../core/layers/attention.py:_fused_attention]`
+  float16 inputs and raises `ValueError` for any other dtype. `[../../../core/layers/attention.py:CrossAttention]`,
+  `[../../../core/layers/norm.py:layer_norm]`, `[detector.py:DecoderBlock]`,
+  `[../../../core/layers/attention.py:_fused_attention]`
 - The joint logit is `inverse_sigmoid(sigmoid(class) * sigmoid(presence))`; `inverse_sigmoid` clamps to 1e-3, so it
   stays within about +/-6.9. `decode_concepts` does not apply presence again. `[detector.py:joint_logit]`,
   `[decoding.py:decode_concepts]`
 - Mask selection counts point labels including the two box corners: with at most one and no mask prompt, the best of the
   three multimask outputs by predicted IoU; otherwise the single-mask output unless its stability score is below 0.98.
   `[interactive.py:_select_mask]`
-- `single_frame_nms` measures overlap as intersection over minimum, and a suppressed mask still suppresses later ones;
-  `greedy_iom_nms` uses intersection over minimum, and only kept masks suppress. Ranking uses a stable sort.
-  `[decoding.py:single_frame_nms]`, `[decoding.py:greedy_iom_nms]`
+- A single frame uses `non_greedy_iom_nms` at 0.1, and tracking uses `greedy_iom_nms`. `[decoding.py:decode_concepts]`,
+  `[tracker.py:detection_keep]`
 - The multiplex decoder sets the mask logits of a slot whose object score is not positive to -1024.
   `[interactive.py:MultiplexMaskDecoder]`
 - Memory attention expects the valid keys packed first: spatial keys of each frame, then object pointers, then unused

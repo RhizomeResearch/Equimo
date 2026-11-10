@@ -59,6 +59,15 @@ holds only a docstring; import subpackages explicitly (`equimo.vision.models`, `
   bottom padding, resize to the original size. `[segmentation.py:restore_panoptic_mask_logits]`
 - `panoptic_predictions(mask_logits, class_logits, *, stuff_classes, mask_threshold=0.8, overlap_threshold=0.8) -> PanopticPrediction`:
   assigns query masks to thing instances and merged stuff regions. `[segmentation.py:panoptic_predictions]`
+- Mask operations on boolean `(N, H, W)` masks, all fixed-shape:
+  - `iom_matrix(a, b)` (intersection over the smaller area, 0 when either mask is empty) and `iou_matrix(a, b)` (0 when
+    both are empty). `[segmentation.py:iom_matrix]`, `[segmentation.py:iou_matrix]`
+  - `non_greedy_iom_nms(masks, threshold)`, for masks sorted by decreasing score, where a suppressed mask still
+    suppresses later ones, and `greedy_iom_nms(masks, scores, candidates, threshold)`, where only kept masks suppress
+    and ranking uses a stable sort. `[segmentation.py:non_greedy_iom_nms]`, `[segmentation.py:greedy_iom_nms]`
+  - `boxes_from_masks(masks)` (xyxy extents, zeros when empty) and `remove_overlaps(masks)` (each pixel to the first
+    mask covering it, for masks sorted by decreasing priority). `[segmentation.py:boxes_from_masks]`,
+    `[segmentation.py:remove_overlaps]`
 - Internal helpers used by the query models: `_query_attention_mask` (per-query stochastic attention mask in
   query/prefix/patch order) and `_anneal_mask_probabilities` (polynomial per-block mask retention).
   `[segmentation.py:_query_attention_mask]`, `[segmentation.py:_anneal_mask_probabilities]`

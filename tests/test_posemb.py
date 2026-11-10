@@ -16,7 +16,11 @@ from equimo.vision.layers.posemb import (
     PosEmbMLPSwinv2D,
     RoPE,
     VisionRoPE,
+    dense_fourier_encoding,
+    fourier_encoding,
     get_posemb,
+    sine_coordinates,
+    sine_position_encoding,
 )
 
 # Shared fixtures
@@ -1113,3 +1117,37 @@ class TestGetPosemb:
     def test_unknown_string_raises(self):
         with pytest.raises(ValueError, match="unknown module string"):
             get_posemb("nonexistent_posemb")
+
+
+def test_width_first_factors_exchange_the_grid_axes():
+    rope = VisionRoPE(
+        "mode", dim=16, num_heads=2, freqs_for="lang", theta=10000, pt_seq_len=2
+    )
+    factors = rope.width_first_factors(3)
+    original = rope.get_factors(H=3, W=3)
+    assert jnp.array_equal(factors.sin[0 * 3 + 1], original.sin[1 * 3 + 0])
+    assert jnp.array_equal(factors.cos[2 * 3 + 1], original.cos[1 * 3 + 2])
+    assert factors.layout == original.layout
+
+
+def test_sine_coordinates_alternate_sines_and_cosines():
+    encoded = sine_coordinates(jnp.asarray([0.25]), 4, temperature=1.0)
+    angle = 2.0 * jnp.pi * 0.25
+    expected = [jnp.sin(angle), jnp.cos(angle), jnp.sin(angle), jnp.cos(angle)]
+    assert jnp.allclose(encoded[0], jnp.stack(expected), atol=1e-6)
+
+
+def test_sine_position_encoding_lists_y_channels_before_x():
+    table = sine_position_encoding(2, 3, 4)
+    assert table.shape == (8, 2, 3)
+    assert jnp.array_equal(table[0, 0, 0], table[0, 0, 2])
+    assert jnp.array_equal(table[4, 0, 0], table[4, 1, 0])
+
+
+def test_dense_fourier_encoding_evaluates_cell_centers():
+    matrix = jr.normal(KEY, (2, 4))
+    table = dense_fourier_encoding(matrix, 2, jnp.bfloat16)
+    assert table.shape == (8, 2, 2)
+    assert table.dtype == jnp.bfloat16
+    center = fourier_encoding(matrix, jnp.asarray([0.75, 0.25]))
+    assert jnp.allclose(table[:, 0, 1], center.astype(jnp.bfloat16))

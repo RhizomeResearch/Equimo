@@ -12,6 +12,7 @@ from equimo.core.layers.attention import AttentionBlock
 from equimo.core.layers.norm import LayerNorm2d
 from equimo.core.layers.rotary import insert_rotary_identity
 from equimo.registry import register_model
+from equimo.vision.layers.convolution import upsample_twofold
 from equimo.vision.models.vit import VisionTransformer
 from equimo.vision.segmentation import (
     _anneal_mask_probabilities,
@@ -76,20 +77,7 @@ class ScaleBlock(eqx.Module):
         self.norm = LayerNorm2d(channels, eps=1e-6)
 
     def __call__(self, x: jax.Array) -> jax.Array:
-        # The 2x2 stride-2 transposed convolution has no overlapping windows, so
-        # it is a per-pixel matmul followed by depth-to-space. Lowering it as a
-        # convolution sends its bfloat16 weight gradient to an untuned cuDNN
-        # kernel that dominates training steps at larger batch sizes.
-        _, height, width = x.shape
-        # Equinox correlates the stored kernel with the dilated input.
-        weight = self.conv1.weight[:, :, ::-1, ::-1]
-        # Accumulate in at least float32 without demoting float64 inputs.
-        accumulation_dtype = jnp.promote_types(jnp.result_type(weight, x), jnp.float32)
-        upscaled = jnp.einsum(
-            "oiab,ihw->ohawb", weight, x, preferred_element_type=accumulation_dtype
-        )
-        upscaled = upscaled.reshape(-1, 2 * height, 2 * width) + self.conv1.bias
-        upscaled = upscaled.astype(x.dtype)
+        upscaled = upsample_twofold(self.conv1, x)
         return self.norm(self.conv2(jax.nn.gelu(upscaled, approximate=False)))
 
 

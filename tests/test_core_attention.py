@@ -11,6 +11,7 @@ from equimo.core.layers import (
     with_attention_implementation,
 )
 from equimo.core.layers.attention import AttentionBlock, _fused_attention
+from equimo.core.layers.rotary import RotaryFactors
 from equimo.serialization import _model_signature
 from equimo.tabular.layers.attention import InContextAttention
 from equimo.tabular.models import TabPFN
@@ -186,7 +187,17 @@ def test_fused_attention_key_lengths_follow_vmap_and_reject_masks():
         )
 
 
-def _numpy_cross_attention(module, x, context, key_mask=None, bias=None):
+def _numpy_cross_attention(
+    module,
+    x,
+    context,
+    key_mask=None,
+    bias=None,
+    *,
+    values=None,
+    rotary=None,
+    key_rotary=None,
+):
     """Float64 multi-head attention written directly from the definition."""
 
     def linear(layer, tokens):
@@ -198,9 +209,19 @@ def _numpy_cross_attention(module, x, context, key_mask=None, bias=None):
     def split(tokens):
         return tokens.reshape(tokens.shape[0], heads, head_dim).transpose(1, 0, 2)
 
+    def rotate(tokens, factors):
+        pairs = tokens.reshape(*tokens.shape[:-1], -1, 2)
+        turned = np.stack((-pairs[..., 1], pairs[..., 0]), axis=-1)
+        sin, cos = (np.asarray(table, np.float64)[None] for table in factors)
+        return tokens * cos + turned.reshape(tokens.shape) * sin
+
     q = split(linear(module.q, x))
     k = split(linear(module.k, context))
-    v = split(linear(module.v, context))
+    v = split(linear(module.v, context if values is None else values))
+    if rotary is not None:
+        q = rotate(q, (rotary.sin, rotary.cos))
+    if key_rotary is not None:
+        k = rotate(k, (key_rotary.sin, key_rotary.cos))
     logits = q @ k.transpose(0, 2, 1) / np.sqrt(head_dim)
     if bias is not None:
         logits = logits + np.asarray(bias, np.float64)
@@ -254,6 +275,37 @@ def test_cross_attention_matches_numpy_reference_with_masks_and_bias():
     )(context)
     assert jnp.all(jnp.isfinite(gradient))
     np.testing.assert_array_equal(gradient[jnp.array([1, 4])], 0)
+
+
+def test_cross_attention_separates_values_and_rotates_queries_and_keys():
+    module = CrossAttention(16, 2, key=KEY)
+    keys = jr.split(jr.PRNGKey(2), 7)
+    x = jr.normal(keys[0], (5, 16))
+    context = jr.normal(keys[1], (7, 16))
+    values = jr.normal(keys[2], (7, 16))
+
+    def factors(sin_key, cos_key, length):
+        return RotaryFactors(
+            jr.normal(sin_key, (length, 8)),
+            jr.normal(cos_key, (length, 8)),
+            layout="interleaved",
+        )
+
+    rotary = factors(keys[3], keys[4], 5)
+    key_rotary = factors(keys[5], keys[6], 7)
+    with jax.default_matmul_precision("highest"):
+        for kwargs in (
+            {"values": values},
+            {"rotary": rotary},
+            {"key_rotary": key_rotary},
+            {"values": values, "rotary": rotary, "key_rotary": key_rotary},
+        ):
+            np.testing.assert_allclose(
+                module(x, context, **kwargs),
+                _numpy_cross_attention(module, x, context, **kwargs),
+                rtol=1e-4,
+                atol=1e-4,
+            )
 
 
 def test_cross_attention_keeps_low_precision_and_batches_with_vmap():

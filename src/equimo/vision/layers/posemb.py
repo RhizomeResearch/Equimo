@@ -69,6 +69,66 @@ def _rope_periods(
     return periods.astype(periods_dtype)
 
 
+def sine_coordinates(
+    coords: Float[Array, "..."],
+    num_features: int,
+    *,
+    temperature: float = 10000.0,
+) -> Float[Array, "... num_features"]:
+    """Encode coordinates in ``[0, 1]`` with sines and cosines, in float32.
+
+    Even features are sines and odd features are cosines, as in DETR.
+    """
+    coords = coords.astype(jnp.float32) * 2.0 * jnp.pi
+    index = jnp.arange(num_features, dtype=jnp.float32)
+    denominators = temperature ** (2.0 * jnp.floor(index / 2.0) / num_features)
+    scaled = coords[..., None] / denominators
+    return jnp.where(index % 2 == 0, jnp.sin(scaled), jnp.cos(scaled))
+
+
+def sine_position_encoding(
+    height: int,
+    width: int,
+    num_features: int,
+    *,
+    temperature: float = 10000.0,
+) -> Float[Array, "channels height width"]:
+    """DETR sine encoding of a grid, ``(2 * num_features, H, W)``, in float32.
+
+    Coordinates are normalized to ``(0, 1]``. The channels hold the y encoding
+    first, then x. The table follows from the shape, so it is evaluated while
+    tracing.
+    """
+    with jax.ensure_compile_time_eval():
+        eps = 1e-6
+        ys = jnp.arange(1, height + 1, dtype=jnp.float32) / (height + eps)
+        xs = jnp.arange(1, width + 1, dtype=jnp.float32) / (width + eps)
+        pos_y = sine_coordinates(ys, num_features, temperature=temperature)
+        pos_x = sine_coordinates(xs, num_features, temperature=temperature)
+        pos_y = jnp.broadcast_to(pos_y[:, None, :], (height, width, num_features))
+        pos_x = jnp.broadcast_to(pos_x[None, :, :], (height, width, num_features))
+        return jnp.moveaxis(jnp.concatenate((pos_y, pos_x), axis=-1), -1, 0)
+
+
+def fourier_encoding(
+    matrix: Float[Array, "2 fourier"], coords: Float[Array, "... 2"]
+) -> Float[Array, "... dim"]:
+    """Random-frequency encoding of coordinates in ``[0, 1]``, in float32."""
+    matrix = jax.lax.stop_gradient(matrix).astype(jnp.float32)
+    angles = 2.0 * jnp.pi * (2.0 * coords.astype(jnp.float32) - 1.0) @ matrix
+    return jnp.concatenate((jnp.sin(angles), jnp.cos(angles)), axis=-1)
+
+
+def dense_fourier_encoding(
+    matrix: Float[Array, "2 fourier"], grid: int, dtype: jnp.dtype
+) -> Float[Array, "dim grid grid"]:
+    """Fourier encoding of a square feature grid's cell centers."""
+    centers = (jnp.arange(grid, dtype=jnp.float32) + 0.5) / grid
+    ys, xs = jnp.meshgrid(centers, centers, indexing="ij")
+    encoded = fourier_encoding(matrix, jnp.stack((xs, ys), axis=-1))
+    return jnp.moveaxis(encoded, -1, 0).astype(dtype)
+
+
 @register_posemb()
 class LearnedPosEmbed(eqx.Module):
     """Learned 2D positional embedding with optional prefix-token handling."""
@@ -1017,6 +1077,23 @@ class VisionRoPE(eqx.Module):
             )
 
         return factors
+
+    def width_first_factors(self, grid: int) -> RotaryFactors:
+        """Return factors for a square grid, rotating width before height.
+
+        ``get_factors`` lists height angles first. On a square grid, exchanging
+        the two grid axes of its table gives the width-first order. The table
+        follows from static configuration, so it is evaluated while tracing.
+        """
+
+        def exchange(table: jax.Array) -> jax.Array:
+            return table.reshape(grid, grid, -1).swapaxes(0, 1).reshape(grid * grid, -1)
+
+        with jax.ensure_compile_time_eval():
+            factors = self.get_factors(H=grid, W=grid)
+            return RotaryFactors(
+                exchange(factors.sin), exchange(factors.cos), layout=factors.layout
+            )
 
     def __call__(
         self,

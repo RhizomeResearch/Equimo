@@ -9,15 +9,12 @@ import jax.random as jr
 from einops import rearrange
 from jaxtyping import Array, Float, PRNGKeyArray
 
+from equimo.core.layers.attention import CrossAttention
 from equimo.core.layers.ffn import Mlp
+from equimo.core.layers.norm import layer_norm
 from equimo.core.layers.rotary import RotaryFactors
+from equimo.vision.layers.convolution import upsample_twofold
 from equimo.vision.layers.posemb import VisionRoPE
-from equimo.vision.models.sam3.common import (
-    PositionedAttention,
-    exchanged_rope_factors,
-    flatten_map,
-    layer_norm,
-)
 
 
 class ImageFeatures(eqx.Module):
@@ -37,7 +34,7 @@ class ViTDetBlock(eqx.Module):
     """
 
     norm1: eqx.nn.LayerNorm
-    attn: PositionedAttention
+    attn: CrossAttention
     norm2: eqx.nn.LayerNorm
     mlp: Mlp
     rope: VisionRoPE
@@ -55,7 +52,7 @@ class ViTDetBlock(eqx.Module):
     ):
         key_attn, key_mlp = jr.split(key)
         self.norm1 = eqx.nn.LayerNorm(dim)
-        self.attn = PositionedAttention(dim, num_heads, key=key_attn)
+        self.attn = CrossAttention(dim, num_heads, key=key_attn)
         self.norm2 = eqx.nn.LayerNorm(dim)
         self.mlp = Mlp(dim, hidden_dim=mlp_features, act_layer="exactgelu", key=key_mlp)
         self.rope = VisionRoPE(
@@ -80,11 +77,11 @@ class ViTDetBlock(eqx.Module):
     ) -> Float[Array, "dim grid grid"]:
         dim, grid, _ = x.shape
         if self.window_size == 0:
-            rotary = exchanged_rope_factors(self.rope, grid)
-            out = self._forward(flatten_map(x), rotary)
+            rotary = self.rope.width_first_factors(grid)
+            out = self._forward(rearrange(x, "c h w -> (h w) c"), rotary)
             return jnp.moveaxis(out.reshape(grid, grid, dim), -1, 0)
 
-        rotary = exchanged_rope_factors(self.rope, self.window_size)
+        rotary = self.rope.width_first_factors(self.window_size)
         tokens = rearrange(
             x,
             "c (m h) (n w) -> (m n) (h w) c",
@@ -172,33 +169,14 @@ class ViTDetTrunk(eqx.Module):
         )
         repeats = grid // self.table_size
         table = jnp.tile(table, (repeats, repeats, 1))
-        tokens = flatten_map(patches) + table.reshape(grid * grid, dim)
+        tokens = rearrange(patches, "c h w -> (h w) c") + table.reshape(
+            grid * grid, dim
+        )
         tokens = layer_norm(self.ln_pre, tokens)
         out = jnp.moveaxis(tokens.reshape(grid, grid, dim), -1, 0)
         for block in self.blocks:
             out = eqx.filter_checkpoint(block)(out) if checkpoint else block(out)
         return out
-
-
-def _upsample_twofold(
-    conv: eqx.nn.ConvTranspose2d, x: Float[Array, "channels height width"]
-) -> jax.Array:
-    """Apply a 2x2 stride-2 transposed convolution as a per-pixel matmul.
-
-    The windows do not overlap, so this equals the transposed convolution while
-    avoiding the bfloat16 cost and export gaps of lowering it as a convolution
-    (see ``eomt.ScaleBlock``).
-    """
-    assert conv.bias is not None
-    _, height, width = x.shape
-    # Equinox correlates the stored kernel with the dilated input.
-    weight = conv.weight[:, :, ::-1, ::-1]
-    accumulation_dtype = jnp.promote_types(jnp.result_type(weight, x), jnp.float32)
-    upscaled = jnp.einsum(
-        "oiab,ihw->ohawb", weight, x, preferred_element_type=accumulation_dtype
-    )
-    upscaled = upscaled.reshape(-1, 2 * height, 2 * width) + conv.bias
-    return upscaled.astype(x.dtype)
 
 
 class PyramidLevel(eqx.Module):
@@ -232,7 +210,7 @@ class PyramidLevel(eqx.Module):
         for index, conv in enumerate(self.upsample):
             if index > 0:
                 x = jax.nn.gelu(x, approximate=False)
-            x = _upsample_twofold(conv, x)
+            x = upsample_twofold(conv, x)
         return self.conv(self.proj(x))
 
 

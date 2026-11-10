@@ -8,11 +8,12 @@ import jax.random as jr
 from jaxtyping import Array, Float, PRNGKeyArray
 
 from equimo.core._prng import split_for_mode
+from equimo.core.layers._apply import _apply_module_last_dim
 from equimo.core.layers.activation import get_act
 from equimo.core.layers.dropout import DropPathAdd, split_drop_path
 from equimo.core.layers.ffn import get_ffn
 from equimo.core.layers.norm import LayerScale, get_norm, maybe_layer_scale
-from equimo.core.layers.rotary import RotaryFactors, apply_rotary_qk
+from equimo.core.layers.rotary import RotaryFactors, apply_rotary, apply_rotary_qk
 from equimo.core.layers._registry import make_get, make_register
 
 _ATTN_REGISTRY: dict[str, type[eqx.Module]] = {}
@@ -29,15 +30,6 @@ register_attn_block = make_register(_ATTN_BLOCK_REGISTRY)
 
 
 get_attn_block = make_get(_ATTN_BLOCK_REGISTRY)
-
-
-def _apply_module_last_dim(module: eqx.Module, x: jax.Array) -> jax.Array:
-    """Apply a vector module independently over every leading dimension."""
-
-    leading_shape = x.shape[:-1]
-    flat = x.reshape(-1, x.shape[-1])
-    output = jax.vmap(module)(flat)
-    return output.reshape(*leading_shape, output.shape[-1])
 
 
 def _broadcast_attention_mask(
@@ -330,10 +322,17 @@ class Attention(eqx.Module):
 class CrossAttention(eqx.Module):
     """Multi-head attention from query tokens to separate context tokens.
 
-    Queries come from ``x`` with shape ``(query, dim)``, keys and values from
-    ``context`` with shape ``(key, kv_dim)``. Both are projected to
+    Queries come from ``x`` with shape ``(query, dim)``, keys from ``context``
+    with shape ``(key, kv_dim)``, and values from ``values``, which defaults to
+    ``context``. DETR-style attention needs them apart, because it adds position
+    encodings to queries and keys only. All three are projected to
     ``internal_dim`` (``dim`` by default; SAM's two-way transformer halves it),
     and the attended values are projected back to ``dim``.
+
+    ``rotary`` rotates the projected queries and ``key_rotary`` the projected
+    keys, independently; values are never rotated. Unlike
+    :class:`Attention`, each takes its own factors, since queries and keys can
+    have different lengths.
 
     ``key_mask`` uses ``True`` for keys to attend to and broadcasts to
     ``(heads, query, key)``, so a ``(key,)`` mask applies to every query. Fully
@@ -396,6 +395,9 @@ class CrossAttention(eqx.Module):
         x: Float[Array, "query dim"],
         context: Float[Array, "key kv_dim"],
         *,
+        values: Float[Array, "key kv_dim"] | None = None,
+        rotary: RotaryFactors | None = None,
+        key_rotary: RotaryFactors | None = None,
         key_mask: Optional[Array] = None,
         bias: Optional[Array] = None,
         key: PRNGKeyArray | None = None,
@@ -403,7 +405,11 @@ class CrossAttention(eqx.Module):
     ) -> Float[Array, "query dim"]:
         q = self._heads(self.q, x)
         k = self._heads(self.k, context)
-        v = self._heads(self.v, context)
+        v = self._heads(self.v, context if values is None else values)
+        if rotary is not None:
+            q = apply_rotary(q, rotary)
+        if key_rotary is not None:
+            k = apply_rotary(k, key_rotary)
 
         allowed = None
         if key_mask is not None:

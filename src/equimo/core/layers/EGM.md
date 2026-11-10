@@ -54,9 +54,11 @@ names that are not re-exported there.
     fields `q` (`dim -> internal_dim`), `k` and `v` (`kv_dim -> internal_dim`) and `proj` (`internal_dim -> dim`), all
     with biases. `head_dim` is a property, `internal_dim // num_heads`.
   - Call:
-    `__call__(x (query, dim), context (key, kv_dim), *, key_mask=None, bias=None, key=None, inference=True) -> (query, dim)`.
-    Unbatched; batch with `vmap`. `key_mask` uses `True` for keys to attend to and `bias` is an additive logit bias;
-    both broadcast to `(heads, query, key)`. It has no dropout, so `key` and `inference` are unused.
+    `__call__(x (query, dim), context (key, kv_dim), *, values=None, rotary=None, key_rotary=None, key_mask=None, bias=None, key=None, inference=True) -> (query, dim)`.
+    Unbatched; batch with `vmap`. `context` holds the keys and `values` defaults to it. `rotary` rotates the projected
+    queries and `key_rotary` the projected keys, each unscaled. `key_mask` uses `True` for keys to attend to and `bias`
+    is an additive logit bias; both broadcast to `(heads, query, key)`. It has no dropout, so `key` and `inference` are
+    unused.
 - `[attention.py:AttentionBlock]`: pre-norm transformer block that computes
   `x + drop_path(ls1(postnorm(attn(prenorm(x)))))`, then `x + drop_path(ls2(mlp(norm(x))))`. `postnorm` is a norm only
   when `post_attention_norm=True`, and `Identity` otherwise.
@@ -86,6 +88,10 @@ names that are not re-exported there.
 - `[ffn.py:Mlp]`:
   `Mlp(in_dim, *, key, out_dim, hidden_dim, act_layer="gelu", norm_layer=None, dropout_rate, bias, eps)`. It computes
   `fc1 -> act -> optional norm -> dropout -> fc2 -> dropout`, with an optional `mask` of shape `(seqlen, 1)`.
+- `[ffn.py:LinearStack]`:
+  `LinearStack(in_features, hidden_features, out_features, num_layers, *, key, act_layer="relu")`. Linear layers in
+  `layers`, with the activation between them, applied over the last axis of an input of any rank. It has no dropout or
+  norm and is not registered, because it does not take the `ffn_layer` arguments.
 - `[ffn.py:SwiGlu]` and `[ffn.py:SwiGluFused]`: SwiGLU FFNs. The hidden width is `int(hidden_dim * 2 / 3)`, rounded up
   to a multiple of `align_to` (default 8). The fused variant uses a single `w12` projection and matches the DINOv2 giant
   model.
@@ -102,6 +108,8 @@ names that are not re-exported there.
 - `[norm.py:DyT]`: dynamic tanh, `tanh(alpha * x) * weight + bias`.
 - Channel-first `(C, H, W)` norms that normalize over axis 0 at each pixel: `[norm.py:RMSNorm2d]`,
   `[norm.py:LayerNorm2d]`, `[norm.py:SimpleNorm2d]`.
+- `[norm.py:layer_norm]`: `layer_norm(norm, x)` applies an `eqx.nn.LayerNorm` over the last axis of an input of any rank
+  in float32 and returns the input dtype.
 - `[norm.py:SimpleNorm]`: uncentered norm that uses the Bessel-corrected variance.
 - `[norm.py:GRN]`: global response normalization. It is the identity at initialization.
 - `SimpleNorm`, `SimpleNorm2d` and `GRN` are registered but not re-exported.

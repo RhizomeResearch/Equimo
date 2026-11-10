@@ -6,30 +6,19 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import jax.random as jr
+from einops import rearrange
 from jaxtyping import Array, Bool, Float, Int, Int8, PRNGKeyArray
 
 from equimo.core.layers.attention import CrossAttention, _fused_attention
-from equimo.core.layers.norm import LayerNorm2d
+from equimo.core.layers.ffn import LinearStack, Mlp
+from equimo.core.layers.norm import LayerNorm2d, layer_norm
 from equimo.core.layers.rotary import RotaryFactors, apply_rotary
 from equimo.vision.layers.convolution import ConvNeXtBlock
-from equimo.vision.layers.posemb import VisionRoPE
-from equimo.vision.models.sam3.common import (
-    MLP,
-    PositionedAttention,
-    exchanged_rope_factors,
-    flatten_map,
-    layer_norm,
-    sine_position_encoding,
-    unflatten_map,
-)
-from equimo.vision.models.sam3.decoding import (
-    greedy_iom_nms,
-    iom_matrix,
-    iou_matrix,
-)
+from equimo.vision.layers.posemb import VisionRoPE, sine_position_encoding
 from equimo.vision.models.sam3.detector import DetectorOutput
 from equimo.vision.models.sam3.encoder import ImageFeatures
 from equimo.vision.ops import resize_bilinear, resize_bilinear_antialias
+from equimo.vision.segmentation import greedy_iom_nms, iom_matrix, iou_matrix
 from equimo.vision.models.sam3.interactive import (
     _NO_OBJECT_LOGIT,
     ImagePositionEncoding,
@@ -228,26 +217,26 @@ class MemoryAttentionBlock(eqx.Module):
     """
 
     norm1: eqx.nn.LayerNorm
-    attn: PositionedAttention
+    attn: CrossAttention
     norm2: eqx.nn.LayerNorm
     cross_attn: CrossAttention
     image_q: eqx.nn.Linear
     image_k: eqx.nn.Linear
     norm3: eqx.nn.LayerNorm
-    mlp: MLP
+    mlp: Mlp
 
     def __init__(
         self, dim: int, num_heads: int, ffn_features: int, *, key: PRNGKeyArray
     ):
         key_attn, key_cross, key_image_q, key_image_k, key_mlp = jr.split(key, 5)
         self.norm1 = eqx.nn.LayerNorm(dim)
-        self.attn = PositionedAttention(dim, num_heads, key=key_attn)
+        self.attn = CrossAttention(dim, num_heads, key=key_attn)
         self.norm2 = eqx.nn.LayerNorm(dim)
         self.cross_attn = CrossAttention(dim, num_heads, key=key_cross)
         self.image_q = eqx.nn.Linear(dim, dim, key=key_image_q)
         self.image_k = eqx.nn.Linear(dim, dim, key=key_image_k)
         self.norm3 = eqx.nn.LayerNorm(dim)
-        self.mlp = MLP(dim, ffn_features, dim, 2, act_layer="exactgelu", key=key_mlp)
+        self.mlp = Mlp(dim, hidden_dim=ffn_features, act_layer="exactgelu", key=key_mlp)
 
     def __call__(
         self,
@@ -273,7 +262,7 @@ class MemoryAttentionBlock(eqx.Module):
         x = x + _attend_packed_memory(
             self.cross_attn, queries, keys, memory, rotary, key_rotary, key_lengths
         )
-        return x + self.mlp(layer_norm(self.norm3, x))
+        return x + self.mlp(layer_norm(self.norm3, x), None, inference=True)
 
 
 class MemoryAttention(eqx.Module):
@@ -328,7 +317,7 @@ class MemoryAttention(eqx.Module):
         entries.
         """
         grid = int(x.shape[0] ** 0.5)
-        rotary = exchanged_rope_factors(self.rope, grid)
+        rotary = self.rope.width_first_factors(grid)
         key_rotary = _memory_key_rotary(rotary, memory.shape[0], num_spatial_keys, grid)
         out = x + _MEMORY_INPUT_POSITION_SCALE * x_pos.astype(x.dtype)
         for block in self.blocks:
@@ -759,10 +748,10 @@ class Sam3Tracker(eqx.Module):
     memory_encoder: MemoryEncoder
     memory_attention: MemoryAttention
     mask_decoder: MultiplexMaskDecoder
-    pointer_proj: MLP
+    pointer_proj: LinearStack
     pointer_time_proj: eqx.nn.Linear
     memory_time_embed: Float[Array, "times dim"]
-    interactive_pointer_proj: MLP
+    interactive_pointer_proj: LinearStack
     no_object_pointer: eqx.nn.Linear
     no_object_memory: Float[Array, "slots dim"]
     interactive_mask_downsample: eqx.nn.Conv2d
@@ -812,10 +801,10 @@ class Sam3Tracker(eqx.Module):
         self.mask_decoder = MultiplexMaskDecoder(
             dim, num_heads, ffn_features, decoder_depth, num_slots, key=key_decoder
         )
-        self.pointer_proj = MLP(dim, dim, dim, 3, key=key_pointer)
+        self.pointer_proj = LinearStack(dim, dim, dim, 3, key=key_pointer)
         self.pointer_time_proj = eqx.nn.Linear(dim, dim, key=key_pointer_time)
         self.memory_time_embed = jr.normal(key_time_embed, (_NUM_TIME_EMBEDDINGS, dim))
-        self.interactive_pointer_proj = MLP(
+        self.interactive_pointer_proj = LinearStack(
             dim, dim, dim, 3, key=key_interactive_pointer
         )
         self.no_object_pointer = eqx.nn.Linear(dim, dim, key=key_no_object_pointer)
@@ -905,7 +894,7 @@ class Sam3Tracker(eqx.Module):
         order = jnp.argsort(~valid, stable=True)
 
         def pack(spatial: jax.Array, pointers: jax.Array) -> jax.Array:
-            tokens = jax.vmap(flatten_map)(spatial).reshape(-1, dim)
+            tokens = rearrange(spatial, "f c h w -> (f h w) c")
             return jnp.concatenate((tokens, pointers.reshape(-1, dim)))[order]
 
         return (
@@ -933,9 +922,9 @@ class Sam3Tracker(eqx.Module):
             else min(num_frames, _POINTER_DISTANCE_FRAMES)
         )
         pointer_divisor = max(known_frames - 1, 1)
-        tokens = flatten_map(low)
-        token_pos = flatten_map(
-            sine_position_encoding(grid, grid, low.shape[0] // 2)
+        tokens = rearrange(low, "c h w -> (h w) c")
+        token_pos = rearrange(
+            sine_position_encoding(grid, grid, low.shape[0] // 2), "c h w -> (h w) c"
         ).astype(low.dtype)
         image_pos = self.image_position(low.dtype)
         high_res = self.mask_decoder.upsampler.project((high, middle))
@@ -959,7 +948,10 @@ class Sam3Tracker(eqx.Module):
             )
             active = bucket.slot_status == SLOT_ACTIVE
             out = self.mask_decoder(
-                unflatten_map(attended, grid), image_pos, high_res, active
+                rearrange(attended, "(h w) c -> c h w", h=grid, w=grid),
+                image_pos,
+                high_res,
+                active,
             )
             best = jnp.argmax(out.iou.astype(jnp.float32), axis=-1)[:, None]
             tokens_best = jnp.take_along_axis(out.mask_tokens, best[..., None], axis=1)[

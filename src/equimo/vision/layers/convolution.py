@@ -38,6 +38,29 @@ register_conv = make_register(_CONV_REGISTRY)
 get_conv = make_get(_CONV_REGISTRY)
 
 
+def upsample_twofold(
+    conv: eqx.nn.ConvTranspose2d, x: Float[Array, "channels height width"]
+) -> Float[Array, "out_channels twice_height twice_width"]:
+    """Apply a 2x2 stride-2 transposed convolution as a per-pixel matmul.
+
+    The windows do not overlap, so this equals the transposed convolution
+    followed by depth-to-space. Lowering it as a convolution sends its bfloat16
+    weight gradient to an untuned cuDNN kernel that dominates training steps at
+    larger batch sizes, and leaves export gaps.
+    """
+    assert conv.bias is not None
+    _, height, width = x.shape
+    # Equinox correlates the stored kernel with the dilated input.
+    weight = conv.weight[:, :, ::-1, ::-1]
+    # Accumulate in at least float32 without demoting float64 inputs.
+    accumulation_dtype = jnp.promote_types(jnp.result_type(weight, x), jnp.float32)
+    upscaled = jnp.einsum(
+        "oiab,ihw->ohawb", weight, x, preferred_element_type=accumulation_dtype
+    )
+    upscaled = upscaled.reshape(-1, 2 * height, 2 * width) + conv.bias
+    return upscaled.astype(x.dtype)
+
+
 @register_conv()
 class SingleConvBlock(eqx.Module):
     """A basic convolution block combining convolution, normalization and activation.
