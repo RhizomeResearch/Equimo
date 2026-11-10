@@ -107,6 +107,109 @@ _PROJ = eqft.TargetSpec(tags_any=("attention.proj",))
 
 
 @pytest.mark.parametrize(
+    "apply",
+    [
+        pytest.param(
+            partial(
+                eqft.apply_lora,
+                config=eqft.LoRAConfig(rank=2, target=_PROJ),
+                key=jr.PRNGKey(0),
+            ),
+            id="lora",
+        ),
+        pytest.param(
+            partial(
+                eqft.apply_adalora,
+                config=eqft.AdaLoRAConfig(rank=2, target=_PROJ),
+                key=jr.PRNGKey(0),
+            ),
+            id="adalora",
+        ),
+        pytest.param(
+            partial(
+                eqft.apply_lora_fa,
+                config=eqft.LoRAFAConfig(rank=2, target=_PROJ),
+                key=jr.PRNGKey(0),
+            ),
+            id="lora_fa",
+        ),
+        pytest.param(
+            partial(
+                eqft.apply_randlora,
+                config=eqft.RandLoRAConfig(rank=1, basis_count=2, target=_PROJ),
+                key=jr.PRNGKey(0),
+            ),
+            id="randlora",
+        ),
+        pytest.param(
+            partial(
+                eqft.apply_fourierft,
+                config=eqft.FourierFTConfig(num_coefficients=2, target=_PROJ),
+                key=jr.PRNGKey(0),
+            ),
+            id="fourierft",
+        ),
+        pytest.param(
+            partial(
+                eqft.apply_dora,
+                config=eqft.DoRAConfig(rank=2, target=_PROJ),
+                key=jr.PRNGKey(0),
+            ),
+            id="dora",
+        ),
+        pytest.param(
+            partial(
+                eqft.apply_vera,
+                config=eqft.VeRAConfig(rank=3, target=_PROJ),
+                key=jr.PRNGKey(0),
+            ),
+            id="vera",
+        ),
+        pytest.param(
+            partial(eqft.apply_ia3, config=eqft.IA3Config(target=_PROJ)),
+            id="ia3",
+        ),
+        pytest.param(
+            partial(
+                eqft.apply_orthogonal_adapters,
+                config=eqft.OrthogonalAdapterConfig(target=_PROJ),
+            ),
+            id="orthogonal",
+        ),
+        pytest.param(
+            partial(
+                eqft.apply_scale_shift,
+                config=eqft.ScaleShiftConfig(
+                    target=eqft.TargetSpec(include=("*.norm",))
+                ),
+            ),
+            id="scale_shift",
+        ),
+        pytest.param(
+            partial(
+                eqft.apply_adapters,
+                config=eqft.AdapterConfig(bottleneck=2),
+                key=jr.PRNGKey(0),
+            ),
+            id="adapters",
+        ),
+    ],
+)
+def test_applying_a_method_twice_wraps_each_module_once(apply, tiny_vision_transformer):
+    once = apply(tiny_vision_transformer)
+    twice = apply(once)
+
+    assert jtu.tree_structure(once) == jtu.tree_structure(twice)
+    assert jax.tree.all(
+        jax.tree.map(
+            lambda a, b: bool(jnp.array_equal(a, b)),
+            eqx.filter(once, eqx.is_array),
+            eqx.filter(twice, eqx.is_array),
+        )
+    )
+
+
+@pytest.mark.parametrize(
     ("apply", "buffer_names"),
     [
         pytest.param(

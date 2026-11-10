@@ -57,7 +57,8 @@ _POINTER_DISTANCE_FRAMES = 16
 
 # Thresholds of ``facebookresearch/sam3`` at ``f1647e8``, under ``sam3/model/``:
 # ``sam3_multiplex_base.py:run_backbone_and_detection`` keeps detections and
-# ``sam3_video_base.py:_suppress_detections_close_to_boundary`` filters boxes.
+# ``sam3_video_base.py:_suppress_detections_close_to_boundary`` filters boxes;
+# ``model_builder.py:det_nms_thresh`` sets the NMS threshold.
 _DETECTION_KEEP_PROBABILITY = 0.4
 _NMS_IOM = 0.1
 _BOUNDARY_MARGIN = 0.025

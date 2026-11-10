@@ -163,10 +163,8 @@ def ssd(
     )
 
     A = rearrange(A, "c l h -> h c l")
-    A_cumsum = jnp.cumsum(A, axis=-1)
-
-    # Promote to float32 for exp stability
-    A_cumsum_f32 = A_cumsum.astype(jnp.float32)
+    # Accumulate in float32 for exp stability
+    A_cumsum = jnp.cumsum(A.astype(jnp.float32), axis=-1)
 
     # Compute intra-chunk state (diagonal blocks)
     L = jnp.exp(segsum(A.astype(jnp.float32)))
@@ -174,7 +172,7 @@ def ssd(
 
     # Compute intra-chunk state - the right term of low rank factorization of the
     # off diagonal blocks; B terms
-    decay_states = jnp.exp(A_cumsum_f32[:, :, -1:] - A_cumsum_f32)
+    decay_states = jnp.exp(A_cumsum[:, :, -1:] - A_cumsum)
     states = jnp.einsum("clhn, hcl, clhp -> chpn", B, decay_states, x)
 
     # Compute the inter-chunk SSM recurrence. Producing the correct SSM states at chunk
@@ -193,13 +191,13 @@ def ssd(
         initial_states = initial_states.astype(states.dtype)
 
     states = jnp.concatenate([initial_states, states], axis=0)
-    decay_chunk = jnp.exp(segsum(jnp.pad(A_cumsum_f32[:, :, -1], ((0, 0), (1, 0)))))
+    decay_chunk = jnp.exp(segsum(jnp.pad(A_cumsum[:, :, -1], ((0, 0), (1, 0)))))
     new_states = jnp.einsum("hzc, chpn -> zhpn", decay_chunk, states)
     states, final_state = new_states[:-1], new_states[-1]
 
     # Compute state and output conversion per chunk
     # the left term of low rank factorization of the off diagonal blocks; C terms
-    state_decay_out = jnp.exp(A_cumsum_f32)
+    state_decay_out = jnp.exp(A_cumsum)
     Y_off = jnp.einsum("clhn, chpn, hcl -> clhp", C, states, state_decay_out)
 
     # Add the output of intra-chunk and inter-chunk states

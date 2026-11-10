@@ -405,3 +405,9 @@ class TestAttentionLayers:
         out = model(x, key=KEY, inference=True)
         assert out.dtype == jnp.bfloat16
         assert jnp.all(jnp.isfinite(out))
+
+
+def test_windowed_shma_runs_without_a_key_under_inference():
+    attention = SHMA(DIM, num_heads=1, window_size=4, key=KEY)
+    x = jnp.ones((DIM, 8, 8))
+    assert attention(x, key=None, inference=True).shape == (DIM, 8, 8)

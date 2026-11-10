@@ -158,9 +158,11 @@ class WindowedAttention(eqx.Module):
         q = jax.vmap(jax.vmap(self.q_norm))(q)
         k = jax.vmap(jax.vmap(self.k_norm))(k)
 
-        attn = jnp.einsum("hqd,hkd->hqk", q, k) / jnp.sqrt(self.head_dim)
+        attn = jnp.einsum("hqd,hkd->hqk", q, k).astype(jnp.float32) / jnp.sqrt(
+            self.head_dim
+        )
         attn = self.pos_emb_funct(attn, self.resolution**2)
-        attn = jax.nn.softmax(attn.astype(jnp.float32), axis=-1).astype(x.dtype)
+        attn = jax.nn.softmax(attn, axis=-1).astype(x.dtype)
         attn = self.attn_drop(attn, inference=inference, key=key1)
 
         x = jnp.einsum("hqk,hkd->hqd", attn, v)
@@ -730,9 +732,9 @@ class SHMA(eqx.Module):
             attn_fn = lambda w, k: self._calculate_attention(
                 w, inference=inference, key=k
             )
+            window_keys = split_for_mode(key, x_windows.shape[0], inference=inference)
             x_windows = eqx.filter_vmap(attn_fn)(
-                x_windows,
-                jnp.stack(split_for_mode(key, x_windows.shape[0], inference=inference)),
+                x_windows, None if key is None else jnp.stack(window_keys)
             )
 
             x_out = rearrange(
@@ -1239,7 +1241,9 @@ class MMSA(eqx.Module):
         q = jax.vmap(jax.vmap(self.q_norm))(q)
         k = jax.vmap(jax.vmap(self.k_norm))(k)
 
-        attn = jnp.einsum("hqd,hkd->hqk", q, k) / jnp.sqrt(self.head_dim)
+        attn = jnp.einsum("hqd,hkd->hqk", q, k).astype(jnp.float32) / jnp.sqrt(
+            self.head_dim
+        )
         attn = jax.vmap(jax.vmap(self.attn_proj1))(
             rearrange(attn, "h q k -> q k h"),
         )
@@ -1499,14 +1503,14 @@ class PartialFormerBlock(eqx.Module):
         inference: Optional[bool] = None,
         key: Optional[PRNGKeyArray] = None,
     ) -> Tuple[Float[Array, "seqlen dim"], Float[Array, "1 dim"]]:
-        key_mmsa, key_sqa, key_dr1, key_dr2, key_mlp = split_for_mode(
-            key, 5, inference=inference
+        key_mmsa, key_sqa, key_dr1, key_dr2, key_mlp, key_posemb = split_for_mode(
+            key, 6, inference=inference
         )
         l, _ = x.shape
         h = w = int(l**0.5)
 
         x1 = rearrange(x, "(h w) c -> c h w", h=h, w=w)
-        x1 = self.posemb(x1, inference=inference, key=key)
+        x1 = self.posemb(x1, inference=inference, key=key_posemb)
         x1 = rearrange(
             x1,
             "c (h h1) (w w1) -> (h w) (h1 w1) c",
@@ -1676,8 +1680,9 @@ class LinearAngularAttention(eqx.Module):
             attn = self.attn_drop(attn, inference=inference, key=key1)
             sparse = jnp.where(attn > self.sparsity_threshold, attn, 0)
 
-        q = q / (jnp.linalg.norm(q, axis=-1, keepdims=True).astype(jnp.float32) + 1e-6)
-        k = k / (jnp.linalg.norm(k, axis=-1, keepdims=True).astype(jnp.float32) + 1e-6)
+        q, k = q.astype(jnp.float32), k.astype(jnp.float32)
+        q = q / (jnp.linalg.norm(q, axis=-1, keepdims=True) + 1e-6)
+        k = k / (jnp.linalg.norm(k, axis=-1, keepdims=True) + 1e-6)
         q, k = q.astype(x.dtype), k.astype(x.dtype)
         dconv_v = self.dconv(v)
 

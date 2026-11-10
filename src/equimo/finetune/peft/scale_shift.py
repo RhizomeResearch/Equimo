@@ -15,6 +15,7 @@ from ..config import TargetSpec
 from ..paths import path_to_str
 from ..selectors import resolve_target
 from ..tags import Tagger, canonical_tags_for_path
+from . import _common
 from .base import get_path, iter_wrappers
 
 
@@ -193,7 +194,7 @@ def apply_scale_shift(
 
     for module_path, module_key in zip(module_paths, keys, strict=True):
         module = get_path(updated, module_path)
-        if isinstance(module, ScaleShiftWrapper):
+        if _common.inside_wrapper(updated, module_path, ScaleShiftWrapper):
             continue
         dim = _infer_output_dim(module)
         wrapper = ScaleShiftWrapper(

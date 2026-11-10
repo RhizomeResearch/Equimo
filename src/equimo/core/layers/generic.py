@@ -123,8 +123,9 @@ class Residual(eqx.Module):
             Output tensor with same shape as input, combining the module output
             with the residual connection through drop path
         """
+        key_module, key_drop_path = split_for_mode(key, 2, inference=inference)
         if pass_args:
-            x2 = self.module(x, inference=inference, key=key)
+            x2 = self.module(x, inference=inference, key=key_module)
         else:
             x2 = self.module(x)
 
@@ -132,7 +133,7 @@ class Residual(eqx.Module):
             x,
             self.ls(x2),
             inference=inference,
-            key=key,
+            key=key_drop_path,
         )
 
 
@@ -175,7 +176,10 @@ class WindowedSequence(eqx.Module):
         )
 
     def __call__(
-        self, x: Float[Array, "C H W"], key: PRNGKeyArray, inference: bool = False
+        self,
+        x: Float[Array, "C H W"],
+        key: PRNGKeyArray | None = None,
+        inference: bool = False,
     ) -> Float[Array, "C H W"]:
         C, H, W = x.shape
 
@@ -198,7 +202,8 @@ class WindowedSequence(eqx.Module):
         )
 
         num_windows = x_windows.shape[0]
-        window_keys = jnp.stack(split_for_mode(key, num_windows, inference=inference))
+        window_keys = split_for_mode(key, num_windows, inference=inference)
+        window_keys = None if key is None else jnp.stack(window_keys)
 
         def serial_blocks(x_win, k_seq):
             ks = split_for_mode(k_seq, len(self.blocks), inference=inference)

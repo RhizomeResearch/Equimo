@@ -12,6 +12,8 @@ import jax.random as jr
 import numpy as np
 from jax import lax
 
+from equimo.core.ops import softmax
+
 
 class QueryMaskPrediction(Protocol):
     """Readable class and mask logits from a query segmentation model."""
@@ -108,7 +110,7 @@ def semantic_scores(
     _validate_logits(mask_logits, class_logits)
     if output_size is not None:
         mask_logits = resize_mask_logits(mask_logits, output_size)
-    classes = jax.nn.softmax(class_logits.astype(jnp.float32), axis=-1)[..., :-1]
+    classes = softmax(class_logits.astype(jnp.float32), axis=-1)[..., :-1]
     masks = jax.nn.sigmoid(mask_logits.astype(jnp.float32))
     return jnp.einsum("qc,qhw->chw", classes, masks)
 
@@ -223,7 +225,7 @@ def panoptic_predictions(
     if not 0 <= mask_threshold <= 1 or not 0 <= overlap_threshold <= 1:
         raise ValueError("Panoptic thresholds must lie in [0, 1].")
 
-    probabilities = jax.nn.softmax(class_logits.astype(jnp.float32), axis=-1)
+    probabilities = softmax(class_logits.astype(jnp.float32), axis=-1)
     scores = jnp.max(probabilities, axis=-1)
     classes = jnp.argmax(probabilities, axis=-1).astype(jnp.int32)
     kept = (classes != num_classes) & (scores > mask_threshold)

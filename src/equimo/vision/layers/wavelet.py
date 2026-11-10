@@ -119,7 +119,7 @@ def inverse_haar_dwt_split(
     dtype=jnp.float32,
 ) -> Array:
     """Inverse Haar DWT via polyphase interleaving; exact inverse of
-    ``haar_dwt_split_linear``.
+    the forward Haar DWT.
 
     The forward transform matrix M is orthogonal (M^T M = I), so inversion
     is M^T applied per polyphase site, followed by spatial interleaving.

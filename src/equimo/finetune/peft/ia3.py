@@ -127,7 +127,7 @@ def apply_ia3(
     updated = model
     for module_path, projection_segments in module_specs:
         module = get_path(updated, module_path)
-        if isinstance(module, IA3Linear):
+        if _common.inside_wrapper(updated, module_path, IA3Linear):
             continue
         if not isinstance(module, eqx.nn.Linear):
             raise TypeError(

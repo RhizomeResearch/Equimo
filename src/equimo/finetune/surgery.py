@@ -182,7 +182,7 @@ def extract_subtree(
 
     plan = prepare_finetune(
         model,
-        trainable=TrainableSpec(mode="peft", target=target),
+        trainable=TrainableSpec(mode="peft", target=target, train_head=False),
         tagger=tagger,
     )
     return plan.trainable

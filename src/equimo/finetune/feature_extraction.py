@@ -1091,7 +1091,8 @@ def _attention_pool_explicit(
     query = jr.normal(key, (tokens.shape[-1],), dtype=tokens.dtype) / jnp.sqrt(
         tokens.shape[-1]
     )
-    scores = tokens @ query
+    working_dtype = jnp.promote_types(tokens.dtype, jnp.float32)
+    scores = tokens.astype(working_dtype) @ query.astype(working_dtype)
     valid = None if padding_mask is None else ~padding_mask.astype(bool)
     weights = softmax(scores, axis=-1, where=valid)
     return jnp.sum(tokens * weights[..., :, None], axis=-2)

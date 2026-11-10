@@ -117,6 +117,17 @@ def test_full_ft_patch_embed_frozen(tiny_vision_transformer):
     assert_no_trainable_with_tag(plan, "embedding.patch")
 
 
+def test_extract_subtree_returns_only_the_target(tiny_vision_transformer):
+    subtree = eqft.extract_subtree(
+        tiny_vision_transformer,
+        eqft.TargetSpec(tags_any=("embedding.patch",)),
+    )
+
+    assert subtree.head.weight is None
+    assert subtree.head.bias is None
+    assert jax.tree.leaves(eqx.filter(subtree.patch_embed, eqx.is_array))
+
+
 def test_frozen_patch_embed_does_not_change_after_one_step(tiny_vision_transformer):
     plan = eqft.prepare_finetune(
         tiny_vision_transformer,

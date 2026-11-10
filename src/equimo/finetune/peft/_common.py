@@ -15,6 +15,7 @@ from ..config import TargetSpec
 from ..paths import path_to_str
 from ..selectors import resolve_target
 from ..tags import Tagger
+from .base import get_path
 
 
 def dropout(x: jax.Array, rate: float, key: jax.Array | None) -> jax.Array:
@@ -67,6 +68,18 @@ def linear_module_path(path: Path) -> Path:
     if path[-1:] in (("weight",), ("bias",)):
         return path[:-1]
     return path
+
+
+def inside_wrapper(model: PyTree, path: Path, wrapper: type) -> bool:
+    """Return whether ``path`` names a ``wrapper`` module or lies inside one.
+
+    Targets resolve from array leaves, which sit under the wrapper once a module
+    is wrapped, so a resolved path never names the wrapper itself.
+    """
+    return any(
+        isinstance(get_path(model, path[:depth]), wrapper)
+        for depth in range(len(path) + 1)
+    )
 
 
 def target_linear_paths(

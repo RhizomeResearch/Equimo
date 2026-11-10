@@ -674,6 +674,8 @@ def apply_adapters(
                 jr.split(subkey, len(site_paths)),
                 strict=True,
             ):
+                if isinstance(get_path(updated, site_path), OutputAdapterModule):
+                    continue
                 updated = _add_output_adapter_at_path(
                     updated,
                     site_path,
@@ -919,7 +921,7 @@ def apply_orthogonal_adapters(
     updated = model
     for module_path in module_paths:
         module = get_path(updated, module_path)
-        if isinstance(module, OrthogonalLinear):
+        if _common.inside_wrapper(updated, module_path, OrthogonalLinear):
             continue
         if not _is_linear_like(module):
             raise TypeError(

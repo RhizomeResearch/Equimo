@@ -17,7 +17,7 @@ import jax.numpy as jnp
 import jax.random as jr
 
 from equimo.vision.segmentation import QueryMaskPrediction, QuerySegmentationOutput
-from equimo.core.ops import softmax_cross_entropy_with_integer_labels
+from equimo.core.ops import softmax, softmax_cross_entropy_with_integer_labels
 from ._assignment import QueryAssignment, match_queries
 from ._sampling import PointSamples, sample_mask_points, sample_query_points
 
@@ -282,7 +282,7 @@ def query_matching_costs(
     dice = 1 - (2 * (probabilities @ target.T) + 1) / (
         probabilities.sum(-1)[:, None] + target.sum(-1)[None, :] + 1
     )
-    classification = -jax.nn.softmax(classes, axis=-1)[:, labels]
+    classification = -softmax(classes, axis=-1)[:, labels]
     components = tuple(
         jnp.where(active[None, :], value, 0) for value in (classification, binary, dice)
     )

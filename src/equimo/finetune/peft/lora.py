@@ -888,7 +888,7 @@ def apply_lora(
 
     for module_path, subkey in zip(module_paths, keys, strict=True):
         module = get_path(updated, module_path)
-        if isinstance(module, LoRALinear):
+        if _common.inside_wrapper(updated, module_path, LoRALinear):
             continue
         if not _is_linear_like(module):
             raise TypeError(
@@ -960,7 +960,7 @@ def apply_adalora(
     updated = model
     for module_path, subkey in zip(module_paths, keys, strict=True):
         module = get_path(updated, module_path)
-        if isinstance(module, AdaLoRAModule):
+        if _common.inside_wrapper(updated, module_path, AdaLoRAModule):
             continue
         if not _is_linear_like(module):
             raise TypeError(
@@ -998,7 +998,7 @@ def apply_lora_fa(
     updated = model
     for module_path, subkey in zip(module_paths, keys, strict=True):
         module = get_path(updated, module_path)
-        if isinstance(module, LoRAFALinear):
+        if _common.inside_wrapper(updated, module_path, LoRAFALinear):
             continue
         if not _is_linear_like(module):
             raise TypeError(
@@ -1044,7 +1044,7 @@ def apply_randlora(
     updated = model
     for module_path, subkey in zip(module_paths, keys, strict=True):
         module = get_path(updated, module_path)
-        if isinstance(module, RandLoRALinear):
+        if _common.inside_wrapper(updated, module_path, RandLoRALinear):
             continue
         if not _is_linear_like(module):
             raise TypeError(
@@ -1115,7 +1115,7 @@ def apply_eva_lora(
     updated = model
     for module_path, subkey in zip(module_paths, keys, strict=True):
         module = get_path(updated, module_path)
-        if isinstance(module, LoRALinear):
+        if _common.inside_wrapper(updated, module_path, LoRALinear):
             continue
         if not _is_linear_like(module):
             raise TypeError(
@@ -1175,7 +1175,7 @@ def apply_fourierft(
     updated = model
     for module_path, subkey in zip(module_paths, keys, strict=True):
         module = get_path(updated, module_path)
-        if isinstance(module, FourierFTLinear):
+        if _common.inside_wrapper(updated, module_path, FourierFTLinear):
             continue
         if not _is_linear_like(module):
             raise TypeError(

@@ -9,9 +9,9 @@ its location; paths are relative to ``sam3/model/``. For each frame the policy
 applies them in this order:
 
 - Hot-start (``sam3_multiplex_base.py:_process_hotstart_gpu``): a non-empty track
-  with no IoM of at least 0.5 counts as unmatched. An object at most 15 frames
-  old is removed after 8 such frames in total. Overlaps of at least 0.1 on the
-  same detection count for both objects, once per detection, and an object
+  with no IoM of at least 0.5 counts as unmatched. An object at most 14 frames
+  old is removed after 8 such frames in total. Unambiguous overlaps of at least 0.1
+  on the same detection count for both objects, once per detection, and an object
   younger than another that strictly predates it is removed at 8.
 - Reconditioning (``sam3_multiplex_base.py:_recondition_masklets``): on frames
   where ``t % 16 == 0``, a track whose probability is above 0.8 takes the mask of

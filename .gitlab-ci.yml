@@ -106,7 +106,7 @@ test:reference-parity:
     EQUIMO_REQUIRE_REFERENCE_CACHE: "1"
     PYTHON_VERSION: "3.12"
   before_script:
-    - uv sync --locked --python "$PYTHON_VERSION" --group dev --group reference --extra audio
+    - uv sync --locked --python "$PYTHON_VERSION" --group dev --group reference --extra audio --extra clip
   script:
     - uv run --python "$PYTHON_VERSION" python models/prefetch_reference_checkpoints.py
     - uv run --python "$PYTHON_VERSION" pytest -q -p no:cacheprovider -m reference_parity tests/test_reference_parity.py tests/test_sam3_reference.py tests/audio/test_preprocessing_parity.py

@@ -230,14 +230,16 @@ class DoubleConvBlock(eqx.Module):
     ) -> Float[Array, "channels height width"]:
         if key is None:
             key = default_key_for_mode(key, inference=inference)
-        key_conv1, key_conv2 = split_for_mode(key, 2, inference=inference)
+        key_conv1, key_conv2, key_drop_path = split_for_mode(
+            key, 3, inference=inference
+        )
 
         out = self.conv1(x, inference=inference, key=key_conv1)
         out = self.conv2(out, inference=inference, key=key_conv2)
         out = self.ls1(out)
 
         if self.residual:
-            out = self.drop_path1(x, out, inference=inference, key=key)
+            out = self.drop_path1(x, out, inference=inference, key=key_drop_path)
 
         return out
 
