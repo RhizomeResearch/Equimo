@@ -1186,8 +1186,8 @@ they name what the code does.
   factories.
 - `tests/cases/model_cases.py` (Modify): tiny `Sam3` and `CausalTextTransformer` cases appended at the end of
   `MODEL_CASES` (seeds follow position), with their `features` endpoints, which bring them under the output manifest,
-  feature contract, PRNG-free inference and ONNX checks. Both stay in the ONNX matrix; `tests/test_onnx_export.py` skips
-  the `sam3` export on jax2onnx 0.17.1 and 0.18.0, which fail inside jax2onnx, as `AGENTS.md` records.
+  feature contract, PRNG-free inference and ONNX checks. Both stay in the ONNX matrix; the `sam3` export needs jax2onnx
+  0.19.0 or newer, as `AGENTS.md` records.
 - `tests/test_checkpoint_signature_stability.py` (Modify): `BUILDERS` entries for tiny `Sam3` and
   `CausalTextTransformer`.
 - `tests/data/model_output_references.json` and `tests/data/model_structure_signatures.json` (Modify): regenerated with
@@ -1289,9 +1289,8 @@ Video milestone:
 
 Before declaring the work complete, run the focused tests, then the CI-equivalent checks from `AGENTS.md` (`ruff check`,
 `ruff format --check`, `mdformat --check`, `ty check`, `pytest`), `uv run python tests/ci_shards.py validate`, and a
-fresh `uv build --no-sources --out-dir <staging-directory>` checked by the distribution tests. `pytest` passes, with the
-`sam3` case of `tests/test_onnx_export.py` skipped on jax2onnx 0.17.1 and 0.18.0, as `AGENTS.md` records. Full-weight
-parity, video included, runs in the scheduled CPU job, which needs no precision setting. On a GPU, set
+fresh `uv build --no-sources --out-dir <staging-directory>` checked by the distribution tests. `pytest` passes.
+Full-weight parity, video included, runs in the scheduled CPU job, which needs no precision setting. On a GPU, set
 `JAX_DEFAULT_MATMUL_PRECISION=highest`: XLA's default GPU matmul precision alone puts trunk features 9e-4 from exact
 float32 arithmetic, against 3e-6 at the highest precision (measured).
 

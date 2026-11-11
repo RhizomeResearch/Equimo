@@ -490,7 +490,7 @@ provides-extras = ["audio", "torch", "language", "clip", "extras"]
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "jax2onnx", specifier = ">=0.17.0" },
+    { name = "jax2onnx", specifier = ">=0.19.0" },
     { name = "mdformat", specifier = "==1.0.0" },
     { name = "mdformat-footnote", specifier = "==0.1.3" },
     { name = "mdformat-gfm", specifier = "==1.0.0" },
@@ -891,7 +891,7 @@ wheels = [
 
 [[package]]
 name = "jax2onnx"
-version = "0.17.1"
+version = "0.19.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "dm-pix" },
@@ -909,9 +909,9 @@ dependencies = [
     { name = "orbax-checkpoint" },
     { name = "orbax-export" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/bc/e0/084d4962bd34705dbf5764c100f221294c1e6bd50685160c07746924dbcc/jax2onnx-0.17.1.tar.gz", hash = "sha256:c86175e63df07580827d9c015d5dc6dc484e58027abee3c34bf786644934fc67", size = 796396, upload-time = "2026-10-13T18:33:14.023Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/c4/10/f9290245423589ff649da0484f798588de5fa61a7185476a0ec4e6b6576e/jax2onnx-0.19.0.tar.gz", hash = "sha256:cb35ab676ea34bbf558c7179bb3bf1f69cf6d34dab08a48b070e3f51a6bb3ef5", size = 833831, upload-time = "2026-11-10T18:10:33.979Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/37/2e/2105a6cfa77b2a130c559fb09ceb7b2045b29d22372c7764d30e907b07ec/jax2onnx-0.17.1-py3-none-any.whl", hash = "sha256:ca4ad1adc58bb9eed8ffd13064fafeec9b81cbc7eeca86ad913f37fcd67b2c49", size = 1353028, upload-time = "2026-10-13T18:33:10.767Z" },
+    { url = "https://files.pythonhosted.org/packages/e1/d4/1a7901da69358cf173a3be81ee54505f8dceebc3862fdbac3892d5503f75/jax2onnx-0.19.0-py3-none-any.whl", hash = "sha256:0ddb5525986a18ad42474c65a741f40b5f1b644c091dd316311130348a773cbf", size = 1391864, upload-time = "2026-11-10T18:10:32.283Z" },
 ]
 
 [[package]]
@@ -1826,18 +1826,19 @@ wheels = [
 
 [[package]]
 name = "onnx-ir"
-version = "0.2.1"
+version = "1.1.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "ml-dtypes" },
     { name = "numpy" },
     { name = "onnx" },
+    { name = "packaging" },
     { name = "sympy" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/35/e6/672fefb2f108d077f58181a7babf4c0f8d1182a30353ffc9c79c63afc5ee/onnx_ir-0.2.1.tar.gz", hash = "sha256:8b8b10a93f43e65962104de6070c43c5dacb0e3cdfefc7c8059dd83c9db64f35", size = 144279, upload-time = "2026-04-20T20:21:47.735Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/31/9c/19dee739ae9a7c647ab16fdb990da1b73abe9aa604c4e3c5c30138acc693/onnx_ir-1.1.0.tar.gz", hash = "sha256:b72176de575d820ec26864d17270d58ef886a7cf64db7649d15fcc3d5ae2a8ee", size = 169010, upload-time = "2026-10-20T19:40:42.215Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/8c/aa/f7a53321c60b9ad9ee184b6018292ed6b5389947592a2c8c09c736bb7f9e/onnx_ir-0.2.1-py3-none-any.whl", hash = "sha256:c7285da889312f91882de2092e298a9eeeefbfc1d1951c49d983992967eb09a7", size = 166792, upload-time = "2026-04-20T20:21:46.357Z" },
+    { url = "https://files.pythonhosted.org/packages/eb/80/1a63440081d94e25b96be6b29119f41119fe5c9521063edbdb7baeeb9589/onnx_ir-1.1.0-py3-none-any.whl", hash = "sha256:76cc313a788c073b75271c1b6abb172aaf90fcc6335ed40f9f3238b2064a2fa3", size = 192241, upload-time = "2026-10-20T19:40:40.651Z" },
 ]
 
 [[package]]

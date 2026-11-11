@@ -201,7 +201,7 @@ shared core layers (activation, dropout, FFN, generic, Mamba mixer, norm) so mod
   `[posemb.py:VisionRoPE]`, `[posemb.py:PosEmbMLPSwinv2D]`
 - `[posemb.py:_static_table]` evaluates those tables even while tracing, so `jax.jit` programs and ONNX exports hold
   them as constants; `tests/test_onnx_export.py::test_posemb_tables_export_as_constants` checks that each table exports
-  as a constant. Exporting `RoPE` and the Swin tables needs a jax2onnx release that includes enpasos/jax2onnx#291.
+  as a constant. Exporting `RoPE` and the Swin tables needs jax2onnx 0.19.0 or newer (enpasos/jax2onnx#291).
   `LinearAttention` applies its `RoPE` to queries and keys in one call, so programs hold one table per block.
   `[attention.py:LinearAttention]`
 - `LearnedPosEmbed` validates `cls_token` and `reg_tokens` shapes and resamples the grid part only, leaving prefix rows
@@ -226,4 +226,4 @@ shared core layers (activation, dropout, FFN, generic, Mamba mixer, norm) so mod
   `devenv shell -- uv run pytest tests/test_attention.py tests/test_convolution.py tests/test_downsample.py tests/test_patch.py tests/test_posemb.py tests/test_squeeze_excite.py tests/test_wavelet.py tests/test_layer_registry_coverage.py tests/test_generic.py -q`
 - The computed position-embedding tables are also covered by
   `devenv shell -- uv run pytest tests/test_onnx_export.py::test_posemb_tables_export_as_constants tests/test_io.py tests/test_checkpoint_signature_stability.py -q`
-  (constant export, which needs jax2onnx with enpasos/jax2onnx#291, and loading pre-2.8 checkpoints).
+  (constant export, which needs jax2onnx 0.19.0 or newer, and loading pre-2.8 checkpoints).
