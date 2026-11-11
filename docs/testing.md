@@ -87,9 +87,8 @@ and reviewed with `models/validate_references.py`; Equimo outputs must never be 
 
 Trusted upstream fixtures are not yet committed for the EUPE ConvNeXt converter, the TabPFN regressor converter, or the
 TIPS vision and text converters. Their pretrained identifiers and conversion paths remain mandatory inventory entries,
-so adding a fixture updates an explicit gap instead of relying on an unnoticed skip. DEQ bfloat16 execution is likewise
-recorded as unsupported while Banax 0.1.2 initializes its loop error state in float32; all other representative
-contracts enforce bfloat16 output dtype.
+so adding a fixture updates an explicit gap instead of relying on an unnoticed skip. All representative contracts
+enforce bfloat16 output dtype.
 
 ONNX adapters are batched through `vmap`. The model inventory can mark a family unbatched (`onnx_batched=False` with an
 `onnx_batch_limitation` reason) so such an exception cannot become an unnoticed fallback; no family needs it. The

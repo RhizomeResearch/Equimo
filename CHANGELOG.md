@@ -2,6 +2,13 @@
 
 All notable changes to Equimo are documented here. Equimo follows Semantic Versioning from version 2.0.0 onward.
 
+## [Unreleased]
+
+### Fixed
+
+- DEQ models run in bfloat16. Equimo now requires banax 0.1.5, whose fixed-point solvers keep their convergence errors
+  in float32 instead of failing on a dtype change inside the solver loop.
+
 ## [2.8.0] - 2026-11-10
 
 ### Added

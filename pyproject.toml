@@ -25,7 +25,7 @@ license-files = [
   "LICENSES/tfc-t0-APACHE-2.0.txt",
 ]
 dependencies = [
-  "banax>=0.1.2",
+  "banax>=0.1.5",
   "einops>=0.8.0",
   "equinox>=0.13.3",
   "jax>=0.11.1",

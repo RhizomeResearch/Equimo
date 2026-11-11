@@ -77,16 +77,16 @@ wheels = [
 
 [[package]]
 name = "banax"
-version = "0.1.2"
+version = "0.1.5"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "equinox" },
     { name = "jax" },
     { name = "jaxtyping" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/f5/32/d427b5914ab8d4cc8ec30a606bfda5c11a06b54f38fc626d3f83fac17034/banax-0.1.2.tar.gz", hash = "sha256:de125dbbf3659094d0a00385738dfeee810052b81c3d12db77459b426f513717", size = 22371, upload-time = "2026-04-23T15:19:12.427Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/05/07/4d11ccc182673e811d87ca577223efae59041a4e604a374e45a8fd1d23fb/banax-0.1.5.tar.gz", hash = "sha256:31eb56ba6d31eddb7ffcd756e71735f362ca538d2edb30c24548b06b9fb43baf", size = 23003, upload-time = "2026-04-27T11:33:52.934Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f3/c3/1ccbecd45e7ea8e4c9921c925908d0e2d8c6ec0c4e78223d9432651b1d9b/banax-0.1.2-py3-none-any.whl", hash = "sha256:e8e840c9ed7150570b3289ef02299e60ca3c115db1a8f4eab8e2c9ddcb6ccb42", size = 25946, upload-time = "2026-04-23T15:19:13.547Z" },
+    { url = "https://files.pythonhosted.org/packages/b0/50/8c1dbe71825548484f8c0cf7c2536ead1a14710ac18eff237e4d730d8143/banax-0.1.5-py3-none-any.whl", hash = "sha256:5d0037d7e84c3012b20619ccc90c4d0b0b0369d3801aee9bad9d03eba985b335", size = 26547, upload-time = "2026-04-27T11:33:54.002Z" },
 ]
 
 [[package]]
@@ -466,7 +466,7 @@ reference = [
 
 [package.metadata]
 requires-dist = [
-    { name = "banax", specifier = ">=0.1.2" },
+    { name = "banax", specifier = ">=0.1.5" },
     { name = "einops", specifier = ">=0.8.0" },
     { name = "equinox", specifier = ">=0.13.3" },
     { name = "ftfy", marker = "extra == 'clip'", specifier = ">=6.1,<7" },

@@ -679,16 +679,7 @@ MODEL_CASES = (
     ModelCase("timeseries", "t0", _build_t0),
     ModelCase("vision", "attnet", _build_attnet),
     ModelCase("vision", "convnext", _build_convnext),
-    ModelCase(
-        "vision",
-        "deq",
-        _build_deq,
-        supports_low_precision=False,
-        low_precision_limitation=(
-            "banax 0.1.2 initializes solver error state as float32, which is "
-            "incompatible with bfloat16 loop updates"
-        ),
-    ),
+    ModelCase("vision", "deq", _build_deq),
     ModelCase("vision", "fastervit", _build_fastervit),
     ModelCase("vision", "iformer", _build_iformer),
     ModelCase("vision", "lowformer", _build_lowformer),

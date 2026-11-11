@@ -116,9 +116,12 @@ Re-exported by `equimo.core.implicit` ([`__init__.py`](./__init__.py)): `DEQBloc
   `key=jr.PRNGKey(42)` is created once, at import time.
 - `[deq.py:DEQCell.__init__]`: the default `strategy=EntryInjection()` is a single instance created at import and shared
   by every caller that uses the default.
-- `[deq.py:DEQBlock]`: depends on the external `banax` package. There is no I/O, printing or host callback.
+- `[deq.py:DEQBlock]`: depends on the external `banax` package, at least 0.1.5, whose solvers keep their convergence
+  errors in float32, so a bfloat16 `DEQBlock` solves and compares `tol` in float32. There is no I/O, printing or host
+  callback.
 
 ## Verification
 
 - Run: `devenv shell -- uv run pytest tests/test_implicit.py -q`
-- `tests/test_implicit.py` has no low-precision case.
+- `tests/test_implicit.py` has no low-precision case. The `deq` model case runs `DEQ` in bfloat16:
+  `devenv shell -- uv run pytest tests/finetune/test_feature_spec_model_coverage.py -k deq -q`.
