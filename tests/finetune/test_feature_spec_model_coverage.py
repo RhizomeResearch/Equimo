@@ -14,8 +14,9 @@ from equimo.vision.models import VisionTransformer
 from cases.model_cases import (
     MODEL_CASES,
     TRANSFORM_CASES,
-    assert_gradients_and_low_precision,
+    assert_gradients,
     assert_jit_and_vmap,
+    assert_low_precision_matches_float32,
     extract_features,
 )
 
@@ -79,10 +80,19 @@ def test_builtin_model_family_executes_declared_feature_spec(index, case):
 def test_feature_contract_groups_support_jit_and_vmap(case):
     invocation = case.build(jr.PRNGKey(30))
     assert_jit_and_vmap(invocation)
-    assert_gradients_and_low_precision(
-        invocation,
-        supports_low_precision=case.supports_low_precision,
-    )
+    assert_gradients(invocation)
+
+
+@pytest.mark.parametrize(
+    ("index", "case"),
+    enumerate(MODEL_CASES),
+    ids=[case.registry_name for case in MODEL_CASES],
+)
+def test_builtin_model_family_runs_in_bfloat16_close_to_float32(index, case):
+    if not case.supports_low_precision:
+        pytest.skip(case.low_precision_limitation)
+    invocation = case.build(jr.PRNGKey(MODEL_REFERENCES["seed_base"] + index))
+    assert_low_precision_matches_float32(invocation)
 
 
 def test_classless_vit_supports_patch_features_and_rejects_cls_selection():

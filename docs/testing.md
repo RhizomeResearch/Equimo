@@ -8,8 +8,8 @@ coverage.
 ## Test tiers
 
 - The ordinary offline suite covers every registered model family with a tiny production model, deterministic reference
-  output, feature contract, PRNG-free inference check, and ONNX Runtime parity. Representative input-contract groups
-  additionally cover JIT, `vmap`, gradients, and bfloat16.
+  output, feature contract, PRNG-free inference check, ONNX Runtime parity, and a bfloat16 run within 5% relative L2
+  error of its float32 output. Representative input-contract groups additionally cover JIT, `vmap`, and gradients.
 - Layer registry tests cover every alias, while focused layer modules retain the mathematical and validation tests that
   are specific to their implementation.
 - Fine-tuning tests retain small synthetic unit fixtures and add production-model integration across every stable
@@ -87,8 +87,7 @@ and reviewed with `models/validate_references.py`; Equimo outputs must never be 
 
 Trusted upstream fixtures are not yet committed for the EUPE ConvNeXt converter, the TabPFN regressor converter, or the
 TIPS vision and text converters. Their pretrained identifiers and conversion paths remain mandatory inventory entries,
-so adding a fixture updates an explicit gap instead of relying on an unnoticed skip. All representative contracts
-enforce bfloat16 output dtype.
+so adding a fixture updates an explicit gap instead of relying on an unnoticed skip.
 
 ONNX adapters are batched through `vmap`. The model inventory can mark a family unbatched (`onnx_batched=False` with an
 `onnx_batch_limitation` reason) so such an exception cannot become an unnoticed fallback; no family needs it. The

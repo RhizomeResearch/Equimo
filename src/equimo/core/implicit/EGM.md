@@ -123,5 +123,5 @@ Re-exported by `equimo.core.implicit` ([`__init__.py`](./__init__.py)): `DEQBloc
 ## Verification
 
 - Run: `devenv shell -- uv run pytest tests/test_implicit.py -q`
-- `tests/test_implicit.py` has no low-precision case. The `deq` model case runs `DEQ` in bfloat16:
+- `tests/test_implicit.py` has no low-precision case. The `deq` model case runs `DEQ` in bfloat16 against float32:
   `devenv shell -- uv run pytest tests/finetune/test_feature_spec_model_coverage.py -k deq -q`.

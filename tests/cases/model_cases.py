@@ -58,8 +58,43 @@ class ModelCase:
     onnx_batch_limitation: str | None = None
 
 
+# The tiny cases stay well within this in bfloat16; a model that loses precision
+# misses it by orders of magnitude.
+BFLOAT16_RELATIVE_ERROR = 0.05
+
+
 def _keys(key: jax.Array, count: int = 2) -> tuple[jax.Array, ...]:
     return tuple(jr.split(key, count))
+
+
+def _with_random_group_norm_bias(model: Any, key: jax.Array) -> Any:
+    """Give every ``GroupNorm`` a random bias.
+
+    A freshly initialized ``GroupNorm`` with one channel per group has a zero
+    bias, so every channel of its output has zero spatial mean. A model ending
+    in one pools to exactly zero, and every check on its pooled output would
+    pass without testing anything.
+    """
+
+    def is_group_norm(node: Any) -> bool:
+        return isinstance(node, eqx.nn.GroupNorm)
+
+    def biases(tree: Any) -> list[jax.Array]:
+        return [
+            node.bias
+            for node in jax.tree.leaves(tree, is_leaf=is_group_norm)
+            if is_group_norm(node) and node.bias is not None
+        ]
+
+    current = biases(model)
+    return eqx.tree_at(
+        biases,
+        model,
+        [
+            jr.normal(subkey, bias.shape, bias.dtype)
+            for subkey, bias in zip(jr.split(key, len(current)), current)
+        ],
+    )
 
 
 def _token_invocation(
@@ -357,6 +392,7 @@ def _build_attnet(key: jax.Array) -> ModelInvocation:
         num_classes=0,
         key=model_key,
     )
+    model = _with_random_group_norm_bias(model, jr.fold_in(model_key, 1))
     return _spatial_invocation(
         model,
         jr.normal(sample_key, (3, 32, 32)),
@@ -393,6 +429,7 @@ def _build_iformer(key: jax.Array) -> ModelInvocation:
         num_classes=0,
         key=model_key,
     )
+    model = _with_random_group_norm_bias(model, jr.fold_in(model_key, 1))
     return _spatial_invocation(
         model,
         jr.normal(sample_key, (3, 32, 32)),
@@ -412,6 +449,7 @@ def _build_lowformer(key: jax.Array) -> ModelInvocation:
         num_classes=0,
         key=model_key,
     )
+    model = _with_random_group_norm_bias(model, jr.fold_in(model_key, 1))
     return _spatial_invocation(
         model,
         jr.normal(sample_key, (3, 16, 16)),
@@ -446,6 +484,7 @@ def _build_reduceformer(key: jax.Array) -> ModelInvocation:
         num_classes=0,
         key=model_key,
     )
+    model = _with_random_group_norm_bias(model, jr.fold_in(model_key, 1))
     return _spatial_invocation(
         model,
         jr.normal(sample_key, (3, 32, 32)),
@@ -465,6 +504,7 @@ def _build_shvit(key: jax.Array) -> ModelInvocation:
         num_classes=0,
         key=model_key,
     )
+    model = _with_random_group_norm_bias(model, jr.fold_in(model_key, 1))
     return _spatial_invocation(
         model,
         jr.normal(sample_key, (3, 32, 32)),
@@ -730,11 +770,7 @@ def assert_jit_and_vmap(invocation: ModelInvocation) -> None:
     assert jnp.all(jnp.isfinite(batched))
 
 
-def assert_gradients_and_low_precision(
-    invocation: ModelInvocation,
-    *,
-    supports_low_precision: bool,
-) -> None:
+def assert_gradients(invocation: ModelInvocation) -> None:
     def loss(model):
         updated = replace(invocation, model=model)
         output = extract_features(updated, *updated.args, key=updated.key)
@@ -747,8 +783,9 @@ def assert_gradients_and_low_precision(
     assert array_gradients
     assert all(jnp.all(jnp.isfinite(leaf)) for leaf in array_gradients)
 
-    if not supports_low_precision:
-        return
+
+def assert_low_precision_matches_float32(invocation: ModelInvocation) -> None:
+    """Run the case in bfloat16 and compare it with the float32 output."""
 
     def to_bfloat16(value):
         return value.astype(jnp.bfloat16) if eqx.is_inexact_array(value) else value
@@ -765,6 +802,10 @@ def assert_gradients_and_low_precision(
     )
     assert output.dtype == jnp.bfloat16
     assert jnp.all(jnp.isfinite(output))
+    reference = extract_features(invocation, *invocation.args, key=invocation.key)
+    difference = output.astype(jnp.float32) - reference.astype(jnp.float32)
+    relative_error = jnp.linalg.norm(difference) / jnp.linalg.norm(reference)
+    assert relative_error < BFLOAT16_RELATIVE_ERROR, float(relative_error)
 
 
 TRANSFORM_CASES = tuple(
